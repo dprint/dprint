@@ -77,6 +77,18 @@ impl EditorMessage {
         EditorMessageBody::FormatResponse(message_id, data)
       }
       8 => EditorMessageBody::CancelFormat(reader.read_u32()?),
+      9 => EditorMessageBody::Capabilities(reader.read_sized_bytes()?),
+      10 => {
+        let message_id = reader.read_u32()?;
+        let data = reader.read_sized_bytes()?;
+        EditorMessageBody::CapabilitiesResponse(message_id, data)
+      }
+      11 => EditorMessageBody::ApproveProcessPlugins(reader.read_sized_bytes()?),
+      12 => {
+        let message_id = reader.read_u32()?;
+        let approved = reader.read_u32()?;
+        EditorMessageBody::ApproveProcessPluginsResponse(message_id, approved)
+      }
       _ => {
         let data = reader.read_bytes(body_length as usize)?;
         EditorMessageBody::Unknown(message_kind, data)
@@ -130,6 +142,20 @@ impl Message for EditorMessage {
       }
       EditorMessageBody::CancelFormat(message_id) => {
         builder.add_number(*message_id);
+      }
+      EditorMessageBody::Capabilities(data) => {
+        builder.add_bytes(data);
+      }
+      EditorMessageBody::CapabilitiesResponse(message_id, data) => {
+        builder.add_number(*message_id);
+        builder.add_bytes(data);
+      }
+      EditorMessageBody::ApproveProcessPlugins(data) => {
+        builder.add_bytes(data);
+      }
+      EditorMessageBody::ApproveProcessPluginsResponse(message_id, approved) => {
+        builder.add_number(*message_id);
+        builder.add_number(*approved);
       }
       EditorMessageBody::Unknown(_, _) => unreachable!(), // should never be written
     }
@@ -210,6 +236,17 @@ pub enum EditorMessageBody {
   Format(FormatEditorMessageBody),
   FormatResponse(u32, Option<Vec<u8>>),
   CancelFormat(u32),
+  /// Asks for the capabilities of the other side, providing the sender's
+  /// capabilities as JSON (see `EditorCapabilities`).
+  Capabilities(Vec<u8>),
+  /// The capabilities of the side that received a `Capabilities` message as JSON.
+  CapabilitiesResponse(u32, Vec<u8>),
+  /// Asks the editor whether to allow running the process plugins of a config
+  /// file, which is only sent when its capabilities say it can ask the user.
+  /// The data is JSON (see `ApproveProcessPluginsMessage`).
+  ApproveProcessPlugins(Vec<u8>),
+  /// Whether the user allowed running the process plugins (1) or not (0).
+  ApproveProcessPluginsResponse(u32, u32),
   #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
@@ -226,6 +263,10 @@ impl EditorMessageBody {
       EditorMessageBody::Format(_) => 6,
       EditorMessageBody::FormatResponse(_, _) => 7,
       EditorMessageBody::CancelFormat(_) => 8,
+      EditorMessageBody::Capabilities(_) => 9,
+      EditorMessageBody::CapabilitiesResponse(_, _) => 10,
+      EditorMessageBody::ApproveProcessPlugins(_) => 11,
+      EditorMessageBody::ApproveProcessPluginsResponse(_, _) => 12,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
@@ -237,4 +278,27 @@ pub struct FormatEditorMessageBody {
   pub range: FormatRange,
   pub override_config: Vec<u8>,
   pub file_bytes: Vec<u8>,
+}
+
+/// What one side of the editor service supports, which is exchanged with the
+/// `Capabilities` message. The editor service only sends a message to the
+/// editor that the editor says it supports, so older editors keep working.
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorCapabilities {
+  /// Whether the `ApproveProcessPlugins` message is supported.
+  #[serde(default)]
+  pub approve_process_plugins: bool,
+}
+
+/// The data of an `ApproveProcessPlugins` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApproveProcessPluginsMessage {
+  /// The config file that specifies the process plugins.
+  pub config_file: String,
+  /// The urls or paths of the process plugins with their checksums.
+  pub plugins: Vec<String>,
+  /// The message to show the user.
+  pub message: String,
 }

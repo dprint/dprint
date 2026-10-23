@@ -9,16 +9,18 @@ use anyhow::Context;
 use anyhow::Result;
 
 use crate::cache::RemoteCacheMode;
+use crate::configuration::Permissions;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
+use crate::configuration::read_permissions;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::Environment;
 use crate::plugins;
 use crate::resolution::PluginsScope;
-use crate::resolution::resolve_plugins_scope;
+use crate::resolution::resolve_plugins_scope_with_approval;
 use crate::utils::AsyncMutex;
 use crate::utils::PathSource;
 
@@ -28,6 +30,9 @@ struct CachedScope<TEnvironment: Environment> {
   scope: Rc<PluginsScope<TEnvironment>>,
   /// The generation of the plugins the scope was resolved with.
   plugins_generation: usize,
+  /// What the user allowed when the scope was resolved, which decides the
+  /// process plugins that are in it.
+  permissions: Permissions,
 }
 
 pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
@@ -99,10 +104,12 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     // only allow one task in here per config
     let mut cell = cell.lock().await;
     let config = self.resolve_config(&config_file_bytes).await?;
+    // read each time so approving a process plugin or editing the file takes effect
+    let permissions = read_permissions(&self.environment);
 
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
-      if is_same_config && cached_scope.plugins_generation == self.plugins_generation.get() {
+      if is_same_config && cached_scope.plugins_generation == self.plugins_generation.get() && cached_scope.permissions == permissions {
         return Ok(Some(cached_scope.scope.clone()));
       }
       // forget the scope so that failing to resolve the new one
@@ -119,10 +126,20 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
 
     // get this before resolving in case the plugins are shut down while resolving
     let plugins_generation = self.plugins_generation.get();
-    let new_scope = Rc::new(resolve_plugins_scope(Rc::new(config), &self.environment, &self.plugin_resolver).await?);
+    // IMPORTANT: Process plugins don't run sandboxed, so the language server only
+    // starts the ones the user approved running with their configuration. The
+    // user opening a file (ex. in a cloned repository or in node_modules) isn't
+    // the same as choosing to run dprint there.
+    let new_scope = Rc::new(
+      resolve_plugins_scope_with_approval(Rc::new(config), &self.environment, &self.plugin_resolver, |approval| {
+        permissions.is_process_plugin_allowed(approval)
+      })
+      .await?,
+    );
     let _ = cell.insert(CachedScope {
       scope: new_scope.clone(),
       plugins_generation,
+      permissions,
     });
     Ok(Some(new_scope))
   }

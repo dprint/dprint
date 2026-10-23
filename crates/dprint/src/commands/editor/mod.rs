@@ -6,11 +6,15 @@ use dprint_core::communication::MessageWriter;
 use dprint_core::communication::RcIdStore;
 use dprint_core::communication::SingleThreadMessageWriter;
 use dprint_core::plugins::HostFormatRequest;
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use dprint_core::plugins::process::start_parent_process_checker_task;
@@ -19,16 +23,24 @@ mod messages;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
+use crate::configuration::Permissions;
+use crate::configuration::ProcessPluginApproval;
 use crate::configuration::ResolvedConfig;
+use crate::configuration::add_process_plugin_approval;
+use crate::configuration::read_permissions;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginsScope;
-use crate::resolution::get_plugins_scope_from_args;
-use crate::resolution::resolve_plugins_scope;
+use crate::resolution::UnapprovedProcessPlugins;
+use crate::resolution::get_cant_ask_message;
+use crate::resolution::get_plugins_scope_from_args_with_approval;
+use crate::resolution::resolve_plugins_scope_with_approval;
 use crate::utils::Semaphore;
 
+use self::messages::ApproveProcessPluginsMessage;
+use self::messages::EditorCapabilities;
 use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
 use self::messages::FormatEditorMessageBody;
@@ -63,9 +75,16 @@ pub async fn output_editor_info<TEnvironment: Environment>(
   }
 
   let mut plugins = Vec::new();
-  let scope = get_plugins_scope_from_args(args, environment, plugin_resolver).await?;
+  // IMPORTANT: An editor gets this when it opens a project, which isn't the same
+  // as the user choosing to run dprint there, so only start the process plugins
+  // the user allowed.
+  let permissions = read_permissions(environment);
+  let scope = get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, |approval| permissions.is_process_plugin_allowed(approval)).await?;
 
   scope.ensure_no_global_config_diagnostics()?;
+  if let Some(unapproved) = &scope.unapproved_process_plugins {
+    log_warn!(environment, "{} {}", unapproved.message(&permissions), get_cant_ask_message(environment));
+  }
 
   for plugin in scope.plugins.values() {
     let initialized_plugin = plugin.initialize().await?;
@@ -118,6 +137,14 @@ struct EditorContext {
   /// Cancelled when a response can't be sent because the editor closed
   /// the service's output, which is when the service should exit.
   pub output_closed: CancellationToken,
+  /// What the editor supports, which is nothing new until it sends its
+  /// capabilities (older editors don't).
+  pub editor_capabilities: RefCell<EditorCapabilities>,
+  /// The responses being waited on for the `ApproveProcessPlugins` messages.
+  pub pending_approvals: RcIdStore<oneshot::Sender<bool>>,
+  /// Whether the user allowed running process plugins since the plugins were
+  /// resolved, which means they need to be resolved again.
+  pub has_new_approval: Cell<bool>,
 }
 
 /// A message that needs the configuration to be handled.
@@ -131,6 +158,10 @@ struct EditorService<'a, TEnvironment: Environment> {
   environment: &'a TEnvironment,
   plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>,
   plugins_scope: Option<Rc<PluginsScope<TEnvironment>>>,
+  /// What the user allowed when the plugins were resolved.
+  permissions: Option<Permissions>,
+  /// The process plugins the editor was asked this session to allow running.
+  prompted_process_plugins: HashSet<ProcessPluginApproval>,
   context: Rc<EditorContext>,
   concurrency_limiter: Rc<Semaphore>,
   config_semaphore: Rc<Semaphore>,
@@ -151,12 +182,17 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       environment,
       plugin_resolver,
       plugins_scope: None,
+      permissions: None,
+      prompted_process_plugins: Default::default(),
       context: Rc::new(EditorContext {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
         pending_format_tokens: Default::default(),
         writer,
         output_closed: Default::default(),
+        editor_capabilities: Default::default(),
+        pending_approvals: Default::default(),
+        has_new_approval: Default::default(),
       }),
       concurrency_limiter,
       config_semaphore: Rc::new(Semaphore::new(1)),
@@ -202,7 +238,10 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         let Some(message) = message else { return };
         match message.body {
           EditorMessageBody::Success(_message_id) => {}
-          EditorMessageBody::Error(_message_id, _data) => {}
+          EditorMessageBody::Error(message_id, _data) => {
+            // the editor failed handling a message the service sent
+            context.pending_approvals.take(message_id);
+          }
           EditorMessageBody::Close => {
             handle_message(&context, message.id, || Ok(EditorMessageBody::Success(message.id)));
             return;
@@ -230,6 +269,26 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
               token.cancel();
             } else if let Some(token) = context.pending_format_tokens.get_cloned(message_id) {
               token.cancel();
+            }
+          }
+          EditorMessageBody::Capabilities(data) => {
+            handle_message(&context, message.id, || {
+              let capabilities = serde_json::from_slice::<EditorCapabilities>(&data)?;
+              *context.editor_capabilities.borrow_mut() = capabilities;
+              let service_capabilities = EditorCapabilities { approve_process_plugins: true };
+              Ok(EditorMessageBody::CapabilitiesResponse(message.id, serde_json::to_vec(&service_capabilities)?))
+            });
+          }
+          EditorMessageBody::CapabilitiesResponse(_, data) => match serde_json::from_slice::<EditorCapabilities>(&data) {
+            Ok(capabilities) => *context.editor_capabilities.borrow_mut() = capabilities,
+            Err(err) => send_error_response(&context, message.id, anyhow!("Error deserializing capabilities. {:#}", err)),
+          },
+          EditorMessageBody::ApproveProcessPlugins(_) => {
+            send_error_response(&context, message.id, anyhow!("CLI cannot handle an ApproveProcessPlugins message."));
+          }
+          EditorMessageBody::ApproveProcessPluginsResponse(message_id, approved) => {
+            if let Some(sender) = context.pending_approvals.take(message_id) {
+              let _ = sender.send(approved == 1);
             }
           }
           EditorMessageBody::Unknown(message_kind, _) => {
@@ -266,7 +325,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   }
 
   async fn format(&mut self, message_id: u32, body: FormatEditorMessageBody, token: Arc<CancellationToken>) {
-    if self.plugins_scope.is_none()
+    if (self.plugins_scope.is_none() || self.context.has_new_approval.take())
       && let Err(err) = self.ensure_latest_config().await
     {
       // respond with the error instead of exiting so the editor can
@@ -339,9 +398,12 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   async fn ensure_latest_config(&mut self) -> Result<Rc<ResolvedConfig>> {
     let _update_permit = self.config_semaphore.acquire().await;
     let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
+    // read each time so allowing process plugins or editing the file takes effect
+    let permissions = read_permissions(self.environment);
 
     let last_config = self.plugins_scope.as_ref().and_then(|scope| scope.config.as_ref());
-    let has_config_changed = last_config.is_none() || last_config.unwrap() != &config || self.plugins_scope.is_none();
+    let has_config_changed =
+      last_config.is_none() || last_config.unwrap() != &config || self.plugins_scope.is_none() || self.permissions.as_ref() != Some(&permissions);
     if has_config_changed {
       self.plugins_scope.take();
       let mut tokens = self.context.cancellation_tokens.take_all().into_iter().collect::<Vec<_>>();
@@ -358,12 +420,80 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       }
       self.plugin_resolver.clear_and_shutdown_initialized().await;
 
-      let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
+      // IMPORTANT: Process plugins don't run sandboxed, so only start the ones the
+      // user allowed. The editor starting the service in a project (ex. one that
+      // was just cloned) isn't the same as the user choosing to run dprint there.
+      let scope = resolve_plugins_scope_with_approval(config.clone(), self.environment, self.plugin_resolver, |approval| {
+        permissions.is_process_plugin_allowed(approval)
+      })
+      .await?;
       scope.ensure_no_global_config_diagnostics()?;
+      if let Some(unapproved) = &scope.unapproved_process_plugins {
+        self.ask_to_allow_process_plugins(unapproved, &permissions);
+      }
       self.plugins_scope = Some(Rc::new(scope));
+      self.permissions = Some(permissions);
     }
 
     Ok(self.plugins_scope.as_ref().unwrap().config.clone().unwrap())
+  }
+}
+
+impl<TEnvironment: Environment> EditorService<'_, TEnvironment> {
+  /// Asks the editor whether to allow running the process plugins of a config
+  /// file when it supports that, which is only done once per session for each
+  /// configuration. Otherwise, says so in the log.
+  fn ask_to_allow_process_plugins(&mut self, unapproved: &UnapprovedProcessPlugins, permissions: &Permissions) {
+    if !self.prompted_process_plugins.insert(unapproved.approval.clone()) {
+      return;
+    }
+    let message = unapproved.message(permissions);
+    if !self.context.editor_capabilities.borrow().approve_process_plugins {
+      log_warn!(self.environment, "{} {}", message, get_cant_ask_message(self.environment));
+      return;
+    }
+    let data = ApproveProcessPluginsMessage {
+      config_file: unapproved.approval.config_file.clone(),
+      plugins: unapproved.plugins.clone(),
+      message,
+    };
+    let data = match serde_json::to_vec(&data) {
+      Ok(data) => data,
+      Err(err) => {
+        log_error!(self.environment, "Failed serializing the process plugins to allow: {:#}", err);
+        return;
+      }
+    };
+    let message_id = self.context.id_generator.next();
+    let (sender, receiver) = oneshot::channel();
+    self.context.pending_approvals.store(message_id, sender);
+    if self
+      .context
+      .writer
+      .send(EditorMessage {
+        id: message_id,
+        body: EditorMessageBody::ApproveProcessPlugins(data),
+      })
+      .is_err()
+    {
+      self.context.pending_approvals.take(message_id);
+      self.context.output_closed.cancel();
+      return;
+    }
+    let context = self.context.clone();
+    let environment = self.environment.clone();
+    let approval = unapproved.approval.clone();
+    // don't wait on this because it only resolves once the user responds
+    dprint_core::async_runtime::spawn(async move {
+      // not approved when the editor failed handling the message
+      if !receiver.await.unwrap_or(false) {
+        return;
+      }
+      match add_process_plugin_approval(&environment, &approval) {
+        Ok(_) => context.has_new_approval.set(true),
+        Err(err) => log_warn!(environment, "Failed storing that the process plugins are allowed: {:#}", err),
+      }
+    });
   }
 }
 
@@ -394,6 +524,8 @@ mod test {
   use anyhow::Result;
   use anyhow::anyhow;
   use dprint_core::async_runtime::DropGuardAction;
+  use dprint_core::async_runtime::FutureExt;
+  use dprint_core::async_runtime::LocalBoxFuture;
   use dprint_core::async_runtime::future;
   use dprint_core::communication::IdGenerator;
   use dprint_core::communication::MessageReader;
@@ -405,6 +537,8 @@ mod test {
   use dprint_core::plugins::FormatRange;
   use dprint_core::plugins::FormatResult;
   use pretty_assertions::assert_eq;
+  use std::cell::Cell;
+  use std::cell::RefCell;
   use std::io::Read;
   use std::io::Write;
   use std::path::Path;
@@ -415,11 +549,14 @@ mod test {
   use tokio::sync::oneshot;
   use tokio_util::sync::CancellationToken;
 
+  use crate::configuration::get_permissions_file_path;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::test_helpers::run_test_cli;
 
+  use super::messages::ApproveProcessPluginsMessage;
+  use super::messages::EditorCapabilities;
   use super::messages::EditorMessage;
   use super::messages::EditorMessageBody;
   use super::messages::FormatEditorMessageBody;
@@ -481,10 +618,36 @@ mod test {
     );
   }
 
+  /// Runs the editor service while the action communicates with it.
+  fn run_editor_service_session(environment: &TestEnvironment, action: impl FnOnce(EditorServiceCommunicator) -> LocalBoxFuture<'static, ()> + Send + 'static) {
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+    let result = std::thread::spawn(move || {
+      TestEnvironment::new().run_in_runtime(async move {
+        let communicator = EditorServiceCommunicator::new(stdin, stdout);
+        action(communicator.clone()).await;
+        communicator.exit().await.unwrap();
+      });
+    });
+    // usually this would be the editor's process id, but this is ok for testing purposes
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], environment).unwrap();
+    result.join().unwrap();
+  }
+
+  /// Requires the user to approve running process plugins.
+  fn disallow_process_plugins(environment: &TestEnvironment) {
+    let file_path = get_permissions_file_path(environment).unwrap();
+    // macOS only uses this directory when it's already there
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    environment.write_file(&file_path, r#"{ "allowProcessPlugins": false }"#).unwrap();
+  }
+
   enum MessageResponseChannel {
     Success(oneshot::Sender<Result<()>>),
     Format(oneshot::Sender<Result<Option<Vec<u8>>>>),
     CanFormat(oneshot::Sender<Result<bool>>),
+    Capabilities(oneshot::Sender<Result<Vec<u8>>>),
   }
 
   #[derive(Clone)]
@@ -492,6 +655,14 @@ mod test {
     writer: Rc<SingleThreadMessageWriter<EditorMessage>>,
     id_generator: Rc<IdGenerator>,
     messages: RcIdStore<MessageResponseChannel>,
+    approvals: ApprovalState,
+  }
+
+  /// The `ApproveProcessPlugins` messages the editor received and how it answers them.
+  #[derive(Clone, Default)]
+  struct ApprovalState {
+    requests: Rc<RefCell<Vec<ApproveProcessPluginsMessage>>>,
+    answer: Rc<Cell<bool>>,
   }
 
   impl EditorServiceCommunicator {
@@ -503,6 +674,7 @@ mod test {
         writer,
         id_generator: Default::default(),
         messages: Default::default(),
+        approvals: Default::default(),
       };
 
       let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -517,9 +689,12 @@ mod test {
       });
 
       let messages = communicator.messages.clone();
+      let writer = communicator.writer.clone();
+      let id_generator = communicator.id_generator.clone();
+      let approvals = communicator.approvals.clone();
       dprint_core::async_runtime::spawn(async move {
         while let Some(Ok(message)) = rx.recv().await {
-          if let Err(_) = handle_stdout_message(message, &messages) {
+          if let Err(_) = handle_stdout_message(message, &messages, &writer, &id_generator, &approvals) {
             break;
           }
         }
@@ -580,6 +755,28 @@ mod test {
         .map_err(FormatError::new)
     }
 
+    pub async fn send_capabilities(&self, capabilities: &EditorCapabilities) -> Result<EditorCapabilities> {
+      let (tx, rx) = oneshot::channel::<Result<Vec<u8>>>();
+
+      let data = self
+        .send_message(
+          EditorMessageBody::Capabilities(serde_json::to_vec(capabilities)?),
+          MessageResponseChannel::Capabilities(tx),
+          rx,
+          Arc::new(CancellationToken::new()),
+        )
+        .await?;
+      Ok(serde_json::from_slice(&data)?)
+    }
+
+    pub fn set_approval_answer(&self, approve: bool) {
+      self.approvals.answer.set(approve);
+    }
+
+    pub fn take_approval_requests(&self) -> Vec<ApproveProcessPluginsMessage> {
+      self.approvals.requests.borrow_mut().drain(..).collect()
+    }
+
     pub async fn exit(&self) -> Result<()> {
       let (tx, rx) = oneshot::channel::<Result<()>>();
 
@@ -626,7 +823,13 @@ mod test {
     }
   }
 
-  fn handle_stdout_message(message: EditorMessage, messages: &RcIdStore<MessageResponseChannel>) -> Result<()> {
+  fn handle_stdout_message(
+    message: EditorMessage,
+    messages: &RcIdStore<MessageResponseChannel>,
+    writer: &SingleThreadMessageWriter<EditorMessage>,
+    id_generator: &IdGenerator,
+    approvals: &ApprovalState,
+  ) -> Result<()> {
     match message.body {
       EditorMessageBody::Success(message_id) => match messages.take(message_id) {
         Some(MessageResponseChannel::Success(channel)) => {
@@ -647,8 +850,25 @@ mod test {
           Some(MessageResponseChannel::CanFormat(channel)) => {
             let _ignore = channel.send(Err(err));
           }
+          Some(MessageResponseChannel::Capabilities(channel)) => {
+            let _ignore = channel.send(Err(err));
+          }
           None => {}
         }
+      }
+      EditorMessageBody::CapabilitiesResponse(message_id, data) => match messages.take(message_id) {
+        Some(MessageResponseChannel::Capabilities(channel)) => {
+          let _ignore = channel.send(Ok(data));
+        }
+        Some(_) => unreachable!(),
+        None => {}
+      },
+      EditorMessageBody::ApproveProcessPlugins(data) => {
+        approvals.requests.borrow_mut().push(serde_json::from_slice(&data)?);
+        writer.send(EditorMessage {
+          id: id_generator.next(),
+          body: EditorMessageBody::ApproveProcessPluginsResponse(message.id, if approvals.answer.get() { 1 } else { 0 }),
+        })?;
       }
       EditorMessageBody::FormatResponse(message_id, data) => match messages.take(message_id) {
         Some(MessageResponseChannel::Format(channel)) => {
@@ -668,6 +888,143 @@ mod test {
     }
 
     Ok(())
+  }
+
+  #[test]
+  fn should_not_output_unapproved_process_plugins_in_editor_info() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_remote_process_plugin();
+      })
+      .build(); // build only, don't initialize
+    disallow_process_plugins(&environment);
+    run_test_cli(vec!["editor-info"], &environment).unwrap();
+    let stdout_messages = environment.take_stdout_messages();
+    assert_eq!(stdout_messages.len(), 1);
+    assert!(stdout_messages[0].contains(r#""name":"test-plugin""#), "{stdout_messages:?}");
+    assert!(!stdout_messages[0].contains("test-process-plugin"), "{stdout_messages:?}");
+    // it's never set up, which runs it
+    let stderr_messages = environment.take_stderr_messages();
+    assert_eq!(stderr_messages.len(), 2, "{stderr_messages:?}");
+    assert_eq!(stderr_messages[0], "Compiling https://plugins.dprint.dev/test-plugin.wasm");
+    assert!(
+      stderr_messages[1].starts_with("dprint didn't use the process plugins of /dprint.json"),
+      "{stderr_messages:?}"
+    );
+  }
+
+  #[test]
+  fn should_not_set_up_unapproved_process_plugins_for_editor_without_capabilities() {
+    // an editor that doesn't send its capabilities (ex. an older one) is never
+    // sent the new messages, which this communicator would panic on
+    let file_path = PathBuf::from("/file.txt_ps");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_process_plugin();
+      })
+      .write_file(&file_path, "text")
+      .build(); // not initialized, so the process plugin is only set up when it's allowed
+    disallow_process_plugins(&environment);
+
+    run_editor_service_session(&environment, move |communicator| {
+      async move {
+        communicator.check_file(&file_path).await.unwrap();
+        assert_eq!(
+          communicator
+            .format_text(&file_path, b"text".to_vec(), None, Default::default(), Default::default())
+            .await
+            .unwrap(),
+          None
+        );
+      }
+      .boxed_local()
+    });
+
+    let stderr_messages = environment.take_stderr_messages();
+    assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
+    assert!(
+      stderr_messages[0].starts_with("dprint didn't use the process plugins of /dprint.json (https://plugins.dprint.dev/test-process.json@"),
+      "{stderr_messages:?}"
+    );
+    assert!(
+      stderr_messages[0].contains("they only run when \"allowProcessPlugins\" isn't false in"),
+      "{stderr_messages:?}"
+    );
+  }
+
+  #[test]
+  fn should_ask_editor_to_allow_process_plugins() {
+    let file_path = PathBuf::from("/file.txt_ps");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_process_plugin();
+      })
+      .write_file(&file_path, "text")
+      .build(); // not initialized, so the process plugin is only set up when it's allowed
+    disallow_process_plugins(&environment);
+
+    run_editor_service_session(&environment, {
+      let environment = environment.clone();
+      move |communicator| {
+        async move {
+          let capabilities = communicator
+            .send_capabilities(&EditorCapabilities { approve_process_plugins: true })
+            .await
+            .unwrap();
+          assert_eq!(capabilities, EditorCapabilities { approve_process_plugins: true });
+
+          let format = || async {
+            communicator
+              .format_text(&file_path, b"text".to_vec(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+          };
+
+          // not allowed, which is only asked once per session
+          communicator.set_approval_answer(false);
+          communicator.check_file(&file_path).await.unwrap();
+          assert_eq!(format().await, None);
+          communicator.check_file(&file_path).await.unwrap();
+          assert_eq!(format().await, None);
+          let requests = communicator.take_approval_requests();
+          assert_eq!(requests.len(), 1);
+          assert_eq!(requests[0].config_file, "/dprint.json");
+          assert_eq!(requests[0].plugins.len(), 1);
+          assert!(requests[0].message.contains("because they weren't allowed to run."), "{}", requests[0].message);
+
+          // asks again once the configuration changes, then uses the process plugin once allowed
+          environment
+            .write_file(
+              "/dprint.json",
+              &environment
+                .read_file("/dprint.json")
+                .unwrap()
+                .replacen('{', r#"{ "testProcessPlugin": { "ending": "allowed" }, "#, 1),
+            )
+            .unwrap();
+          communicator.set_approval_answer(true);
+          communicator.check_file(&file_path).await.unwrap();
+          assert_eq!(communicator.take_approval_requests().len(), 1);
+          // the approval is stored after the response is received
+          let mut formatted_text = None;
+          for _ in 0..100 {
+            formatted_text = format().await;
+            if formatted_text.is_some() {
+              break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+          }
+          assert_eq!(formatted_text, Some(b"text_allowed".to_vec()));
+        }
+        .boxed_local()
+      }
+    });
+
+    assert_eq!(environment.take_stderr_messages(), vec!["Extracting zip for test-process-plugin".to_string()]);
   }
 
   #[test]
@@ -1192,6 +1549,9 @@ mod test {
         pending_format_tokens: Default::default(),
         writer: SingleThreadMessageWriter::for_stdin(MessageWriter::new(ClosedWriter)),
         output_closed: Default::default(),
+        editor_capabilities: Default::default(),
+        pending_approvals: Default::default(),
+        has_new_approval: Default::default(),
       };
       // the first message fails to be written on the writer thread
       // and then the messages after that can't be sent
