@@ -35,9 +35,12 @@ use crate::utils::ResolvedFilePathWithBytes;
 use crate::utils::ResolvedFilePathWithText;
 use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::ShowConfirmStrategy;
+use crate::utils::get_sha256_checksum;
 use crate::utils::is_negated_glob;
 use crate::utils::non_negated_glob;
+use crate::utils::parse_npm_specifier;
 use crate::utils::resolve_url_or_file_path_to_file_with_cache;
+use crate::utils::verify_sha256_checksum;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
 use super::resolve_main_config_path::get_default_config_file_in_ancestor_directories;
@@ -68,6 +71,13 @@ pub struct ResolvedConfig {
   /// of the closest configuration file in an ancestor directory.
   pub inherit: Option<bool>,
   pub config_map: ConfigMap,
+  /// The `config_map` with only what was specified in local configuration and
+  /// in remote configuration that trusted configuration extended with a checksum.
+  ///
+  /// IMPORTANT: This is what process plugins are configured with. Process plugins
+  /// don't run sandboxed, so remote configuration could otherwise get them to
+  /// do something like run commands of its choosing (ex. dprint-plugin-exec).
+  pub trusted_config_map: ConfigMap,
   /// Keys of the plugin configurations in `config_map` that were only specified
   /// in an extended configuration file. It's not an error for these to not have
   /// a matching plugin because a shared config may configure more plugins than
@@ -171,6 +181,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
         // allow no config file when plugins are specified
         ResolvedConfig {
           config_map: ConfigMap::new(),
+          trusted_config_map: ConfigMap::new(),
           extended_only_plugin_config_keys: HashSet::new(),
           base_path: environment.cwd().clone(),
           anchored_patterns_base_path: None,
@@ -283,7 +294,7 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   let plugins = filter_duplicate_plugin_sources({
     // filter out any non-wasm plugins from remote config
     if !config_path_and_text.source.is_local() {
-      filter_non_wasm_plugins(plugins_vec, environment) // NEVER REMOVE THIS STATEMENT
+      filter_non_wasm_plugins(plugins_vec, || main_config_checksum_hint(config_path_and_text), environment) // NEVER REMOVE THIS STATEMENT
     } else {
       plugins_vec
     }
@@ -304,11 +315,14 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     }
     let removed_associations = remove_associations_outside_config_dir(&mut config_map); // NEVER REMOVE THIS STATEMENT
     if removed_associations && config_path_and_text.is_first_download {
-      log_warn!(environment, &get_warn_associations_message());
+      log_warn!(environment, &get_warn_associations_message(&main_config_checksum_hint(config_path_and_text)));
     }
     let removed_negated_excludes = remove_negated_excludes(&mut config_map); // NEVER REMOVE THIS STATEMENT
     if removed_negated_excludes && config_path_and_text.is_first_download {
-      log_warn!(environment, &get_warn_negated_excludes_message());
+      log_warn!(
+        environment,
+        &get_warn_negated_excludes_message(&main_config_checksum_hint(config_path_and_text))
+      );
     }
   }
   // =========
@@ -331,12 +345,18 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   }
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut config_map)?;
+  let trusted_config_map = if config_path_and_text.source.is_local() {
+    config_map.clone()
+  } else {
+    ConfigMap::new() // NEVER CHANGE THIS
+  };
   let resolved_config = ResolvedConfig {
     source: config_path_and_text.source.clone(),
     base_path: config_path_and_text.base_path.clone(),
     anchored_patterns_base_path: config_path_and_text.anchored_patterns_base_path.clone(),
     is_global: config_path_and_text.is_global_config,
     config_map,
+    trusted_config_map,
     extended_only_plugin_config_keys: HashSet::new(),
     includes,
     excludes,
@@ -353,6 +373,9 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     inherit_chain: Rc::new(inherit_chain),
     remote_cache_mode,
     npm_resolver: Default::default(),
+    is_trusted: config_path_and_text.source.is_local(),
+    requires_checksum: false,
+    is_in_pinned_npm_package: false,
   };
   Ok(resolve_extends(resolved_config, extends, extends_context, environment.clone()).await?)
 }
@@ -402,6 +425,7 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   }
 
   merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
+  merge_config_map_into(&mut config.trusted_config_map, parent.trusted_config_map.clone())?;
 
   Ok(config)
 }
@@ -460,6 +484,18 @@ struct ExtendsContext {
   inherit_chain: Rc<Vec<PathSource>>,
   remote_cache_mode: RemoteCacheMode,
   npm_resolver: Rc<NpmExtendsResolver>,
+  /// Whether the configuration file with these `extends` is trusted to
+  /// configure process plugins, which is when it's local configuration or
+  /// trusted configuration extended it with a checksum.
+  is_trusted: bool,
+  /// Whether these `extends` must have a checksum, which is when the
+  /// configuration file with them or one that led to it being extended was
+  /// extended with a checksum.
+  requires_checksum: bool,
+  /// Whether the configuration file with these `extends` is in an npm package
+  /// whose tarball checksum was verified, so the other files in the package
+  /// it extends don't need their own checksum.
+  is_in_pinned_npm_package: bool,
 }
 
 impl ExtendsContext {
@@ -483,9 +519,15 @@ fn resolve_extends<TEnvironment: Environment>(
   // boxed because of recursion
   async move {
     // get the files in parallel, then merge them in order of precedence
-    let resolved_files = future::join_all(extends.iter().map(|specifier| resolve_extends_file(specifier, &context, &environment))).await;
-    for resolved_file in resolved_files {
-      let resolved_file = resolved_file?.into_text()?;
+    let resolved_files = future::join_all(
+      extends
+        .iter()
+        .map(|specifier| resolve_extends_file_with_checksum(specifier, &context, &environment)),
+    )
+    .await;
+    for (specifier, extended_file) in extends.iter().zip(resolved_files) {
+      let ExtendedConfigFile { file, pinning } = extended_file?;
+      let resolved_file = file.into_text()?;
       if context.ancestors.contains(&resolved_file.source) {
         bail!(
           "Circular extends detected: {} -> {}",
@@ -493,7 +535,14 @@ fn resolve_extends<TEnvironment: Environment>(
           resolved_file.source.display(),
         );
       }
-      resolved_config = match handle_config_file(&resolved_file, resolved_config, &context, &environment).await {
+      // only a specifier in trusted configuration can be given a checksum that
+      // makes what it extends trusted
+      let checksum_hint_specifier = if context.is_trusted {
+        Some(parse_extends_checksum(specifier)?.0)
+      } else {
+        None
+      };
+      resolved_config = match handle_config_file(&resolved_file, checksum_hint_specifier, resolved_config, pinning, &context, &environment).await {
         Ok(resolved_config) => resolved_config,
         Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),
       }
@@ -503,13 +552,128 @@ fn resolve_extends<TEnvironment: Environment>(
   .boxed_local()
 }
 
-async fn resolve_extends_file(specifier: &str, context: &ExtendsContext, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
+struct ExtendedConfigFile {
+  file: ResolvedFilePathWithBytes,
+  pinning: ExtendsPinning,
+}
+
+/// How an extended configuration file's content was pinned.
+#[derive(Clone, Copy)]
+struct ExtendsPinning {
+  /// Whether the content can't change without the configuration that extended
+  /// it changing, which is when the `extends` specifier had a checksum or the
+  /// file is in an npm package whose tarball checksum was verified.
+  is_pinned: bool,
+  /// Whether the file is in an npm package whose tarball checksum was verified,
+  /// which also pins the other files in the package.
+  is_in_pinned_npm_package: bool,
+}
+
+/// Resolves an extended configuration file, verifying its checksum when the
+/// specifier has one (ex. `https://dprint.dev/config.json@<sha256>`).
+async fn resolve_extends_file_with_checksum(specifier: &str, context: &ExtendsContext, environment: &impl Environment) -> Result<ExtendedConfigFile> {
+  let (specifier_without_checksum, checksum) = parse_extends_checksum(specifier)?;
+  if specifier.starts_with("npm:") {
+    // the npm resolver verifies the checksum of the package's tarball
+    ensure_checksum_if_required(specifier, checksum, context)?;
+    let file = resolve_extends_file(specifier, context, context.remote_cache_mode, environment).await?;
+    let is_pinned = checksum.is_some();
+    return Ok(ExtendedConfigFile {
+      file,
+      pinning: ExtendsPinning {
+        is_pinned,
+        is_in_pinned_npm_package: is_pinned,
+      },
+    });
+  }
+  // a file in the same npm package as one whose tarball checksum was verified
+  let is_in_pinned_npm_package = context.is_in_pinned_npm_package && matches!(context.base_path, PathSource::Npm(_)) && is_relative_path(specifier);
+  match checksum {
+    Some(checksum) => {
+      let checksum = checksum.to_ascii_lowercase();
+      let mut file = resolve_extends_file(specifier_without_checksum, context, context.remote_cache_mode, environment).await?;
+      if verify_sha256_checksum(&file.content, &checksum).is_err() && context.remote_cache_mode == RemoteCacheMode::Use {
+        // the cached file might be out of date, so check the server for a newer one
+        file = resolve_extends_file(specifier_without_checksum, context, RemoteCacheMode::Reload, environment).await?;
+      }
+      if let Err(err) = verify_sha256_checksum(&file.content, &checksum) {
+        bail!("Invalid checksum for extended configuration '{}'.\n\n{:#}", specifier, err);
+      }
+      Ok(ExtendedConfigFile {
+        file,
+        pinning: ExtendsPinning {
+          is_pinned: true,
+          is_in_pinned_npm_package,
+        },
+      })
+    }
+    None => {
+      if !is_in_pinned_npm_package {
+        ensure_checksum_if_required(specifier, None, context)?;
+      }
+      let file = resolve_extends_file(specifier, context, context.remote_cache_mode, environment).await?;
+      Ok(ExtendedConfigFile {
+        file,
+        pinning: ExtendsPinning {
+          is_pinned: is_in_pinned_npm_package,
+          is_in_pinned_npm_package,
+        },
+      })
+    }
+  }
+}
+
+/// Errors when the specifier doesn't have a checksum, but must have one.
+///
+/// IMPORTANT: Everything a configuration file extended with a checksum extends
+/// must also have a checksum. Otherwise the configuration the checksum is for
+/// could change what's extended out from under it.
+fn ensure_checksum_if_required(specifier: &str, checksum: Option<&str>, context: &ExtendsContext) -> Result<()> {
+  if checksum.is_none() && context.requires_checksum {
+    bail!(
+      concat!(
+        "Expected a checksum for '{}' because it's extended by configuration that was extended with a checksum. ",
+        "Specify it with an @ followed by the 64 character SHA-256 checksum of the file (ex. {}@<checksum>)."
+      ),
+      specifier,
+      specifier,
+    );
+  }
+  Ok(())
+}
+
+/// Splits the checksum from the end of an `extends` specifier, which is an @
+/// followed by the SHA-256 checksum of the configuration file.
+fn parse_extends_checksum(specifier: &str) -> Result<(&str, Option<&str>)> {
+  let checksum = if specifier.starts_with("npm:") {
+    // the npm specifier parser knows an @ for the version from one for a checksum
+    parse_npm_specifier(specifier)?
+      .checksum
+      .map(|checksum| &specifier[specifier.len() - checksum.len()..])
+  } else {
+    specifier
+      .rsplit_once('@')
+      .map(|(_, checksum)| checksum)
+      .filter(|checksum| checksum.len() == 64 && checksum.chars().all(|c| c.is_ascii_hexdigit()))
+  };
+  Ok(match checksum {
+    Some(checksum) => (&specifier[..specifier.len() - checksum.len() - 1], Some(checksum)),
+    None => (specifier, None),
+  })
+}
+
+async fn resolve_extends_file(
+  specifier: &str,
+  context: &ExtendsContext,
+  remote_cache_mode: RemoteCacheMode,
+  environment: &impl Environment,
+) -> Result<ResolvedFilePathWithBytes> {
   let base_path = &context.base_path;
   if specifier.starts_with("npm:") {
     context.npm_resolver.resolve(specifier, base_path, environment).await
   } else if let PathSource::Npm(npm_base) = base_path {
     if is_http_url(specifier) {
-      resolve_url_or_file_path_to_file_with_cache(specifier, base_path, context.remote_cache_mode, environment).await
+      resolve_url_or_file_path_to_file_with_cache(specifier, base_path, remote_cache_mode, environment).await
     } else if is_relative_path(specifier) {
       // a config file in an npm package extending another file in the package
       context.npm_resolver.resolve_relative(specifier, npm_base, environment).await
@@ -526,7 +690,7 @@ async fn resolve_extends_file(specifier: &str, context: &ExtendsContext, environ
       );
     }
   } else {
-    resolve_url_or_file_path_to_file_with_cache(specifier, base_path, context.remote_cache_mode, environment).await
+    resolve_url_or_file_path_to_file_with_cache(specifier, base_path, remote_cache_mode, environment).await
   }
 }
 
@@ -540,7 +704,9 @@ fn is_relative_path(specifier: &str) -> bool {
 
 async fn handle_config_file<TEnvironment: Environment>(
   config_path_and_text: &ResolvedFilePathWithText,
+  checksum_hint_specifier: Option<&str>,
   mut resolved_config: ResolvedConfig,
+  pinning: ExtendsPinning,
   extends_context: &ExtendsContext,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig> {
@@ -552,6 +718,18 @@ async fn handle_config_file<TEnvironment: Environment>(
   let inherit = take_bool_from_config_map(&mut new_config_map, "inherit")?;
 
   let is_remote = extends_context.is_remote(&config_path_and_text.source);
+  // IMPORTANT: Remote configuration that trusted configuration extended with a
+  // checksum can't change without the checksum changing, so it's trusted the
+  // same as local configuration.
+  let is_trusted = !is_remote || (pinning.is_pinned && extends_context.is_trusted);
+  let checksum_hint = || {
+    get_checksum_hint(
+      checksum_hint_specifier,
+      &config_path_and_text.source,
+      &config_path_and_text.content,
+      &extends_context.npm_resolver,
+    )
+  };
 
   // Discard any properties that shouldn't be inherited
   if is_remote {
@@ -562,17 +740,23 @@ async fn handle_config_file<TEnvironment: Environment>(
     // don't want it specifying something like system or some configuration
     // files that it could change. Basically, the end user should have 100%
     // control over what files get formatted.
+    //
+    // Trusted remote configuration may specify the associations and negated
+    // excludes (and non-Wasm plugins below). Its includes are still removed, though only the includes of
+    // the main configuration file get used anyway.
     let removed_includes = new_config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
     }
-    let removed_associations = remove_associations_outside_config_dir(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
-    if removed_associations && config_path_and_text.is_first_download {
-      log_warn!(environment, &get_warn_associations_message());
-    }
-    let removed_negated_excludes = remove_negated_excludes(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
-    if removed_negated_excludes && config_path_and_text.is_first_download {
-      log_warn!(environment, &get_warn_negated_excludes_message());
+    if !is_trusted {
+      let removed_associations = remove_associations_outside_config_dir(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
+      if removed_associations && config_path_and_text.is_first_download {
+        log_warn!(environment, &get_warn_associations_message(&checksum_hint()));
+      }
+      let removed_negated_excludes = remove_negated_excludes(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
+      if removed_negated_excludes && config_path_and_text.is_first_download {
+        log_warn!(environment, &get_warn_negated_excludes_message(&checksum_hint()));
+      }
     }
   }
 
@@ -594,10 +778,15 @@ async fn handle_config_file<TEnvironment: Environment>(
     }
   }
 
-  // Also remove any non-wasm plugins, but only for remote configurations.
-  // The assumption here is that the user won't be malicious to themselves.
+  // Also remove any non-wasm plugins, but only for remote configurations that
+  // aren't trusted. The assumption here is that the user won't be malicious to
+  // themselves.
   let plugins = take_plugins_array_from_config_map(&mut new_config_map, &config_path_and_text.source.parent(), environment)?;
-  let plugins = if is_remote { filter_non_wasm_plugins(plugins, environment) } else { plugins };
+  let plugins = if is_remote && !is_trusted {
+    filter_non_wasm_plugins(plugins, checksum_hint, environment)
+  } else {
+    plugins
+  };
   // =========
 
   // combine plugins, keeping the higher-precedence (earlier) entry when the same
@@ -613,6 +802,11 @@ async fn handle_config_file<TEnvironment: Environment>(
     }
   }
 
+  // IMPORTANT: Process plugins are only configured by local configuration and
+  // remote configuration that trusted configuration extended with a checksum.
+  if is_trusted {
+    merge_config_map_into(&mut resolved_config.trusted_config_map, new_config_map.clone())?;
+  }
   merge_config_map_into(&mut resolved_config.config_map, new_config_map)?;
 
   let mut ancestors = extends_context.ancestors.clone();
@@ -623,6 +817,9 @@ async fn handle_config_file<TEnvironment: Environment>(
     inherit_chain: extends_context.inherit_chain.clone(),
     remote_cache_mode: extends_context.remote_cache_mode,
     npm_resolver: extends_context.npm_resolver.clone(),
+    is_trusted,
+    requires_checksum: pinning.is_pinned || extends_context.requires_checksum,
+    is_in_pinned_npm_package: pinning.is_in_pinned_npm_package,
   };
   let remote_cache_mode = extends_context.remote_cache_mode;
   let inherit_chain = extends_context.inherit_chain.clone();
@@ -963,9 +1160,13 @@ fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str) ->
   }
 }
 
-fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &impl Environment) -> Vec<PluginSourceReference> {
+fn filter_non_wasm_plugins(
+  plugins: Vec<PluginSourceReference>,
+  checksum_hint: impl FnOnce() -> String,
+  environment: &impl Environment,
+) -> Vec<PluginSourceReference> {
   if plugins.iter().any(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm)) {
-    log_warn!(environment, &get_warn_non_wasm_plugins_message());
+    log_warn!(environment, &get_warn_non_wasm_plugins_message(&checksum_hint()));
     plugins.into_iter().filter(|plugin| plugin.plugin_kind() == Some(PluginKind::Wasm)).collect()
   } else {
     plugins
@@ -1027,10 +1228,41 @@ fn remove_negated_excludes(config_map: &mut ConfigMap) -> bool {
   excludes.len() != original_len
 }
 
-fn get_warn_associations_message() -> String {
+/// Gets the specifier with the checksum that the main remote configuration
+/// could be extended with to allow what's ignored in it.
+fn main_config_checksum_hint(config_path_and_text: &ResolvedConfigPathWithText) -> String {
+  let specifier = match &config_path_and_text.source {
+    PathSource::Remote(remote) => Some(remote.url.as_str()),
+    PathSource::Local(_) | PathSource::Npm(_) => None,
+  };
+  get_checksum_hint(
+    specifier,
+    &config_path_and_text.source,
+    &config_path_and_text.content,
+    &NpmExtendsResolver::default(),
+  )
+}
+
+/// Gets the specifier with the checksum that the configuration file could be
+/// extended with (ex. `https://dprint.dev/dprint.json@<sha256>`), or an
+/// example when the specifier isn't known.
+fn get_checksum_hint(specifier: Option<&str>, source: &PathSource, content: &str, npm_resolver: &NpmExtendsResolver) -> String {
+  let checksum = match source {
+    // a file in an npm package is pinned by the checksum of the package's tarball
+    PathSource::Npm(npm) => npm_resolver.tarball_checksum(npm),
+    PathSource::Remote(_) | PathSource::Local(_) => Some(get_sha256_checksum(content.as_bytes())),
+  };
+  match (specifier, checksum) {
+    (Some(specifier), Some(checksum)) => format!("{}@{}", specifier, checksum),
+    _ => "ex. https://example.com/dprint.json@<sha256>".to_string(),
+  }
+}
+
+fn get_warn_associations_message(checksum_hint: &str) -> String {
   format!(
-    "{} Plugin 'associations' that reference a parent directory (..) are ignored for security reasons on remote configuration.",
+    "{} Plugin 'associations' that reference a parent directory (..) are ignored for security reasons on remote configuration unless it's extended with a checksum ({}).",
     colors::bold("Note: "),
+    checksum_hint,
   )
 }
 
@@ -1048,10 +1280,11 @@ fn get_warn_inherit_message() -> String {
   )
 }
 
-fn get_warn_negated_excludes_message() -> String {
+fn get_warn_negated_excludes_message(checksum_hint: &str) -> String {
   format!(
-    "{} Negated 'excludes' (ex. !**/*.txt) are ignored for security reasons on remote configuration.",
+    "{} Negated 'excludes' (ex. !**/*.txt) are ignored for security reasons on remote configuration unless it's extended with a checksum ({}).",
     colors::bold("Note: "),
+    checksum_hint,
   )
 }
 
@@ -1063,10 +1296,11 @@ fn get_warn_no_config_to_inherit_message(config_source: &PathSource) -> String {
   )
 }
 
-fn get_warn_non_wasm_plugins_message() -> String {
+fn get_warn_non_wasm_plugins_message(checksum_hint: &str) -> String {
   format!(
-    "{} Non-wasm plugins are ignored for security reasons on remote configuration.",
+    "{} Non-wasm plugins are ignored for security reasons on remote configuration unless it's extended with a checksum ({}).",
     colors::bold("Note: "),
+    checksum_hint,
   )
 }
 
@@ -1106,6 +1340,7 @@ mod tests {
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::utils::TestStdInReader;
+  use crate::utils::get_sha256_checksum;
   use anyhow::Result;
   use dprint_core::configuration::ConfigKeyMap;
   use pretty_assertions::assert_eq;
@@ -1914,6 +2149,7 @@ mod tests {
           .iter()
           .map(|key| (key.to_string(), ConfigMapValue::PluginConfig(Default::default())))
           .collect(),
+        trusted_config_map: Default::default(),
         extended_only_plugin_config_keys: extended_only_plugin_config_keys.iter().map(|key| key.to_string()).collect(),
       }
     }
@@ -2407,7 +2643,13 @@ mod tests {
 
     environment.clone().run_in_runtime(async move {
       let result = get_result("/test.json", &environment).await.unwrap();
-      assert_eq!(environment.take_stderr_messages(), vec![get_warn_associations_message()]);
+      assert_eq!(
+        environment.take_stderr_messages(),
+        vec![get_warn_associations_message(&remote_checksum_hint(
+          &environment,
+          "https://dprint.dev/test.json"
+        ))]
+      );
       let expected_config_map = ConfigMap::from([(
         String::from("test"),
         ConfigMapValue::PluginConfig(RawPluginConfig {
@@ -2432,6 +2674,275 @@ mod tests {
   }
 
   #[test]
+  fn should_not_have_remote_config_without_checksum_in_trusted_config_map() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/remote.json",
+      r#"{ "remote": { "prop": "remote" }, "both": { "prop": "remote" } }"#.as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/local.json"),
+        r#"{ "local": { "prop": "local" }, "both": { "prop": "local" } }"#,
+      )
+      .unwrap();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{ "extends": ["https://dprint.dev/remote.json", "./local.json"], "main": { "prop": "main" } }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let plugin_config = |value: &str| {
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: None,
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_str(value))]),
+        })
+      };
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(
+        result.config_map,
+        ConfigMap::from([
+          (String::from("main"), plugin_config("main")),
+          (String::from("remote"), plugin_config("remote")),
+          (String::from("both"), plugin_config("remote")),
+          (String::from("local"), plugin_config("local")),
+        ])
+      );
+      assert_eq!(
+        result.trusted_config_map,
+        ConfigMap::from([
+          (String::from("main"), plugin_config("main")),
+          (String::from("both"), plugin_config("local")),
+          (String::from("local"), plugin_config("local")),
+        ])
+      );
+
+      // a remote main config has no local config
+      let result = get_result("https://dprint.dev/remote.json", &environment).await.unwrap();
+      assert_eq!(result.trusted_config_map, ConfigMap::new());
+    });
+  }
+
+  #[test]
+  fn should_trust_remote_config_extended_with_checksum() {
+    // a remote config extended with a checksum is trusted along with what it
+    // extends, which must also have checksums
+    let environment = TestEnvironment::new();
+    let other_text = r#"{ "other": { "prop": "other" } }"#;
+    let other_checksum = get_sha256_checksum(other_text.as_bytes());
+    let pinned_text = format!(r#"{{ "extends": "./other.json@{other_checksum}", "pinned": {{ "prop": "pinned" }} }}"#);
+    let pinned_checksum = get_sha256_checksum(pinned_text.as_bytes());
+    environment.add_remote_file_bytes("https://dprint.dev/other.json", other_text.as_bytes().to_vec());
+    environment.add_remote_file_bytes("https://dprint.dev/pinned.json", pinned_text.into_bytes());
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        &format!(r#"{{ "extends": "https://dprint.dev/pinned.json@{pinned_checksum}" }}"#),
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(result.trusted_config_map, result.config_map);
+      assert_eq!(result.trusted_config_map.len(), 2);
+    });
+  }
+
+  #[test]
+  fn should_keep_associations_and_negated_excludes_of_trusted_remote_config() {
+    let pinned_text = r#"{ "excludes": ["dist", "!dist/keep"], "test": { "associations": ["../.env"] } }"#;
+    let pinned_checksum = get_sha256_checksum(pinned_text.as_bytes());
+    for (extends, is_trusted) in [
+      (format!("https://dprint.dev/pinned.json@{pinned_checksum}"), true),
+      ("https://dprint.dev/pinned.json".to_string(), false),
+    ] {
+      let environment = TestEnvironment::new();
+      environment.add_remote_file_bytes("https://dprint.dev/pinned.json", pinned_text.as_bytes().to_vec());
+      environment
+        .write_file(&PathBuf::from("/test.json"), &format!(r#"{{ "extends": "{extends}" }}"#))
+        .unwrap();
+
+      environment.clone().run_in_runtime(async move {
+        let result = get_result("/test.json", &environment).await.unwrap();
+        let associations = match result.config_map.get("test") {
+          Some(ConfigMapValue::PluginConfig(config)) => config.associations.clone(),
+          _ => None,
+        };
+        if is_trusted {
+          assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+          assert_eq!(result.excludes, Some(vec!["dist".to_string(), "!dist/keep".to_string()]));
+          assert_eq!(associations, Some(vec!["../.env".to_string()]));
+        } else {
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec![
+              get_warn_associations_message(&remote_checksum_hint(&environment, "https://dprint.dev/pinned.json")),
+              get_warn_negated_excludes_message(&remote_checksum_hint(&environment, "https://dprint.dev/pinned.json")),
+            ]
+          );
+          assert_eq!(result.excludes, Some(vec!["dist".to_string()]));
+          assert_eq!(associations, None);
+        }
+      });
+    }
+  }
+
+  #[test]
+  fn should_not_trust_remote_config_extended_with_checksum_by_untrusted_config() {
+    // the untrusted config chose what was extended with the checksum
+    let environment = TestEnvironment::new();
+    let pinned_text = r#"{ "pinned": { "prop": "pinned" } }"#;
+    let pinned_checksum = get_sha256_checksum(pinned_text.as_bytes());
+    environment.add_remote_file_bytes("https://dprint.dev/pinned.json", pinned_text.as_bytes().to_vec());
+    environment.add_remote_file_bytes(
+      "https://dprint.dev/untrusted.json",
+      format!(r#"{{ "extends": "./pinned.json@{pinned_checksum}", "untrusted": {{ "prop": "untrusted" }} }}"#).into_bytes(),
+    );
+    environment
+      .write_file(&PathBuf::from("/test.json"), r#"{ "extends": "https://dprint.dev/untrusted.json" }"#)
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(result.config_map.len(), 2);
+      assert_eq!(result.trusted_config_map, ConfigMap::new());
+    });
+  }
+
+  #[test]
+  fn should_error_when_config_extended_with_checksum_extends_without_checksum() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://dprint.dev/other.json", r#"{ "other": { "prop": "other" } }"#.as_bytes());
+    let pinned_text = r#"{ "extends": "./other.json" }"#;
+    let pinned_checksum = get_sha256_checksum(pinned_text.as_bytes());
+    environment.add_remote_file_bytes("https://dprint.dev/pinned.json", pinned_text.as_bytes().to_vec());
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        &format!(r#"{{ "extends": "https://dprint.dev/pinned.json@{pinned_checksum}" }}"#),
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let err = get_result("/test.json", &environment).await.unwrap_err();
+      assert_eq!(
+        err.to_string(),
+        concat!(
+          "Expected a checksum for './other.json' because it's extended by configuration that was extended with a checksum. ",
+          "Specify it with an @ followed by the 64 character SHA-256 checksum of the file (ex. ./other.json@<checksum>).\n",
+          "    at https://dprint.dev/pinned.json"
+        )
+      );
+    });
+  }
+
+  #[test]
+  fn should_require_checksums_for_everything_extended_by_config_extended_with_checksum() {
+    // a.json@sha -> b.json@sha -> c.json without a checksum
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://dprint.dev/c.json", r#"{ "c": { "prop": "c" } }"#.as_bytes());
+    let b_text = r#"{ "extends": "./c.json" }"#;
+    let b_checksum = get_sha256_checksum(b_text.as_bytes());
+    environment.add_remote_file_bytes("https://dprint.dev/b.json", b_text.as_bytes().to_vec());
+    let a_text = format!(r#"{{ "extends": "./b.json@{b_checksum}" }}"#);
+    let a_checksum = get_sha256_checksum(a_text.as_bytes());
+    environment.add_remote_file_bytes("https://dprint.dev/a.json", a_text.into_bytes());
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        &format!(r#"{{ "extends": "https://dprint.dev/a.json@{a_checksum}" }}"#),
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let err = get_result("/test.json", &environment).await.unwrap_err();
+      let err = format!("{err:#}");
+      assert!(err.starts_with("Expected a checksum for './c.json'"), "{err}");
+      assert!(err.contains("    at https://dprint.dev/b.json"), "{err}");
+    });
+  }
+
+  #[test]
+  fn should_check_server_for_extended_config_when_cached_one_does_not_match_checksum() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://dprint.dev/shared.json", r#"{ "test": { "prop": "old" } }"#.as_bytes());
+    environment
+      .write_file(&PathBuf::from("/test.json"), r#"{ "extends": "https://dprint.dev/shared.json" }"#)
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      // caches the old file
+      get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.remote_file_request_count("https://dprint.dev/shared.json"), 1);
+
+      // the file changed and the checksum was updated for it
+      let new_text = r#"{ "test": { "prop": "new" } }"#;
+      environment.add_remote_file_bytes("https://dprint.dev/shared.json", new_text.as_bytes().to_vec());
+      let checksum = get_sha256_checksum(new_text.as_bytes());
+      environment
+        .write_file(
+          &PathBuf::from("/test.json"),
+          &format!(r#"{{ "extends": "https://dprint.dev/shared.json@{checksum}" }}"#),
+        )
+        .unwrap();
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.remote_file_request_count("https://dprint.dev/shared.json"), 2);
+      assert_eq!(result.trusted_config_map.len(), 1);
+      assert_eq!(result.trusted_config_map, result.config_map);
+    });
+  }
+
+  #[test]
+  fn should_parse_extends_checksum() {
+    let checksum = "a".repeat(64);
+    fn parse(specifier: &str) -> (&str, Option<&str>) {
+      parse_extends_checksum(specifier).unwrap()
+    }
+    assert_eq!(parse("https://dprint.dev/a.json"), ("https://dprint.dev/a.json", None));
+    assert_eq!(
+      parse(&format!("https://dprint.dev/a.json@{checksum}")),
+      ("https://dprint.dev/a.json", Some(checksum.as_str()))
+    );
+    assert_eq!(parse(&format!("./a.jsonc@{checksum}")), ("./a.jsonc", Some(checksum.as_str())));
+    // not a checksum
+    assert_eq!(parse("https://user@dprint.dev/a.json"), ("https://user@dprint.dev/a.json", None));
+    assert_eq!(parse("./a.json@abc"), ("./a.json@abc", None));
+    assert_eq!(parse("npm:@scope/name@1.0.0"), ("npm:@scope/name@1.0.0", None));
+    assert_eq!(
+      parse(&format!("npm:@scope/name@1.0.0@{checksum}")),
+      ("npm:@scope/name@1.0.0", Some(checksum.as_str()))
+    );
+    assert_eq!(
+      parse(&format!("npm:@scope/name@1.0.0/config.json@{checksum}")),
+      ("npm:@scope/name@1.0.0/config.json", Some(checksum.as_str()))
+    );
+  }
+
+  #[test]
+  fn should_use_example_checksum_hint_for_config_extended_by_untrusted_config() {
+    // a checksum on what untrusted configuration extends doesn't make it trusted
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://dprint.dev/untrusted.json", r#"{ "extends": "./other.json" }"#.as_bytes());
+    environment.add_remote_file("https://dprint.dev/other.json", r#"{ "excludes": ["!**/*.txt"] }"#.as_bytes());
+    environment
+      .write_file(&PathBuf::from("/test.json"), r#"{ "extends": "https://dprint.dev/untrusted.json" }"#)
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(
+        environment.take_stderr_messages(),
+        vec![get_warn_negated_excludes_message("ex. https://example.com/dprint.json@<sha256>")]
+      );
+      assert_eq!(result.excludes, Some(vec![]));
+    });
+  }
+
+  #[test]
   fn should_remove_negated_excludes_from_remote_config() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
@@ -2447,7 +2958,13 @@ mod tests {
 
     environment.clone().run_in_runtime(async move {
       let result = get_result("/test.json", &environment).await.unwrap();
-      assert_eq!(environment.take_stderr_messages(), vec![get_warn_negated_excludes_message()]);
+      assert_eq!(
+        environment.take_stderr_messages(),
+        vec![get_warn_negated_excludes_message(&remote_checksum_hint(
+          &environment,
+          "https://dprint.dev/test.json"
+        ))]
+      );
       assert_eq!(result.excludes, Some(vec!["!local".to_string(), "dist".to_string()]));
 
       environment.clear_logs();
@@ -2479,7 +2996,13 @@ mod tests {
 
     environment.clone().run_in_runtime(async move {
       let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-      assert_eq!(environment.take_stderr_messages(), vec![get_warn_associations_message()]);
+      assert_eq!(
+        environment.take_stderr_messages(),
+        vec![get_warn_associations_message(&remote_checksum_hint(
+          &environment,
+          "https://dprint.dev/test.json"
+        ))]
+      );
       let expected_config_map = ConfigMap::from([(
         String::from("test"),
         ConfigMapValue::PluginConfig(RawPluginConfig {
@@ -2945,6 +3468,7 @@ mod tests {
           }),
         ),
       ]),
+      trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
     };
     let child = ResolvedConfig {
@@ -2968,6 +3492,7 @@ mod tests {
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
         }),
       )]),
+      trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
     };
 
@@ -3120,6 +3645,7 @@ mod tests {
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(4))]),
         }),
       )]),
+      trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
     };
     let child = ResolvedConfig {
@@ -3142,6 +3668,7 @@ mod tests {
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
         }),
       )]),
+      trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
     };
 
@@ -3169,7 +3696,13 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
       assert_eq!(result.plugins, vec![]);
-      assert_eq!(environment.take_stderr_messages(), vec![get_warn_non_wasm_plugins_message()]);
+      assert_eq!(
+        environment.take_stderr_messages(),
+        vec![get_warn_non_wasm_plugins_message(&remote_checksum_hint(
+          &environment,
+          "https://dprint.dev/test.json"
+        ))]
+      );
     });
   }
 
@@ -3195,7 +3728,13 @@ mod tests {
 
     environment.clone().run_in_runtime(async move {
       let result = get_result("/test.json", &environment).await.unwrap();
-      assert_eq!(environment.take_stderr_messages(), vec![get_warn_non_wasm_plugins_message()]);
+      assert_eq!(
+        environment.take_stderr_messages(),
+        vec![get_warn_non_wasm_plugins_message(&remote_checksum_hint(
+          &environment,
+          "https://dprint.dev/dir/test.json"
+        ))]
+      );
       assert_eq!(result.plugins, vec![]);
     });
   }
@@ -3399,5 +3938,10 @@ mod tests {
         ),
       );
     });
+  }
+
+  fn remote_checksum_hint(environment: &TestEnvironment, url: &str) -> String {
+    let bytes = environment.get_remote_file(url).unwrap().unwrap();
+    format!("{}@{}", url, get_sha256_checksum(&bytes))
   }
 }

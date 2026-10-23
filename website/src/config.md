@@ -473,7 +473,23 @@ Referencing multiple configuration files is also supported. These should be orde
 }
 ```
 
-Note: The `includes` property and negated `excludes` (ex. `!**/*.txt`) of extended _remote_ configuration are ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins are ignored in remote configuration because they don't run sandboxed.
+Note: The `includes` property and negated `excludes` (ex. `!**/*.txt`) of extended _remote_ configuration are ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins and the configuration for them (ex. the commands of dprint-plugin-exec) are ignored in remote configuration because they don't run sandboxed. Specify the configuration for process plugins in a local configuration file or [extend the remote configuration with a checksum](#extending-with-a-checksum) instead.
+
+### Extending with a checksum
+
+Put an `@` followed by the SHA-256 checksum of the configuration file at the end of an `extends` entry to ensure the configuration file has exactly that content:
+
+<!-- dprint-ignore -->
+
+```json
+{
+  "extends": "https://dprint.dev/path/to/config/file.v1.json@<sha256-checksum>"
+}
+```
+
+The checksum is the SHA-256 hash of the file's bytes, which you can get by running something like `curl -fsSL https://dprint.dev/path/to/config/file.v1.json | sha256sum`. dprint errors when the file's checksum doesn't match, showing the actual checksum. This also works for relative paths and npm specifiers with a version (ex. `npm:@scope/name@1.0.0/dprint.json@<sha256-checksum>`). For npm specifiers, it's the checksum of the package's tarball—the same as for npm plugins.
+
+Remote configuration that a local configuration file extends with a checksum is trusted to specify the configuration of process plugins (ex. the commands of dprint-plugin-exec), since its content can't change without the checksum changing. The same goes for what that configuration extends with a checksum. Everything a configuration file extended with a checksum extends must also have a checksum. It may also specify non-Wasm plugins, negated `excludes`, and associations reaching a parent directory. Otherwise, the rest of the remote configuration restrictions still apply (ex. its `includes` are ignored).
 
 ### Remote configuration caching
 

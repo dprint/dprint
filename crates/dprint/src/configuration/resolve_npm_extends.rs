@@ -33,7 +33,7 @@ pub struct NpmExtendsResolver {
   /// The `.npmrc` files that apply to a directory.
   npmrc_chains: RefCell<HashMap<Option<PathBuf>, Rc<NpmrcChain>>>,
   /// Directories in the npm cache of the registry packages that were resolved.
-  registry_package_dirs: RefCell<HashMap<RegistryPackageKey, PathBuf>>,
+  registry_package_dirs: RefCell<HashMap<RegistryPackageKey, RegistryPackageDir>>,
   package_jsons: RefCell<HashMap<PathBuf, Rc<Option<serde_json::Value>>>>,
 }
 
@@ -56,11 +56,13 @@ impl NpmExtendsResolver {
   /// A configuration file found in node_modules is a local file the same as if
   /// it was referenced by its path, while one downloaded from the registry is
   /// considered remote configuration.
+  ///
+  /// A checksum (ex. `npm:@scope/name@version/sub/path@<checksum>`) is verified
+  /// against the SHA-256 checksum of the package's tarball the same as for npm
+  /// plugins, so it covers every file in the package.
   pub async fn resolve(&self, text: &str, base: &PathSource, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
     let parsed = parse_npm_specifier(text)?;
-    if parsed.checksum.is_some() {
-      bail!("Checksums are not supported for npm specifiers in \"extends\": {}", text);
-    }
+    let checksum = parsed.checksum;
     let name = parsed.specifier.name;
     let sub_path = parsed.path_was_explicit.then_some(parsed.specifier.path);
 
@@ -72,6 +74,17 @@ impl NpmExtendsResolver {
           PathSource::Remote(_) => None,
         };
         let package = self.ensure_registry_package(&name, &version, base_dir.as_ref(), environment).await?;
+        if let Some(checksum) = &checksum
+          && package.tarball_checksum != checksum.to_ascii_lowercase()
+        {
+          bail!(
+            "Invalid checksum for npm package {}@{}.\n\nActual: {}\nExpected: {}",
+            name,
+            version,
+            package.tarball_checksum,
+            checksum,
+          );
+        }
         let path = self.resolve_config_path_in_package(&package.dir, &name, sub_path.as_deref(), environment)?;
         let content = read_package_file(&package.dir, &name, &path, environment)?;
         Ok(ResolvedFilePathWithBytes {
@@ -88,6 +101,14 @@ impl NpmExtendsResolver {
         })
       }
       None => {
+        if checksum.is_some() {
+          // a package in node_modules is local configuration, which doesn't need one
+          bail!(
+            "A checksum can only be specified for an npm specifier with a version (ex. npm:{}@x.x.x) in \"extends\": {}",
+            name,
+            text,
+          );
+        }
         let PathSource::Local(local_base) = base else {
           bail!(
             concat!(
@@ -154,6 +175,17 @@ impl NpmExtendsResolver {
     })
   }
 
+  /// Gets the SHA-256 checksum of the tarball of the registry package that a
+  /// resolved configuration file is in.
+  pub fn tarball_checksum(&self, source: &NpmPathSource) -> Option<String> {
+    let key = RegistryPackageKey {
+      base_dir: source.base_dir.as_ref().map(|d| -> PathBuf { d.as_ref().to_path_buf() }),
+      name: source.specifier.name.clone(),
+      version: source.specifier.version.clone()?,
+    };
+    self.registry_package_dirs.borrow().get(&key).map(|package| package.tarball_checksum.clone())
+  }
+
   /// Gets the directory of a registry package in the npm cache, downloading
   /// the package when it's not there.
   async fn ensure_registry_package(
@@ -169,19 +201,21 @@ impl NpmExtendsResolver {
       name: name.to_string(),
       version: version.to_string(),
     };
-    if let Some(dir) = self.registry_package_dirs.borrow().get(&key) {
+    if let Some(package) = self.registry_package_dirs.borrow().get(&key) {
       return Ok(RegistryPackageDir {
-        dir: dir.clone(),
         is_first_download: false,
+        ..package.clone()
       });
     }
     let registry = self.npmrc_chain(base_dir, environment).registry_for_package(name, environment);
     let package = ensure_npm_package_extracted(name, version, &registry, environment).await?;
-    self.registry_package_dirs.borrow_mut().insert(key, package.dir.clone());
-    Ok(RegistryPackageDir {
+    let package = RegistryPackageDir {
       dir: package.dir,
+      tarball_checksum: package.tarball_checksum,
       is_first_download: package.is_first_download,
-    })
+    };
+    self.registry_package_dirs.borrow_mut().insert(key, package.clone());
+    Ok(package)
   }
 
   fn npmrc_chain(&self, start_dir: Option<&Path>, environment: &impl Environment) -> Rc<NpmrcChain> {
@@ -274,8 +308,11 @@ impl NpmExtendsResolver {
   }
 }
 
+#[derive(Clone)]
 struct RegistryPackageDir {
   dir: PathBuf,
+  /// SHA-256 of the tarball the directory was extracted from.
+  tarball_checksum: String,
   /// Whether the package was downloaded from the registry instead of being
   /// found in the cache.
   is_first_download: bool,
@@ -545,8 +582,9 @@ mod tests {
       .write_file("/missing.json", r#"{ "extends": "npm:config" }"#)
       .write_file("/no-entry.json", r#"{ "extends": "npm:other" }"#)
       .write_file("/no-file.json", r#"{ "extends": "npm:other/file.json" }"#)
-      .write_file("/checksum.json", r#"{ "extends": "npm:other/file.json@checksum" }"#)
+      .write_file("/checksum.json", r#"{ "extends": "npm:other/config.json@checksum" }"#)
       .write_file("/node_modules/other/package.json", r#"{ "main": "index.js" }"#)
+      .write_file("/node_modules/other/config.json", "{}")
       .build();
 
     environment.clone().run_in_runtime(async move {
@@ -571,8 +609,90 @@ mod tests {
       );
       assert_eq!(
         resolve_config("/checksum.json", &environment).await.unwrap_err().to_string(),
-        "Checksums are not supported for npm specifiers in \"extends\": npm:other/file.json@checksum",
+        "A checksum can only be specified for an npm specifier with a version (ex. npm:other@x.x.x) in \"extends\": npm:other/config.json@checksum",
       );
+    });
+  }
+
+  #[test]
+  fn should_trust_registry_config_extended_with_tarball_checksum() {
+    // the tarball checksum pins every file in the package, so the files in it
+    // that the config extends don't need their own checksum
+    let environment = TestEnvironmentBuilder::new().build();
+    let checksum = add_registry_package(
+      &environment,
+      "config",
+      "1.0.0",
+      &[
+        ("package/config.json", r#"{ "extends": "./nested/base.json", "prop1": 1 }"#),
+        ("package/nested/base.json", r#"{ "prop2": 2 }"#),
+      ],
+    );
+    environment
+      .write_file("/dprint.json", &format!(r#"{{ "extends": "npm:config@1.0.0/config.json@{checksum}" }}"#))
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = resolve_config("/dprint.json", &environment).await.unwrap();
+      assert_eq!(get_number(&result, "prop1"), 1);
+      assert_eq!(get_number(&result, "prop2"), 2);
+      assert_eq!(result.trusted_config_map, result.config_map);
+      environment.take_stderr_messages();
+    });
+  }
+
+  #[test]
+  fn should_suggest_tarball_checksum_for_ignored_registry_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/dprint.json", r#"{ "extends": "npm:config@1.0.0/config.json" }"#)
+      .build();
+    let checksum = add_registry_package(&environment, "config", "1.0.0", &[("package/config.json", r#"{ "excludes": ["!**/*.txt"] }"#)]);
+
+    environment.clone().run_in_runtime(async move {
+      resolve_config("/dprint.json", &environment).await.unwrap();
+      let stderr_messages = environment.take_stderr_messages();
+      assert!(
+        stderr_messages
+          .iter()
+          .any(|m| m.contains(&format!("extended with a checksum (npm:config@1.0.0/config.json@{checksum})"))),
+        "{stderr_messages:?}"
+      );
+    });
+  }
+
+  #[test]
+  fn should_error_when_registry_config_tarball_checksum_does_not_match() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/dprint.json", r#"{ "extends": "npm:config@1.0.0/config.json@checksum" }"#)
+      .build();
+    let checksum = add_registry_package(&environment, "config", "1.0.0", &[("package/config.json", "{}")]);
+
+    environment.clone().run_in_runtime(async move {
+      assert_eq!(
+        resolve_config("/dprint.json", &environment).await.unwrap_err().to_string(),
+        format!("Invalid checksum for npm package config@1.0.0.\n\nActual: {checksum}\nExpected: checksum"),
+      );
+    });
+  }
+
+  #[test]
+  fn should_require_checksum_for_url_extended_by_registry_config_extended_with_checksum() {
+    // only the files in the package are pinned by its tarball checksum
+    let environment = TestEnvironmentBuilder::new().build();
+    environment.add_remote_file_bytes("https://dprint.dev/other.json", br#"{ "prop1": 1 }"#.to_vec());
+    let checksum = add_registry_package(
+      &environment,
+      "config",
+      "1.0.0",
+      &[("package/config.json", r#"{ "extends": "https://dprint.dev/other.json" }"#)],
+    );
+    environment
+      .write_file("/dprint.json", &format!(r#"{{ "extends": "npm:config@1.0.0/config.json@{checksum}" }}"#))
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let err = resolve_config("/dprint.json", &environment).await.unwrap_err().to_string();
+      assert!(err.starts_with("Expected a checksum for 'https://dprint.dev/other.json'"), "{err}");
     });
   }
 
@@ -1043,7 +1163,8 @@ Expected: wrong",
     Ok(resolve_config_from_args(&args, environment).await?)
   }
 
-  fn add_registry_package(environment: &TestEnvironment, name: &str, version: &str, files: &[(&str, &str)]) {
+  /// Adds a package to the test npm registry, returning its tarball's checksum.
+  fn add_registry_package(environment: &TestEnvironment, name: &str, version: &str, files: &[(&str, &str)]) -> String {
     let tarball_url = format!("https://registry.npmjs.org/{name}/-/{name}-{version}.tgz");
     let packument = serde_json::json!({
       "versions": {
@@ -1054,7 +1175,10 @@ Expected: wrong",
     });
     let files = files.iter().map(|(path, text)| (*path, text.as_bytes())).collect::<Vec<_>>();
     environment.add_remote_file_bytes(&format!("https://registry.npmjs.org/{name}"), packument.to_string().into_bytes());
-    environment.add_remote_file_bytes(&tarball_url, create_test_npm_tarball(&files));
+    let tarball = create_test_npm_tarball(&files);
+    let checksum = crate::utils::get_sha256_checksum(&tarball);
+    environment.add_remote_file_bytes(&tarball_url, tarball);
+    checksum
   }
 
   fn get_number(config: &ResolvedConfig, key: &str) -> i32 {
