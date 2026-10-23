@@ -1807,6 +1807,81 @@ mod test {
   }
 
   #[test]
+  fn should_not_format_gitignored_files_from_config_associations() {
+    // an association only says which plugin formats a file, so it doesn't
+    // override the gitignore the way explicitly specified includes do
+    for remote in [true, false] {
+      let mut builder = TestEnvironmentBuilder::with_remote_wasm_plugin();
+      if remote {
+        builder
+          .with_remote_config("https://dprint.dev/shared.json", |c| {
+            c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "associations": [".env"] }"#);
+          })
+          .with_local_config("/project/dprint.json", |c| {
+            c.add_config_section("extends", r#""https://dprint.dev/shared.json""#);
+          });
+      } else {
+        builder.with_local_config("/project/dprint.json", |c| {
+          c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "associations": [".env"] }"#);
+        });
+      }
+      let environment = builder
+        .write_file("/project/.gitignore", ".env\n")
+        .write_file("/project/.env", "SECRET=1")
+        .write_file("/project/file.txt", "text")
+        .set_cwd("/project")
+        .build();
+      run_test_cli(vec!["fmt"], &environment).unwrap();
+      assert_eq!(environment.read_file("/project/.env").unwrap(), "SECRET=1", "remote: {remote}");
+      assert_eq!(environment.read_file("/project/file.txt").unwrap(), "text_formatted", "remote: {remote}");
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()], "remote: {remote}");
+      environment.take_stderr_messages();
+    }
+  }
+
+  #[test]
+  fn should_format_gitignored_file_in_config_includes() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt").add_includes("ignored.txt");
+      })
+      .write_file("/project/.gitignore", "ignored.txt\n")
+      .write_file("/project/ignored.txt", "text")
+      .set_cwd("/project")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/project/ignored.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_not_format_gitignored_files_from_remote_config_negated_excludes() {
+    // a negated exclude overrides the gitignore, so remote config can't specify them
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_remote_wasm_plugin().add_excludes("!**/*.txt");
+      })
+      .with_local_config("/project/dprint.json", |c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#);
+      })
+      .write_file("/project/.gitignore", "secret.txt\n")
+      .write_file("/project/secret.txt", "SECRET=1")
+      .write_file("/project/file.txt", "text")
+      .set_cwd("/project")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/project/secret.txt").unwrap(), "SECRET=1");
+    assert_eq!(environment.read_file("/project/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    let stderr_messages = environment.take_stderr_messages();
+    assert!(
+      stderr_messages.iter().any(|m| m.contains("Negated 'excludes' (ex. !**/*.txt) are ignored")),
+      "{stderr_messages:?}"
+    );
+  }
+
+  #[test]
   fn should_not_format_files_outside_project_from_remote_config_associations() {
     // A remote config's includes are ignored so it can only affect how the
     // project's files are formatted. Its plugin associations are inherited

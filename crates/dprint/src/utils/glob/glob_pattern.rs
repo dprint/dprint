@@ -27,6 +27,9 @@ pub enum GlobPatternKind {
 pub struct GlobPatterns {
   pub arg_includes: Option<Vec<GlobPattern>>,
   pub config_includes: Option<Vec<GlobPattern>>,
+  /// Whether the config includes were derived from the plugins' file matching
+  /// and associations because the config file doesn't specify any.
+  pub config_includes_from_plugins: bool,
   pub arg_excludes: Option<Vec<GlobPattern>>,
   pub config_excludes: Vec<GlobPattern>,
   /// The configured shebang lines. When non-empty, files without an
@@ -41,11 +44,20 @@ impl GlobPatterns {
     // we only make the explicitly specified paths override the gitignore
     // because it starts getting really complicated with globs and some
     // people may not want globs to not match gitignored files
+    //
+    // Includes derived from the plugins aren't explicitly specified paths. An
+    // association (ex. `.env`) only says which plugin formats a file and may
+    // come from remote configuration, so it shouldn't override the gitignore.
+    let config_includes = if self.config_includes_from_plugins {
+      None
+    } else {
+      self.config_includes.as_ref()
+    };
     self
       .arg_includes
       .iter()
       .flat_map(|i| i.iter())
-      .chain(self.config_includes.iter().flat_map(|i| i.iter()))
+      .chain(config_includes.into_iter().flat_map(|i| i.iter()))
       .filter_map(|pattern| {
         if !is_pattern(&pattern.relative_pattern) && !pattern.is_negated() {
           // unescape so an escaped literal (ex. `./\[id\].svelte`) resolves

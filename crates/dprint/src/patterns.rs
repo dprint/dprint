@@ -153,6 +153,7 @@ impl OrderedPatternsMatcher {
   pub fn new(patterns: &[String], config_bases: ConfigPatternBases) -> Result<Self> {
     let matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: None,
@@ -185,6 +186,7 @@ impl OrderedPatternsMatcher {
 
 pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf, environment: &impl Environment) -> GlobPatterns {
   GlobPatterns {
+    config_includes_from_plugins: false,
     config_includes: get_config_includes_file_patterns(config, args, cwd, environment),
     // resolve CLI patterns based on the current working directory
     arg_includes: args
@@ -663,6 +665,7 @@ mod test {
       retain_patterns_reaching_dir(&mut patterns, &root_dir);
       let matcher = GlobMatcher::new(
         GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(patterns),
@@ -711,6 +714,7 @@ mod test {
       };
       GlobMatcher::new(
         GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(to_patterns(includes)),
@@ -746,6 +750,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
@@ -776,6 +781,7 @@ mod test {
     environment.mk_dir_all(&cwd).unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         // notice cwd and base_dir are different. This will happen when the config
@@ -809,6 +815,7 @@ mod test {
     environment.write_file("/testing/dir/.gitignore", "ignored-dir/\nsub.ts/\n").unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), base_dir.clone())]),
@@ -843,6 +850,7 @@ mod test {
     environment.write_file("/testing/.gitignore", "dir/\n").unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), base_dir.clone())]),

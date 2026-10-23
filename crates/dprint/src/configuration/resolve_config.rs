@@ -291,10 +291,11 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
 
   // IMPORTANT
   // =========
-  // Remove the includes and the associations reaching a parent directory from
-  // remote configuration since we don't want it specifying something like
-  // system or some configuration files that it could change. Basically, the
-  // end user should have 100% control over what files get formatted.
+  // Remove the includes, the associations reaching a parent directory, and the
+  // negated excludes from remote configuration since we don't want it
+  // specifying something like system or some configuration files that it
+  // could change. Basically, the end user should have 100% control over what
+  // files get formatted.
   if !config_path_and_text.source.is_local() {
     // Careful! Don't be fancy and ensure this is removed.
     let removed_includes = config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
@@ -304,6 +305,10 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     let removed_associations = remove_associations_outside_config_dir(&mut config_map); // NEVER REMOVE THIS STATEMENT
     if removed_associations && config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_associations_message());
+    }
+    let removed_negated_excludes = remove_negated_excludes(&mut config_map); // NEVER REMOVE THIS STATEMENT
+    if removed_negated_excludes && config_path_and_text.is_first_download {
+      log_warn!(environment, &get_warn_negated_excludes_message());
     }
   }
   // =========
@@ -552,11 +557,11 @@ async fn handle_config_file<TEnvironment: Environment>(
   if is_remote {
     // IMPORTANT
     // =========
-    // Remove the includes and the associations reaching a parent directory
-    // from all referenced remote configuration since we don't want it
-    // specifying something like system or some configuration files that it
-    // could change. Basically, the end user should have 100% control over
-    // what files get formatted.
+    // Remove the includes, the associations reaching a parent directory, and
+    // the negated excludes from all referenced remote configuration since we
+    // don't want it specifying something like system or some configuration
+    // files that it could change. Basically, the end user should have 100%
+    // control over what files get formatted.
     let removed_includes = new_config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
@@ -564,6 +569,10 @@ async fn handle_config_file<TEnvironment: Environment>(
     let removed_associations = remove_associations_outside_config_dir(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
     if removed_associations && config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_associations_message());
+    }
+    let removed_negated_excludes = remove_negated_excludes(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
+    if removed_negated_excludes && config_path_and_text.is_first_download {
+      log_warn!(environment, &get_warn_negated_excludes_message());
     }
   }
 
@@ -1003,6 +1012,21 @@ fn has_parent_dir_component(pattern: &str) -> bool {
   process_config_pattern(pattern).any(|expanded| non_negated_glob(&expanded).split('/').any(|component| component == ".."))
 }
 
+/// Removes the negated patterns from the excludes (ex. `!**/*.txt`), returning
+/// whether any were removed.
+///
+/// IMPORTANT: This is for remote configuration. A path matched by a negated
+/// exclude isn't checked against the gitignore, so remote configuration could
+/// otherwise get ignored files (ex. `.env`) formatted.
+fn remove_negated_excludes(config_map: &mut ConfigMap) -> bool {
+  let Some(ConfigMapValue::Vec(excludes)) = config_map.get_mut("excludes") else {
+    return false;
+  };
+  let original_len = excludes.len();
+  excludes.retain(|pattern| !is_negated_glob(pattern));
+  excludes.len() != original_len
+}
+
 fn get_warn_associations_message() -> String {
   format!(
     "{} Plugin 'associations' that reference a parent directory (..) are ignored for security reasons on remote configuration.",
@@ -1020,6 +1044,13 @@ fn get_warn_includes_message() -> String {
 fn get_warn_inherit_message() -> String {
   format!(
     "{} The 'inherit' property is ignored on remote configuration because it has no ancestor directories.",
+    colors::bold("Note: "),
+  )
+}
+
+fn get_warn_negated_excludes_message() -> String {
+  format!(
+    "{} Negated 'excludes' (ex. !**/*.txt) are ignored for security reasons on remote configuration.",
     colors::bold("Note: "),
   )
 }
@@ -2397,6 +2428,37 @@ mod tests {
       let result = get_result("/test.json", &environment).await.unwrap();
       assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
       assert_eq!(result.config_map, expected_config_map);
+    });
+  }
+
+  #[test]
+  fn should_remove_negated_excludes_from_remote_config() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{ "excludes": ["dist", "!dist/keep", "!**/*.txt"] }"#.as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{ "extends": "https://dprint.dev/test.json", "excludes": ["!local"] }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages(), vec![get_warn_negated_excludes_message()]);
+      assert_eq!(result.excludes, Some(vec!["!local".to_string(), "dist".to_string()]));
+
+      environment.clear_logs();
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
+      assert_eq!(result.excludes, Some(vec!["!local".to_string(), "dist".to_string()]));
+
+      // a remote main config
+      environment.clear_logs();
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(result.excludes, Some(vec!["dist".to_string()]));
     });
   }
 

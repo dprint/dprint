@@ -1148,6 +1148,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
@@ -1181,6 +1182,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: vec!["#!/bin/sh".to_string()],
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1240,6 +1242,7 @@ mod test {
           start_dir: PathBuf::from("/"),
           config_discovery: ConfigDiscovery::Default,
           file_patterns: GlobPatterns {
+            config_includes_from_plugins: false,
             shebangs: vec!["#!/bin/sh".to_string()],
             arg_includes: None,
             config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
@@ -1291,6 +1294,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
@@ -1325,6 +1329,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1358,6 +1363,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1396,6 +1402,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1432,6 +1439,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1467,6 +1475,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1502,6 +1511,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: Some(vec![
             GlobPattern::new("./sub/file.txt".to_string(), root_dir.clone()),
@@ -1537,6 +1547,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: Some(vec![
             GlobPattern::new("./file.txt".to_string(), root_dir.clone()),
@@ -1573,6 +1584,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Disabled,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: Some(vec![GlobPattern::new("./sub/file.txt".to_string(), root_dir.clone())]),
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1604,6 +1616,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: Some(vec![GlobPattern::new("./ignored/file.txt".to_string(), root_dir.clone())]),
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
@@ -1634,6 +1647,7 @@ mod test {
         start_dir: PathBuf::from("/sub"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: Some(vec![GlobPattern::new("./other/**".to_string(), root_dir.clone())]),
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1663,6 +1677,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: Some(vec![GlobPattern::new("./sub".to_string(), root_dir.clone())]),
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1691,6 +1706,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1718,6 +1734,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -1747,6 +1764,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![
@@ -1781,6 +1799,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![
@@ -1817,6 +1836,7 @@ mod test {
         start_dir: PathBuf::from("/test/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![
@@ -1854,6 +1874,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![
@@ -1889,6 +1910,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
           shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![

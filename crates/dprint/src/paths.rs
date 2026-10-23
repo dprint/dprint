@@ -215,6 +215,7 @@ pub async fn get_and_resolve_file_paths<'a>(
         }),
     );
     file_patterns.config_includes = Some(config_includes);
+    file_patterns.config_includes_from_plugins = true;
   }
 
   get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, include_scope, environment).await
