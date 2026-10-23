@@ -200,15 +200,17 @@ Message body:
 
 Response: Capabilities response with the JSON capabilities of the editor service
 
-The capabilities are a JSON object with the following properties, which are `false` when not specified:
+The capabilities are a JSON object where each capability is an object, which may have more properties in the future. A capability that's not specified isn't supported. Ignore properties you don't know about.
 
-- `approveProcessPlugins` - Whether the "Approve process plugins" message is supported. For the client, this means it can ask the user whether to allow running process plugins.
+- `approveProcessPlugins` - The "Approve process plugins" message is supported. For the client, this means it can ask the user whether to allow running process plugins.
 
 ```ts
 interface EditorCapabilities {
-  approveProcessPlugins?: boolean;
+  approveProcessPlugins?: {};
 }
 ```
+
+For example, `{ "approveProcessPlugins": {} }`.
 
 #### `10` - Capabilities response (Service to Client)
 
@@ -240,12 +242,16 @@ Message body:
 interface ApproveProcessPluginsData {
   /** The configuration file that specifies the process plugins. */
   configFile: string;
-  /** The URLs or paths of the process plugins with their checksums. */
-  plugins: string[];
+  plugins: {
+    /** The URL or path of the process plugin with its checksum. */
+    source: string;
+  }[];
   /** The message to show the user. */
   message: string;
 }
 ```
+
+Ignore properties you don't know about.
 
 Response: Approve process plugins response once the user responds. Don't wait on the user to respond to other messages. The process plugins are used by the messages handled after the response is received.
 
@@ -254,10 +260,14 @@ Response: Approve process plugins response once the user responds. Don't wait on
 Message body:
 
 - u32 - Message id responding to
-- u32 - What the user chose
-  - `0` - Deny
-  - `1` - Allow
-  - `2` - Always Allow
-  - `3` - Always Deny
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface ApproveProcessPluginsResponseData {
+  /** What the user chose. An unknown value is treated as `"deny"`. */
+  decision: "allow" | "alwaysAllow" | "deny" | "alwaysDeny";
+}
+```
 
 Response: None

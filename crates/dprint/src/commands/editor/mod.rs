@@ -40,7 +40,10 @@ use crate::resolution::get_plugins_scope_from_args_with_approval;
 use crate::resolution::resolve_plugins_scope_with_approval;
 use crate::utils::Semaphore;
 
+use self::messages::ApproveProcessPluginsCapability;
 use self::messages::ApproveProcessPluginsMessage;
+use self::messages::ApproveProcessPluginsPlugin;
+use self::messages::ApproveProcessPluginsResponseMessage;
 use self::messages::EditorCapabilities;
 use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
@@ -143,7 +146,7 @@ struct EditorContext {
   /// capabilities (older editors don't, which is how they're known).
   pub editor_capabilities: RefCell<EditorCapabilities>,
   /// The responses being waited on for the `ApproveProcessPlugins` messages.
-  pub pending_approvals: RcIdStore<oneshot::Sender<u32>>,
+  pub pending_approvals: RcIdStore<oneshot::Sender<ProcessPluginsDecision>>,
   /// Whether the user allowed running process plugins since the plugins were
   /// resolved, which means they need to be resolved again.
   pub has_new_approval: Cell<bool>,
@@ -280,7 +283,9 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
             handle_message(&context, message.id, || {
               let capabilities = serde_json::from_slice::<EditorCapabilities>(&data)?;
               *context.editor_capabilities.borrow_mut() = capabilities;
-              let service_capabilities = EditorCapabilities { approve_process_plugins: true };
+              let service_capabilities = EditorCapabilities {
+                approve_process_plugins: Some(ApproveProcessPluginsCapability {}),
+              };
               Ok(EditorMessageBody::CapabilitiesResponse(message.id, serde_json::to_vec(&service_capabilities)?))
             });
           }
@@ -290,9 +295,15 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           EditorMessageBody::ApproveProcessPlugins(_) => {
             send_error_response(&context, message.id, anyhow!("CLI cannot handle an ApproveProcessPlugins message."));
           }
-          EditorMessageBody::ApproveProcessPluginsResponse(message_id, decision) => {
+          EditorMessageBody::ApproveProcessPluginsResponse(message_id, data) => {
             if let Some(sender) = context.pending_approvals.take(message_id) {
-              let _ = sender.send(decision);
+              match serde_json::from_slice::<ApproveProcessPluginsResponseMessage>(&data) {
+                Ok(response) => {
+                  let _ = sender.send(response.decision);
+                }
+                // dropping the sender denies them
+                Err(err) => send_error_response(&context, message.id, anyhow!("Error deserializing the process plugins decision. {:#}", err)),
+              }
             }
           }
           EditorMessageBody::Unknown(message_kind, _) => {
@@ -453,13 +464,17 @@ impl<TEnvironment: Environment> EditorService<'_, TEnvironment> {
       return;
     }
     let message = unapproved.message(permissions);
-    if !self.context.editor_capabilities.borrow().approve_process_plugins {
+    if self.context.editor_capabilities.borrow().approve_process_plugins.is_none() {
       log_warn!(self.environment, "{} {}", message, get_cant_ask_message(self.environment));
       return;
     }
     let data = ApproveProcessPluginsMessage {
       config_file: unapproved.approval.config_file.clone(),
-      plugins: unapproved.plugins.clone(),
+      plugins: unapproved
+        .plugins
+        .iter()
+        .map(|source| ApproveProcessPluginsPlugin { source: source.clone() })
+        .collect(),
       message,
     };
     let data = match serde_json::to_vec(&data) {
@@ -491,14 +506,10 @@ impl<TEnvironment: Environment> EditorService<'_, TEnvironment> {
     // don't wait on this because it only resolves once the user responds
     dprint_core::async_runtime::spawn(async move {
       // denied when the editor failed handling the message
-      let decision = receiver
-        .await
-        .ok()
-        .and_then(ProcessPluginsDecision::from_u32)
-        .unwrap_or(ProcessPluginsDecision::Deny);
+      let decision = receiver.await.unwrap_or(ProcessPluginsDecision::Deny);
       let allowed = matches!(decision, ProcessPluginsDecision::Allow | ProcessPluginsDecision::AlwaysAllow);
       let decision = match decision {
-        ProcessPluginsDecision::Allow | ProcessPluginsDecision::Deny => {
+        ProcessPluginsDecision::Allow | ProcessPluginsDecision::Deny | ProcessPluginsDecision::Unknown => {
           context
             .session_process_plugin_decisions
             .borrow_mut()
@@ -579,7 +590,9 @@ mod test {
   use crate::environment::TestEnvironmentBuilder;
   use crate::test_helpers::run_test_cli;
 
+  use super::messages::ApproveProcessPluginsCapability;
   use super::messages::ApproveProcessPluginsMessage;
+  use super::messages::ApproveProcessPluginsResponseMessage;
   use super::messages::EditorCapabilities;
   use super::messages::EditorMessage;
   use super::messages::EditorMessageBody;
@@ -687,7 +700,7 @@ mod test {
   #[derive(Clone, Default)]
   struct ApprovalState {
     requests: Rc<RefCell<Vec<ApproveProcessPluginsMessage>>>,
-    answer: Rc<Cell<u32>>,
+    answer: Rc<Cell<ProcessPluginsDecision>>,
   }
 
   impl EditorServiceCommunicator {
@@ -795,7 +808,7 @@ mod test {
     }
 
     pub fn set_approval_answer(&self, decision: ProcessPluginsDecision) {
-      self.approvals.answer.set(decision as u32);
+      self.approvals.answer.set(decision);
     }
 
     pub fn take_approval_requests(&self) -> Vec<ApproveProcessPluginsMessage> {
@@ -892,7 +905,12 @@ mod test {
         approvals.requests.borrow_mut().push(serde_json::from_slice(&data)?);
         writer.send(EditorMessage {
           id: id_generator.next(),
-          body: EditorMessageBody::ApproveProcessPluginsResponse(message.id, approvals.answer.get()),
+          body: EditorMessageBody::ApproveProcessPluginsResponse(
+            message.id,
+            serde_json::to_vec(&ApproveProcessPluginsResponseMessage {
+              decision: approvals.answer.get(),
+            })?,
+          ),
         })?;
       }
       EditorMessageBody::FormatResponse(message_id, data) => match messages.take(message_id) {
@@ -997,10 +1015,17 @@ mod test {
       move |communicator| {
         async move {
           let capabilities = communicator
-            .send_capabilities(&EditorCapabilities { approve_process_plugins: true })
+            .send_capabilities(&EditorCapabilities {
+              approve_process_plugins: Some(ApproveProcessPluginsCapability {}),
+            })
             .await
             .unwrap();
-          assert_eq!(capabilities, EditorCapabilities { approve_process_plugins: true });
+          assert_eq!(
+            capabilities,
+            EditorCapabilities {
+              approve_process_plugins: Some(ApproveProcessPluginsCapability {}),
+            }
+          );
 
           let format = || async {
             communicator
