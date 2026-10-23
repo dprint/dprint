@@ -190,9 +190,18 @@ impl PluginWithConfig {
     result
   }
 
-  pub fn get_merged_overrides_for_path(&self, file_path: &Path, request_override_config: &ConfigKeyMap) -> ConfigKeyMap {
+  pub fn get_merged_overrides_for_path(&self, file_path: &Path, request_override_config: &ConfigKeyMap, is_plugin_request: bool) -> ConfigKeyMap {
     let mut result = self.get_config_file_overrides_for_path(file_path);
+    // IMPORTANT: A plugin's request can come from any plugin (ex. a Wasm plugin
+    // from remote configuration formatting a code block), so its override config
+    // may only change the global configuration of a process plugin. Process plugins
+    // don't run sandboxed, so it could otherwise get them to do something like run
+    // commands of its choosing (ex. dprint-plugin-exec).
+    let only_global_config = is_plugin_request && self.plugin.is_process_plugin();
     for (key, value) in request_override_config.iter() {
+      if only_global_config && !GLOBAL_CONFIG_KEYS.contains(&key.as_str()) {
+        continue;
+      }
       result.insert(key.clone(), value.clone());
     }
     result
@@ -466,7 +475,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
 
   pub fn create_host_format_callback(self: &Rc<Self>) -> HostFormatCallback {
     let scope = self.clone();
-    Rc::new(move |host_request| scope.format(host_request))
+    Rc::new(move |host_request| scope.format_inner(host_request, /* is plugin request */ true))
   }
 
   /// Whether the editor should ask this scope to format the file.
@@ -529,6 +538,10 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
+    self.format_inner(request, /* is plugin request */ false)
+  }
+
+  fn format_inner(self: &Rc<Self>, request: HostFormatRequest, is_plugin_request: bool) -> LocalBoxFuture<'static, FormatResult> {
     let scope = self.clone();
     async move {
       let result = scope
@@ -537,6 +550,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
           file_bytes: Arc::new(request.file_bytes),
           range: request.range,
           override_config: request.override_config,
+          is_plugin_request,
           token: request.token,
         })
         .await?;
@@ -561,6 +575,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       file_bytes,
       range: None,
       override_config: override_config.clone(),
+      is_plugin_request: false,
       token: token.clone(),
     };
     let original_text = Arc::new(request.file_bytes);
@@ -597,6 +612,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       file_bytes,
       range,
       override_config,
+      is_plugin_request,
       token,
     } = request;
     let plugins = self
@@ -626,7 +642,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
               file_path: plugin_file_path.to_path_buf(),
               file_bytes: file_text.clone(),
               range: range.clone(),
-              override_config: plugin.get_merged_overrides_for_path(real_file_path, &override_config),
+              override_config: plugin.get_merged_overrides_for_path(real_file_path, &override_config, is_plugin_request),
               on_host_format: self.create_host_format_callback(),
               token: token.clone(),
             })
@@ -652,6 +668,9 @@ struct SharedFormatRequest {
   file_bytes: Arc<Vec<u8>>,
   range: FormatRange,
   override_config: ConfigKeyMap,
+  /// Whether a plugin made the request (ex. to format a code block) instead of
+  /// dprint or an editor.
+  is_plugin_request: bool,
   token: Arc<dyn CancellationToken>,
 }
 
@@ -1226,6 +1245,10 @@ fn resolve_plugin_config_overrides<TEnvironment: Environment>(
     })
     .collect()
 }
+
+/// The keys of the global configuration (ex. `"lineWidth": 80` at the top level
+/// of a config file), which is passed to every plugin.
+const GLOBAL_CONFIG_KEYS: [&str; 4] = ["lineWidth", "indentWidth", "useTabs", "newLineKind"];
 
 fn get_warn_remote_process_plugin_config_message(config_key: &str) -> String {
   format!(
