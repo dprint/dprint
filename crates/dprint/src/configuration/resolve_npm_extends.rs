@@ -175,6 +175,17 @@ impl NpmExtendsResolver {
     })
   }
 
+  /// Gets the SHA-256 checksum of the tarball of the registry package that a
+  /// resolved configuration file is in.
+  pub fn tarball_checksum(&self, source: &NpmPathSource) -> Option<String> {
+    let key = RegistryPackageKey {
+      base_dir: source.base_dir.as_ref().map(|d| -> PathBuf { d.as_ref().to_path_buf() }),
+      name: source.specifier.name.clone(),
+      version: source.specifier.version.clone()?,
+    };
+    self.registry_package_dirs.borrow().get(&key).map(|package| package.tarball_checksum.clone())
+  }
+
   /// Gets the directory of a registry package in the npm cache, downloading
   /// the package when it's not there.
   async fn ensure_registry_package(
@@ -627,6 +638,25 @@ mod tests {
       assert_eq!(get_number(&result, "prop2"), 2);
       assert_eq!(result.trusted_config_map, result.config_map);
       environment.take_stderr_messages();
+    });
+  }
+
+  #[test]
+  fn should_suggest_tarball_checksum_for_ignored_registry_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/dprint.json", r#"{ "extends": "npm:config@1.0.0/config.json" }"#)
+      .build();
+    let checksum = add_registry_package(&environment, "config", "1.0.0", &[("package/config.json", r#"{ "excludes": ["!**/*.txt"] }"#)]);
+
+    environment.clone().run_in_runtime(async move {
+      resolve_config("/dprint.json", &environment).await.unwrap();
+      let stderr_messages = environment.take_stderr_messages();
+      assert!(
+        stderr_messages
+          .iter()
+          .any(|m| m.contains(&format!("extended with a checksum (npm:config@1.0.0/config.json@{checksum})"))),
+        "{stderr_messages:?}"
+      );
     });
   }
 
