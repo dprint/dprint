@@ -189,20 +189,20 @@ Message body:
 
 Response: Clients should not expect a message back. This message is fire and forget. Remember though, you may still receive a response from the CLI for this cancelled message. In that case, just ignore the message.
 
-#### `9` - Capabilities (Client to Service, Service to Client)
+#### `9` - Capabilities (Client to Service)
 
-Asks the other side what it supports. Each side only sends the newer messages below to the other side when it says it supports them, so a client that never sends this message keeps working the same way. An older editor service responds with an error response because it doesn't know this message kind, which means it doesn't support anything below.
+Says what the client supports and asks what the editor service supports. Send this before any other message. The editor service only sends the newer messages below to a client that says it supports them, so a client that doesn't send this message (ex. an older one) keeps working the same way. An older editor service responds with an error response because it doesn't know this message kind, which means it doesn't support anything below.
 
 Message body:
 
 - u32 - Capabilities byte length
-- JSON capabilities of the side sending the message
+- JSON capabilities of the client
 
-Response: Capabilities response with the JSON capabilities of the side receiving the message
+Response: Capabilities response with the JSON capabilities of the editor service
 
 The capabilities are a JSON object with the following properties, which are `false` when not specified:
 
-- `approveProcessPlugins` - Whether the "Approve process plugins" message is supported. For a client, this means it can ask the user whether to allow running process plugins.
+- `approveProcessPlugins` - Whether the "Approve process plugins" message is supported. For the client, this means it can ask the user whether to allow running process plugins.
 
 ```ts
 interface EditorCapabilities {
@@ -210,13 +210,13 @@ interface EditorCapabilities {
 }
 ```
 
-#### `10` - Capabilities response (Service to Client, Client to Service)
+#### `10` - Capabilities response (Service to Client)
 
 Message body:
 
 - u32 - Message id responding to
 - u32 - Capabilities byte length
-- JSON capabilities
+- JSON capabilities of the editor service
 
 Response: None
 

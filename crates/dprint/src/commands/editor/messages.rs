@@ -236,10 +236,10 @@ pub enum EditorMessageBody {
   Format(FormatEditorMessageBody),
   FormatResponse(u32, Option<Vec<u8>>),
   CancelFormat(u32),
-  /// Asks for the capabilities of the other side, providing the sender's
-  /// capabilities as JSON (see `EditorCapabilities`).
+  /// The capabilities of the editor as JSON (see `EditorCapabilities`), which
+  /// an editor sends before any other message. Older editors don't send it.
   Capabilities(Vec<u8>),
-  /// The capabilities of the side that received a `Capabilities` message as JSON.
+  /// The capabilities of the editor service as JSON.
   CapabilitiesResponse(u32, Vec<u8>),
   /// Asks the editor whether to allow running the process plugins of a config
   /// file, which is only sent when its capabilities say it can ask the user.
@@ -280,7 +280,7 @@ pub struct FormatEditorMessageBody {
   pub file_bytes: Vec<u8>,
 }
 
-/// What one side of the editor service supports, which is exchanged with the
+/// What the editor or the editor service supports, which is exchanged with the
 /// `Capabilities` message. The editor service only sends a message to the
 /// editor that the editor says it supports, so older editors keep working.
 #[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

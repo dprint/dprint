@@ -138,7 +138,7 @@ struct EditorContext {
   /// the service's output, which is when the service should exit.
   pub output_closed: CancellationToken,
   /// What the editor supports, which is nothing new until it sends its
-  /// capabilities (older editors don't).
+  /// capabilities (older editors don't, which is how they're known).
   pub editor_capabilities: RefCell<EditorCapabilities>,
   /// The responses being waited on for the `ApproveProcessPlugins` messages.
   pub pending_approvals: RcIdStore<oneshot::Sender<bool>>,
@@ -279,10 +279,9 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
               Ok(EditorMessageBody::CapabilitiesResponse(message.id, serde_json::to_vec(&service_capabilities)?))
             });
           }
-          EditorMessageBody::CapabilitiesResponse(_, data) => match serde_json::from_slice::<EditorCapabilities>(&data) {
-            Ok(capabilities) => *context.editor_capabilities.borrow_mut() = capabilities,
-            Err(err) => send_error_response(&context, message.id, anyhow!("Error deserializing capabilities. {:#}", err)),
-          },
+          EditorMessageBody::CapabilitiesResponse(_, _) => {
+            send_error_response(&context, message.id, anyhow!("CLI cannot handle a CapabilitiesResponse message."));
+          }
           EditorMessageBody::ApproveProcessPlugins(_) => {
             send_error_response(&context, message.id, anyhow!("CLI cannot handle an ApproveProcessPlugins message."));
           }
