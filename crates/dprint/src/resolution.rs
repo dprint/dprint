@@ -1129,8 +1129,12 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
     // a checksum). Otherwise, remote configuration could get them to do something
     // like run commands of its choosing (ex. dprint-plugin-exec).
     let plugin_config = if plugin.is_process_plugin() {
-      if plugin_config != trusted_plugin_config {
-        log_warn!(environment, &get_warn_remote_process_plugin_config_message(&plugin.info().config_key));
+      let has_untrusted_config = plugin_config.properties != trusted_plugin_config.properties
+        || plugin_config.associations != trusted_plugin_config.associations
+        || plugin_config.overrides != trusted_plugin_config.overrides;
+      let config_key = &plugin.info().config_key;
+      if has_untrusted_config && plugin_resolver.should_warn_untrusted_config(config_key) {
+        log_warn!(environment, &get_warn_remote_process_plugin_config_message(config_key));
       }
       trusted_plugin_config // NEVER CHANGE THIS
     } else {

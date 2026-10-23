@@ -76,6 +76,9 @@ pub struct PluginResolver<TEnvironment: Environment> {
   options: PluginResolverOptions,
   /// The plugins downloaded again, so each is only reloaded once per process.
   reloaded: RefCell<HashSet<PluginSourceReference>>,
+  /// The config keys of the process plugins warned about having untrusted
+  /// configuration, so each is only warned about once per process.
+  warned_untrusted_config_keys: RefCell<HashSet<String>>,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
@@ -88,6 +91,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
       next_config_id: Default::default(),
       options,
       reloaded: Default::default(),
+      warned_untrusted_config_keys: Default::default(),
     }
   }
 
@@ -95,6 +99,12 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     let plugins = self.memory_cache.borrow_mut().drain().collect::<Vec<_>>();
     let futures = plugins.iter().filter_map(|p| p.1.get()).map(|p| p.shutdown());
     future::join_all(futures).await;
+  }
+
+  /// Gets whether to warn that the untrusted configuration of the process
+  /// plugin with the config key was ignored, which is only the first time.
+  pub fn should_warn_untrusted_config(&self, config_key: &str) -> bool {
+    self.warned_untrusted_config_keys.borrow_mut().insert(config_key.to_string())
   }
 
   pub fn next_config_id(&self) -> FormatConfigId {

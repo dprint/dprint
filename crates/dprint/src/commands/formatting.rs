@@ -1646,7 +1646,13 @@ mod test {
     assert_eq!(environment.read_file("/file.txt").unwrap(), "text_remote");
     assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_local");
     environment.take_stdout_messages();
-    environment.take_stderr_messages();
+    let stderr_messages = environment.take_stderr_messages();
+    assert!(
+      stderr_messages
+        .iter()
+        .any(|m| m.contains("The 'testProcessPlugin' configuration specified in remote configuration is ignored")),
+      "{stderr_messages:?}"
+    );
   }
 
   #[test]
@@ -1672,9 +1678,61 @@ mod test {
   }
 
   #[test]
+  fn should_warn_once_for_remote_process_plugin_config_with_descendant_configs() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_config_section("testProcessPlugin", r#"{ "ending": "remote" }"#);
+      })
+      .with_default_config(|c| {
+        c.add_remote_process_plugin()
+          .add_config_section("extends", r#""https://dprint.dev/shared.json""#);
+      })
+      .with_local_config("/a/dprint.json", |c| {
+        c.set_inherit(true);
+      })
+      .with_local_config("/b/dprint.json", |c| {
+        c.set_inherit(true);
+      })
+      .write_file("/file.txt_ps", "text")
+      .write_file("/a/file.txt_ps", "text")
+      .write_file("/b/file.txt_ps", "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    let stderr_messages = environment.take_stderr_messages();
+    assert_eq!(
+      stderr_messages
+        .iter()
+        .filter(|m| m.contains("The 'testProcessPlugin' configuration specified in remote configuration is ignored"))
+        .count(),
+      1,
+      "{stderr_messages:?}"
+    );
+  }
+
+  #[test]
+  fn should_not_warn_when_remote_config_only_locks_process_plugin_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_config_section("testProcessPlugin", r#"{ "locked": true }"#);
+      })
+      .with_default_config(|c| {
+        c.add_remote_process_plugin()
+          .add_config_section("extends", r#""https://dprint.dev/shared.json""#);
+      })
+      .write_file("/file.txt_ps", "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+  }
+
+  #[test]
   fn should_use_remote_config_for_process_plugins_when_extended_with_checksum() {
+    use crate::utils::get_sha256_checksum;
+
     let remote_config_text = r#"{ "testProcessPlugin": { "ending": "remote" } }"#;
-    let checksum = crate::utils::get_sha256_checksum(remote_config_text.as_bytes());
+    let checksum = get_sha256_checksum(remote_config_text.as_bytes());
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .add_remote_file("https://dprint.dev/shared.json", remote_config_text)
       .with_default_config(|c| {
@@ -6616,6 +6674,30 @@ text_formatted"
       "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
     );
     err.assert_exit_code(13);
+  }
+
+  #[test]
+  fn should_inherit_process_plugin_config() {
+    // the ancestor config is local, so its process plugin config is used
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config
+          .add_remote_process_plugin()
+          .add_config_section("testProcessPlugin", r#"{ "ending": "root" }"#);
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .initialize()
+      .write_file("/file.txt_ps", "text")
+      .write_file("/sub_dir/file.txt_ps", "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_root");
+    assert_eq!(environment.read_file("/sub_dir/file.txt_ps").unwrap(), "text_root");
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
   }
 
   #[test]

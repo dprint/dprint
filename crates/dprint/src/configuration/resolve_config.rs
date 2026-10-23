@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::rc::Rc;
 
-use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use deno_terminal::colors;
@@ -72,7 +71,7 @@ pub struct ResolvedConfig {
   pub inherit: Option<bool>,
   pub config_map: ConfigMap,
   /// The `config_map` with only what was specified in local configuration and
-  /// in remote configuration that was extended with a checksum.
+  /// in remote configuration that trusted configuration extended with a checksum.
   ///
   /// IMPORTANT: This is what process plugins are configured with. Process plugins
   /// don't run sandboxed, so remote configuration could otherwise get them to
@@ -372,6 +371,7 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     npm_resolver: Default::default(),
     is_trusted: config_path_and_text.source.is_local(),
     requires_checksum: false,
+    is_in_pinned_npm_package: false,
   };
   Ok(resolve_extends(resolved_config, extends, extends_context, environment.clone()).await?)
 }
@@ -488,6 +488,10 @@ struct ExtendsContext {
   /// configuration file with them or one that led to it being extended was
   /// extended with a checksum.
   requires_checksum: bool,
+  /// Whether the configuration file with these `extends` is in an npm package
+  /// whose tarball checksum was verified, so the other files in the package
+  /// it extends don't need their own checksum.
+  is_in_pinned_npm_package: bool,
 }
 
 impl ExtendsContext {
@@ -517,9 +521,9 @@ fn resolve_extends<TEnvironment: Environment>(
         .map(|specifier| resolve_extends_file_with_checksum(specifier, &context, &environment)),
     )
     .await;
-    for resolved_file in resolved_files {
-      let (resolved_file, has_checksum) = resolved_file?;
-      let resolved_file = resolved_file.into_text()?;
+    for extended_file in resolved_files {
+      let ExtendedConfigFile { file, pinning } = extended_file?;
+      let resolved_file = file.into_text()?;
       if context.ancestors.contains(&resolved_file.source) {
         bail!(
           "Circular extends detected: {} -> {}",
@@ -527,7 +531,7 @@ fn resolve_extends<TEnvironment: Environment>(
           resolved_file.source.display(),
         );
       }
-      resolved_config = match handle_config_file(&resolved_file, resolved_config, has_checksum, &context, &environment).await {
+      resolved_config = match handle_config_file(&resolved_file, resolved_config, pinning, &context, &environment).await {
         Ok(resolved_config) => resolved_config,
         Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),
       }
@@ -537,34 +541,94 @@ fn resolve_extends<TEnvironment: Environment>(
   .boxed_local()
 }
 
+struct ExtendedConfigFile {
+  file: ResolvedFilePathWithBytes,
+  pinning: ExtendsPinning,
+}
+
+/// How an extended configuration file's content was pinned.
+#[derive(Clone, Copy)]
+struct ExtendsPinning {
+  /// Whether the content can't change without the configuration that extended
+  /// it changing, which is when the `extends` specifier had a checksum or the
+  /// file is in an npm package whose tarball checksum was verified.
+  is_pinned: bool,
+  /// Whether the file is in an npm package whose tarball checksum was verified,
+  /// which also pins the other files in the package.
+  is_in_pinned_npm_package: bool,
+}
+
 /// Resolves an extended configuration file, verifying its checksum when the
-/// specifier has one (ex. `https://dprint.dev/config.json@<sha256>`). Returns
-/// whether it had one.
-async fn resolve_extends_file_with_checksum(
-  specifier: &str,
-  context: &ExtendsContext,
-  environment: &impl Environment,
-) -> Result<(ResolvedFilePathWithBytes, bool)> {
+/// specifier has one (ex. `https://dprint.dev/config.json@<sha256>`).
+async fn resolve_extends_file_with_checksum(specifier: &str, context: &ExtendsContext, environment: &impl Environment) -> Result<ExtendedConfigFile> {
   let (specifier_without_checksum, checksum) = parse_extends_checksum(specifier)?;
-  let Some(checksum) = checksum else {
-    // IMPORTANT: Everything a configuration file extended with a checksum extends
-    // must also have a checksum. Otherwise the configuration the checksum is for
-    // could change what's extended out from under it.
-    if context.requires_checksum {
-      bail!(
-        concat!(
-          "Expected a checksum for '{}' because it's extended by configuration that was extended with a checksum. ",
-          "Specify it with an @ followed by the file's SHA-256 checksum (ex. {}@<checksum>)."
-        ),
-        specifier,
-        specifier,
-      );
+  if specifier.starts_with("npm:") {
+    // the npm resolver verifies the checksum of the package's tarball
+    ensure_checksum_if_required(specifier, checksum, context)?;
+    let file = resolve_extends_file(specifier, context, context.remote_cache_mode, environment).await?;
+    let is_pinned = checksum.is_some();
+    return Ok(ExtendedConfigFile {
+      file,
+      pinning: ExtendsPinning {
+        is_pinned,
+        is_in_pinned_npm_package: is_pinned,
+      },
+    });
+  }
+  // a file in the same npm package as one whose tarball checksum was verified
+  let is_in_pinned_npm_package = context.is_in_pinned_npm_package && matches!(context.base_path, PathSource::Npm(_)) && is_relative_path(specifier);
+  match checksum {
+    Some(checksum) => {
+      let checksum = checksum.to_ascii_lowercase();
+      let mut file = resolve_extends_file(specifier_without_checksum, context, context.remote_cache_mode, environment).await?;
+      if verify_sha256_checksum(&file.content, &checksum).is_err() && context.remote_cache_mode == RemoteCacheMode::Use {
+        // the cached file might be out of date, so check the server for a newer one
+        file = resolve_extends_file(specifier_without_checksum, context, RemoteCacheMode::Reload, environment).await?;
+      }
+      if let Err(err) = verify_sha256_checksum(&file.content, &checksum) {
+        bail!("Invalid checksum for extended configuration '{}'.\n\n{:#}", specifier, err);
+      }
+      Ok(ExtendedConfigFile {
+        file,
+        pinning: ExtendsPinning {
+          is_pinned: true,
+          is_in_pinned_npm_package,
+        },
+      })
     }
-    return Ok((resolve_extends_file(specifier, context, environment).await?, false));
-  };
-  let resolved_file = resolve_extends_file(specifier_without_checksum, context, environment).await?;
-  verify_sha256_checksum(&resolved_file.content, checksum).with_context(|| format!("Invalid checksum for extended configuration '{}'.", specifier))?;
-  Ok((resolved_file, true))
+    None => {
+      if !is_in_pinned_npm_package {
+        ensure_checksum_if_required(specifier, None, context)?;
+      }
+      let file = resolve_extends_file(specifier, context, context.remote_cache_mode, environment).await?;
+      Ok(ExtendedConfigFile {
+        file,
+        pinning: ExtendsPinning {
+          is_pinned: is_in_pinned_npm_package,
+          is_in_pinned_npm_package,
+        },
+      })
+    }
+  }
+}
+
+/// Errors when the specifier doesn't have a checksum, but must have one.
+///
+/// IMPORTANT: Everything a configuration file extended with a checksum extends
+/// must also have a checksum. Otherwise the configuration the checksum is for
+/// could change what's extended out from under it.
+fn ensure_checksum_if_required(specifier: &str, checksum: Option<&str>, context: &ExtendsContext) -> Result<()> {
+  if checksum.is_none() && context.requires_checksum {
+    bail!(
+      concat!(
+        "Expected a checksum for '{}' because it's extended by configuration that was extended with a checksum. ",
+        "Specify it with an @ followed by the 64 character SHA-256 checksum of the file (ex. {}@<checksum>)."
+      ),
+      specifier,
+      specifier,
+    );
+  }
+  Ok(())
 }
 
 /// Splits the checksum from the end of an `extends` specifier, which is an @
@@ -587,13 +651,18 @@ fn parse_extends_checksum(specifier: &str) -> Result<(&str, Option<&str>)> {
   })
 }
 
-async fn resolve_extends_file(specifier: &str, context: &ExtendsContext, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
+async fn resolve_extends_file(
+  specifier: &str,
+  context: &ExtendsContext,
+  remote_cache_mode: RemoteCacheMode,
+  environment: &impl Environment,
+) -> Result<ResolvedFilePathWithBytes> {
   let base_path = &context.base_path;
   if specifier.starts_with("npm:") {
     context.npm_resolver.resolve(specifier, base_path, environment).await
   } else if let PathSource::Npm(npm_base) = base_path {
     if is_http_url(specifier) {
-      resolve_url_or_file_path_to_file_with_cache(specifier, base_path, context.remote_cache_mode, environment).await
+      resolve_url_or_file_path_to_file_with_cache(specifier, base_path, remote_cache_mode, environment).await
     } else if is_relative_path(specifier) {
       // a config file in an npm package extending another file in the package
       context.npm_resolver.resolve_relative(specifier, npm_base, environment).await
@@ -610,7 +679,7 @@ async fn resolve_extends_file(specifier: &str, context: &ExtendsContext, environ
       );
     }
   } else {
-    resolve_url_or_file_path_to_file_with_cache(specifier, base_path, context.remote_cache_mode, environment).await
+    resolve_url_or_file_path_to_file_with_cache(specifier, base_path, remote_cache_mode, environment).await
   }
 }
 
@@ -625,7 +694,7 @@ fn is_relative_path(specifier: &str) -> bool {
 async fn handle_config_file<TEnvironment: Environment>(
   config_path_and_text: &ResolvedFilePathWithText,
   mut resolved_config: ResolvedConfig,
-  has_checksum: bool,
+  pinning: ExtendsPinning,
   extends_context: &ExtendsContext,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig> {
@@ -700,7 +769,7 @@ async fn handle_config_file<TEnvironment: Environment>(
 
   // IMPORTANT: Process plugins are only configured by local configuration and
   // remote configuration that trusted configuration extended with a checksum.
-  let is_trusted = !is_remote || (has_checksum && extends_context.is_trusted);
+  let is_trusted = !is_remote || (pinning.is_pinned && extends_context.is_trusted);
   if is_trusted {
     merge_config_map_into(&mut resolved_config.trusted_config_map, new_config_map.clone())?;
   }
@@ -715,7 +784,8 @@ async fn handle_config_file<TEnvironment: Environment>(
     remote_cache_mode: extends_context.remote_cache_mode,
     npm_resolver: extends_context.npm_resolver.clone(),
     is_trusted,
-    requires_checksum: has_checksum || extends_context.requires_checksum,
+    requires_checksum: pinning.is_pinned || extends_context.requires_checksum,
+    is_in_pinned_npm_package: pinning.is_in_pinned_npm_package,
   };
   let remote_cache_mode = extends_context.remote_cache_mode;
   let inherit_chain = extends_context.inherit_chain.clone();
@@ -2527,7 +2597,7 @@ mod tests {
   }
 
   #[test]
-  fn should_only_have_local_config_in_trusted_config_map() {
+  fn should_not_have_remote_config_without_checksum_in_trusted_config_map() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/remote.json",
@@ -2647,10 +2717,66 @@ mod tests {
         err.to_string(),
         concat!(
           "Expected a checksum for './other.json' because it's extended by configuration that was extended with a checksum. ",
-          "Specify it with an @ followed by the file's SHA-256 checksum (ex. ./other.json@<checksum>).\n",
+          "Specify it with an @ followed by the 64 character SHA-256 checksum of the file (ex. ./other.json@<checksum>).\n",
           "    at https://dprint.dev/pinned.json"
         )
       );
+    });
+  }
+
+  #[test]
+  fn should_require_checksums_for_everything_extended_by_config_extended_with_checksum() {
+    // a.json@sha -> b.json@sha -> c.json without a checksum
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://dprint.dev/c.json", r#"{ "c": { "prop": "c" } }"#.as_bytes());
+    let b_text = r#"{ "extends": "./c.json" }"#;
+    let b_checksum = get_sha256_checksum(b_text.as_bytes());
+    environment.add_remote_file_bytes("https://dprint.dev/b.json", b_text.as_bytes().to_vec());
+    let a_text = format!(r#"{{ "extends": "./b.json@{b_checksum}" }}"#);
+    let a_checksum = get_sha256_checksum(a_text.as_bytes());
+    environment.add_remote_file_bytes("https://dprint.dev/a.json", a_text.into_bytes());
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        &format!(r#"{{ "extends": "https://dprint.dev/a.json@{a_checksum}" }}"#),
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let err = get_result("/test.json", &environment).await.unwrap_err();
+      let err = format!("{err:#}");
+      assert!(err.starts_with("Expected a checksum for './c.json'"), "{err}");
+      assert!(err.contains("    at https://dprint.dev/b.json"), "{err}");
+    });
+  }
+
+  #[test]
+  fn should_check_server_for_extended_config_when_cached_one_does_not_match_checksum() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://dprint.dev/shared.json", r#"{ "test": { "prop": "old" } }"#.as_bytes());
+    environment
+      .write_file(&PathBuf::from("/test.json"), r#"{ "extends": "https://dprint.dev/shared.json" }"#)
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      // caches the old file
+      get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.remote_file_request_count("https://dprint.dev/shared.json"), 1);
+
+      // the file changed and the checksum was updated for it
+      let new_text = r#"{ "test": { "prop": "new" } }"#;
+      environment.add_remote_file_bytes("https://dprint.dev/shared.json", new_text.as_bytes().to_vec());
+      let checksum = get_sha256_checksum(new_text.as_bytes());
+      environment
+        .write_file(
+          &PathBuf::from("/test.json"),
+          &format!(r#"{{ "extends": "https://dprint.dev/shared.json@{checksum}" }}"#),
+        )
+        .unwrap();
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.remote_file_request_count("https://dprint.dev/shared.json"), 2);
+      assert_eq!(result.trusted_config_map.len(), 1);
+      assert_eq!(result.trusted_config_map, result.config_map);
     });
   }
 
