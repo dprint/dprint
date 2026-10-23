@@ -1171,7 +1171,7 @@ pub struct UnapprovedProcessPlugins {
 impl UnapprovedProcessPlugins {
   /// Gets the message that says the process plugins weren't used.
   pub fn message(&self, permissions: &Permissions) -> String {
-    let reason = if permissions.was_approved_with_other_config(&self.approval) {
+    let reason = if permissions.was_allowed_with_other_config(&self.approval) {
       "its configuration changed since they were allowed"
     } else {
       "they weren't allowed to run"

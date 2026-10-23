@@ -88,7 +88,7 @@ The first time in a session that a file isn't formatted because no configuration
 - `Don't show in this workspace` stops showing it for the current workspace folders. This is only offered when there's a workspace folder.
 - `Don't show again` stops showing it everywhere.
 
-A server can't change an editor's settings, so the choice is stored in an `lsp-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file shows the notification again. To turn off the notification from the editor instead, set the `showNoConfigNotification` [setting](#settings) to `false`.
+A server can't change an editor's settings, so the choice is stored in an `editor-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file shows the notification again. To turn off the notification from the editor instead, set the `showNoConfigNotification` [setting](#settings) to `false`.
 
 ## Process Plugins
 
@@ -104,9 +104,16 @@ Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Open
 
 Process plugins are allowed without asking by default for now. A future version of dprint will ask by default, which setting `editor.allowProcessPlugins` to `true` opts out of.
 
-When a file is formatted with a configuration file whose process plugins you haven't allowed, the server doesn't set them up or start them and shows a message with the actions `Allow` and `Don't Allow`. This happens once per session for each configuration file. Files they would format aren't formatted until they're allowed, and the next format uses them once you select `Allow`. In a client that can't show the actions of a message, the message says that they're not allowed instead.
+When a file is formatted with a configuration file whose process plugins you haven't allowed, the server doesn't set them up or start them and asks with a message that has the following actions:
 
-What's allowed is the process plugins of that configuration file with its plugins and configuration. When the configuration file changes (ex. the commands of dprint-plugin-exec), you're asked again. The process plugins of the [global configuration file](/global-config) are always allowed. The choices are stored in the same settings file.
+- `Allow` runs them for the rest of the session.
+- `Always Allow` runs them from then on.
+- `Deny` doesn't run them for the rest of the session. Not selecting an action does the same.
+- `Always Deny` doesn't run them or ask about them again.
+
+Files they would format aren't formatted until they're allowed, and the next format uses them once they are. In a client that can't show the actions of a message, the message says that they're not allowed instead.
+
+What's decided on is the process plugins of that configuration file with its plugins and configuration, so when the configuration file changes (ex. the commands of dprint-plugin-exec), you're asked again. The process plugins of the [global configuration file](/global-config) are always allowed. The `Always Allow` and `Always Deny` choices are stored in an `editor-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file has you asked again.
 
 This is deliberately not a [setting](#settings) because an editor's workspace settings can come from the project (ex. `.vscode/settings.json`), which would let a project allow its own process plugins. The CLI doesn't use this file because running `dprint fmt` is choosing to run dprint in that directory.
 

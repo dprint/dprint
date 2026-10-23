@@ -4,12 +4,15 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
+use parking_lot::Mutex;
 
 use crate::cache::RemoteCacheMode;
 use crate::configuration::Permissions;
+use crate::configuration::ProcessPluginDecision;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
@@ -44,6 +47,8 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
   plugins_generation: Cell<usize>,
+  /// What the user decided about running process plugins for this session.
+  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
 }
 
 impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
@@ -52,6 +57,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
     config_override: Option<PathBuf>,
     remote_cache_mode: RemoteCacheMode,
+    session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
   ) -> Self {
     Self {
       environment,
@@ -60,6 +66,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       config_override,
       remote_cache_mode,
       plugins_generation: Default::default(),
+      session_process_plugin_decisions,
     }
   }
 
@@ -105,7 +112,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     let mut cell = cell.lock().await;
     let config = self.resolve_config(&config_file_bytes).await?;
     // read each time so approving a process plugin or editing the file takes effect
-    let permissions = read_permissions(&self.environment);
+    let permissions = read_permissions(&self.environment, &self.session_process_plugin_decisions.lock());
 
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);

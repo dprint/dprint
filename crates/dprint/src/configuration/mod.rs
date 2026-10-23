@@ -1,4 +1,5 @@
 mod deserialize_config;
+mod editor_state;
 mod get_global_config;
 mod get_init_config_file_text;
 mod get_plugin_config_map;
@@ -12,6 +13,7 @@ mod settings;
 mod types;
 
 pub use deserialize_config::*;
+pub use editor_state::*;
 pub use get_global_config::*;
 pub use get_init_config_file_text::*;
 pub use get_plugin_config_map::*;

@@ -245,7 +245,8 @@ pub enum EditorMessageBody {
   /// file, which is only sent when its capabilities say it can ask the user.
   /// The data is JSON (see `ApproveProcessPluginsMessage`).
   ApproveProcessPlugins(Vec<u8>),
-  /// Whether the user allowed running the process plugins (1) or not (0).
+  /// What the user decided about running the process plugins (see
+  /// `ProcessPluginsDecision`).
   ApproveProcessPluginsResponse(u32, u32),
   #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
@@ -301,4 +302,29 @@ pub struct ApproveProcessPluginsMessage {
   pub plugins: Vec<String>,
   /// The message to show the user.
   pub message: String,
+}
+
+/// What the user decided in response to an `ApproveProcessPlugins` message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessPluginsDecision {
+  /// Don't run them for this session.
+  Deny = 0,
+  /// Run them for this session.
+  Allow = 1,
+  /// Run them until the configuration changes.
+  AlwaysAllow = 2,
+  /// Don't run them or ask again until the configuration changes.
+  AlwaysDeny = 3,
+}
+
+impl ProcessPluginsDecision {
+  pub fn from_u32(value: u32) -> Option<Self> {
+    match value {
+      0 => Some(Self::Deny),
+      1 => Some(Self::Allow),
+      2 => Some(Self::AlwaysAllow),
+      3 => Some(Self::AlwaysDeny),
+      _ => None,
+    }
+  }
 }

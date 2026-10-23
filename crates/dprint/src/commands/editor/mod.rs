@@ -25,10 +25,11 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
 use crate::configuration::Permissions;
 use crate::configuration::ProcessPluginApproval;
+use crate::configuration::ProcessPluginDecision;
 use crate::configuration::ResolvedConfig;
-use crate::configuration::add_process_plugin_approval;
 use crate::configuration::read_permissions;
 use crate::configuration::resolve_config_from_args;
+use crate::configuration::store_process_plugin_decision;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
@@ -44,6 +45,7 @@ use self::messages::EditorCapabilities;
 use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
 use self::messages::FormatEditorMessageBody;
+use self::messages::ProcessPluginsDecision;
 
 pub async fn output_editor_info<TEnvironment: Environment>(
   args: &CliArgs,
@@ -78,7 +80,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
   // IMPORTANT: An editor gets this when it opens a project, which isn't the same
   // as the user choosing to run dprint there, so only start the process plugins
   // the user allowed.
-  let permissions = read_permissions(environment);
+  let permissions = read_permissions(environment, &[]);
   let scope = get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, |approval| permissions.is_process_plugin_allowed(approval)).await?;
 
   scope.ensure_no_global_config_diagnostics()?;
@@ -141,10 +143,12 @@ struct EditorContext {
   /// capabilities (older editors don't, which is how they're known).
   pub editor_capabilities: RefCell<EditorCapabilities>,
   /// The responses being waited on for the `ApproveProcessPlugins` messages.
-  pub pending_approvals: RcIdStore<oneshot::Sender<bool>>,
+  pub pending_approvals: RcIdStore<oneshot::Sender<u32>>,
   /// Whether the user allowed running process plugins since the plugins were
   /// resolved, which means they need to be resolved again.
   pub has_new_approval: Cell<bool>,
+  /// What the user decided about running process plugins for this session.
+  pub session_process_plugin_decisions: RefCell<Vec<ProcessPluginDecision>>,
 }
 
 /// A message that needs the configuration to be handled.
@@ -193,6 +197,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         editor_capabilities: Default::default(),
         pending_approvals: Default::default(),
         has_new_approval: Default::default(),
+        session_process_plugin_decisions: Default::default(),
       }),
       concurrency_limiter,
       config_semaphore: Rc::new(Semaphore::new(1)),
@@ -285,9 +290,9 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           EditorMessageBody::ApproveProcessPlugins(_) => {
             send_error_response(&context, message.id, anyhow!("CLI cannot handle an ApproveProcessPlugins message."));
           }
-          EditorMessageBody::ApproveProcessPluginsResponse(message_id, approved) => {
+          EditorMessageBody::ApproveProcessPluginsResponse(message_id, decision) => {
             if let Some(sender) = context.pending_approvals.take(message_id) {
-              let _ = sender.send(approved == 1);
+              let _ = sender.send(decision);
             }
           }
           EditorMessageBody::Unknown(message_kind, _) => {
@@ -398,7 +403,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let _update_permit = self.config_semaphore.acquire().await;
     let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
     // read each time so allowing process plugins or editing the file takes effect
-    let permissions = read_permissions(self.environment);
+    let permissions = read_permissions(self.environment, &self.context.session_process_plugin_decisions.borrow());
 
     let last_config = self.plugins_scope.as_ref().and_then(|scope| scope.config.as_ref());
     let has_config_changed =
@@ -441,9 +446,10 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 impl<TEnvironment: Environment> EditorService<'_, TEnvironment> {
   /// Asks the editor whether to allow running the process plugins of a config
   /// file when it supports that, which is only done once per session for each
-  /// configuration. Otherwise, says so in the log.
+  /// configuration and not when the user denied them. Otherwise, says so in
+  /// the log.
   fn ask_to_allow_process_plugins(&mut self, unapproved: &UnapprovedProcessPlugins, permissions: &Permissions) {
-    if !self.prompted_process_plugins.insert(unapproved.approval.clone()) {
+    if !self.prompted_process_plugins.insert(unapproved.approval.clone()) || permissions.is_process_plugin_denied(&unapproved.approval) {
       return;
     }
     let message = unapproved.message(permissions);
@@ -484,13 +490,32 @@ impl<TEnvironment: Environment> EditorService<'_, TEnvironment> {
     let approval = unapproved.approval.clone();
     // don't wait on this because it only resolves once the user responds
     dprint_core::async_runtime::spawn(async move {
-      // not approved when the editor failed handling the message
-      if !receiver.await.unwrap_or(false) {
-        return;
-      }
-      match add_process_plugin_approval(&environment, &approval) {
-        Ok(_) => context.has_new_approval.set(true),
-        Err(err) => log_warn!(environment, "Failed storing that the process plugins are allowed: {:#}", err),
+      // denied when the editor failed handling the message
+      let decision = receiver
+        .await
+        .ok()
+        .and_then(ProcessPluginsDecision::from_u32)
+        .unwrap_or(ProcessPluginsDecision::Deny);
+      let allowed = matches!(decision, ProcessPluginsDecision::Allow | ProcessPluginsDecision::AlwaysAllow);
+      let decision = match decision {
+        ProcessPluginsDecision::Allow | ProcessPluginsDecision::Deny => {
+          context
+            .session_process_plugin_decisions
+            .borrow_mut()
+            .push(ProcessPluginDecision { approval, allowed });
+          Ok(())
+        }
+        ProcessPluginsDecision::AlwaysAllow | ProcessPluginsDecision::AlwaysDeny => {
+          store_process_plugin_decision(&environment, ProcessPluginDecision { approval, allowed }).await
+        }
+      };
+      match decision {
+        Ok(()) => {
+          if allowed {
+            context.has_new_approval.set(true);
+          }
+        }
+        Err(err) => log_warn!(environment, "Failed storing the decision for the process plugins: {:#}", err),
       }
     });
   }
@@ -559,6 +584,7 @@ mod test {
   use super::messages::EditorMessage;
   use super::messages::EditorMessageBody;
   use super::messages::FormatEditorMessageBody;
+  use super::messages::ProcessPluginsDecision;
 
   #[test]
   fn should_output_editor_plugin_info() {
@@ -661,7 +687,7 @@ mod test {
   #[derive(Clone, Default)]
   struct ApprovalState {
     requests: Rc<RefCell<Vec<ApproveProcessPluginsMessage>>>,
-    answer: Rc<Cell<bool>>,
+    answer: Rc<Cell<u32>>,
   }
 
   impl EditorServiceCommunicator {
@@ -768,8 +794,8 @@ mod test {
       Ok(serde_json::from_slice(&data)?)
     }
 
-    pub fn set_approval_answer(&self, approve: bool) {
-      self.approvals.answer.set(approve);
+    pub fn set_approval_answer(&self, decision: ProcessPluginsDecision) {
+      self.approvals.answer.set(decision as u32);
     }
 
     pub fn take_approval_requests(&self) -> Vec<ApproveProcessPluginsMessage> {
@@ -866,7 +892,7 @@ mod test {
         approvals.requests.borrow_mut().push(serde_json::from_slice(&data)?);
         writer.send(EditorMessage {
           id: id_generator.next(),
-          body: EditorMessageBody::ApproveProcessPluginsResponse(message.id, if approvals.answer.get() { 1 } else { 0 }),
+          body: EditorMessageBody::ApproveProcessPluginsResponse(message.id, approvals.answer.get()),
         })?;
       }
       EditorMessageBody::FormatResponse(message_id, data) => match messages.take(message_id) {
@@ -984,7 +1010,7 @@ mod test {
           };
 
           // not allowed, which is only asked once per session
-          communicator.set_approval_answer(false);
+          communicator.set_approval_answer(ProcessPluginsDecision::Deny);
           communicator.check_file(&file_path).await.unwrap();
           assert_eq!(format().await, None);
           communicator.check_file(&file_path).await.unwrap();
@@ -1005,7 +1031,7 @@ mod test {
                 .replacen('{', r#"{ "testProcessPlugin": { "ending": "allowed" }, "#, 1),
             )
             .unwrap();
-          communicator.set_approval_answer(true);
+          communicator.set_approval_answer(ProcessPluginsDecision::AlwaysAllow);
           communicator.check_file(&file_path).await.unwrap();
           assert_eq!(communicator.take_approval_requests().len(), 1);
           // the approval is stored after the response is received
@@ -1551,6 +1577,7 @@ mod test {
         editor_capabilities: Default::default(),
         pending_approvals: Default::default(),
         has_new_approval: Default::default(),
+        session_process_plugin_decisions: Default::default(),
       };
       // the first message fails to be written on the writer thread
       // and then the messages after that can't be sent

@@ -222,7 +222,14 @@ Response: None
 
 #### `11` - Approve process plugins (Service to Client)
 
-Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start the process plugins of a configuration file until the user allows them. Opening a project isn't the same as choosing to run dprint in it. This message is sent to a client that supports it to ask the user whether to allow them. It's sent at most once per session for each configuration of a configuration file. A client that doesn't support it has a warning logged to stderr instead.
+Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start the process plugins of a configuration file until the user allows them. Opening a project isn't the same as choosing to run dprint in it. This message is sent to a client that supports it to ask the user whether to allow them. It's sent at most once per session for each configuration of a configuration file and not when the user denied them. A client that doesn't support it has a warning logged to stderr instead.
+
+Show the user the following choices, where the configuration changing has the user asked again:
+
+- Allow - Run them for the rest of the session.
+- Always Allow - Run them from then on.
+- Deny - Don't run them for the rest of the session. Respond with this when the user doesn't choose.
+- Always Deny - Don't run them or ask about them again.
 
 Message body:
 
@@ -247,6 +254,10 @@ Response: Approve process plugins response once the user responds. Don't wait on
 Message body:
 
 - u32 - Message id responding to
-- u32 - 0 for not allowed, or 1 for allowed
+- u32 - What the user chose
+  - `0` - Deny
+  - `1` - Allow
+  - `2` - Always Allow
+  - `3` - Always Deny
 
 Response: None

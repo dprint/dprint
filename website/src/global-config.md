@@ -118,4 +118,4 @@ dprint's settings that aren't formatting configuration go in a `settings.json` f
 
 - `editor.allowProcessPlugins` - Whether editors run [process plugins](/lsp#process-plugins) without you allowing them, which is the default for now.
 
-dprint also stores some things here: the process plugins you allowed (`editor.approvedProcessPlugins`) and the [preferences of `dprint init`](/setup#init-preferences) (`init`). Only the property being changed is written, so the rest of the file is kept as it is.
+dprint also stores the [preferences of `dprint init`](/setup#init-preferences) here (`init`). Only the property being changed is written, so the rest of the file is kept as it is.

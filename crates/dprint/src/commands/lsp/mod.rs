@@ -72,9 +72,10 @@ use url::Url;
 use crate::arg_parser::CliArgs;
 use crate::cache::RemoteCacheMode;
 use crate::configuration::ProcessPluginApproval;
-use crate::configuration::add_process_plugin_approval;
+use crate::configuration::ProcessPluginDecision;
 use crate::configuration::read_permissions;
 use crate::configuration::resolve_global_config_path_and_text;
+use crate::configuration::store_process_plugin_decision;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
@@ -408,13 +409,21 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let (tx, rx) = mpsc::unbounded_channel();
 
   let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
-  let recv_task = start_message_handler(environment, plugin_resolver, config_path, args.remote_cache_mode(), rx);
+  let session_process_plugin_decisions = Arc::new(Mutex::new(Vec::new()));
+  let recv_task = start_message_handler(
+    environment,
+    plugin_resolver,
+    config_path,
+    args.remote_cache_mode(),
+    session_process_plugin_decisions.clone(),
+    rx,
+  );
 
   let environment = environment.clone();
   let lsp_task = dprint_core::async_runtime::spawn(async move {
     let (service, socket, pending) = LspService::new(|client| {
       let client = ClientWrapper::new(Arc::new(client));
-      Backend::new(client.clone(), environment.clone(), tx)
+      Backend::new(client.clone(), environment.clone(), tx, session_process_plugin_decisions)
     });
     Server::new(stdin, stdout, socket, pending).serve(service).await;
   });
@@ -440,6 +449,7 @@ fn start_message_handler<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   config_override: Option<PathBuf>,
   remote_cache_mode: RemoteCacheMode,
+  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
 ) -> JoinHandle<bool> {
   // tower_lsp required Backend to implement Send and Sync, but
@@ -455,6 +465,7 @@ fn start_message_handler<TEnvironment: Environment>(
     plugin_resolver.clone(),
     config_override,
     remote_cache_mode,
+    session_process_plugin_decisions,
   ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
@@ -540,13 +551,22 @@ struct Backend<TEnvironment: Environment> {
   environment: TEnvironment,
   sender: mpsc::UnboundedSender<ChannelMessage>,
   state: Mutex<State<TEnvironment>>,
+  /// What the user decided about running process plugins for this session,
+  /// which is shared with the message handler.
+  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
 }
 
 impl<TEnvironment: Environment> Backend<TEnvironment> {
-  pub fn new(client: ClientWrapper, environment: TEnvironment, sender: mpsc::UnboundedSender<ChannelMessage>) -> Self {
+  pub fn new(
+    client: ClientWrapper,
+    environment: TEnvironment,
+    sender: mpsc::UnboundedSender<ChannelMessage>,
+    session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
+  ) -> Self {
     Backend {
       client,
       sender,
+      session_process_plugin_decisions,
       state: Mutex::new(State {
         settings: LspSettings::from_environment(&environment),
         documents: Documents::new(environment.clone()),
@@ -803,7 +823,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   }
 
   /// Asks the user whether to allow running the process plugins of a config
-  /// file, which is only done once per session for each configuration.
+  /// file, which is only done once per session for each configuration and not
+  /// when the user denied them.
   fn ask_to_allow_process_plugins(&self, unapproved: UnapprovedProcessPlugins) {
     let supports_message_actions = {
       let mut state = self.state.lock();
@@ -812,30 +833,38 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       }
       state.supports_message_actions
     };
-    let message = unapproved.message(&read_permissions(&self.environment));
+    let permissions = read_permissions(&self.environment, &self.session_process_plugin_decisions.lock());
+    if permissions.is_process_plugin_denied(&unapproved.approval) {
+      return;
+    }
+    let message = unapproved.message(&permissions);
     if !supports_message_actions {
       self
         .client
         .show_message(MessageType::WARNING, format!("{} {}", message, get_cant_ask_message(&self.environment)));
       return;
     }
-    let actions = vec![
-      new_message_action(ALLOW_PROCESS_PLUGINS_ACTION_TITLE),
-      new_message_action(DISALLOW_PROCESS_PLUGINS_ACTION_TITLE),
-    ];
+    let actions = [ALLOW_ACTION_TITLE, ALWAYS_ALLOW_ACTION_TITLE, DENY_ACTION_TITLE, ALWAYS_DENY_ACTION_TITLE]
+      .into_iter()
+      .map(new_message_action)
+      .collect();
     let selection = self.client.show_message_request(MessageType::WARNING, message, actions);
     let client = self.client.clone();
     let environment = self.environment.clone();
+    let session_decisions = self.session_process_plugin_decisions.clone();
     // don't wait on this because it only resolves once the user responds
     dprint_core::async_runtime::spawn(async move {
-      let Some(selection) = selection.await else {
-        return;
+      let selection = selection.await;
+      let title = selection.as_ref().map(|selection| selection.title.as_str());
+      let decision = ProcessPluginDecision {
+        approval: unapproved.approval,
+        allowed: matches!(title, Some(ALLOW_ACTION_TITLE | ALWAYS_ALLOW_ACTION_TITLE)),
       };
-      if selection.title != ALLOW_PROCESS_PLUGINS_ACTION_TITLE {
-        return;
-      }
-      if let Err(err) = add_process_plugin_approval(&environment, &unapproved.approval) {
-        let message = format!("Failed storing that the process plugins are allowed: {:#}", err);
+      if !matches!(title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE)) {
+        // not choosing counts as denying for the session
+        session_decisions.lock().push(decision);
+      } else if let Err(err) = store_process_plugin_decision(&environment, decision).await {
+        let message = format!("Failed storing the decision for the process plugins: {:#}", err);
         log_warn!(environment, "{}", message);
         client.log_warn(message);
       }
@@ -1157,8 +1186,10 @@ fn supports_document_changes(capabilities: &ClientCapabilities) -> bool {
     .unwrap_or(false)
 }
 
-const ALLOW_PROCESS_PLUGINS_ACTION_TITLE: &str = "Allow";
-const DISALLOW_PROCESS_PLUGINS_ACTION_TITLE: &str = "Don't Allow";
+const ALLOW_ACTION_TITLE: &str = "Allow";
+const ALWAYS_ALLOW_ACTION_TITLE: &str = "Always Allow";
+const DENY_ACTION_TITLE: &str = "Deny";
+const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 
 fn new_message_action(title: &str) -> MessageActionItem {
   MessageActionItem {
@@ -1216,6 +1247,7 @@ mod test {
 
   use super::client::ClientTrait;
   use super::*;
+  use crate::configuration::get_editor_state_file_path;
   use crate::configuration::get_settings_file_path;
 
   macro_rules! did_open {
@@ -2866,7 +2898,7 @@ mod test {
           "{message}"
         );
         assert!(message.contains(reason), "{message}");
-        assert_eq!(*actions, vec!["Allow".to_string(), "Don't Allow".to_string()]);
+        assert_eq!(*actions, vec!["Allow", "Always Allow", "Deny", "Always Deny"]);
       }
 
       // a client that can't ask is told how to allow them
@@ -2879,14 +2911,27 @@ mod test {
       );
       assert_eq!(shown[0].2, Vec::<String>::new());
 
-      // only asks once per session
-      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Don't Allow"), [false, false]).await;
+      // denying only asks once per session
+      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny"), [false, false]).await;
       assert!(!was_set_up);
       assert_asked(shown, "because they weren't allowed to run.");
 
-      // uses it once allowed and doesn't ask in the next session
+      // allowing uses it for the session
       let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Allow"), [false, true]).await;
       assert!(was_set_up);
+      assert_asked(shown, "because they weren't allowed to run.");
+
+      // always denying doesn't ask in the next session
+      let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Deny"), [false, false]).await;
+      assert_asked(shown, "because they weren't allowed to run.");
+      assert_eq!(
+        run_session(&environment, message_actions_capabilities(), None, [false, false]).await,
+        (Vec::new(), false)
+      );
+
+      // always allowing replaces the decision and uses it in the next session
+      environment.remove_file(get_editor_state_file_path(&environment)).unwrap();
+      let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Allow"), [false, true]).await;
       assert_asked(shown, "because they weren't allowed to run.");
       assert_eq!(
         run_session(&environment, message_actions_capabilities(), None, [true, true]).await,
@@ -4192,9 +4237,21 @@ mod test {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, Default::default()));
     let (tx, rx) = mpsc::unbounded_channel();
-    let recv_task = start_message_handler(&environment, &plugin_resolver, config_override, RemoteCacheMode::Use, rx);
+    let session_process_plugin_decisions = Arc::new(Mutex::new(Vec::new()));
+    let recv_task = start_message_handler(
+      &environment,
+      &plugin_resolver,
+      config_override,
+      RemoteCacheMode::Use,
+      session_process_plugin_decisions.clone(),
+      rx,
+    );
     let test_client = Arc::new(TestClient::default());
-    (Backend::new(ClientWrapper::new(test_client.clone()), environment, tx), recv_task, test_client)
+    (
+      Backend::new(ClientWrapper::new(test_client.clone()), environment, tx, session_process_plugin_decisions),
+      recv_task,
+      test_client,
+    )
   }
 
   #[derive(Debug, Default)]
