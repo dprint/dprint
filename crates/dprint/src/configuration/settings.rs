@@ -26,17 +26,25 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-  /// Whether the editor integrations (the language server and the editor
-  /// service) run process plugins without the user approving them, which is
+  /// The settings of the editor integrations (the language server and the
+  /// editor service).
+  #[serde(default)]
+  pub editor: EditorSettings,
+  /// What the user told `dprint init` to remember for the next time it runs.
+  #[serde(default)]
+  pub init: Option<InitPreferences>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSettings {
+  /// Whether process plugins run without the user approving them, which is
   /// the default for now.
   #[serde(default)]
   pub allow_process_plugins: Option<bool>,
   /// The config files the user approved running the process plugins of.
   #[serde(default)]
   pub approved_process_plugins: Vec<ProcessPluginApproval>,
-  /// What the user told `dprint init` to remember for the next time it runs.
-  #[serde(default)]
-  pub init: Option<InitPreferences>,
 }
 
 /// What the user allowed the editor integrations to do.
@@ -78,7 +86,7 @@ pub struct ProcessPluginApproval {
 pub fn read_permissions(environment: &impl Environment) -> Permissions {
   match read_settings(environment) {
     Ok(settings) => {
-      let settings = settings.unwrap_or_default();
+      let settings = settings.unwrap_or_default().editor;
       Permissions {
         allow_process_plugins: settings.allow_process_plugins,
         approved_process_plugins: settings.approved_process_plugins,
@@ -99,11 +107,11 @@ pub fn read_permissions(environment: &impl Environment) -> Permissions {
 /// file, providing the path of the file it's in.
 pub fn add_process_plugin_approval(environment: &impl Environment, approval: &ProcessPluginApproval) -> Result<PathBuf> {
   // fail instead of replacing the settings when they can't be read
-  let mut approvals = read_settings(environment)?.unwrap_or_default().approved_process_plugins;
+  let mut approvals = read_settings(environment)?.unwrap_or_default().editor.approved_process_plugins;
   // the approval of a previous configuration isn't needed anymore
   approvals.retain(|approved| approved.config_file != approval.config_file);
   approvals.push(approval.clone());
-  set_setting(environment, "approvedProcessPlugins", serde_json::to_value(&approvals)?)
+  set_setting(environment, &["editor", "approvedProcessPlugins"], serde_json::to_value(&approvals)?)
 }
 
 /// Gets the path of the settings file.
@@ -126,9 +134,10 @@ pub(super) fn read_settings(environment: &impl Environment) -> Result<Option<Set
   jsonc_parser::parse_to_serde_value::<Option<Settings>>(&text, &Default::default()).with_context(|| format!("Failed parsing {}", file_path.display()))
 }
 
-/// Sets a property of the settings, keeping the rest of the file as it is
-/// (ex. its comments) because people edit it too. Provides the path of the file.
-pub(super) fn set_setting(environment: &impl Environment, name: &str, value: serde_json::Value) -> Result<PathBuf> {
+/// Sets a property of the settings at the path of property names, keeping the
+/// rest of the file as it is (ex. its comments) because people edit it too.
+/// Provides the path of the file.
+pub(super) fn set_setting(environment: &impl Environment, property_path: &[&str], value: serde_json::Value) -> Result<PathBuf> {
   let dir = resolve_global_config_dir(environment).context("Could not find the global config directory.")?;
   _ = environment.mk_dir_all(&dir);
   let file_path = dir.join(SETTINGS_FILE_NAME);
@@ -140,12 +149,16 @@ pub(super) fn set_setting(environment: &impl Environment, name: &str, value: ser
     String::new()
   };
   let root = CstRootNode::parse(&text, &Default::default()).with_context(|| format!("Failed parsing {}", file_path.display()))?;
-  let root_obj = root.object_value_or_set();
+  let (name, parent_names) = property_path.split_last().expect("property path should not be empty");
+  let mut obj = root.object_value_or_set();
+  for parent_name in parent_names {
+    obj = obj.object_value_or_set(parent_name);
+  }
   let value = to_cst_input(value);
-  match root_obj.get(name) {
+  match obj.get(name) {
     Some(prop) => prop.set_value(value),
     None => {
-      root_obj.append(name, value);
+      obj.append(name, value);
     }
   }
   let mut text = root.to_string();
@@ -191,8 +204,10 @@ mod test {
       .write_file(
         &file_path,
         r#"{
-  // ask before running process plugins
-  "allowProcessPlugins": false,
+  "editor": {
+    // ask before running process plugins
+    "allowProcessPlugins": false
+  },
   "other": 1
 }
 "#,
@@ -206,19 +221,21 @@ mod test {
     assert_eq!(
       environment.read_file(&file_path).unwrap(),
       r#"{
-  // ask before running process plugins
-  "allowProcessPlugins": false,
-  "other": 1,
-  "approvedProcessPlugins": [
-    {
-      "configFile": "/b/dprint.json",
-      "configHash": "1"
-    },
-    {
-      "configFile": "/a/dprint.json",
-      "configHash": "2"
-    }
-  ]
+  "editor": {
+    // ask before running process plugins
+    "allowProcessPlugins": false,
+    "approvedProcessPlugins": [
+      {
+        "configFile": "/b/dprint.json",
+        "configHash": "1"
+      },
+      {
+        "configFile": "/a/dprint.json",
+        "configHash": "2"
+      }
+    ]
+  },
+  "other": 1
 }
 "#
     );
@@ -238,12 +255,14 @@ mod test {
     assert_eq!(
       environment.read_file(&file_path).unwrap(),
       r#"{
-  "approvedProcessPlugins": [
-    {
-      "configFile": "/a/dprint.json",
-      "configHash": "1"
-    }
-  ]
+  "editor": {
+    "approvedProcessPlugins": [
+      {
+        "configFile": "/a/dprint.json",
+        "configHash": "1"
+      }
+    ]
+  }
 }
 "#
     );

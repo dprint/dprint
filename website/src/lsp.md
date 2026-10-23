@@ -92,15 +92,17 @@ A server can't change an editor's settings, so the choice is stored in an `lsp-s
 
 ## Process Plugins
 
-Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Opening a file isn't the same as choosing to run dprint in its directory—the file may be in a repository you just cloned—so you can have the server only run them once you allow them. To do so, set `allowProcessPlugins` to `false` in the [settings file](/global-config#settings-file) (ex. `~/.config/dprint/settings.json`):
+Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Opening a file isn't the same as choosing to run dprint in its directory—the file may be in a repository you just cloned—so you can have the server only run them once you allow them. To do so, set `editor.allowProcessPlugins` to `false` in the [settings file](/global-config#settings-file) (ex. `~/.config/dprint/settings.json`):
 
 ```json
 {
-  "allowProcessPlugins": false
+  "editor": {
+    "allowProcessPlugins": false
+  }
 }
 ```
 
-Process plugins are allowed without asking by default for now. A future version of dprint will ask by default, which `"allowProcessPlugins": true` opts out of.
+Process plugins are allowed without asking by default for now. A future version of dprint will ask by default, which setting `editor.allowProcessPlugins` to `true` opts out of.
 
 When a file is formatted with a configuration file whose process plugins you haven't allowed, the server doesn't set them up or start them and shows a message with the actions `Allow` and `Don't Allow`. This happens once per session for each configuration file. Files they would format aren't formatted until they're allowed, and the next format uses them once you select `Allow`. In a client that can't show the actions of a message, the message says that they're not allowed instead.
 

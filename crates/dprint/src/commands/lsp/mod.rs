@@ -2873,7 +2873,10 @@ mod test {
       let (shown, was_set_up) = run_session(&environment, Default::default(), None, [false, false]).await;
       assert!(!was_set_up);
       assert_eq!(shown.len(), 1, "{shown:?}");
-      assert!(shown[0].1.contains("they only run when \"allowProcessPlugins\" isn't false in"), "{shown:?}");
+      assert!(
+        shown[0].1.contains("they only run when \"editor.allowProcessPlugins\" isn't false in"),
+        "{shown:?}"
+      );
       assert_eq!(shown[0].2, Vec::<String>::new());
 
       // only asks once per session
@@ -4163,7 +4166,7 @@ mod test {
   fn disallow_process_plugins(environment: &TestEnvironment) {
     ensure_global_config_dir(environment);
     let file_path = get_settings_file_path(environment).unwrap();
-    environment.write_file(&file_path, r#"{ "allowProcessPlugins": false }"#).unwrap();
+    environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": false } }"#).unwrap();
   }
 
   /// The capabilities of a client that shows the actions of a message.

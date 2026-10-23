@@ -639,7 +639,7 @@ mod test {
     let file_path = get_settings_file_path(environment).unwrap();
     // macOS only uses this directory when it's already there
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
-    environment.write_file(&file_path, r#"{ "allowProcessPlugins": false }"#).unwrap();
+    environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": false } }"#).unwrap();
   }
 
   enum MessageResponseChannel {
@@ -949,7 +949,7 @@ mod test {
       "{stderr_messages:?}"
     );
     assert!(
-      stderr_messages[0].contains("they only run when \"allowProcessPlugins\" isn't false in"),
+      stderr_messages[0].contains("they only run when \"editor.allowProcessPlugins\" isn't false in"),
       "{stderr_messages:?}"
     );
   }

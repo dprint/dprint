@@ -1307,7 +1307,7 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
 pub fn get_cant_ask_message(environment: &impl Environment) -> String {
   let file_path = get_settings_file_path(environment).map(|path| path.display().to_string());
   format!(
-    "The editor can't ask whether to allow them, so they only run when \"allowProcessPlugins\" isn't false in {}.",
+    "The editor can't ask whether to allow them, so they only run when \"editor.allowProcessPlugins\" isn't false in {}.",
     file_path.as_deref().unwrap_or("settings.json in dprint's global config directory"),
   )
 }

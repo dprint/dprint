@@ -222,7 +222,7 @@ Response: None
 
 #### `11` - Approve process plugins (Service to Client)
 
-Process plugins aren't sandboxed, so when the user requires approving them (`"allowProcessPlugins": false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start the process plugins of a configuration file until the user allows them. Opening a project isn't the same as choosing to run dprint in it. This message is sent to a client that supports it to ask the user whether to allow them. It's sent at most once per session for each configuration of a configuration file. A client that doesn't support it has a warning logged to stderr instead.
+Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start the process plugins of a configuration file until the user allows them. Opening a project isn't the same as choosing to run dprint in it. This message is sent to a client that supports it to ask the user whether to allow them. It's sent at most once per session for each configuration of a configuration file. A client that doesn't support it has a warning logged to stderr instead.
 
 Message body:
 

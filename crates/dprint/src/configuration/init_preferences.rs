@@ -72,7 +72,7 @@ pub fn read_init_preferences(environment: &impl Environment) -> InitPreferences 
 
 /// Writes what the user prefers to the settings file, providing its path.
 pub fn write_init_preferences(environment: &impl Environment, preferences: &InitPreferences) -> Result<PathBuf> {
-  let file_path = set_setting(environment, "init", serde_json::to_value(preferences)?)?;
+  let file_path = set_setting(environment, &["init"], serde_json::to_value(preferences)?)?;
   // the preferences were moved to the settings file
   if let Some(legacy_file_path) = get_legacy_init_preferences_path(environment)
     && environment.path_exists(&legacy_file_path)
@@ -173,7 +173,7 @@ mod test {
     let environment = TestEnvironment::new();
     environment.mk_dir_all("/config/dprint").unwrap();
     environment
-      .write_file("/config/dprint/settings.json", r#"{ "allowProcessPlugins": false }"#)
+      .write_file("/config/dprint/settings.json", r#"{ "editor": { "allowProcessPlugins": false } }"#)
       .unwrap();
     environment
       .write_file("/config/dprint/init.json", r#"{ "avoidedPlugins": ["dprint-plugin-prettier"] }"#)
@@ -187,7 +187,7 @@ mod test {
     assert_eq!(
       environment.read_file("/config/dprint/settings.json").unwrap(),
       r#"{
-  "allowProcessPlugins": false,
+  "editor": { "allowProcessPlugins": false },
   "init": {
     "avoidedPlugins": ["dprint-plugin-prettier", "dprint-plugin-biome"]
   }
