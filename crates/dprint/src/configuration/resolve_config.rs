@@ -1206,7 +1206,7 @@ fn remove_negated_excludes(config_map: &mut ConfigMap) -> bool {
 
 fn get_warn_associations_message() -> String {
   format!(
-    "{} Plugin 'associations' that reference a parent directory (..) are ignored for security reasons on remote configuration.",
+    "{} Plugin 'associations' that reference a parent directory (..) are ignored for security reasons on remote configuration unless it's extended with a checksum (ex. https://example.com/dprint.json@<sha256>).",
     colors::bold("Note: "),
   )
 }
@@ -1227,7 +1227,7 @@ fn get_warn_inherit_message() -> String {
 
 fn get_warn_negated_excludes_message() -> String {
   format!(
-    "{} Negated 'excludes' (ex. !**/*.txt) are ignored for security reasons on remote configuration.",
+    "{} Negated 'excludes' (ex. !**/*.txt) are ignored for security reasons on remote configuration unless it's extended with a checksum (ex. https://example.com/dprint.json@<sha256>).",
     colors::bold("Note: "),
   )
 }
@@ -1242,7 +1242,7 @@ fn get_warn_no_config_to_inherit_message(config_source: &PathSource) -> String {
 
 fn get_warn_non_wasm_plugins_message() -> String {
   format!(
-    "{} Non-wasm plugins are ignored for security reasons on remote configuration.",
+    "{} Non-wasm plugins are ignored for security reasons on remote configuration unless it's extended with a checksum (ex. https://example.com/dprint.json@<sha256>).",
     colors::bold("Note: "),
   )
 }
