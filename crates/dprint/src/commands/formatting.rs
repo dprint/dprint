@@ -1581,6 +1581,97 @@ mod test {
   }
 
   #[test]
+  fn should_not_use_remote_config_for_process_plugins() {
+    // process plugins don't run sandboxed, so remote config could otherwise get
+    // them to do something like run commands of its choosing
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_config_section("test-plugin", r#"{ "ending": "remote" }"#).add_config_section(
+          "testProcessPlugin",
+          r#"{
+            "associations": ["**/*.other"],
+            "ending": "remote",
+            "overrides": {
+              "files": "**/*.txt_ps",
+              "ending": "remote_override"
+            }
+          }"#,
+        );
+      })
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section("extends", r#""https://dprint.dev/shared.json""#);
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/file.txt_ps", "text")
+      .write_file("/file.other", "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_remote");
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+    assert_eq!(environment.read_file("/file.other").unwrap(), "text");
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    let stderr_messages = environment.take_stderr_messages();
+    assert!(
+      stderr_messages
+        .iter()
+        .any(|m| m.contains("The 'testProcessPlugin' configuration specified in remote configuration is ignored")),
+      "{stderr_messages:?}"
+    );
+  }
+
+  #[test]
+  fn should_use_local_extended_config_for_process_plugins_over_remote_config() {
+    // the remote config has a higher precedence, but only the local config
+    // files configure the process plugin
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_config_section("test-plugin", r#"{ "ending": "remote" }"#)
+          .add_config_section("testProcessPlugin", r#"{ "ending": "remote" }"#);
+      })
+      .with_local_config("/local.json", |c| {
+        c.add_config_section("test-plugin", r#"{ "ending": "local" }"#)
+          .add_config_section("testProcessPlugin", r#"{ "ending": "local" }"#);
+      })
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section("extends", r#"["https://dprint.dev/shared.json", "./local.json"]"#);
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/file.txt_ps", "text")
+      .build();
+    run_test_cli(vec!["fmt", "*.{txt,txt_ps}"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_remote");
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_local");
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_use_local_config_for_process_plugins_without_warning_when_extending_remote_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_config_section("test-plugin", r#"{ "ending": "remote" }"#);
+      })
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section("extends", r#""https://dprint.dev/shared.json""#)
+          .add_config_section("testProcessPlugin", r#"{ "ending": "local" }"#);
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/file.txt_ps", "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_remote");
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_local");
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+  }
+
+  #[test]
   fn should_download_remote_plugins_again_when_reloading() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {

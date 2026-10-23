@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use anyhow::bail;
+use deno_terminal::colors;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
@@ -1116,11 +1117,25 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   // resolve the plugins
   let plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(config.plugins.clone()).await?);
   let mut config_map = config.config_map.clone();
+  let mut local_config_map = config.local_config_map.clone();
 
   // resolve each plugin's configuration
   let mut plugins_with_config = Vec::new();
   for plugin in plugins.into_iter() {
-    plugins_with_config.push((get_plugin_config_map(&plugin, &mut config_map)?, plugin));
+    let plugin_config = get_plugin_config_map(&plugin, &mut config_map)?;
+    let local_plugin_config = get_plugin_config_map(&plugin, &mut local_config_map)?;
+    // IMPORTANT: Process plugins don't run sandboxed, so only use the configuration
+    // from local config files for them. Otherwise, remote configuration could get
+    // them to do something like run commands of its choosing (ex. dprint-plugin-exec).
+    let plugin_config = if plugin.is_process_plugin() {
+      if plugin_config != local_plugin_config {
+        log_warn!(environment, &get_warn_remote_process_plugin_config_message(&plugin.info().config_key));
+      }
+      local_plugin_config // NEVER CHANGE THIS
+    } else {
+      plugin_config
+    };
+    plugins_with_config.push((plugin_config, plugin));
   }
 
   // a shared config may configure more plugins than the ones being used, so remove the leftover
@@ -1207,6 +1222,14 @@ fn resolve_plugin_config_overrides<TEnvironment: Environment>(
     .collect()
 }
 
+fn get_warn_remote_process_plugin_config_message(config_key: &str) -> String {
+  format!(
+    "{} The '{}' configuration specified in remote configuration is ignored for security reasons because it's for a process plugin. Specify it in a local configuration file instead.",
+    colors::bold("Note: "),
+    config_key,
+  )
+}
+
 #[cfg(test)]
 mod test {
   use dprint_core::configuration::ConfigKeyValue;
@@ -1267,6 +1290,7 @@ mod test {
       let base_path = CanonicalizedPathBuf::new_for_testing("/");
       let config = Rc::new(ResolvedConfig {
         config_map: Default::default(),
+        local_config_map: Default::default(),
         extended_only_plugin_config_keys: Default::default(),
         base_path: base_path.clone(),
         anchored_patterns_base_path: None,

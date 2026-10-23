@@ -68,6 +68,12 @@ pub struct ResolvedConfig {
   /// of the closest configuration file in an ancestor directory.
   pub inherit: Option<bool>,
   pub config_map: ConfigMap,
+  /// The `config_map` without what was specified in remote configuration.
+  ///
+  /// IMPORTANT: This is what process plugins are configured with. Process plugins
+  /// don't run sandboxed, so remote configuration could otherwise get them to
+  /// do something like run commands of its choosing (ex. dprint-plugin-exec).
+  pub local_config_map: ConfigMap,
   /// Keys of the plugin configurations in `config_map` that were only specified
   /// in an extended configuration file. It's not an error for these to not have
   /// a matching plugin because a shared config may configure more plugins than
@@ -171,6 +177,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
         // allow no config file when plugins are specified
         ResolvedConfig {
           config_map: ConfigMap::new(),
+          local_config_map: ConfigMap::new(),
           extended_only_plugin_config_keys: HashSet::new(),
           base_path: environment.cwd().clone(),
           anchored_patterns_base_path: None,
@@ -331,12 +338,18 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   }
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut config_map)?;
+  let local_config_map = if config_path_and_text.source.is_local() {
+    config_map.clone()
+  } else {
+    ConfigMap::new() // NEVER CHANGE THIS
+  };
   let resolved_config = ResolvedConfig {
     source: config_path_and_text.source.clone(),
     base_path: config_path_and_text.base_path.clone(),
     anchored_patterns_base_path: config_path_and_text.anchored_patterns_base_path.clone(),
     is_global: config_path_and_text.is_global_config,
     config_map,
+    local_config_map,
     extended_only_plugin_config_keys: HashSet::new(),
     includes,
     excludes,
@@ -402,6 +415,7 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   }
 
   merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
+  merge_config_map_into(&mut config.local_config_map, parent.local_config_map.clone())?;
 
   Ok(config)
 }
@@ -613,6 +627,10 @@ async fn handle_config_file<TEnvironment: Environment>(
     }
   }
 
+  // IMPORTANT: Process plugins are only configured by local configuration.
+  if !is_remote {
+    merge_config_map_into(&mut resolved_config.local_config_map, new_config_map.clone())?;
+  }
   merge_config_map_into(&mut resolved_config.config_map, new_config_map)?;
 
   let mut ancestors = extends_context.ancestors.clone();
@@ -1914,6 +1932,7 @@ mod tests {
           .iter()
           .map(|key| (key.to_string(), ConfigMapValue::PluginConfig(Default::default())))
           .collect(),
+        local_config_map: Default::default(),
         extended_only_plugin_config_keys: extended_only_plugin_config_keys.iter().map(|key| key.to_string()).collect(),
       }
     }
@@ -2432,6 +2451,60 @@ mod tests {
   }
 
   #[test]
+  fn should_only_have_local_config_in_local_config_map() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/remote.json",
+      r#"{ "remote": { "prop": "remote" }, "both": { "prop": "remote" } }"#.as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/local.json"),
+        r#"{ "local": { "prop": "local" }, "both": { "prop": "local" } }"#,
+      )
+      .unwrap();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{ "extends": ["https://dprint.dev/remote.json", "./local.json"], "main": { "prop": "main" } }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let plugin_config = |value: &str| {
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: None,
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_str(value))]),
+        })
+      };
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(
+        result.config_map,
+        ConfigMap::from([
+          (String::from("main"), plugin_config("main")),
+          (String::from("remote"), plugin_config("remote")),
+          (String::from("both"), plugin_config("remote")),
+          (String::from("local"), plugin_config("local")),
+        ])
+      );
+      assert_eq!(
+        result.local_config_map,
+        ConfigMap::from([
+          (String::from("main"), plugin_config("main")),
+          (String::from("both"), plugin_config("local")),
+          (String::from("local"), plugin_config("local")),
+        ])
+      );
+
+      // a remote main config has no local config
+      let result = get_result("https://dprint.dev/remote.json", &environment).await.unwrap();
+      assert_eq!(result.local_config_map, ConfigMap::new());
+    });
+  }
+
+  #[test]
   fn should_remove_negated_excludes_from_remote_config() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
@@ -2945,6 +3018,7 @@ mod tests {
           }),
         ),
       ]),
+      local_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
     };
     let child = ResolvedConfig {
@@ -2968,6 +3042,7 @@ mod tests {
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
         }),
       )]),
+      local_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
     };
 
@@ -3120,6 +3195,7 @@ mod tests {
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(4))]),
         }),
       )]),
+      local_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
     };
     let child = ResolvedConfig {
@@ -3142,6 +3218,7 @@ mod tests {
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
         }),
       )]),
+      local_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
     };
 

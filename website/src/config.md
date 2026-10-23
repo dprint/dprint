@@ -473,7 +473,7 @@ Referencing multiple configuration files is also supported. These should be orde
 }
 ```
 
-Note: The `includes` property and negated `excludes` (ex. `!**/*.txt`) of extended _remote_ configuration are ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins are ignored in remote configuration because they don't run sandboxed.
+Note: The `includes` property and negated `excludes` (ex. `!**/*.txt`) of extended _remote_ configuration are ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins and the configuration for them (ex. the commands of dprint-plugin-exec) are ignored in remote configuration because they don't run sandboxed. Specify the configuration for process plugins in a local configuration file instead.
 
 ### Remote configuration caching
 
