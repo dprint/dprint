@@ -1807,6 +1807,126 @@ mod test {
   }
 
   #[test]
+  fn should_not_format_files_outside_project_from_remote_config_associations() {
+    // A remote config's includes are ignored so it can only affect how the
+    // project's files are formatted. Its plugin associations are inherited
+    // though, so an association reaching an ancestor directory must not
+    // widen the files collected to outside the project.
+    for association in [
+      "../.bashrc",
+      "../**/*.json",
+      "{..,.github}/.bashrc",
+      ".github/../../.bashrc",
+      ".github/../../**/*.json",
+    ] {
+      let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+        .with_remote_config("https://dprint.dev/shared.json", |c| {
+          c.add_remote_wasm_plugin()
+            .add_config_section("test-plugin", &format!(r#"{{ "associations": ["{association}"] }}"#));
+        })
+        .with_local_config("/home/user/project/dprint.json", |c| {
+          c.add_config_section("extends", r#""https://dprint.dev/shared.json""#);
+        })
+        .write_file("/home/user/.bashrc", "text")
+        .write_file("/home/user/other/settings.json", "text")
+        .write_file("/home/user/project/.github/file.txt", "text")
+        .set_cwd("/home/user/project")
+        .build();
+      run_test_cli(vec!["fmt"], &environment).unwrap();
+      assert_eq!(environment.read_file("/home/user/.bashrc").unwrap(), "text", "{association}");
+      assert_eq!(environment.read_file("/home/user/other/settings.json").unwrap(), "text", "{association}");
+      assert_eq!(
+        environment.read_file("/home/user/project/.github/file.txt").unwrap(),
+        "text_formatted",
+        "{association}"
+      );
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()], "{association}");
+      let stderr_messages = environment.take_stderr_messages();
+      assert!(
+        stderr_messages
+          .iter()
+          .any(|m| m.contains("Plugin 'associations' that reference a parent directory")),
+        "{association}: {stderr_messages:?}"
+      );
+    }
+  }
+
+  #[test]
+  fn should_not_format_files_outside_project_from_local_config_associations() {
+    // an association reaching an ancestor directory only matches the files
+    // within the config's directory rather than moving the file walk there
+    for association in ["../**/*.data", "{..,sub}/**/*.data"] {
+      let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+        .with_local_config("/home/user/project/dprint.json", |c| {
+          c.add_remote_wasm_plugin()
+            .add_config_section("test-plugin", &format!(r#"{{ "associations": ["../.bashrc", "{association}"] }}"#));
+        })
+        .write_file("/home/user/.bashrc", "text")
+        .write_file("/home/user/other/settings.data", "text")
+        .write_file("/home/user/project/file.txt", "text")
+        .write_file("/home/user/project/sub/file.data", "text")
+        .set_cwd("/home/user/project")
+        .build();
+      run_test_cli(vec!["fmt"], &environment).unwrap();
+      assert_eq!(environment.read_file("/home/user/.bashrc").unwrap(), "text", "{association}");
+      assert_eq!(environment.read_file("/home/user/other/settings.data").unwrap(), "text", "{association}");
+      assert_eq!(environment.read_file("/home/user/project/file.txt").unwrap(), "text_formatted", "{association}");
+      assert_eq!(
+        environment.read_file("/home/user/project/sub/file.data").unwrap(),
+        "text_formatted",
+        "{association}"
+      );
+      assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)], "{association}");
+      environment.take_stderr_messages();
+    }
+  }
+
+  #[test]
+  fn should_not_format_files_outside_config_arg_dir_from_associations() {
+    // the same for a `--config` file in a sub directory of the cwd
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/sub/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "associations": ["../**/*.other"] }"#);
+      })
+      .write_file("/project/other/file.other", "text")
+      .write_file("/project/sub/file.txt", "text")
+      .write_file("/project/sub/file.other", "text")
+      .set_cwd("/project")
+      .build();
+    run_test_cli(vec!["fmt", "--config", "sub/dprint.json"], &environment).unwrap();
+    assert_eq!(environment.read_file("/project/other/file.other").unwrap(), "text");
+    assert_eq!(environment.read_file("/project/sub/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/project/sub/file.other").unwrap(), "text_formatted");
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_format_files_outside_project_with_local_config_includes_and_associations() {
+    // explicit includes are what get a local config's files in an ancestor
+    // directory formatted, which the associations then match to a plugin
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/home/user/project/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_includes("**/*.txt")
+          .add_includes("../shared/**/*.data")
+          .add_config_section("test-plugin", r#"{ "associations": ["**/*.txt", "../**/*.data"] }"#);
+      })
+      .write_file("/home/user/shared/file.data", "text")
+      .write_file("/home/user/other/settings.data", "text")
+      .write_file("/home/user/project/file.txt", "text")
+      .set_cwd("/home/user/project")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/home/user/shared/file.data").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/home/user/other/settings.data").unwrap(), "text");
+    assert_eq!(environment.read_file("/home/user/project/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    environment.take_stderr_messages();
+  }
+
+  #[test]
   fn should_use_request_override_config_over_config_file_overrides() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_default_config(|c| {

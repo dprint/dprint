@@ -35,6 +35,8 @@ use crate::utils::ResolvedFilePathWithBytes;
 use crate::utils::ResolvedFilePathWithText;
 use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::ShowConfirmStrategy;
+use crate::utils::is_negated_glob;
+use crate::utils::non_negated_glob;
 use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
@@ -289,15 +291,19 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
 
   // IMPORTANT
   // =========
-  // Remove the includes from remote configuration since we don't want it
-  // specifying something like system or some configuration
-  // files that it could change. Basically, the end user should have 100%
-  // control over what files get formatted.
+  // Remove the includes and the associations reaching a parent directory from
+  // remote configuration since we don't want it specifying something like
+  // system or some configuration files that it could change. Basically, the
+  // end user should have 100% control over what files get formatted.
   if !config_path_and_text.source.is_local() {
     // Careful! Don't be fancy and ensure this is removed.
     let removed_includes = config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
+    }
+    let removed_associations = remove_associations_outside_config_dir(&mut config_map); // NEVER REMOVE THIS STATEMENT
+    if removed_associations && config_path_and_text.is_first_download {
+      log_warn!(environment, &get_warn_associations_message());
     }
   }
   // =========
@@ -546,13 +552,18 @@ async fn handle_config_file<TEnvironment: Environment>(
   if is_remote {
     // IMPORTANT
     // =========
-    // Remove the includes from all referenced remote configuration since
-    // we don't want it specifying something like system or some configuration
-    // files that it could change. Basically, the end user should have 100%
-    // control over what files get formatted.
+    // Remove the includes and the associations reaching a parent directory
+    // from all referenced remote configuration since we don't want it
+    // specifying something like system or some configuration files that it
+    // could change. Basically, the end user should have 100% control over
+    // what files get formatted.
     let removed_includes = new_config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
+    }
+    let removed_associations = remove_associations_outside_config_dir(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
+    if removed_associations && config_path_and_text.is_first_download {
+      log_warn!(environment, &get_warn_associations_message());
     }
   }
 
@@ -703,8 +714,9 @@ fn merge_config_map_into(target: &mut ConfigMap, source: ConfigMap) -> Result<()
             }
 
             // Set the associations if they aren't overwritten in the higher
-            // precedence config. This is ok to do because process plugins and
-            // includes/excludes aren't inherited from other config.
+            // precedence config. This is ok to do because process plugins,
+            // includes and associations reaching outside the config file's
+            // directory aren't inherited from remote config.
             if target_obj.associations.is_none() {
               target_obj.associations = obj.associations;
             }
@@ -949,6 +961,53 @@ fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &im
   } else {
     plugins
   }
+}
+
+/// Removes the plugin associations with a parent directory component, which
+/// could match files outside the config file's directory (ex. `../.bashrc`),
+/// returning whether any were removed. Negated associations are kept since
+/// they can only narrow the files a plugin is associated with.
+///
+/// IMPORTANT: This is for remote configuration. Its includes are removed so
+/// it can't specify which files get formatted, and this prevents it from
+/// getting files outside the project matched to a plugin it specifies.
+fn remove_associations_outside_config_dir(config_map: &mut ConfigMap) -> bool {
+  let mut removed_any = false;
+  for (key, value) in config_map.iter_mut() {
+    // the shebangs are parsed as a plugin config, but are validated later
+    if key == "shebangs" {
+      continue;
+    }
+    let ConfigMapValue::PluginConfig(plugin_config) = value else {
+      continue;
+    };
+    let Some(associations) = &mut plugin_config.associations else {
+      continue;
+    };
+    let original_len = associations.len();
+    associations.retain(|pattern| is_negated_glob(pattern) || !has_parent_dir_component(pattern));
+    if associations.len() != original_len {
+      removed_any = true;
+      // none left is the same as the remote config specifying none
+      if associations.is_empty() {
+        plugin_config.associations = None;
+      }
+    }
+  }
+  removed_any
+}
+
+/// Whether a config pattern has a parent directory component anywhere in any
+/// of its brace expansions (ex. `../a`, `src/../../a` or `{src,..}/a`).
+fn has_parent_dir_component(pattern: &str) -> bool {
+  process_config_pattern(pattern).any(|expanded| non_negated_glob(&expanded).split('/').any(|component| component == ".."))
+}
+
+fn get_warn_associations_message() -> String {
+  format!(
+    "{} Plugin 'associations' that reference a parent directory (..) are ignored for security reasons on remote configuration.",
+    colors::bold("Note: "),
+  )
 }
 
 fn get_warn_includes_message() -> String {
@@ -2279,6 +2338,150 @@ mod tests {
         }),
       )]);
 
+      assert_eq!(result.config_map, expected_config_map);
+    });
+  }
+
+  #[test]
+  fn should_remove_associations_outside_config_dir_from_extended_remote_config() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+          "test": {
+            "associations": [
+              "**/*.txt",
+              "./src/*.txt",
+              "..dotted/*.txt",
+              "../.bashrc",
+              "../../**/*.json",
+              ".github/../../.bashrc",
+              "{src,..}/*.txt",
+              "..\\.bashrc",
+              "!../excluded"
+            ]
+          }
+        }"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "https://dprint.dev/test.json",
+            "test": {}
+        }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages(), vec![get_warn_associations_message()]);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: Some(vec![
+            "**/*.txt".to_string(),
+            "./src/*.txt".to_string(),
+            "..dotted/*.txt".to_string(),
+            "!../excluded".to_string(),
+          ]),
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::new(),
+        }),
+      )]);
+      assert_eq!(result.config_map, expected_config_map);
+
+      environment.clear_logs();
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
+      assert_eq!(result.config_map, expected_config_map);
+    });
+  }
+
+  #[test]
+  fn should_remove_associations_outside_config_dir_from_remote_config() {
+    // all of them removed is the same as the remote config specifying none
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+          "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
+          "test": {
+            "associations": ["../.bashrc"]
+          }
+        }"#
+        .as_bytes(),
+    );
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages(), vec![get_warn_associations_message()]);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: None,
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::new(),
+        }),
+      )]);
+      assert_eq!(result.config_map, expected_config_map);
+
+      environment.clear_logs();
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
+      assert_eq!(result.config_map, expected_config_map);
+    });
+  }
+
+  #[test]
+  fn should_error_for_associations_in_remote_shebangs() {
+    // the shebangs aren't a plugin config, so their associations aren't removed
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r##"{ "shebangs": { "associations": ["../.bashrc"], "#!/bin/sh": "sh" } }"##.as_bytes(),
+    );
+
+    environment.clone().run_in_runtime(async move {
+      let err = get_result("https://dprint.dev/test.json", &environment).await.err().unwrap();
+      assert_eq!(
+        err.to_string(),
+        "The 'shebangs' property must be an object that maps shebang lines to file extensions."
+      );
+    });
+  }
+
+  #[test]
+  fn should_keep_associations_outside_config_dir_in_local_config() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(&PathBuf::from("/shared.json"), r#"{ "test": { "associations": ["../shared/*.txt"] } }"#)
+      .unwrap();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "./shared.json",
+            "test": {}
+        }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages().len(), 0);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: Some(vec!["../shared/*.txt".to_string()]),
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::new(),
+        }),
+      )]);
       assert_eq!(result.config_map, expected_config_map);
     });
   }

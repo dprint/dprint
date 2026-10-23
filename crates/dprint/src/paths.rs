@@ -23,6 +23,7 @@ use crate::resolution::PluginWithConfig;
 use crate::utils::GlobOptions;
 use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
+use crate::utils::GlobPatternKind;
 use crate::utils::GlobPatterns;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
@@ -193,9 +194,26 @@ pub async fn get_and_resolve_file_paths<'a>(
     // The association globs are based the same way the plugin's association
     // matcher bases them (ex. anchored ones are relative to the `.config`
     // directory for a config file in one).
+    //
+    // IMPORTANT: An association glob based at an ancestor of the config's base
+    // directory (ex. `../../.bashrc`) is rebased to the base directory so that
+    // it only matches files within it (ex. `../**/*.json` becomes `**/*.json`
+    // and `../../.bashrc` matches nothing). Otherwise, it would move the start
+    // of the file walk to that ancestor directory, so associations could get
+    // files outside the project formatted.
     let plugin_patterns = get_plugin_patterns(plugins);
     let mut config_includes = GlobPattern::new_vec(plugin_patterns.file_matching, config.base_path.clone());
-    config_includes.extend(new_config_glob_patterns(plugin_patterns.association_globs, config.pattern_bases()));
+    config_includes.extend(
+      new_config_glob_patterns(plugin_patterns.association_globs, config.pattern_bases())
+        .into_iter()
+        .filter_map(|pattern| {
+          if pattern.base_dir.starts_with(&config.base_path) {
+            Some(pattern)
+          } else {
+            pattern.into_new_base(config.base_path.clone(), GlobPatternKind::Include)
+          }
+        }),
+    );
     file_patterns.config_includes = Some(config_includes);
   }
 
