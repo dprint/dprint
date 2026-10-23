@@ -1013,7 +1013,9 @@ mod test {
   }
 
   #[test]
-  fn should_format_calling_process_plugin_with_wasm_plugin_using_additional_plugin_specified_config() {
+  fn should_format_calling_process_plugin_with_wasm_plugin_ignoring_non_global_request_config() {
+    // the wasm plugin asks to format with an "ending", but a plugin may only
+    // change the global configuration of a process plugin
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
@@ -1024,7 +1026,7 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(
       environment.read_file(&file_path1).unwrap(),
-      "plugin-config: format this text_custom_config_formatted"
+      "plugin-config: format this text_formatted_process_formatted"
     );
     assert_eq!(
       environment.read_file(&file_path2).unwrap(),
@@ -2215,7 +2217,30 @@ mod test {
   }
 
   #[test]
-  fn should_use_request_override_config_over_config_file_overrides() {
+  fn should_not_let_remote_wasm_plugin_change_process_plugin_config_when_formatting_with_host() {
+    // a wasm plugin from remote configuration formatting a code block with a
+    // process plugin can't change what the process plugin is configured with
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .with_default_config(|c| {
+        c.add_remote_process_plugin()
+          .add_config_section("extends", r#""https://dprint.dev/shared.json""#)
+          .add_config_section("testProcessPlugin", r#"{ "ending": "local" }"#);
+      })
+      .write_file("/file.txt", "plugin-config: text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "plugin-config: text_local_formatted");
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_not_use_non_global_plugin_request_config_for_process_plugin_over_config_file_overrides() {
+    // the wasm plugin asks to format with an "ending", but a plugin may only
+    // change the global configuration of a process plugin
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_default_config(|c| {
         c.add_remote_wasm_plugin()
@@ -2245,7 +2270,7 @@ mod test {
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.read_file("/file.txt").unwrap(), "plugin-config: text_custom_config_wasm");
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "plugin-config: text_config_file_wasm");
   }
 
   #[test]
