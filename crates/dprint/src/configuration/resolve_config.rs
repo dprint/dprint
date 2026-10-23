@@ -706,6 +706,10 @@ async fn handle_config_file<TEnvironment: Environment>(
   let inherit = take_bool_from_config_map(&mut new_config_map, "inherit")?;
 
   let is_remote = extends_context.is_remote(&config_path_and_text.source);
+  // IMPORTANT: Remote configuration that trusted configuration extended with a
+  // checksum can't change without the checksum changing, so it's trusted the
+  // same as local configuration.
+  let is_trusted = !is_remote || (pinning.is_pinned && extends_context.is_trusted);
 
   // Discard any properties that shouldn't be inherited
   if is_remote {
@@ -716,17 +720,23 @@ async fn handle_config_file<TEnvironment: Environment>(
     // don't want it specifying something like system or some configuration
     // files that it could change. Basically, the end user should have 100%
     // control over what files get formatted.
+    //
+    // Trusted remote configuration may specify the associations and negated
+    // excludes. Its includes are still removed, though only the includes of
+    // the main configuration file get used anyway.
     let removed_includes = new_config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
     }
-    let removed_associations = remove_associations_outside_config_dir(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
-    if removed_associations && config_path_and_text.is_first_download {
-      log_warn!(environment, &get_warn_associations_message());
-    }
-    let removed_negated_excludes = remove_negated_excludes(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
-    if removed_negated_excludes && config_path_and_text.is_first_download {
-      log_warn!(environment, &get_warn_negated_excludes_message());
+    if !is_trusted {
+      let removed_associations = remove_associations_outside_config_dir(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
+      if removed_associations && config_path_and_text.is_first_download {
+        log_warn!(environment, &get_warn_associations_message());
+      }
+      let removed_negated_excludes = remove_negated_excludes(&mut new_config_map); // NEVER REMOVE THIS STATEMENT
+      if removed_negated_excludes && config_path_and_text.is_first_download {
+        log_warn!(environment, &get_warn_negated_excludes_message());
+      }
     }
   }
 
@@ -769,7 +779,6 @@ async fn handle_config_file<TEnvironment: Environment>(
 
   // IMPORTANT: Process plugins are only configured by local configuration and
   // remote configuration that trusted configuration extended with a checksum.
-  let is_trusted = !is_remote || (pinning.is_pinned && extends_context.is_trusted);
   if is_trusted {
     merge_config_map_into(&mut resolved_config.trusted_config_map, new_config_map.clone())?;
   }
@@ -2673,6 +2682,42 @@ mod tests {
       assert_eq!(result.trusted_config_map, result.config_map);
       assert_eq!(result.trusted_config_map.len(), 2);
     });
+  }
+
+  #[test]
+  fn should_keep_associations_and_negated_excludes_of_trusted_remote_config() {
+    let pinned_text = r#"{ "excludes": ["dist", "!dist/keep"], "test": { "associations": ["../.env"] } }"#;
+    let pinned_checksum = get_sha256_checksum(pinned_text.as_bytes());
+    for (extends, is_trusted) in [
+      (format!("https://dprint.dev/pinned.json@{pinned_checksum}"), true),
+      ("https://dprint.dev/pinned.json".to_string(), false),
+    ] {
+      let environment = TestEnvironment::new();
+      environment.add_remote_file_bytes("https://dprint.dev/pinned.json", pinned_text.as_bytes().to_vec());
+      environment
+        .write_file(&PathBuf::from("/test.json"), &format!(r#"{{ "extends": "{extends}" }}"#))
+        .unwrap();
+
+      environment.clone().run_in_runtime(async move {
+        let result = get_result("/test.json", &environment).await.unwrap();
+        let associations = match result.config_map.get("test") {
+          Some(ConfigMapValue::PluginConfig(config)) => config.associations.clone(),
+          _ => None,
+        };
+        if is_trusted {
+          assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+          assert_eq!(result.excludes, Some(vec!["dist".to_string(), "!dist/keep".to_string()]));
+          assert_eq!(associations, Some(vec!["../.env".to_string()]));
+        } else {
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec![get_warn_associations_message(), get_warn_negated_excludes_message()]
+          );
+          assert_eq!(result.excludes, Some(vec!["dist".to_string()]));
+          assert_eq!(associations, None);
+        }
+      });
+    }
   }
 
   #[test]
