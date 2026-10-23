@@ -58,9 +58,8 @@ impl NpmExtendsResolver {
   /// considered remote configuration.
   pub async fn resolve(&self, text: &str, base: &PathSource, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
     let parsed = parse_npm_specifier(text)?;
-    if parsed.checksum.is_some() {
-      bail!("Checksums are not supported for npm specifiers in \"extends\": {}", text);
-    }
+    // the checksum is verified by the caller
+    debug_assert!(parsed.checksum.is_none());
     let name = parsed.specifier.name;
     let sub_path = parsed.path_was_explicit.then_some(parsed.specifier.path);
 
@@ -545,8 +544,9 @@ mod tests {
       .write_file("/missing.json", r#"{ "extends": "npm:config" }"#)
       .write_file("/no-entry.json", r#"{ "extends": "npm:other" }"#)
       .write_file("/no-file.json", r#"{ "extends": "npm:other/file.json" }"#)
-      .write_file("/checksum.json", r#"{ "extends": "npm:other/file.json@checksum" }"#)
+      .write_file("/checksum.json", r#"{ "extends": "npm:other/config.json@checksum" }"#)
       .write_file("/node_modules/other/package.json", r#"{ "main": "index.js" }"#)
+      .write_file("/node_modules/other/config.json", "{}")
       .build();
 
     environment.clone().run_in_runtime(async move {
@@ -571,7 +571,7 @@ mod tests {
       );
       assert_eq!(
         resolve_config("/checksum.json", &environment).await.unwrap_err().to_string(),
-        "Checksums are not supported for npm specifiers in \"extends\": npm:other/file.json@checksum",
+        "Invalid checksum for extended configuration 'npm:other/config.json@checksum'.",
       );
     });
   }

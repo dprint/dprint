@@ -1672,6 +1672,48 @@ mod test {
   }
 
   #[test]
+  fn should_use_remote_config_for_process_plugins_when_extended_with_checksum() {
+    let remote_config_text = r#"{ "testProcessPlugin": { "ending": "remote" } }"#;
+    let checksum = crate::utils::get_sha256_checksum(remote_config_text.as_bytes());
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .add_remote_file("https://dprint.dev/shared.json", remote_config_text)
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section("extends", &format!(r#""https://dprint.dev/shared.json@{checksum}""#));
+      })
+      .write_file("/file.txt_ps", "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_remote");
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+  }
+
+  #[test]
+  fn should_error_when_extended_config_checksum_does_not_match() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .add_remote_file("https://dprint.dev/shared.json", r#"{ "testProcessPlugin": { "ending": "remote" } }"#)
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section("extends", &format!(r#""https://dprint.dev/shared.json@{}""#, "0".repeat(64)));
+      })
+      .write_file("/file.txt_ps", "text")
+      .build();
+    let err = run_test_cli(vec!["fmt"], &environment).unwrap_err();
+    err.assert_exit_code(11);
+    assert!(
+      format!("{err:#}").contains(&format!(
+        "Invalid checksum for extended configuration 'https://dprint.dev/shared.json@{}'.",
+        "0".repeat(64)
+      )),
+      "{err:#}"
+    );
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text");
+  }
+
+  #[test]
   fn should_download_remote_plugins_again_when_reloading() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {

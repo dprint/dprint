@@ -473,7 +473,23 @@ Referencing multiple configuration files is also supported. These should be orde
 }
 ```
 
-Note: The `includes` property and negated `excludes` (ex. `!**/*.txt`) of extended _remote_ configuration are ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins and the configuration for them (ex. the commands of dprint-plugin-exec) are ignored in remote configuration because they don't run sandboxed. Specify the configuration for process plugins in a local configuration file instead.
+Note: The `includes` property and negated `excludes` (ex. `!**/*.txt`) of extended _remote_ configuration are ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins and the configuration for them (ex. the commands of dprint-plugin-exec) are ignored in remote configuration because they don't run sandboxed. Specify the configuration for process plugins in a local configuration file instead or extend the remote configuration with a checksum.
+
+### Extending with a checksum
+
+Put an `@` followed by the SHA-256 checksum of the configuration file at the end of an `extends` entry to ensure the configuration file has exactly that content:
+
+<!-- dprint-ignore -->
+
+```json
+{
+  "extends": "https://dprint.dev/path/to/config/file.v1.json@<sha256-checksum>"
+}
+```
+
+dprint errors when the file's checksum doesn't match. This also works for relative paths and npm specifiers (ex. `npm:@scope/name@1.0.0/dprint.json@<sha256-checksum>`).
+
+Remote configuration extended with a checksum is trusted to specify the configuration of process plugins (ex. the commands of dprint-plugin-exec), since its content can't change without the checksum changing. Everything it extends must also have a checksum. Its `includes` are still ignored and it still can't specify non-Wasm plugins.
 
 ### Remote configuration caching
 
