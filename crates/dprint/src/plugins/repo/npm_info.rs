@@ -213,7 +213,8 @@ mod test {
     assert!(resolve("pkg", Some("readme.md")).unwrap().contains("Unsupported plugin file extension"));
     // a name that isn't a package name
     assert!(resolve("pkg@1.0.0", None).unwrap().contains("Invalid npm package name for plugin"));
-    assert!(resolve("../pkg", None).unwrap().contains("must not contain '.' or '..' segments"));
+    assert!(resolve("../pkg", None).unwrap().contains("must not start with '.' or '_'"));
+    assert!(resolve("%2e%2e", None).unwrap().contains("must only contain lowercase letters"));
     // ...and the shapes that are fine
     assert_eq!(resolve("@scope/pkg", Some("json/plugin.wasm")), None);
     assert_eq!(resolve("pkg", Some("nested/dir/plugin.json")), None);
