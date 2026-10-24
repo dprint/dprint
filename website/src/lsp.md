@@ -111,7 +111,13 @@ When a file is formatted with a configuration file whose process plugins you hav
 - `Deny` doesn't run them for the rest of the session. Not selecting an action does the same.
 - `Always Deny` doesn't run them or ask about them again.
 
-Files they would format aren't formatted until they're allowed, and the next format uses them once they are. In a client that can't show the actions of a message, the message says that they're not allowed instead.
+Files they would format aren't formatted until they're allowed, and the next format uses them once they are. In a client that can't show the actions of a message, the message says that they're not allowed instead. Allow them there by running the following in the directory of the configuration file, which is the same as `Always Allow`:
+
+```sh
+dprint config allow-process-plugins
+# or with the path of the configuration file
+dprint config allow-process-plugins --config path/to/dprint.json
+```
 
 What's decided on is the process plugins of that configuration file with its plugins and configuration, so when the configuration file changes (ex. the commands of dprint-plugin-exec), you're asked again. The process plugins of the [global configuration file](/global-config) are always allowed. The `Always Allow` and `Always Deny` choices are stored in an `editor-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file has you asked again.
 

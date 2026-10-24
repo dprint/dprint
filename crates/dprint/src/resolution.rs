@@ -1203,17 +1203,16 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   // setting up a process plugin runs it to get its information.
   let mut plugin_references = config.plugins.clone();
   let mut unapproved_process_plugins = None;
-  if !config.is_global && plugin_references.iter().any(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm)) {
-    let approval = get_process_plugin_approval(&config);
-    if !is_process_plugin_approved(&approval) {
-      let (wasm_plugins, process_plugins): (Vec<_>, Vec<_>) = plugin_references.into_iter().partition(|plugin| plugin.plugin_kind() == Some(PluginKind::Wasm));
-      log_debug!(environment, "Not using the unapproved process plugins of {}", approval.config_file);
-      plugin_references = wasm_plugins;
-      unapproved_process_plugins = Some(UnapprovedProcessPlugins {
-        approval,
-        plugins: process_plugins.iter().map(|plugin| plugin.to_full_string()).collect(),
-      });
-    }
+  if let Some(process_plugins) = get_process_plugins_to_approve(&config)
+    && !is_process_plugin_approved(&process_plugins.approval)
+  {
+    log_debug!(
+      environment,
+      "Not using the unapproved process plugins of {}",
+      process_plugins.approval.config_file
+    );
+    plugin_references.retain(|plugin| plugin.plugin_kind() == Some(PluginKind::Wasm));
+    unapproved_process_plugins = Some(process_plugins);
   }
 
   // resolve the plugins
@@ -1302,12 +1301,38 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   Ok(scope)
 }
 
+/// Gets the process plugins of the config file that an editor needs to be
+/// allowed to run, which is none for the global config file because it's the
+/// user's own.
+pub fn get_process_plugins_to_approve(config: &ResolvedConfig) -> Option<UnapprovedProcessPlugins> {
+  if config.is_global {
+    return None;
+  }
+  let plugins = config
+    .plugins
+    .iter()
+    .filter(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm))
+    .map(|plugin| plugin.to_full_string())
+    .collect::<Vec<_>>();
+  if plugins.is_empty() {
+    return None;
+  }
+  Some(UnapprovedProcessPlugins {
+    approval: get_process_plugin_approval(config),
+    plugins,
+  })
+}
+
 /// Gets the message that says how to have the process plugins of a config file
 /// run when the editor can't ask whether to allow them.
-pub fn get_cant_ask_message(environment: &impl Environment) -> String {
+pub fn get_cant_ask_message(environment: &impl Environment, approval: &ProcessPluginApproval) -> String {
   let file_path = get_settings_file_path(environment).map(|path| path.display().to_string());
   format!(
-    "The editor can't ask whether to allow them, so they only run when \"editor.allowProcessPlugins\" isn't false in {}.",
+    concat!(
+      "The editor can't ask whether to allow them, so they only run once you allow them by running ",
+      "`dprint config allow-process-plugins --config \"{}\"` or when \"editor.allowProcessPlugins\" isn't false in {}."
+    ),
+    approval.config_file,
     file_path.as_deref().unwrap_or("settings.json in dprint's global config directory"),
   )
 }

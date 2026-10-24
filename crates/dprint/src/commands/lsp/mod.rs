@@ -839,9 +839,10 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     }
     let message = unapproved.message(&permissions);
     if !supports_message_actions {
-      self
-        .client
-        .show_message(MessageType::WARNING, format!("{} {}", message, get_cant_ask_message(&self.environment)));
+      self.client.show_message(
+        MessageType::WARNING,
+        format!("{} {}", message, get_cant_ask_message(&self.environment, &unapproved.approval)),
+      );
       return;
     }
     let actions = [ALLOW_ACTION_TITLE, ALWAYS_ALLOW_ACTION_TITLE, DENY_ACTION_TITLE, ALWAYS_DENY_ACTION_TITLE]
@@ -2905,10 +2906,7 @@ mod test {
       let (shown, was_set_up) = run_session(&environment, Default::default(), None, [false, false]).await;
       assert!(!was_set_up);
       assert_eq!(shown.len(), 1, "{shown:?}");
-      assert!(
-        shown[0].1.contains("they only run when \"editor.allowProcessPlugins\" isn't false in"),
-        "{shown:?}"
-      );
+      assert!(shown[0].1.contains("or when \"editor.allowProcessPlugins\" isn't false in"), "{shown:?}");
       assert_eq!(shown[0].2, Vec::<String>::new());
 
       // denying only asks once per session

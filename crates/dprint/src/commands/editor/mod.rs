@@ -88,7 +88,12 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 
   scope.ensure_no_global_config_diagnostics()?;
   if let Some(unapproved) = &scope.unapproved_process_plugins {
-    log_warn!(environment, "{} {}", unapproved.message(&permissions), get_cant_ask_message(environment));
+    log_warn!(
+      environment,
+      "{} {}",
+      unapproved.message(&permissions),
+      get_cant_ask_message(environment, &unapproved.approval)
+    );
   }
 
   for plugin in scope.plugins.values() {
@@ -465,7 +470,7 @@ impl<TEnvironment: Environment> EditorService<'_, TEnvironment> {
     }
     let message = unapproved.message(permissions);
     if self.context.editor_capabilities.borrow().approve_process_plugins.is_none() {
-      log_warn!(self.environment, "{} {}", message, get_cant_ask_message(self.environment));
+      log_warn!(self.environment, "{} {}", message, get_cant_ask_message(self.environment, &unapproved.approval));
       return;
     }
     let data = ApproveProcessPluginsMessage {
@@ -993,9 +998,53 @@ mod test {
       "{stderr_messages:?}"
     );
     assert!(
-      stderr_messages[0].contains("they only run when \"editor.allowProcessPlugins\" isn't false in"),
+      stderr_messages[0].contains(concat!(
+        "they only run once you allow them by running `dprint config allow-process-plugins --config \"/dprint.json\"` ",
+        "or when \"editor.allowProcessPlugins\" isn't false in"
+      )),
       "{stderr_messages:?}"
     );
+  }
+
+  #[test]
+  fn should_use_process_plugins_allowed_with_cli_for_editor_without_capabilities() {
+    let file_path = PathBuf::from("/file.txt_ps");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_process_plugin();
+      })
+      .write_file(&file_path, "text")
+      .build(); // not initialized, so the process plugin is only set up when it's allowed
+    disallow_process_plugins(&environment);
+
+    run_test_cli(vec!["config", "allow-process-plugins"], &environment).unwrap();
+    let stderr_messages = environment.take_stderr_messages();
+    assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
+    assert!(
+      stderr_messages[0].starts_with("Allowed the process plugins of /dprint.json (https://plugins.dprint.dev/test-process.json@"),
+      "{stderr_messages:?}"
+    );
+    assert!(
+      stderr_messages[0].ends_with(") to run in editors until its configuration changes."),
+      "{stderr_messages:?}"
+    );
+
+    run_editor_service_session(&environment, move |communicator| {
+      async move {
+        communicator.check_file(&file_path).await.unwrap();
+        assert!(
+          communicator
+            .format_text(&file_path, b"text".to_vec(), None, Default::default(), Default::default())
+            .await
+            .unwrap()
+            .is_some()
+        );
+      }
+      .boxed_local()
+    });
+    let stderr_messages = environment.take_stderr_messages();
+    assert!(!stderr_messages.iter().any(|message| message.contains("didn't use")), "{stderr_messages:?}");
   }
 
   #[test]

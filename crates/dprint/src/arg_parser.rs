@@ -361,6 +361,8 @@ pub enum ConfigSubCommand {
   /// Download and set up the plugins in the configuration file.
   Install(InstallSubCommand),
   Edit,
+  /// Allow the process plugins of the configuration file to run in editors.
+  AllowProcessPlugins,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -627,6 +629,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         is_global_config = matches.get_flag("global");
         ConfigSubCommand::Edit
       }
+      ("allow-process-plugins", _) => ConfigSubCommand::AllowProcessPlugins,
       _ => unreachable!(),
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
@@ -1179,6 +1182,10 @@ EXAMPLES:
                 .num_args(0)
                 .required(false)
             )
+        )
+        .subcommand(
+          Command::new("allow-process-plugins")
+            .about("Allows the process plugins of the configuration file to run in editors until its configuration changes.")
         )
     )
     .subcommand(
