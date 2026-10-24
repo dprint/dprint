@@ -78,7 +78,7 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
   }
 
   let (name, after_name) = parse_package_name(rest, text)?;
-  validate_safe_package_name(&name, text)?;
+  validate_package_name(&name, text)?;
 
   if after_name.is_empty() {
     return Ok(ParsedNpmSpecifier {
@@ -254,31 +254,53 @@ pub fn validate_safe_version(version: &str, original: &str) -> Result<()> {
   Ok(())
 }
 
-/// Rejects an npm package name that could escape the directory it's joined
-/// onto. The name flows into `node_modules`-relative joins
-/// (`node_modules/<name>`) and the npm extract cache dir, so a name containing
-/// `..`, an empty segment, or a backslash would let a crafted specifier walk
-/// out of those directories — mirroring the threat `validate_safe_sub_path`
-/// guards against for the path portion. A legitimate name is either `name` or
-/// `@scope/name`, so a `.`/`..`/empty segment never appears in practice.
-fn validate_safe_package_name(name: &str, original: &str) -> Result<()> {
-  if name.contains('\\') {
-    bail!("Package name in npm specifier must not contain backslashes (got '{}'): {}", name, original);
+/// The maximum length of an npm package name, including its scope.
+const MAX_PACKAGE_NAME_LENGTH: usize = 214;
+
+/// Rejects a name that npm wouldn't allow for a new package (ex. `@scope/name`
+/// or `name`).
+///
+/// The name goes in the url of the package's information on the registry and
+/// in paths (`node_modules/<name>` and the npm cache directory), so it can't
+/// have anything that means something else there. For example, `%2e%2e` in a
+/// url is the parent path, which could send a request with the registry's
+/// token to another path of the registry's host, and a `.` at the end of a
+/// directory name is ignored on Windows, which would have it share the cache
+/// directory of another package.
+fn validate_package_name(name: &str, original: &str) -> Result<()> {
+  if name.len() > MAX_PACKAGE_NAME_LENGTH {
+    bail!(
+      "Package name in npm specifier must not be longer than {} characters (got '{}'): {}",
+      MAX_PACKAGE_NAME_LENGTH,
+      name,
+      original
+    );
   }
-  // a drive letter (ex. `C:name`) replaces the base path when joined on Windows
-  if name.contains(':') {
-    bail!("Package name in npm specifier must not contain colons (got '{}'): {}", name, original);
-  }
-  for segment in name.split('/') {
-    if segment.is_empty() {
-      bail!("Package name in npm specifier must not contain empty segments (got '{}'): {}", name, original);
-    }
-    if segment == "." || segment == ".." {
+  // the parser ends the name at a second `/`, so this is the scope and name
+  // of a scoped package or the name of an unscoped one
+  for part in name.strip_prefix('@').unwrap_or(name).split('/') {
+    if part.is_empty() {
       bail!(
-        "Package name in npm specifier must not contain '.' or '..' segments (got '{}'): {}",
+        "Package name in npm specifier must not have an empty scope or name (got '{}'): {}",
         name,
         original
       );
+    }
+    if !part
+      .chars()
+      .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '.' | '_'))
+    {
+      bail!(
+        "Package name in npm specifier must only contain lowercase letters, digits, '-', '.' and '_' (got '{}'): {}",
+        name,
+        original
+      );
+    }
+    if part.starts_with(['.', '_']) {
+      bail!("Package name in npm specifier must not start with '.' or '_' (got '{}'): {}", name, original);
+    }
+    if part.ends_with('.') {
+      bail!("Package name in npm specifier must not end with '.' (got '{}'): {}", name, original);
     }
   }
   Ok(())
@@ -597,14 +619,59 @@ mod tests {
   fn parse_rejects_parent_dir_package_names() {
     // the package name is joined onto node_modules and the extract cache dir;
     // a `..` segment would walk out of those directories.
-    let cases = ["npm:..@1.0.0", "npm:..", "npm:@scope/..@1.0.0", "npm:@scope/..", "npm:.@1.0.0"];
+    let cases = ["npm:..@1.0.0", "npm:..", "npm:@scope/..@1.0.0", "npm:@scope/..", "npm:.@1.0.0", "npm:@../name"];
     for input in cases {
       let err = parse_npm_specifier(input).unwrap_err();
-      let msg = err.to_string();
       assert!(
-        msg.contains("'.' or '..' segments") || msg.contains("empty segments"),
-        "expected name rejection for {input}, got: {msg}",
+        err.to_string().contains("must not start with '.'"),
+        "expected name rejection for {input}, got: {err}"
       );
+    }
+  }
+
+  #[test]
+  fn parse_rejects_package_names_npm_does_not_allow() {
+    let cases = [
+      // a parent path in the registry url
+      ("npm:%2e%2e@1.0.0", "must only contain"),
+      ("npm:@scope/%2e%2e@1.0.0", "must only contain"),
+      ("npm:foo%2fbar@1.0.0", "must only contain"),
+      ("npm:foo?bar@1.0.0", "must only contain"),
+      ("npm:foo#bar@1.0.0", "must only contain"),
+      ("npm:foo bar@1.0.0", "must only contain"),
+      ("npm:@sc@pe/name@1.0.0", "must only contain"),
+      // the same directory as another package on a case insensitive file system
+      ("npm:Foo@1.0.0", "must only contain"),
+      ("npm:@Scope/name@1.0.0", "must only contain"),
+      // the same directory as another package on Windows
+      ("npm:foo.@1.0.0", "must not end with '.'"),
+      ("npm:@scope./name@1.0.0", "must not end with '.'"),
+      ("npm:@scope/name.@1.0.0", "must not end with '.'"),
+      ("npm:_foo@1.0.0", "must not start with '.' or '_'"),
+      ("npm:@_scope/name@1.0.0", "must not start with '.' or '_'"),
+      ("npm:@/name@1.0.0", "must not have an empty scope or name"),
+    ];
+    for (input, expected) in cases {
+      let err = parse_npm_specifier(input).unwrap_err();
+      assert!(err.to_string().contains(expected), "expected '{expected}' for {input}, got: {err}");
+    }
+
+    let long_name = "a".repeat(215);
+    let err = parse_npm_specifier(&format!("npm:{long_name}@1.0.0")).unwrap_err();
+    assert!(err.to_string().contains("must not be longer than 214 characters"), "got: {err}");
+  }
+
+  #[test]
+  fn parse_accepts_package_names_npm_allows() {
+    for input in [
+      "npm:foo@1.0.0",
+      "npm:dprint-plugin-foo",
+      "npm:a.b_c-d0@1.0.0",
+      "npm:@dprint/typescript@1.0.0",
+      "npm:@a-b.c_d/e-f.g_h",
+      &format!("npm:{}@1.0.0", "a".repeat(214)),
+    ] {
+      assert!(parse_npm_specifier(input).is_ok(), "expected {input} to parse");
     }
   }
 
@@ -640,7 +707,7 @@ mod tests {
   #[test]
   fn parse_rejects_backslash_in_package_name() {
     let err = parse_npm_specifier("npm:foo\\bar@1.0.0").unwrap_err();
-    assert!(err.to_string().contains("backslashes"), "got: {err}");
+    assert!(err.to_string().contains("must only contain"), "got: {err}");
   }
 
   #[test]
