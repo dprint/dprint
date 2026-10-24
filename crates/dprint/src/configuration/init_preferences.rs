@@ -1,18 +1,19 @@
 use std::path::PathBuf;
 
-use anyhow::Context;
 use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::environment::Environment;
 
-use super::resolve_global_config_dir;
+use super::Settings;
+use super::read_settings;
 use super::resolve_global_config_dir_path;
+use super::set_setting;
 
-/// Name of the file in the global config directory that `dprint init` keeps
-/// what the user prefers in. It's only ever written by `dprint init`.
-const INIT_PREFERENCES_FILE_NAME: &str = "init.json";
+/// Name of the file in the global config directory that `dprint init` kept
+/// what the user prefers in before they were moved to the settings file.
+const LEGACY_INIT_PREFERENCES_FILE_NAME: &str = "init.json";
 
 /// What the user told `dprint init` to remember for the next time it runs.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,8 +59,34 @@ pub struct PreferredPlugin {
 /// can't be read. `dprint init` works without it, so a problem with the file
 /// is only warned about.
 pub fn read_init_preferences(environment: &impl Environment) -> InitPreferences {
-  // nothing is created just to find out there's nothing in it
-  let Some(file_path) = resolve_global_config_dir_path(environment).map(|dir| dir.join(INIT_PREFERENCES_FILE_NAME)) else {
+  match read_settings(environment) {
+    Ok(Some(Settings { init: Some(preferences), .. })) => preferences,
+    // they're moved to the settings file the next time they're written
+    Ok(_) => read_legacy_init_preferences(environment),
+    Err(err) => {
+      log_warn!(environment, "Ignoring the preferences because of a problem reading the settings: {:#}", err);
+      Default::default()
+    }
+  }
+}
+
+/// Writes what the user prefers to the settings file, providing its path.
+pub fn write_init_preferences(environment: &impl Environment, preferences: &InitPreferences) -> Result<PathBuf> {
+  let file_path = set_setting(environment, &["init"], serde_json::to_value(preferences)?)?;
+  // the preferences were moved to the settings file
+  if let Some(legacy_file_path) = get_legacy_init_preferences_path(environment)
+    && environment.path_exists(&legacy_file_path)
+    && let Err(err) = environment.remove_file(&legacy_file_path)
+  {
+    log_debug!(environment, "Failed removing {}: {:#}", legacy_file_path.display(), err);
+  }
+  Ok(file_path)
+}
+
+/// Reads the preferences from the file they were in before they were in the
+/// settings file (dprint 0.64).
+fn read_legacy_init_preferences(environment: &impl Environment) -> InitPreferences {
+  let Some(file_path) = get_legacy_init_preferences_path(environment) else {
     return Default::default();
   };
   if !environment.path_exists(&file_path) {
@@ -83,23 +110,8 @@ pub fn read_init_preferences(environment: &impl Environment) -> InitPreferences 
   }
 }
 
-/// Writes what the user prefers, providing the path of the file it's in.
-pub fn write_init_preferences(environment: &impl Environment, preferences: &InitPreferences) -> Result<PathBuf> {
-  let file_path = resolve_init_preferences_path(environment).context("Could not find the global config directory.")?;
-  if let Some(dir) = file_path.parent() {
-    _ = environment.mk_dir_all(dir);
-  }
-  let mut text = serde_json::to_string_pretty(preferences)?;
-  text.push('\n');
-  environment
-    .write_file(&file_path, &text)
-    .with_context(|| format!("Failed writing {}", file_path.display()))?;
-  Ok(file_path)
-}
-
-fn resolve_init_preferences_path(environment: &impl Environment) -> Option<PathBuf> {
-  let dir = resolve_global_config_dir(environment).ok()?;
-  Some(dir.join(INIT_PREFERENCES_FILE_NAME))
+fn get_legacy_init_preferences_path(environment: &impl Environment) -> Option<PathBuf> {
+  resolve_global_config_dir_path(environment).map(|dir| dir.join(LEGACY_INIT_PREFERENCES_FILE_NAME))
 }
 
 #[cfg(test)]
@@ -132,25 +144,53 @@ mod test {
     };
     write_init_preferences(&environment, &preferences).unwrap();
     assert_eq!(
-      environment.read_file("/config/dprint/init.json").unwrap(),
+      environment.read_file("/config/dprint/settings.json").unwrap(),
       r#"{
-  "preferredPlugins": [
-    {
-      "name": "dprint-plugin-biome",
-      "excludedFileExtensions": [
-        "yaml"
-      ],
-      "config": {
-        "indentStyle": "space"
+  "init": {
+    "preferredPlugins": [
+      {
+        "name": "dprint-plugin-biome",
+        "excludedFileExtensions": ["yaml"],
+        "config": {
+          "indentStyle": "space"
+        }
+      },
+      {
+        "name": "dprint-plugin-json"
       }
-    },
-    {
-      "name": "dprint-plugin-json"
-    }
-  ],
-  "avoidedPlugins": [
-    "dprint-plugin-prettier"
-  ]
+    ],
+    "avoidedPlugins": ["dprint-plugin-prettier"]
+  }
+}
+"#
+    );
+    assert_eq!(read_init_preferences(&environment), preferences);
+  }
+
+  #[test]
+  fn should_move_preferences_from_init_json_to_the_settings_file() {
+    // dprint 0.64 kept them in an init.json file
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/config/dprint").unwrap();
+    environment
+      .write_file("/config/dprint/settings.json", r#"{ "editor": { "allowProcessPlugins": false } }"#)
+      .unwrap();
+    environment
+      .write_file("/config/dprint/init.json", r#"{ "avoidedPlugins": ["dprint-plugin-prettier"] }"#)
+      .unwrap();
+    let mut preferences = read_init_preferences(&environment);
+    assert_eq!(preferences.avoided_plugins, vec!["dprint-plugin-prettier".to_string()]);
+
+    preferences.avoided_plugins.push("dprint-plugin-biome".to_string());
+    write_init_preferences(&environment, &preferences).unwrap();
+    assert!(!environment.path_exists("/config/dprint/init.json"));
+    assert_eq!(
+      environment.read_file("/config/dprint/settings.json").unwrap(),
+      r#"{
+  "editor": { "allowProcessPlugins": false },
+  "init": {
+    "avoidedPlugins": ["dprint-plugin-prettier", "dprint-plugin-biome"]
+  }
 }
 "#
     );

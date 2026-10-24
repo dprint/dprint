@@ -1,13 +1,15 @@
 Escape in the plugins to prefer leaves without saving what was done there.
 
 -- file: /src/main.ts --
--- file: /config/dprint/init.json --
+-- file: /config/dprint/settings.json --
 {
-  "preferredPlugins": [
-    {
-      "name": "dprint-plugin-biome"
-    }
-  ]
+  "init": {
+    "preferredPlugins": [
+      {
+        "name": "dprint-plugin-biome"
+      }
+    ]
+  }
 }
 -- args --
 init --preferences
@@ -66,11 +68,13 @@ Selection cancelled.
 # /dprint.json
 (does not exist)
 
-# /config/dprint/init.json
+# /config/dprint/settings.json
 {
-  "preferredPlugins": [
-    {
-      "name": "dprint-plugin-biome"
-    }
-  ]
+  "init": {
+    "preferredPlugins": [
+      {
+        "name": "dprint-plugin-biome"
+      }
+    ]
+  }
 }

@@ -77,6 +77,18 @@ impl EditorMessage {
         EditorMessageBody::FormatResponse(message_id, data)
       }
       8 => EditorMessageBody::CancelFormat(reader.read_u32()?),
+      9 => EditorMessageBody::Capabilities(reader.read_sized_bytes()?),
+      10 => {
+        let message_id = reader.read_u32()?;
+        let data = reader.read_sized_bytes()?;
+        EditorMessageBody::CapabilitiesResponse(message_id, data)
+      }
+      11 => EditorMessageBody::ApproveProcessPlugins(reader.read_sized_bytes()?),
+      12 => {
+        let message_id = reader.read_u32()?;
+        let data = reader.read_sized_bytes()?;
+        EditorMessageBody::ApproveProcessPluginsResponse(message_id, data)
+      }
       _ => {
         let data = reader.read_bytes(body_length as usize)?;
         EditorMessageBody::Unknown(message_kind, data)
@@ -130,6 +142,20 @@ impl Message for EditorMessage {
       }
       EditorMessageBody::CancelFormat(message_id) => {
         builder.add_number(*message_id);
+      }
+      EditorMessageBody::Capabilities(data) => {
+        builder.add_bytes(data);
+      }
+      EditorMessageBody::CapabilitiesResponse(message_id, data) => {
+        builder.add_number(*message_id);
+        builder.add_bytes(data);
+      }
+      EditorMessageBody::ApproveProcessPlugins(data) => {
+        builder.add_bytes(data);
+      }
+      EditorMessageBody::ApproveProcessPluginsResponse(message_id, data) => {
+        builder.add_number(*message_id);
+        builder.add_bytes(data);
       }
       EditorMessageBody::Unknown(_, _) => unreachable!(), // should never be written
     }
@@ -210,6 +236,18 @@ pub enum EditorMessageBody {
   Format(FormatEditorMessageBody),
   FormatResponse(u32, Option<Vec<u8>>),
   CancelFormat(u32),
+  /// The capabilities of the editor as JSON (see `EditorCapabilities`), which
+  /// an editor sends before any other message. Older editors don't send it.
+  Capabilities(Vec<u8>),
+  /// The capabilities of the editor service as JSON.
+  CapabilitiesResponse(u32, Vec<u8>),
+  /// Asks the editor whether to allow running the process plugins of a config
+  /// file, which is only sent when its capabilities say it can ask the user.
+  /// The data is JSON (see `ApproveProcessPluginsMessage`).
+  ApproveProcessPlugins(Vec<u8>),
+  /// What the user decided about running the process plugins as JSON (see
+  /// `ApproveProcessPluginsResponseMessage`).
+  ApproveProcessPluginsResponse(u32, Vec<u8>),
   #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
@@ -226,6 +264,10 @@ impl EditorMessageBody {
       EditorMessageBody::Format(_) => 6,
       EditorMessageBody::FormatResponse(_, _) => 7,
       EditorMessageBody::CancelFormat(_) => 8,
+      EditorMessageBody::Capabilities(_) => 9,
+      EditorMessageBody::CapabilitiesResponse(_, _) => 10,
+      EditorMessageBody::ApproveProcessPlugins(_) => 11,
+      EditorMessageBody::ApproveProcessPluginsResponse(_, _) => 12,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
@@ -237,4 +279,83 @@ pub struct FormatEditorMessageBody {
   pub range: FormatRange,
   pub override_config: Vec<u8>,
   pub file_bytes: Vec<u8>,
+}
+
+/// What the editor or the editor service supports, which is exchanged with the
+/// `Capabilities` message. The editor service only sends a message to the
+/// editor that the editor says it supports, so older editors keep working.
+///
+/// Each capability is an object, which may have more details in the future,
+/// and isn't supported when it's not specified.
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorCapabilities {
+  /// Whether the `ApproveProcessPlugins` message is supported.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approve_process_plugins: Option<ApproveProcessPluginsCapability>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApproveProcessPluginsCapability {}
+
+/// The data of an `ApproveProcessPlugins` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApproveProcessPluginsMessage {
+  /// The config file that specifies the process plugins.
+  pub config_file: String,
+  /// The process plugins.
+  pub plugins: Vec<ApproveProcessPluginsPlugin>,
+  /// The message to show the user.
+  pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApproveProcessPluginsPlugin {
+  /// The url or path of the process plugin with its checksum.
+  pub source: String,
+}
+
+/// The data of an `ApproveProcessPluginsResponse` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApproveProcessPluginsResponseMessage {
+  pub decision: ProcessPluginsDecision,
+}
+
+/// What the user decided in response to an `ApproveProcessPlugins` message.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProcessPluginsDecision {
+  /// Run them for this session.
+  Allow,
+  /// Run them until the configuration changes.
+  AlwaysAllow,
+  /// Don't run them for this session.
+  #[default]
+  Deny,
+  /// Don't run them or ask again until the configuration changes.
+  AlwaysDeny,
+  /// A decision this version doesn't know about, which is treated as denying.
+  #[serde(other)]
+  Unknown,
+}
+
+#[cfg(test)]
+mod test {
+  use pretty_assertions::assert_eq;
+
+  use super::*;
+
+  #[test]
+  fn should_deserialize_unknown_data_from_newer_editors() {
+    let response: ApproveProcessPluginsResponseMessage = serde_json::from_str(r#"{ "decision": "allowForWorkspace", "other": 1 }"#).unwrap();
+    assert_eq!(response.decision, ProcessPluginsDecision::Unknown);
+    let capabilities: EditorCapabilities = serde_json::from_str(r#"{ "approveProcessPlugins": { "other": 1 }, "other": {} }"#).unwrap();
+    assert_eq!(capabilities.approve_process_plugins, Some(ApproveProcessPluginsCapability {}));
+    let capabilities: EditorCapabilities = serde_json::from_str("{}").unwrap();
+    assert_eq!(capabilities.approve_process_plugins, None);
+  }
 }

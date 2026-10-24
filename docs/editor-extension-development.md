@@ -188,3 +188,86 @@ Message body:
 - u32 - Message id of the format to cancel
 
 Response: Clients should not expect a message back. This message is fire and forget. Remember though, you may still receive a response from the CLI for this cancelled message. In that case, just ignore the message.
+
+#### `9` - Capabilities (Client to Service)
+
+Says what the client supports and asks what the editor service supports. Send this before any other message. The editor service only sends the newer messages below to a client that says it supports them, so a client that doesn't send this message (ex. an older one) keeps working the same way. An older editor service responds with an error response because it doesn't know this message kind, which means it doesn't support anything below.
+
+Message body:
+
+- u32 - Capabilities byte length
+- JSON capabilities of the client
+
+Response: Capabilities response with the JSON capabilities of the editor service
+
+The capabilities are a JSON object where each capability is an object, which may have more properties in the future. A capability that's not specified isn't supported. Ignore properties you don't know about.
+
+- `approveProcessPlugins` - The "Approve process plugins" message is supported. For the client, this means it can ask the user whether to allow running process plugins.
+
+```ts
+interface EditorCapabilities {
+  approveProcessPlugins?: {};
+}
+```
+
+For example, `{ "approveProcessPlugins": {} }`.
+
+#### `10` - Capabilities response (Service to Client)
+
+Message body:
+
+- u32 - Message id responding to
+- u32 - Capabilities byte length
+- JSON capabilities of the editor service
+
+Response: None
+
+#### `11` - Approve process plugins (Service to Client)
+
+Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start the process plugins of a configuration file until the user allows them. Opening a project isn't the same as choosing to run dprint in it. This message is sent to a client that supports it to ask the user whether to allow them. It's sent at most once per session for each configuration of a configuration file and not when the user denied them. A client that doesn't support it has a warning logged to stderr instead, which says that the user can allow them by running `dprint config allow-process-plugins`.
+
+Show the user the following choices, where the configuration changing has the user asked again:
+
+- Allow - Run them for the rest of the session.
+- Always Allow - Run them from then on.
+- Deny - Don't run them for the rest of the session. Respond with this when the user doesn't choose.
+- Always Deny - Don't run them or ask about them again.
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface ApproveProcessPluginsData {
+  /** The configuration file that specifies the process plugins. */
+  configFile: string;
+  plugins: {
+    /** The URL or path of the process plugin with its checksum. */
+    source: string;
+  }[];
+  /** The message to show the user. */
+  message: string;
+}
+```
+
+Ignore properties you don't know about.
+
+Response: Approve process plugins response once the user responds. Don't wait on the user to respond to other messages. The process plugins are used by the messages handled after the response is received.
+
+#### `12` - Approve process plugins response (Client to Service)
+
+Message body:
+
+- u32 - Message id responding to
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface ApproveProcessPluginsResponseData {
+  /** What the user chose. An unknown value is treated as `"deny"`. */
+  decision: "allow" | "alwaysAllow" | "deny" | "alwaysDeny";
+}
+```
+
+Response: None
