@@ -97,7 +97,7 @@ impl<TWrite: Write + Unpin> MessageWriter<TWrite> {
 /// Reads exactly `size` bytes into the reserved capacity of `buf` without
 /// zeroing it first.
 ///
-/// This is deliberately not a security issue:
+/// This is not a security issue:
 ///
 /// - The readers used with this (`ChildStdout` and `Stdin`) only write to the
 ///   buffer they're given and never read from it. A plugin only controls the
