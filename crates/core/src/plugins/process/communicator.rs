@@ -709,7 +709,6 @@ impl Drop for ProcessJob {
 #[cfg(all(test, unix))]
 mod test {
   use super::*;
-  use std::os::unix::fs::PermissionsExt;
 
   #[test]
   fn start_process_error_missing_loader() {
@@ -718,8 +717,18 @@ mod test {
     let executable = dir.join("plugin");
     // exec fails with ENOENT because the interpreter doesn't exist, the same
     // as a binary whose dynamic loader doesn't exist
-    std::fs::write(&executable, "#!/dprint-non-existent/interpreter\n").unwrap();
-    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    //
+    // the script is written by a child process because if this process opened
+    // it for writing, a process concurrently forked by another test could
+    // inherit that fd and cause exec to fail with ETXTBSY
+    let status = Command::new("sh")
+      .arg("-c")
+      .arg("printf '#!/dprint-non-existent/interpreter\\n' > \"$1\" && chmod 755 \"$1\"")
+      .arg("sh")
+      .arg(&executable)
+      .status()
+      .unwrap();
+    assert!(status.success());
     let args = vec!["--init".to_string()];
 
     let err = Command::new(&executable).args(&args).spawn().unwrap_err();
