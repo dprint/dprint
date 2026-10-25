@@ -33,12 +33,10 @@ impl<TRead: Read + Unpin> MessageReader<TRead> {
   }
 
   pub fn read_bytes(&mut self, size: usize) -> Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    if size > 0 {
-      buf.try_reserve_exact(size)?;
-      read_exact_into_uninit(&mut self.reader, &mut buf, size)?;
+    if size == 0 {
+      return Ok(Vec::new());
     }
-    Ok(buf)
+    read_exact_into_uninit(&mut self.reader, size)
   }
 
   pub fn read_success_bytes(&mut self) -> Result<()> {
@@ -94,8 +92,8 @@ impl<TWrite: Write + Unpin> MessageWriter<TWrite> {
   }
 }
 
-/// Reads exactly `size` bytes into the reserved capacity of `buf` without
-/// zeroing it first.
+/// Reads exactly `size` bytes into a newly allocated buffer without zeroing
+/// it first.
 ///
 /// This is not a security issue:
 ///
@@ -111,19 +109,17 @@ impl<TWrite: Write + Unpin> MessageWriter<TWrite> {
 /// `take().read_to_end()` reads in small chunks, and `vec![0; size]` aborts on
 /// allocation failure rather than erroring.
 #[inline(always)]
-fn read_exact_into_uninit(reader: &mut impl Read, buf: &mut Vec<u8>, size: usize) -> Result<()> {
-  debug_assert!(buf.is_empty() && buf.capacity() >= size);
+fn read_exact_into_uninit(reader: &mut impl Read, size: usize) -> Result<Vec<u8>> {
+  let mut buf = Vec::new();
+  buf.try_reserve_exact(size)?;
   // SAFETY: capacity was reserved for `size` bytes and, given a reader that
   // only writes to its buffer, the bytes are only observed once `read_exact`
   // has overwritten them all (see above)
   unsafe {
     buf.set_len(size);
   }
-  if let Err(err) = reader.read_exact(buf) {
-    buf.clear();
-    return Err(err);
-  }
-  Ok(())
+  reader.read_exact(&mut buf)?;
+  Ok(buf)
 }
 
 #[cfg(test)]
