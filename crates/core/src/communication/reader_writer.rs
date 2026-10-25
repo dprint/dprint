@@ -109,6 +109,7 @@ impl<TWrite: Write + Unpin> MessageWriter<TWrite> {
 /// `take().read_to_end()` reads in small chunks, and `vec![0; size]` aborts on
 /// allocation failure rather than erroring.
 #[inline(always)]
+#[allow(clippy::read_zero_byte_vec)] // false positive because it doesn't see set_len
 fn read_exact_into_uninit(reader: &mut impl Read, size: usize) -> Result<Vec<u8>> {
   let mut buf = Vec::new();
   buf.try_reserve_exact(size)?;
