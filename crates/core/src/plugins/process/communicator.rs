@@ -76,6 +76,10 @@ enum SchemaVersionError {
 enum CommunicatorError {
   #[error("Error starting {executable} with args [{args}]. {error}")]
   StartProcess { executable: String, args: String, error: std::io::Error },
+  #[error(
+    "Error starting {executable} with args [{args}]. {error}\n\nThe executable exists, but the system is likely missing the dynamic loader or interpreter it needs in order to run (ex. a binary linked against glibc on NixOS, which can be worked around with nix-ld)."
+  )]
+  StartProcessMissingLoader { executable: String, args: String, error: std::io::Error },
   #[error("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade")]
   SchemaVerification(#[from] SchemaVersionError),
   #[error(
@@ -175,11 +179,7 @@ impl ProcessPluginCommunicator {
     command.args(&args).stdin(Stdio::piped()).stderr(Stdio::piped()).stdout(Stdio::piped());
     #[cfg(unix)]
     command.process_group(0);
-    let mut child = command.spawn().map_err(|err| CommunicatorError::StartProcess {
-      executable: executable_file_path.display().to_string(),
-      args: args.join(" "),
-      error: err,
-    })?;
+    let mut child = command.spawn().map_err(|err| start_process_error(executable_file_path, &args, err))?;
     // assign the job right away so that it includes anything the plugin spawns
     #[cfg(windows)]
     let job = ProcessJob::for_child(&child);
@@ -481,6 +481,18 @@ impl ProcessPluginCommunicator {
   }
 }
 
+fn start_process_error(executable_file_path: &Path, args: &[String], error: std::io::Error) -> CommunicatorError {
+  let executable = executable_file_path.display().to_string();
+  let args = args.join(" ");
+  // the kernel reports a missing ELF interpreter (dynamic loader) or shebang
+  // interpreter the same as the executable itself not existing
+  if cfg!(unix) && error.kind() == ErrorKind::NotFound && executable_file_path.is_file() {
+    CommunicatorError::StartProcessMissingLoader { executable, args, error }
+  } else {
+    CommunicatorError::StartProcess { executable, args, error }
+  }
+}
+
 fn get_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(
   reader: &mut MessageReader<TRead>,
   writer: &mut MessageWriter<TWrite>,
@@ -691,5 +703,36 @@ impl Drop for ProcessJob {
     unsafe {
       winapi::um::handleapi::CloseHandle(self.0);
     }
+  }
+}
+
+#[cfg(all(test, unix))]
+mod test {
+  use super::*;
+  use std::os::unix::fs::PermissionsExt;
+
+  #[test]
+  fn start_process_error_missing_loader() {
+    let dir = std::env::temp_dir().join(format!("dprint-core-missing-loader-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let executable = dir.join("plugin");
+    // exec fails with ENOENT because the interpreter doesn't exist, the same
+    // as a binary whose dynamic loader doesn't exist
+    std::fs::write(&executable, "#!/dprint-non-existent/interpreter\n").unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let args = vec!["--init".to_string()];
+
+    let err = Command::new(&executable).args(&args).spawn().unwrap_err();
+    let err = start_process_error(&executable, &args, err);
+    assert!(matches!(err, CommunicatorError::StartProcessMissingLoader { .. }), "{err}");
+    assert!(err.to_string().contains("missing the dynamic loader"), "{err}");
+
+    // an executable that really doesn't exist keeps the regular error
+    let missing_executable = dir.join("missing");
+    let err = Command::new(&missing_executable).spawn().unwrap_err();
+    let err = start_process_error(&missing_executable, &args, err);
+    assert!(matches!(err, CommunicatorError::StartProcess { .. }), "{err}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
   }
 }
