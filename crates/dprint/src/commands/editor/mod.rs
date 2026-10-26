@@ -40,15 +40,16 @@ use self::messages::FormatEditorMessageBody;
 const EDITOR_SERVICE_SCHEMA_VERSIONS: [u32; 2] = [5, 6];
 const CONFIG_SCHEMA_URL: &str = "https://dprint.dev/schemas/v0.json";
 
-/// Outputs what the editor service supports, which an editor uses to choose the
-/// schema version to start it with. This doesn't need a config file.
+/// Outputs what the editor service supports (`dprint editor-service --info`),
+/// which an editor uses to choose the schema version to start it with. This
+/// doesn't need a config file.
 ///
-/// An older version of dprint doesn't have this subcommand, so it fails and the
-/// editor uses `dprint editor-info` with schema version 5 instead.
-pub fn output_editor_capabilities(environment: &impl Environment) -> Result<()> {
+/// An older version of dprint doesn't have the `--info` flag, so it fails and
+/// the editor uses `dprint editor-info` with schema version 5 instead.
+pub fn output_editor_service_info(environment: &impl Environment) -> Result<()> {
   #[derive(serde::Serialize)]
   #[serde(rename_all = "camelCase")]
-  struct EditorCapabilitiesInfo {
+  struct EditorServiceInfo {
     cli_version: String,
     editor_service_schema_versions: &'static [u32],
     config_schema_url: &'static str,
@@ -60,7 +61,7 @@ pub fn output_editor_capabilities(environment: &impl Environment) -> Result<()> 
   #[serde(rename_all = "camelCase")]
   struct EditorServiceCapabilities {}
 
-  environment.log_machine_readable(&serde_json::to_vec(&EditorCapabilitiesInfo {
+  environment.log_machine_readable(&serde_json::to_vec(&EditorServiceInfo {
     cli_version: environment.cli_version(),
     editor_service_schema_versions: &EDITOR_SERVICE_SCHEMA_VERSIONS,
     config_schema_url: CONFIG_SCHEMA_URL,
@@ -89,7 +90,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 
   environment.log_machine_readable(&serde_json::to_vec(&EditorInfo {
     // IMPORTANT: Don't change this. Older editor extensions error for a higher
-    // schema version, so the newer ones are found with `editor-capabilities`.
+    // schema version, so the newer ones are found with `editor-service --info`.
     schema_version: 5,
     cli_version: environment.cli_version(),
     config_schema_url: CONFIG_SCHEMA_URL.to_string(),
@@ -484,9 +485,9 @@ mod test {
   use super::messages::FormatEditorMessageBody;
 
   #[test]
-  fn should_output_editor_capabilities_without_config_file() {
+  fn should_output_editor_service_info_without_config_file() {
     let environment = TestEnvironmentBuilder::new().build();
-    run_test_cli(vec!["editor-capabilities"], &environment).unwrap();
+    run_test_cli(vec!["editor-service", "--info"], &environment).unwrap();
     assert_eq!(
       environment.take_stdout_messages(),
       vec![format!(

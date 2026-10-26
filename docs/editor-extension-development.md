@@ -2,14 +2,14 @@
 
 Note: dprint 0.45 introduced a `dprint lsp` command that supports formatting files over the language server protocol, which is the easiest way to add dprint to an editor that has a language client. The editor service described here is what the vscode and intellij extensions use. Unlike a language server, it's only sent a document's text when formatting it.
 
-Editor extensions communicate with the CLI using the `dprint editor-capabilities` and `dprint editor-service` subcommands. This describes schema version 6 of the editor service, which was introduced in dprint 0.65.
+Editor extensions communicate with the CLI using the `dprint editor-service` subcommand. This describes schema version 6 of the editor service, which was introduced in dprint 0.65.
 
-## dprint editor-capabilities
+## dprint editor-service --info
 
 Run this first to find out what the installed dprint supports. It doesn't need a configuration file.
 
 ```
-dprint editor-capabilities
+dprint editor-service --info
 ```
 
 Outputs something like:
@@ -26,7 +26,7 @@ Outputs something like:
 This can be represented by the following TypeScript types:
 
 ```ts
-interface EditorCapabilitiesInfo {
+interface EditorServiceInfo {
   cliVersion: string;
   /** The schema versions that `dprint editor-service --schema-version <version>` supports. */
   editorServiceSchemaVersions: number[];
@@ -44,7 +44,7 @@ Ignore properties you don't know about.
 
 ## dprint editor-service
 
-This starts a long running process that can be communicated with over stdin and stdout.
+Without `--info`, this starts a long running process that can be communicated with over stdin and stdout.
 
 One process formats the files of a whole workspace. For each file, the editor service finds the configuration file in an ancestor directory, or uses the global configuration file when that's enabled. The configuration is read again for each request, so an edited configuration file is used for the next request without restarting the editor service.
 
