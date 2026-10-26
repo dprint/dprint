@@ -20,7 +20,9 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::arg_parser::CliArgs;
+use crate::commands::lsp::notebook::trim_formatted_cell_text;
 use crate::commands::lsp::text::get_utf16_edits;
+use crate::commands::lsp::text::normalize_to_source_line_endings;
 use crate::commands::no_config::DISMISS_ACTION_TITLE;
 use crate::commands::no_config::DISMISS_WORKSPACE_ACTION_TITLE;
 use crate::commands::no_config::EDITOR_EXTENSION_SETTINGS_OWNER;
@@ -323,7 +325,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         HostFormatRequest {
           file_path,
           file_bytes: file_text.clone().into_bytes(),
-          range,
+          range: range.clone(),
           override_config: options.override_config,
           token: token.clone(),
         },
@@ -335,6 +337,13 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
     };
     let formatted_text = String::from_utf8(formatted_text).context("The formatted text isn't valid UTF-8.")?;
+    // the editor owns the document's line endings, so match them rather than
+    // imposing the plugin's configured newline kind (see #965)
+    let formatted_text = normalize_to_source_line_endings(&file_text, formatted_text);
+    let formatted_text = match notebook_path {
+      Some(_) => trim_formatted_cell_text(&file_text, formatted_text, &range),
+      None => formatted_text,
+    };
     let edits = get_utf16_edits(&file_text, &formatted_text);
     if edits.is_empty() {
       return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
@@ -950,6 +959,42 @@ mod test {
         assert_eq!(
           client.format("/file.txt", "testing_formatted", None).await.unwrap(),
           not_formatted(NotFormattedReason::Unchanged)
+        );
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_format_notebook_cells() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|c| {
+        // the process plugin stands in for the jupyter plugin
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "formatted\n" }"#)
+          .add_config_section("testProcessPlugin", r#"{ "associations": ["**/*.ipynb"] }"#);
+      })
+      .initialize()
+      .build();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        let cell_options = FormatFileOptions {
+          notebook_path: Some(PathBuf::from("/dir/notebook.ipynb")),
+          ..Default::default()
+        };
+        // the final newline is trimmed
+        assert_eq!(
+          client.format("/dir/notebook.txt", "text", Some(cell_options.clone())).await.unwrap(),
+          formatted("text_formatted")
+        );
+        // the cell is only formatted when the plugins handle its language
+        assert_eq!(
+          client.format("/dir/notebook.py", "text", Some(cell_options)).await.unwrap(),
+          not_formatted(NotFormattedReason::NoPlugin)
         );
       }
       .boxed_local()

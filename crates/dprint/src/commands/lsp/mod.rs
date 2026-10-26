@@ -106,7 +106,7 @@ mod client;
 mod config_completion;
 mod documents;
 mod language;
-mod notebook;
+pub(super) mod notebook;
 mod settings;
 pub(super) mod text;
 mod untitled;
