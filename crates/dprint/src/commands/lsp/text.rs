@@ -230,12 +230,27 @@ fn detect_crlf(text: &str) -> Option<bool> {
 /// Compare two strings and return a vector of text edit records which are
 /// supported by the Language Server Protocol.
 pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
+  get_utf16_edits(a, b).into_iter().map(|edit| to_lsp_edit(edit, line_index)).collect()
+}
+
+/// An edit of a text where the offsets are UTF-16 code units of that text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Utf16TextEdit {
+  pub start: u32,
+  pub end: u32,
+  pub new_text: String,
+}
+
+/// Compare two strings and return the edits that change the first into the
+/// second, which never split a character.
+pub fn get_utf16_edits(a: &str, b: &str) -> Vec<Utf16TextEdit> {
   if a == b {
     return vec![];
   }
   // Heuristic to detect things like minified files. Diffing is expensive.
-  if b.chars().filter(|c| *c == '\n').count() > line_index.utf8_offsets.len() * 3 {
-    return vec![replace_whole_file(a, b, line_index)];
+  // This is three times the number of line offsets of a line index of `a`.
+  if b.chars().filter(|c| *c == '\n').count() > (a.chars().filter(|c| *c == '\n').count() + 2) * 3 {
+    return vec![replace_whole_file(a, b)];
   }
   // diff at the character level, coalescing consecutive changes of the same
   // kind into runs so the edit construction below can work a chunk at a time.
@@ -247,7 +262,7 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
   let deadline = Instant::now() + Duration::from_millis(500);
   let diff = TextDiff::configure().deadline(deadline).diff_chars(a, b);
   if Instant::now() >= deadline {
-    return vec![replace_whole_file(a, b, line_index)];
+    return vec![replace_whole_file(a, b)];
   }
   let mut chunks: Vec<(ChangeTag, String)> = Vec::new();
   for change in diff.iter_all_changes() {
@@ -257,40 +272,40 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
     }
   }
 
-  let mut text_edits = Vec::<TextEdit>::new();
+  let mut text_edits = Vec::<Utf16TextEdit>::new();
   let mut iter = chunks.iter().peekable();
-  let mut a_pos = TextSize::from(0);
+  let mut a_pos = 0;
   loop {
     let chunk = iter.next();
     match chunk {
       None => break,
       Some((ChangeTag::Equal, e)) => {
-        a_pos += TextSize::from(e.encode_utf16().count() as u32);
+        a_pos += e.encode_utf16().count() as u32;
       }
       Some((ChangeTag::Delete, d)) => {
-        let start = line_index.position_utf16(a_pos);
-        a_pos += TextSize::from(d.encode_utf16().count() as u32);
-        let end = line_index.position_utf16(a_pos);
-        let range = lsp::Range { start, end };
+        let start = a_pos;
+        a_pos += d.encode_utf16().count() as u32;
+        let end = a_pos;
         match iter.peek() {
           Some((ChangeTag::Insert, i)) => {
             iter.next();
-            text_edits.push(TextEdit {
-              range,
+            text_edits.push(Utf16TextEdit {
+              start,
+              end,
               new_text: i.to_string(),
             });
           }
-          _ => text_edits.push(TextEdit {
-            range,
+          _ => text_edits.push(Utf16TextEdit {
+            start,
+            end,
             new_text: "".to_string(),
           }),
         }
       }
       Some((ChangeTag::Insert, i)) => {
-        let pos = line_index.position_utf16(a_pos);
-        let range = lsp::Range { start: pos, end: pos };
-        text_edits.push(TextEdit {
-          range,
+        text_edits.push(Utf16TextEdit {
+          start: a_pos,
+          end: a_pos,
           new_text: i.to_string(),
         });
       }
@@ -301,13 +316,21 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
 }
 
 /// A single edit that replaces the entire document with `new_text`.
-fn replace_whole_file(old_text: &str, new_text: &str, line_index: &LineIndex) -> TextEdit {
+fn replace_whole_file(old_text: &str, new_text: &str) -> Utf16TextEdit {
+  Utf16TextEdit {
+    start: 0,
+    end: old_text.encode_utf16().count() as u32,
+    new_text: new_text.to_string(),
+  }
+}
+
+fn to_lsp_edit(edit: Utf16TextEdit, line_index: &LineIndex) -> TextEdit {
   TextEdit {
     range: lsp::Range {
-      start: lsp::Position::new(0, 0),
-      end: line_index.position_utf16_from_utf8_offset(TextSize::of(old_text)),
+      start: line_index.position_utf16(TextSize::from(edit.start)),
+      end: line_index.position_utf16(TextSize::from(edit.end)),
     },
-    new_text: new_text.to_string(),
+    new_text: edit.new_text,
   }
 }
 
@@ -619,7 +642,7 @@ const C: char = \"メ メ\";
   #[test]
   fn test_replace_whole_file_non_ascii() {
     fn end(old_text: &str) -> lsp::Position {
-      let edit = replace_whole_file(old_text, "new", &LineIndex::new(old_text));
+      let edit = to_lsp_edit(replace_whole_file(old_text, "new"), &LineIndex::new(old_text));
       assert_eq!(edit.range.start, lsp::Position { line: 0, character: 0 });
       assert_eq!(edit.new_text, "new");
       edit.range.end

@@ -66,16 +66,18 @@ impl EditorMessage {
         EditorMessageBody::FormatResponse(message_id, data)
       }
       (8, _) => EditorMessageBody::CancelFormat(reader.read_u32()?),
-      (4, 6) => EditorMessageBody::FileInfo(reader.read_sized_bytes()?),
-      (5, 6) => {
-        let message_id = reader.read_u32()?;
-        EditorMessageBody::FileInfoResponse(message_id, reader.read_sized_bytes()?)
-      }
+      (4, 6) => EditorMessageBody::Initialize(reader.read_sized_bytes()?),
+      (5, 6) => EditorMessageBody::UpdateSettings(reader.read_sized_bytes()?),
       (6, 6) => {
-        let (file_path, range, options, file_bytes) = read_format_body(reader)?;
+        let file_path = reader.read_sized_bytes()?;
+        let start = reader.read_u32()?;
+        let end = reader.read_u32()?;
+        let options = reader.read_sized_bytes()?;
+        let file_bytes = reader.read_sized_bytes()?;
         EditorMessageBody::FormatFile(FormatFileMessageBody {
-          file_path,
-          range,
+          file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
+          start,
+          end,
           options,
           file_bytes,
         })
@@ -96,15 +98,19 @@ impl EditorMessage {
         };
         EditorMessageBody::FormatFileResponse(message_id, result)
       }
-      (9, 6) => EditorMessageBody::ConfigInfo(reader.read_sized_bytes()?),
+      (9, 6) => EditorMessageBody::FileInfo(reader.read_sized_bytes()?),
       (10, 6) => {
+        let message_id = reader.read_u32()?;
+        EditorMessageBody::FileInfoResponse(message_id, reader.read_sized_bytes()?)
+      }
+      (11, 6) => EditorMessageBody::ConfigInfo(reader.read_sized_bytes()?),
+      (12, 6) => {
         let message_id = reader.read_u32()?;
         EditorMessageBody::ConfigInfoResponse(message_id, reader.read_sized_bytes()?)
       }
-      (11, 6) => EditorMessageBody::UpdateSettings(reader.read_sized_bytes()?),
-      (12, 6) => EditorMessageBody::ShowMessage(reader.read_sized_bytes()?),
-      (13, 6) => EditorMessageBody::ShowMessageRequest(reader.read_sized_bytes()?),
-      (14, 6) => {
+      (13, 6) => EditorMessageBody::ShowMessage(reader.read_sized_bytes()?),
+      (14, 6) => EditorMessageBody::ShowMessageRequest(reader.read_sized_bytes()?),
+      (15, 6) => {
         let message_id = reader.read_u32()?;
         EditorMessageBody::ShowMessageRequestResponse(message_id, reader.read_sized_bytes()?)
       }
@@ -178,9 +184,10 @@ impl Message for EditorMessage {
       EditorMessageBody::CancelFormat(message_id) => {
         builder.add_number(*message_id);
       }
-      EditorMessageBody::FileInfo(data)
-      | EditorMessageBody::ConfigInfo(data)
+      EditorMessageBody::Initialize(data)
       | EditorMessageBody::UpdateSettings(data)
+      | EditorMessageBody::FileInfo(data)
+      | EditorMessageBody::ConfigInfo(data)
       | EditorMessageBody::ShowMessage(data)
       | EditorMessageBody::ShowMessageRequest(data) => {
         builder.add_bytes(data);
@@ -192,7 +199,12 @@ impl Message for EditorMessage {
         builder.add_bytes(data);
       }
       EditorMessageBody::FormatFile(body) => {
-        add_format_body(&mut builder, &body.file_path, &body.range, &body.options, &body.file_bytes);
+        let path = body.file_path.to_string_lossy().to_string();
+        builder.add_owned_bytes(path.into_bytes());
+        builder.add_number(body.start);
+        builder.add_number(body.end);
+        builder.add_bytes(&body.options);
+        builder.add_bytes(&body.file_bytes);
       }
       EditorMessageBody::FormatFileResponse(message_id, result) => {
         builder.add_number(*message_id);
@@ -295,6 +307,9 @@ pub enum EditorMessageBody {
   Format(FormatEditorMessageBody),
   FormatResponse(u32, Option<Vec<u8>>),
   CancelFormat(u32),
+  /// Initializes the editor service as JSON (see `InitializeMessage`). Schema
+  /// version 6.
+  Initialize(Vec<u8>),
   /// Gets information about formatting a file as JSON (see `FileInfoMessage`).
   /// Schema version 6.
   FileInfo(Vec<u8>),
@@ -339,16 +354,17 @@ impl EditorMessageBody {
       EditorMessageBody::CancelFormat(_) => 8,
       // schema version 6 reuses the kinds of the schema version 5 messages
       // that it doesn't have
-      EditorMessageBody::FileInfo(_) => 4,
-      EditorMessageBody::FileInfoResponse(_, _) => 5,
+      EditorMessageBody::Initialize(_) => 4,
+      EditorMessageBody::UpdateSettings(_) => 5,
       EditorMessageBody::FormatFile(_) => 6,
       EditorMessageBody::FormatFileResponse(_, _) => 7,
-      EditorMessageBody::ConfigInfo(_) => 9,
-      EditorMessageBody::ConfigInfoResponse(_, _) => 10,
-      EditorMessageBody::UpdateSettings(_) => 11,
-      EditorMessageBody::ShowMessage(_) => 12,
-      EditorMessageBody::ShowMessageRequest(_) => 13,
-      EditorMessageBody::ShowMessageRequestResponse(_, _) => 14,
+      EditorMessageBody::FileInfo(_) => 9,
+      EditorMessageBody::FileInfoResponse(_, _) => 10,
+      EditorMessageBody::ConfigInfo(_) => 11,
+      EditorMessageBody::ConfigInfoResponse(_, _) => 12,
+      EditorMessageBody::ShowMessage(_) => 13,
+      EditorMessageBody::ShowMessageRequest(_) => 14,
+      EditorMessageBody::ShowMessageRequestResponse(_, _) => 15,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
@@ -365,7 +381,10 @@ pub struct FormatEditorMessageBody {
 #[derive(Debug)]
 pub struct FormatFileMessageBody {
   pub file_path: PathBuf,
-  pub range: FormatRange,
+  /// The UTF-16 offset in the file text to start formatting at.
+  pub start: u32,
+  /// The UTF-16 offset in the file text to end formatting at.
+  pub end: u32,
   /// The `FormatFileOptions` as JSON, which may be empty.
   pub options: Vec<u8>,
   pub file_bytes: Vec<u8>,
@@ -375,8 +394,27 @@ pub struct FormatFileMessageBody {
 pub enum FormatFileResult {
   /// Why the file wasn't formatted as JSON (see `NotFormattedMessage`).
   NotFormatted(Vec<u8>),
-  /// The formatted file text.
+  /// The edits that format the file as JSON (see `FormattedMessage`).
   Formatted(Vec<u8>),
+}
+
+/// The data of an `Initialize` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitializeMessage {
+  pub client_info: ClientInfo,
+  #[serde(default)]
+  pub settings: EditorSettings,
+}
+
+/// The editor that's using the editor service.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientInfo {
+  /// The name of the editor (ex. "vscode").
+  pub name: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub version: Option<String>,
 }
 
 /// The data of a `FileInfo` message.
@@ -466,6 +504,24 @@ pub struct FormatFileOptions {
   /// ancestor directory.
   #[serde(default)]
   pub allow_global_config: bool,
+}
+
+/// The edits of a `FormatFile` message that formatted the file.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormattedMessage {
+  /// The edits of the text that was sent, which don't overlap and are in
+  /// order.
+  pub edits: Vec<FormatEdit>,
+}
+
+/// Replaces the text between two UTF-16 offsets of the text that was sent.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatEdit {
+  pub start: u32,
+  pub end: u32,
+  pub new_text: String,
 }
 
 /// Why a `FormatFile` message didn't format the file.

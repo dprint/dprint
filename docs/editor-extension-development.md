@@ -75,7 +75,7 @@ Messages are sent in the following format:
 Notes:
 
 - Messages may have response messages, which is either way (ex. the editor service sends a show message request and the client responds to it). A response has its own new `ID`, so correlate it with the request using the message id at the start of the response body.
-- Send an update settings message first.
+- Send an initialize message first. The other messages that need it have an error response until then.
 - If an unknown message kind is received, return an error (don't ignore it).
 - The JSON data of a message may have more properties in the future, so ignore properties you don't know about.
 
@@ -115,7 +115,124 @@ Message body: None
 
 Response: Success response
 
-#### `4` - File info (Client to Service)
+#### `4` - Initialize (Client to Service)
+
+Send this as the first message.
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface InitializeData {
+  clientInfo: {
+    /** The name of the editor (ex. "vscode"). */
+    name: string;
+    version?: string;
+  };
+  /** The settings, which are the same as the ones of an update settings message. */
+  settings?: EditorSettings;
+  /** What the editor supports. There's nothing here yet. */
+  capabilities?: {};
+}
+```
+
+Response: Success response or an Error response (ex. it was already initialized)
+
+#### `5` - Update settings (Client to Service)
+
+The editor's settings and workspace folders. Send this whenever they change after initializing.
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface EditorSettings {
+  /** The workspace folders open in the editor. */
+  workspaceFolders?: string[];
+  /** Whether to allow formatting the files that don't have a configuration file in an ancestor directory with the global configuration file. Defaults to `false`. */
+  allowGlobalConfig?: boolean;
+  /** Whether to notify the user when a file isn't formatted because it doesn't have a configuration file. Defaults to `true`. */
+  showNoConfigNotification?: boolean;
+}
+```
+
+Response: Success response or an Error response
+
+#### `6` - Format file (Client to Service)
+
+Formats a file with the configuration file that's used for it.
+
+Message body:
+
+- u32 - File path byte length
+- File path
+- u32 - UTF-16 offset in the file text to start formatting at
+- u32 - UTF-16 offset in the file text to end formatting at (ex. the length of the text in UTF-16 code units to format the whole file)
+- u32 - Options byte length, which may be `0`
+- JSON options:
+
+```ts
+interface FormatFileOptions {
+  /** The plugin configuration to use instead of what's in the configuration file. */
+  overrideConfig?: Record<string, unknown>;
+  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. */
+  notebookPath?: string;
+  /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
+  allowGlobalConfig?: boolean;
+}
+```
+
+- u32 - File text byte length
+- File text
+
+When a file isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it).
+
+Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response for a cancelled format
+
+#### `7` - Format file response (Service to Client)
+
+Message body:
+
+- u32 - Message id of the request
+- u32 - Response kind
+  - `0` - Not formatted
+    - u32 - Data byte length
+    - JSON data: `{ reason: NotFormattedReason }`
+  - `1` - Formatted
+    - u32 - Data byte length
+    - JSON data:
+
+```ts
+interface FormattedData {
+  /** The edits of the text that was sent, which don't overlap and are in order. */
+  edits: FormatEdit[];
+}
+
+/** Replaces the text between two UTF-16 offsets of the text that was sent. */
+interface FormatEdit {
+  start: number;
+  end: number;
+  newText: string;
+}
+```
+
+Apply the edits only when the document is the same as the text that was sent. Applying them from the last one to the first keeps the offsets of the other ones correct.
+
+Response: None
+
+#### `8` - Cancel a format (Client to Service)
+
+Message body:
+
+- u32 - Message id of the format to cancel
+
+Response: Clients should not expect a message back. This message is fire and forget. Remember though, you may still receive a response from the CLI for this cancelled message. In that case, just ignore the message.
+
+#### `9` - File info (Client to Service)
 
 Gets whether a file can be formatted and the configuration file that's used for it.
 
@@ -136,7 +253,7 @@ interface FileInfoData {
 
 Response: File info response or an Error response (ex. the configuration failed to resolve)
 
-#### `5` - File info response (Service to Client)
+#### `10` - File info response (Service to Client)
 
 Message body:
 
@@ -173,61 +290,7 @@ type NotFormattedReason = "noConfigFile" | "globalConfigNotAllowed" | "notMatche
 
 Response: None
 
-#### `6` - Format file (Client to Service)
-
-Formats a file with the configuration file that's used for it.
-
-Message body:
-
-- u32 - File path byte length
-- File path
-- u32 - Start byte index to format
-- u32 - End byte index to format
-- u32 - Options byte length, which may be `0`
-- JSON options:
-
-```ts
-interface FormatFileOptions {
-  /** The plugin configuration to use instead of what's in the configuration file. */
-  overrideConfig?: Record<string, unknown>;
-  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. */
-  notebookPath?: string;
-  /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
-  allowGlobalConfig?: boolean;
-}
-```
-
-- u32 - File text byte length
-- File text
-
-When a file isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it).
-
-Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response for a cancelled format
-
-#### `7` - Format file response (Service to Client)
-
-Message body:
-
-- u32 - Message id of the request
-- u32 - Response kind
-  - `0` - Not formatted
-    - u32 - Data byte length
-    - JSON data: `{ reason: NotFormattedReason }`
-  - `1` - Formatted
-    - u32 - Length of formatted file text
-    - Formatted file text
-
-Response: None
-
-#### `8` - Cancel a format (Client to Service)
-
-Message body:
-
-- u32 - Message id of the format to cancel
-
-Response: Clients should not expect a message back. This message is fire and forget. Remember though, you may still receive a response from the CLI for this cancelled message. In that case, just ignore the message.
-
-#### `9` - Configuration info (Client to Service)
+#### `11` - Configuration info (Client to Service)
 
 Gets the plugins of the configuration file that's used for a file (ex. for the JSON schema of a configuration file).
 
@@ -246,7 +309,7 @@ interface ConfigInfoData {
 
 Response: Configuration info response or an Error response
 
-#### `10` - Configuration info response (Service to Client)
+#### `12` - Configuration info response (Service to Client)
 
 Message body:
 
@@ -279,29 +342,7 @@ interface PluginInfo {
 
 Response: None
 
-#### `11` - Update settings (Client to Service)
-
-The editor's settings and workspace folders. Send this as the first message and whenever they change.
-
-Message body:
-
-- u32 - Data byte length
-- JSON data:
-
-```ts
-interface EditorSettings {
-  /** The workspace folders open in the editor. */
-  workspaceFolders?: string[];
-  /** Whether to allow formatting the files that don't have a configuration file in an ancestor directory with the global configuration file. Defaults to `false`. */
-  allowGlobalConfig?: boolean;
-  /** Whether to notify the user when a file isn't formatted because it doesn't have a configuration file. Defaults to `true`. */
-  showNoConfigNotification?: boolean;
-}
-```
-
-Response: Success response or an Error response
-
-#### `12` - Show message (Service to Client)
+#### `13` - Show message (Service to Client)
 
 Shows a message to the user (ex. a notification).
 
@@ -320,7 +361,7 @@ interface ShowMessageData {
 
 Response: None
 
-#### `13` - Show message request (Service to Client)
+#### `14` - Show message request (Service to Client)
 
 Shows a message to the user with actions to choose from.
 
@@ -343,7 +384,7 @@ interface MessageAction {
 
 Response: Show message request response once the user responds, which may be a long time later. An Error response is the same as the user not choosing an action.
 
-#### `14` - Show message request response (Client to Service)
+#### `15` - Show message request response (Client to Service)
 
 Message body:
 

@@ -14,11 +14,13 @@ use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
 use dprint_core::communication::RcIdStore;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::arg_parser::CliArgs;
+use crate::commands::lsp::text::get_utf16_edits;
 use crate::commands::no_config::DISMISS_ACTION_TITLE;
 use crate::commands::no_config::DISMISS_WORKSPACE_ACTION_TITLE;
 use crate::commands::no_config::EDITOR_EXTENSION_SETTINGS_OWNER;
@@ -38,6 +40,7 @@ use crate::utils::Semaphore;
 
 use super::EditorContext;
 use super::get_editor_plugin_infos;
+use super::messages::ClientInfo;
 use super::messages::ConfigFileInfo;
 use super::messages::ConfigInfoMessage;
 use super::messages::ConfigInfoResponseMessage;
@@ -46,9 +49,12 @@ use super::messages::EditorMessageBody;
 use super::messages::EditorSettings;
 use super::messages::FileInfoMessage;
 use super::messages::FileInfoResponseMessage;
+use super::messages::FormatEdit;
 use super::messages::FormatFileMessageBody;
 use super::messages::FormatFileOptions;
 use super::messages::FormatFileResult;
+use super::messages::FormattedMessage;
+use super::messages::InitializeMessage;
 use super::messages::MessageAction;
 use super::messages::MessageKind;
 use super::messages::NotFormattedMessage;
@@ -67,6 +73,8 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
   scope_container: PluginsScopeContainer<TEnvironment>,
   concurrency_limiter: Rc<Semaphore>,
   ensure_stable_format: EnsureStableFormat,
+  /// The editor, which is `None` until it initializes the editor service.
+  client_info: RefCell<Option<ClientInfo>>,
   settings: RefCell<EditorSettings>,
   /// The responses being waited on for the `ShowMessageRequest` messages.
   pending_message_requests: RcIdStore<oneshot::Sender<Option<MessageAction>>>,
@@ -76,7 +84,7 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
 
 /// The outcome of formatting a file.
 enum FormatOutcome {
-  Formatted(Vec<u8>),
+  Formatted(Vec<FormatEdit>),
   NotFormatted(NotFormattedReason),
 }
 
@@ -92,6 +100,7 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
     scope_container: PluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_path, args.remote_cache_mode()),
     concurrency_limiter: Rc::new(new_format_concurrency_limiter(environment)),
     ensure_stable_format: EnsureStableFormat::for_editor(environment),
+    client_info: Default::default(),
     settings: Default::default(),
     pending_message_requests: Default::default(),
     has_notified_no_config: Default::default(),
@@ -108,6 +117,14 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
       return Ok(());
     };
     let context = &service.context;
+    if service.client_info.borrow().is_none() && requires_initialize(&message.body) {
+      send_error_response(
+        context,
+        message.id,
+        anyhow!("Send an initialize message before message kind {}.", message.body.as_u32()),
+      );
+      continue;
+    }
     match message.body {
       EditorMessageBody::Success(_) => {}
       EditorMessageBody::Error(message_id, _) => {
@@ -122,6 +139,27 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
       }
       EditorMessageBody::IsAlive => {
         send_response_body(context, EditorMessageBody::Success(message.id));
+      }
+      EditorMessageBody::Initialize(data) => {
+        if service.client_info.borrow().is_some() {
+          send_error_response(context, message.id, anyhow!("The editor service was already initialized."));
+          continue;
+        }
+        match serde_json::from_slice::<InitializeMessage>(&data) {
+          Ok(data) => {
+            let client_info = data.client_info;
+            log_debug!(
+              environment,
+              "Initialized the editor service for {} {}",
+              client_info.name,
+              client_info.version.as_deref().unwrap_or("(unknown version)")
+            );
+            *service.settings.borrow_mut() = data.settings;
+            *service.client_info.borrow_mut() = Some(client_info);
+            send_response_body(context, EditorMessageBody::Success(message.id));
+          }
+          Err(err) => send_error_response(context, message.id, anyhow!("Error deserializing the initialize message. {:#}", err)),
+        }
       }
       EditorMessageBody::UpdateSettings(data) => match serde_json::from_slice(&data) {
         Ok(settings) => {
@@ -187,7 +225,7 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
           }
           let result = result.and_then(|outcome| {
             Ok(match outcome {
-              FormatOutcome::Formatted(text) => FormatFileResult::Formatted(text),
+              FormatOutcome::Formatted(edits) => FormatFileResult::Formatted(serde_json::to_vec(&FormattedMessage { edits })?),
               FormatOutcome::NotFormatted(reason) => FormatFileResult::NotFormatted(serde_json::to_vec(&NotFormattedMessage { reason })?),
             })
           });
@@ -272,6 +310,8 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     if let Some(reason) = self.get_cant_format_reason(&scope, &file_path, notebook_path.as_deref(), Some(&body.file_bytes)) {
       return Ok(FormatOutcome::NotFormatted(reason));
     }
+    let file_text = String::from_utf8(body.file_bytes).context("The file text isn't valid UTF-8.")?;
+    let range = get_byte_range(&file_text, body.start, body.end);
 
     let _permit = self.concurrency_limiter.acquire().await;
     if token.is_cancelled() {
@@ -282,8 +322,8 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       .format_stable(
         HostFormatRequest {
           file_path,
-          file_bytes: body.file_bytes,
-          range: body.range,
+          file_bytes: file_text.clone().into_bytes(),
+          range,
           override_config: options.override_config,
           token: token.clone(),
         },
@@ -291,10 +331,24 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       )
       .await
       .map_err(|err| anyhow!("{}", dprint_core::plugins::error_to_string(&err)))?;
-    Ok(match result {
-      Some(text) => FormatOutcome::Formatted(text),
-      None => FormatOutcome::NotFormatted(NotFormattedReason::Unchanged),
-    })
+    let Some(formatted_text) = result else {
+      return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
+    };
+    let formatted_text = String::from_utf8(formatted_text).context("The formatted text isn't valid UTF-8.")?;
+    let edits = get_utf16_edits(&file_text, &formatted_text);
+    if edits.is_empty() {
+      return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
+    }
+    Ok(FormatOutcome::Formatted(
+      edits
+        .into_iter()
+        .map(|edit| FormatEdit {
+          start: edit.start,
+          end: edit.end,
+          new_text: edit.new_text,
+        })
+        .collect(),
+    ))
   }
 
   /// Notifies the user that a file wasn't formatted because no config file
@@ -444,6 +498,36 @@ fn get_config_file_info<TEnvironment: Environment>(scope: &PluginsScope<TEnviron
   })
 }
 
+/// Gets whether the message can only be handled once the editor service is
+/// initialized.
+fn requires_initialize(body: &EditorMessageBody) -> bool {
+  matches!(
+    body,
+    EditorMessageBody::UpdateSettings(_) | EditorMessageBody::FileInfo(_) | EditorMessageBody::ConfigInfo(_) | EditorMessageBody::FormatFile(_)
+  )
+}
+
+/// Converts the UTF-16 offsets of a range to format to bytes, which is `None`
+/// for the whole text. The offsets are clamped to the text.
+fn get_byte_range(text: &str, start: u32, end: u32) -> FormatRange {
+  let end = utf16_to_byte_offset(text, end);
+  let start = std::cmp::min(utf16_to_byte_offset(text, start), end);
+  if start == 0 && end == text.len() { None } else { Some(start..end) }
+}
+
+/// Gets the byte offset of a UTF-16 offset, which is the start of the
+/// character when the offset is in the middle of one.
+fn utf16_to_byte_offset(text: &str, offset: u32) -> usize {
+  let mut utf16_offset = 0;
+  for (byte_index, c) in text.char_indices() {
+    utf16_offset += c.len_utf16() as u32;
+    if utf16_offset > offset {
+      return byte_index;
+    }
+  }
+  text.len()
+}
+
 #[cfg(test)]
 mod test {
   use std::cell::RefCell;
@@ -474,6 +558,7 @@ mod test {
   use crate::environment::TestEnvironmentBuilder;
   use crate::test_helpers::run_test_cli;
 
+  use super::super::messages::ClientInfo;
   use super::super::messages::ConfigFileInfo;
   use super::super::messages::ConfigInfoMessage;
   use super::super::messages::ConfigInfoResponseMessage;
@@ -482,9 +567,12 @@ mod test {
   use super::super::messages::EditorSettings;
   use super::super::messages::FileInfoMessage;
   use super::super::messages::FileInfoResponseMessage;
+  use super::super::messages::FormatEdit;
   use super::super::messages::FormatFileMessageBody;
   use super::super::messages::FormatFileOptions;
   use super::super::messages::FormatFileResult;
+  use super::super::messages::FormattedMessage;
+  use super::super::messages::InitializeMessage;
   use super::super::messages::MessageAction;
   use super::super::messages::MessageKind;
   use super::super::messages::NotFormattedMessage;
@@ -832,6 +920,71 @@ mod test {
   }
 
   #[test]
+  fn should_respond_with_edits_using_utf16_offsets() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        // the emoji is two UTF-16 code units and four bytes
+        let text = "\u{1F389}testing";
+        assert_eq!(
+          client.format_edits("/file.txt", text, 0..9, None).await.unwrap(),
+          Ok(vec![FormatEdit {
+            start: 9,
+            end: 9,
+            new_text: "_formatted".to_string(),
+          }])
+        );
+        // starting in the middle of the emoji starts at the emoji and the end
+        // is clamped to the text, so this formats the whole text
+        assert_eq!(
+          client.format_range("/file.txt", text, 1..100, None).await.unwrap(),
+          formatted("\u{1F389}testing_formatted")
+        );
+        assert_eq!(
+          client.format("/file.txt", "testing_formatted", None).await.unwrap(),
+          not_formatted(NotFormattedReason::Unchanged)
+        );
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_require_initializing_once() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    run_session_without_initializing(&environment, &[], |client| {
+      async move {
+        assert_eq!(
+          client.file_info(file_info("/file.txt")).await.unwrap_err().to_string(),
+          "Send an initialize message before message kind 9."
+        );
+        client.request(EditorMessageBody::IsAlive).await.unwrap();
+        client.initialize(Default::default()).await.unwrap();
+        assert_eq!(
+          client.initialize(Default::default()).await.unwrap_err().to_string(),
+          "The editor service was already initialized."
+        );
+        assert!(client.file_info(file_info("/file.txt")).await.unwrap().can_format);
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
   fn should_not_start_schema_version_that_does_not_exist() {
     let environment = TestEnvironment::new();
     let err = run_test_cli(vec!["editor-service", "--parent-pid", "1", "--schema-version", "7"], &environment).unwrap_err();
@@ -861,6 +1014,16 @@ mod test {
     }
   }
 
+  fn apply_edits(text: &str, edits: &[FormatEdit]) -> String {
+    let mut text = text.encode_utf16().collect::<Vec<_>>();
+    // the edits are in order, so applying them from the end keeps the offsets
+    // of the earlier ones correct
+    for edit in edits.iter().rev() {
+      text.splice(edit.start as usize..edit.end as usize, edit.new_text.encode_utf16());
+    }
+    String::from_utf16(&text).unwrap()
+  }
+
   fn action(title: &str) -> MessageAction {
     MessageAction { title: title.to_string() }
   }
@@ -875,6 +1038,20 @@ mod test {
   /// Runs the schema version 6 editor service with the client, which is shut
   /// down after the action.
   fn run_session(environment: &TestEnvironment, args: &[&str], action: impl FnOnce(Client) -> LocalBoxFuture<'static, ()> + Send + 'static) {
+    run_session_without_initializing(environment, args, |client| {
+      async move {
+        client.initialize(Default::default()).await.unwrap();
+        action(client).await;
+      }
+      .boxed_local()
+    });
+  }
+
+  fn run_session_without_initializing(
+    environment: &TestEnvironment,
+    args: &[&str],
+    action: impl FnOnce(Client) -> LocalBoxFuture<'static, ()> + Send + 'static,
+  ) {
     let stdin = environment.stdin_writer();
     let stdout = environment.stdout_reader();
     let result = std::thread::spawn(move || {
@@ -989,6 +1166,18 @@ mod test {
       self.take_message_requests()
     }
 
+    pub async fn initialize(&self, settings: EditorSettings) -> Result<()> {
+      let message = InitializeMessage {
+        client_info: ClientInfo {
+          name: "test".to_string(),
+          version: None,
+        },
+        settings,
+      };
+      self.request(EditorMessageBody::Initialize(serde_json::to_vec(&message)?)).await?;
+      Ok(())
+    }
+
     pub async fn update_settings(&self, settings: EditorSettings) -> Result<()> {
       self.request(EditorMessageBody::UpdateSettings(serde_json::to_vec(&settings)?)).await?;
       Ok(())
@@ -1009,9 +1198,35 @@ mod test {
     }
 
     pub async fn format(&self, file_path: impl AsRef<Path>, text: &str, options: Option<FormatFileOptions>) -> Result<FormatOutcome> {
+      self.format_range(file_path, text, 0..text.encode_utf16().count() as u32, options).await
+    }
+
+    /// Formats the text between the UTF-16 offsets and applies the edits.
+    pub async fn format_range(
+      &self,
+      file_path: impl AsRef<Path>,
+      text: &str,
+      range: std::ops::Range<u32>,
+      options: Option<FormatFileOptions>,
+    ) -> Result<FormatOutcome> {
+      Ok(match self.format_edits(file_path, text, range, options).await? {
+        Ok(edits) => FormatOutcome::Formatted(apply_edits(text, &edits)),
+        Err(reason) => FormatOutcome::NotFormatted(reason),
+      })
+    }
+
+    /// Gets the edits that format the text or why it wasn't formatted.
+    pub async fn format_edits(
+      &self,
+      file_path: impl AsRef<Path>,
+      text: &str,
+      range: std::ops::Range<u32>,
+      options: Option<FormatFileOptions>,
+    ) -> Result<Result<Vec<FormatEdit>, NotFormattedReason>> {
       let body = EditorMessageBody::FormatFile(FormatFileMessageBody {
         file_path: file_path.as_ref().to_path_buf(),
-        range: None,
+        start: range.start,
+        end: range.end,
         options: match options {
           Some(options) => serde_json::to_vec(&options)?,
           None => Vec::new(),
@@ -1019,10 +1234,8 @@ mod test {
         file_bytes: text.as_bytes().to_vec(),
       });
       match self.request(body).await? {
-        EditorMessageBody::FormatFileResponse(_, FormatFileResult::Formatted(text)) => Ok(FormatOutcome::Formatted(String::from_utf8(text)?)),
-        EditorMessageBody::FormatFileResponse(_, FormatFileResult::NotFormatted(data)) => {
-          Ok(FormatOutcome::NotFormatted(serde_json::from_slice::<NotFormattedMessage>(&data)?.reason))
-        }
+        EditorMessageBody::FormatFileResponse(_, FormatFileResult::Formatted(data)) => Ok(Ok(serde_json::from_slice::<FormattedMessage>(&data)?.edits)),
+        EditorMessageBody::FormatFileResponse(_, FormatFileResult::NotFormatted(data)) => Ok(Err(serde_json::from_slice::<NotFormattedMessage>(&data)?.reason)),
         body => panic!("Unexpected response: {body:?}"),
       }
     }

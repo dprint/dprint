@@ -273,7 +273,8 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
               token.cancel();
             }
           }
-          EditorMessageBody::FileInfo(_)
+          EditorMessageBody::Initialize(_)
+          | EditorMessageBody::FileInfo(_)
           | EditorMessageBody::FileInfoResponse(_, _)
           | EditorMessageBody::ConfigInfo(_)
           | EditorMessageBody::ConfigInfoResponse(_, _)

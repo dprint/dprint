@@ -108,7 +108,7 @@ mod documents;
 mod language;
 mod notebook;
 mod settings;
-mod text;
+pub(super) mod text;
 mod untitled;
 
 /// The formatting option a client provides in a format request to format a
