@@ -191,7 +191,7 @@ interface FormatFileOptions {
 
 The formatted text keeps the line endings of the text that was sent. For a notebook cell, the trailing whitespace of the formatted text is trimmed like the jupyter plugin does (except after a range that ends before the end of the cell).
 
-When a file isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it).
+When a file isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it). A request with `allowGlobalConfig` doesn't notify because it's for a command the user ran, and the editor says why the file wasn't formatted instead.
 
 Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response for a cancelled format
 

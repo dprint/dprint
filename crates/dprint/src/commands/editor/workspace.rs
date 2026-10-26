@@ -304,7 +304,11 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let allow_global_config = self.allow_global_config(options.allow_global_config);
     let Some(scope) = self.resolve_scope(&body.file_path, allow_global_config).await? else {
       let reason = self.get_no_config_reason(allow_global_config);
-      self.notify_no_config(reason, allow_global_config);
+      // a request that allows the global config file itself is from a command
+      // the user ran, which says why the file wasn't formatted instead
+      if !options.allow_global_config {
+        self.notify_no_config(reason, allow_global_config);
+      }
       return Ok(FormatOutcome::NotFormatted(reason));
     };
     let file_path = self.canonicalize(body.file_path);
@@ -850,6 +854,31 @@ mod test {
           not_formatted(NotFormattedReason::NoConfigFile)
         );
         assert!(client.take_message_requests().is_empty());
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_not_notify_when_no_config_file_and_request_allows_global_config() {
+    let environment = TestEnvironmentBuilder::new().build();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        let options = FormatFileOptions {
+          allow_global_config: true,
+          ..Default::default()
+        };
+        assert_eq!(
+          client.format("/project/file.txt", "testing", Some(options)).await.unwrap(),
+          not_formatted(NotFormattedReason::NoConfigFile)
+        );
+        // the notification is still shown for a format that doesn't
+        assert_eq!(
+          client.format("/project/file.txt", "testing", None).await.unwrap(),
+          not_formatted(NotFormattedReason::NoConfigFile)
+        );
+        assert_eq!(client.wait_for_message_requests(1).await.len(), 1);
       }
       .boxed_local()
     });
