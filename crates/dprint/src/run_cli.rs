@@ -113,6 +113,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
     SubCommand::Help(help_text) => commands::output_help(args, environment, plugin_resolver, help_text).await,
     SubCommand::License => commands::output_license(args, environment, plugin_resolver).await,
     SubCommand::EditorInfo => commands::output_editor_info(args, environment, plugin_resolver).await,
+    SubCommand::EditorCapabilities => commands::output_editor_capabilities(environment),
     SubCommand::EditorService(cmd) => commands::run_editor_service(args, environment, plugin_resolver, cmd).await,
     SubCommand::Lsp => commands::run_language_server(args, environment, plugin_resolver).await,
     SubCommand::ClearCache => commands::clear_cache(environment),

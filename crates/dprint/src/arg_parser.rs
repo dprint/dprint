@@ -109,6 +109,7 @@ impl CliArgs {
       self.sub_command,
       SubCommand::StdInFmt(..)
         | SubCommand::EditorInfo
+        | SubCommand::EditorCapabilities
         | SubCommand::OutputResolvedConfig(..)
         | SubCommand::IncrementalState
         | SubCommand::Completions(..)
@@ -162,6 +163,8 @@ pub enum SubCommand {
   License,
   Help(String),
   EditorInfo,
+  /// Outputs what the editor service supports.
+  EditorCapabilities,
   EditorService(EditorServiceSubCommand),
   Lsp,
   StdInFmt(StdInFmtSubCommand),
@@ -207,6 +210,7 @@ impl SubCommand {
       | SubCommand::Help(_)
       | SubCommand::Lsp
       | SubCommand::EditorInfo
+      | SubCommand::EditorCapabilities
       | SubCommand::EditorService(_)
       | SubCommand::Completions(_)
       | SubCommand::Upgrade => None,
@@ -389,6 +393,7 @@ pub struct OutputFormatTimesSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct EditorServiceSubCommand {
   pub parent_pid: u32,
+  pub schema_version: u32,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -644,8 +649,10 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("version", _) => SubCommand::Version,
     ("license", _) => SubCommand::License,
     ("editor-info", _) => SubCommand::EditorInfo,
+    ("editor-capabilities", _) => SubCommand::EditorCapabilities,
     ("editor-service", matches) => SubCommand::EditorService(EditorServiceSubCommand {
       parent_pid: matches.get_one::<String>("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
+      schema_version: *matches.get_one::<u32>("schema-version").unwrap(),
     }),
     ("lsp", _) => SubCommand::Lsp,
     ("completions", matches) => SubCommand::Completions(matches.get_one::<clap_complete::Shell>("shell").unwrap().to_owned()),
@@ -1240,11 +1247,21 @@ EXAMPLES:
 
   // the generated completions include what's hidden, so leave those out of them
   if kind != CliArgParserKind::ForCompletions {
-    app = app.subcommand(Command::new("editor-info").hide(true)).subcommand(
-      Command::new("editor-service")
-        .hide(true)
-        .arg(Arg::new("parent-pid").long("parent-pid").required(true).num_args(1)),
-    );
+    app = app
+      .subcommand(Command::new("editor-info").hide(true))
+      .subcommand(Command::new("editor-capabilities").hide(true))
+      .subcommand(
+        Command::new("editor-service")
+          .hide(true)
+          .arg(Arg::new("parent-pid").long("parent-pid").required(true).num_args(1))
+          .arg(
+            Arg::new("schema-version")
+              .long("schema-version")
+              .num_args(1)
+              .value_parser(clap::value_parser!(u32).range(5..=6))
+              .default_value("5"),
+          ),
+      );
   }
 
   app = app

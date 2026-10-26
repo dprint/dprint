@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 use dprint_core::plugins::process::start_parent_process_checker_task;
 
 mod messages;
+mod workspace;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
@@ -31,7 +32,42 @@ use crate::utils::Semaphore;
 
 use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
+use self::messages::EditorPluginInfo;
 use self::messages::FormatEditorMessageBody;
+
+/// The schema versions of the editor service, where the first is the one that's
+/// used when `--schema-version` isn't specified.
+const EDITOR_SERVICE_SCHEMA_VERSIONS: [u32; 2] = [5, 6];
+const CONFIG_SCHEMA_URL: &str = "https://dprint.dev/schemas/v0.json";
+
+/// Outputs what the editor service supports, which an editor uses to choose the
+/// schema version to start it with. This doesn't need a config file.
+///
+/// An older version of dprint doesn't have this subcommand, so it fails and the
+/// editor uses `dprint editor-info` with schema version 5 instead.
+pub fn output_editor_capabilities(environment: &impl Environment) -> Result<()> {
+  #[derive(serde::Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct EditorCapabilitiesInfo {
+    cli_version: String,
+    editor_service_schema_versions: &'static [u32],
+    config_schema_url: &'static str,
+    /// What the editor service supports in addition to its schema version.
+    capabilities: EditorServiceCapabilities,
+  }
+
+  #[derive(serde::Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct EditorServiceCapabilities {}
+
+  environment.log_machine_readable(&serde_json::to_vec(&EditorCapabilitiesInfo {
+    cli_version: environment.cli_version(),
+    editor_service_schema_versions: &EDITOR_SERVICE_SCHEMA_VERSIONS,
+    config_schema_url: CONFIG_SCHEMA_URL,
+    capabilities: EditorServiceCapabilities {},
+  })?);
+  Ok(())
+}
 
 pub async fn output_editor_info<TEnvironment: Environment>(
   args: &CliArgs,
@@ -47,26 +83,25 @@ pub async fn output_editor_info<TEnvironment: Environment>(
     plugins: Vec<EditorPluginInfo>,
   }
 
-  #[derive(serde::Serialize)]
-  #[serde(rename_all = "camelCase")]
-  struct EditorPluginInfo {
-    name: String,
-    version: String,
-    config_key: String,
-    file_extensions: Vec<String>,
-    file_names: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    config_schema_url: Option<String>,
-    help_url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    update_url: Option<String>,
-  }
-
-  let mut plugins = Vec::new();
   let scope = get_plugins_scope_from_args(args, environment, plugin_resolver).await?;
-
   scope.ensure_no_global_config_diagnostics()?;
+  let plugins = get_editor_plugin_infos(&scope).await?;
 
+  environment.log_machine_readable(&serde_json::to_vec(&EditorInfo {
+    // IMPORTANT: Don't change this. Older editor extensions error for a higher
+    // schema version, so the newer ones are found with `editor-capabilities`.
+    schema_version: 5,
+    cli_version: environment.cli_version(),
+    config_schema_url: CONFIG_SCHEMA_URL.to_string(),
+    plugins,
+  })?);
+
+  Ok(())
+}
+
+/// Gets the information about the plugins of the scope that an editor uses.
+async fn get_editor_plugin_infos<TEnvironment: Environment>(scope: &PluginsScope<TEnvironment>) -> Result<Vec<EditorPluginInfo>> {
+  let mut plugins = Vec::new();
   for plugin in scope.plugins.values() {
     let initialized_plugin = plugin.initialize().await?;
     let file_matching = initialized_plugin.file_matching_info().await?;
@@ -85,15 +120,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
       update_url: plugin.info().update_url.clone(),
     });
   }
-
-  environment.log_machine_readable(&serde_json::to_vec(&EditorInfo {
-    schema_version: 5,
-    cli_version: environment.cli_version(),
-    config_schema_url: "https://dprint.dev/schemas/v0.json".to_string(),
-    plugins,
-  })?);
-
-  Ok(())
+  Ok(plugins)
 }
 
 pub async fn run_editor_service<TEnvironment: Environment>(
@@ -105,8 +132,13 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   // poll for the existence of the parent process and terminate this process when that process no longer exists
   start_parent_process_checker_task(editor_service_cmd.parent_pid);
 
-  let mut editor_service = EditorService::new(args, environment, plugin_resolver);
-  editor_service.run().await
+  match editor_service_cmd.schema_version {
+    6 => workspace::run_workspace_editor_service(args, environment, plugin_resolver).await,
+    _ => {
+      let mut editor_service = EditorService::new(args, environment, plugin_resolver);
+      editor_service.run().await
+    }
+  }
 }
 
 struct EditorContext {
@@ -118,6 +150,47 @@ struct EditorContext {
   /// Cancelled when a response can't be sent because the editor closed
   /// the service's output, which is when the service should exit.
   pub output_closed: CancellationToken,
+}
+
+impl EditorContext {
+  pub fn new(environment: &impl Environment) -> Self {
+    let stdout = environment.stdout();
+    Self {
+      id_generator: Default::default(),
+      // this is the writer that doesn't panic when writing fails, which
+      // happens when the editor closes the service's output
+      writer: SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdout)),
+      cancellation_tokens: Default::default(),
+      pending_format_tokens: Default::default(),
+      output_closed: Default::default(),
+    }
+  }
+}
+
+/// Reads the messages from the editor on another thread.
+fn start_reading_messages(environment: &impl Environment) -> tokio::sync::mpsc::UnboundedReceiver<EditorMessage> {
+  let environment = environment.clone();
+  let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<EditorMessage>();
+  dprint_core::async_runtime::spawn_blocking(move || {
+    let stdin = environment.stdin();
+    let mut reader = MessageReader::new(stdin);
+    loop {
+      let read_message = match EditorMessage::read(&mut reader) {
+        Ok(message) => message,
+        Err(err) if err.kind() == ErrorKind::BrokenPipe => {
+          return;
+        }
+        Err(err) => {
+          log_error!(environment, "Editor service failed reading from stdin: {:#}", err);
+          return;
+        }
+      };
+      if tx.send(read_message).is_err() {
+        return; // channel disconnected
+      }
+    }
+  });
+  rx
 }
 
 /// A message that needs the configuration to be handled.
@@ -139,53 +212,20 @@ struct EditorService<'a, TEnvironment: Environment> {
 
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   pub fn new(args: &'a CliArgs, environment: &'a TEnvironment, plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>) -> Self {
-    let stdout = environment.stdout();
-    // this is the writer that doesn't panic when writing fails, which
-    // happens when the editor closes the service's output
-    let writer = SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdout));
-    let max_cores = environment.max_threads();
-    let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
-
     Self {
       args,
       environment,
       plugin_resolver,
       plugins_scope: None,
-      context: Rc::new(EditorContext {
-        id_generator: Default::default(),
-        cancellation_tokens: Default::default(),
-        pending_format_tokens: Default::default(),
-        writer,
-        output_closed: Default::default(),
-      }),
-      concurrency_limiter,
+      context: Rc::new(EditorContext::new(environment)),
+      concurrency_limiter: Rc::new(new_format_concurrency_limiter(environment)),
       config_semaphore: Rc::new(Semaphore::new(1)),
       ensure_stable_format: EnsureStableFormat::for_editor(environment),
     }
   }
 
   pub async fn run(&mut self) -> Result<()> {
-    let environment = self.environment.clone();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<EditorMessage>();
-    dprint_core::async_runtime::spawn_blocking(move || {
-      let stdin = environment.stdin();
-      let mut reader = MessageReader::new(stdin);
-      loop {
-        let read_message = match EditorMessage::read(&mut reader) {
-          Ok(message) => message,
-          Err(err) if err.kind() == ErrorKind::BrokenPipe => {
-            return;
-          }
-          Err(err) => {
-            log_error!(environment, "Editor service failed reading from stdin: {:#}", err);
-            return;
-          }
-        };
-        if tx.send(read_message).is_err() {
-          return; // channel disconnected
-        }
-      }
-    });
+    let mut rx = start_reading_messages(self.environment);
     // The messages that need the configuration are handled one at a time on a
     // separate task from the one receiving the messages. Resolving the
     // configuration can take a long time (ex. downloading plugins), so this
@@ -231,6 +271,15 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
             } else if let Some(token) = context.pending_format_tokens.get_cloned(message_id) {
               token.cancel();
             }
+          }
+          EditorMessageBody::FileInfo(_)
+          | EditorMessageBody::FileInfoResponse(_, _)
+          | EditorMessageBody::ConfigInfo(_)
+          | EditorMessageBody::ConfigInfoResponse(_, _)
+          | EditorMessageBody::FormatFile(_)
+          | EditorMessageBody::FormatFileResponse(_, _) => {
+            // these were added in a newer schema version
+            send_error_response(&context, message.id, anyhow!("Unknown message with kind: {}", message.body.as_u32()));
           }
           EditorMessageBody::Unknown(message_kind, _) => {
             send_error_response(&context, message.id, anyhow!("Unknown message with kind: {}", message_kind));
@@ -365,6 +414,12 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
     Ok(self.plugins_scope.as_ref().unwrap().config.clone().unwrap())
   }
+}
+
+/// Limits how many files are formatted at a time so the editor service
+/// doesn't use every core.
+fn new_format_concurrency_limiter(environment: &impl Environment) -> Semaphore {
+  Semaphore::new(std::cmp::max(1, environment.max_threads() - 1))
 }
 
 fn handle_message(context: &EditorContext, original_message_id: u32, action: impl FnOnce() -> Result<EditorMessageBody>) {
