@@ -288,9 +288,11 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     current: config_path_and_text.as_file_path_with_text_ref(),
     origin: &config_path_and_text.source,
   })
-  .map_err(|err| anyhow::anyhow!("{:#}\n    at {}", err, config_path_and_text.source.display()))?;
+  .map_err(|err| with_config_source(err, config_path_and_text))?;
 
-  let plugins_vec = take_plugins_array_from_config_map(&mut config_map, &base_source, environment)?; // always take this out of the config map
+  // the errors of the properties say which configuration file they're in
+  let plugins_vec =
+    take_plugins_array_from_config_map(&mut config_map, &base_source, environment).map_err(|err| with_config_source(err, config_path_and_text))?; // always take this out of the config map
   let plugins = filter_duplicate_plugin_sources({
     // filter out any non-wasm plugins from remote config
     if !config_path_and_text.source.is_local() {
@@ -327,12 +329,12 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   }
   // =========
 
-  let includes = take_array_from_config_map(&mut config_map, "includes")?;
-  let excludes = take_array_from_config_map(&mut config_map, "excludes")?;
+  let includes = take_array_from_config_map(&mut config_map, "includes").map_err(|err| with_config_source(err, config_path_and_text))?;
+  let excludes = take_array_from_config_map(&mut config_map, "excludes").map_err(|err| with_config_source(err, config_path_and_text))?;
 
-  let incremental = take_bool_from_config_map(&mut config_map, "incremental")?;
-  let shebangs = take_shebangs_from_config_map(&mut config_map)?;
-  let inherit = take_bool_from_config_map(&mut config_map, "inherit")?;
+  let incremental = take_bool_from_config_map(&mut config_map, "incremental").map_err(|err| with_config_source(err, config_path_and_text))?;
+  let shebangs = take_shebangs_from_config_map(&mut config_map).map_err(|err| with_config_source(err, config_path_and_text))?;
+  let inherit = take_bool_from_config_map(&mut config_map, "inherit").map_err(|err| with_config_source(err, config_path_and_text))?;
   if inherit == Some(true) && config_path_and_text.is_global_config {
     return Err(
       anyhow::anyhow!(
@@ -344,7 +346,7 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     );
   }
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
-  let extends = take_extends(&mut config_map)?;
+  let extends = take_extends(&mut config_map).map_err(|err| with_config_source(err, config_path_and_text))?;
   let trusted_config_map = if config_path_and_text.source.is_local() {
     config_map.clone()
   } else {
@@ -378,6 +380,11 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     is_in_pinned_npm_package: false,
   };
   Ok(resolve_extends(resolved_config, extends, extends_context, environment.clone()).await?)
+}
+
+/// Adds where the configuration file is to an error about its contents.
+fn with_config_source(err: anyhow::Error, config_path_and_text: &ResolvedConfigPathWithText) -> anyhow::Error {
+  anyhow::anyhow!("{:#}\n    at {}", err, config_path_and_text.source.display())
 }
 
 /// Merges the ancestor (`parent`) configuration into a nested configuration
@@ -3034,7 +3041,7 @@ mod tests {
       let err = get_result("https://dprint.dev/test.json", &environment).await.err().unwrap();
       assert_eq!(
         err.to_string(),
-        "The 'shebangs' property must be an object that maps shebang lines to file extensions."
+        "The 'shebangs' property must be an object that maps shebang lines to file extensions.\n    at https://dprint.dev/test.json"
       );
     });
   }
@@ -3376,7 +3383,7 @@ mod tests {
 
     assert_eq!(
       get_error(r##"{ "#!/bin/sh": "" }"##),
-      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found ''."
+      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found ''.\n    at /test.json"
     );
     for extension in [".", "*.sh", " sh", "tar.gz"] {
       assert!(
@@ -3387,10 +3394,20 @@ mod tests {
     }
     assert_eq!(
       get_error(r##"{ "/bin/sh": "sh" }"##),
-      "Expected the key '/bin/sh' in the 'shebangs' property to be a shebang line starting with '#!'."
+      "Expected the key '/bin/sh' in the 'shebangs' property to be a shebang line starting with '#!'.\n    at /test.json"
     );
     assert!(get_error(r##"{ " #!/bin/sh": "sh" }"##).contains("to be a shebang line starting with '#!'"));
     assert!(get_error(r##"{ "#!/bin/sh\ntext": "sh" }"##).contains("to be a shebang line starting with '#!'"));
+  }
+
+  #[test]
+  fn should_say_which_config_file_has_an_invalid_property() {
+    let environment = TestEnvironment::new();
+    environment.write_file(&PathBuf::from("/test.json"), r#"{ "plugins": 5 }"#).unwrap();
+    environment.clone().run_in_runtime(async move {
+      let err = get_result("/test.json", &environment).await.err().unwrap();
+      assert_eq!(err.to_string(), "Expected array in 'plugins' property.\n    at /test.json");
+    });
   }
 
   #[test]
