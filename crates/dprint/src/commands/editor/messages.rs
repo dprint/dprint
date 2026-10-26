@@ -99,6 +99,13 @@ impl EditorMessage {
         };
         EditorMessageBody::FormatFileResponse(message_id, result)
       }
+      15 => EditorMessageBody::UpdateSettings(reader.read_sized_bytes()?),
+      16 => EditorMessageBody::ShowMessage(reader.read_sized_bytes()?),
+      17 => EditorMessageBody::ShowMessageRequest(reader.read_sized_bytes()?),
+      18 => {
+        let message_id = reader.read_u32()?;
+        EditorMessageBody::ShowMessageRequestResponse(message_id, reader.read_sized_bytes()?)
+      }
       _ => {
         let data = reader.read_bytes(body_length as usize)?;
         EditorMessageBody::Unknown(message_kind, data)
@@ -169,10 +176,16 @@ impl Message for EditorMessage {
       EditorMessageBody::CancelFormat(message_id) => {
         builder.add_number(*message_id);
       }
-      EditorMessageBody::FileInfo(data) | EditorMessageBody::ConfigInfo(data) => {
+      EditorMessageBody::FileInfo(data)
+      | EditorMessageBody::ConfigInfo(data)
+      | EditorMessageBody::UpdateSettings(data)
+      | EditorMessageBody::ShowMessage(data)
+      | EditorMessageBody::ShowMessageRequest(data) => {
         builder.add_bytes(data);
       }
-      EditorMessageBody::FileInfoResponse(message_id, data) | EditorMessageBody::ConfigInfoResponse(message_id, data) => {
+      EditorMessageBody::FileInfoResponse(message_id, data)
+      | EditorMessageBody::ConfigInfoResponse(message_id, data)
+      | EditorMessageBody::ShowMessageRequestResponse(message_id, data) => {
         builder.add_number(*message_id);
         builder.add_bytes(data);
       }
@@ -295,6 +308,17 @@ pub enum EditorMessageBody {
   /// Formats a file with the config file that's found for it. Schema version 6.
   FormatFile(FormatFileMessageBody),
   FormatFileResponse(u32, FormatFileResult),
+  /// The settings of the editor as JSON (see `EditorSettings`). Schema version 6.
+  UpdateSettings(Vec<u8>),
+  /// Shows a message to the user as JSON (see `ShowMessageMessage`). Schema
+  /// version 6.
+  ShowMessage(Vec<u8>),
+  /// Shows a message to the user with actions to choose from as JSON (see
+  /// `ShowMessageRequestMessage`). Schema version 6.
+  ShowMessageRequest(Vec<u8>),
+  /// The action the user chose as JSON (see
+  /// `ShowMessageRequestResponseMessage`). Schema version 6.
+  ShowMessageRequestResponse(u32, Vec<u8>),
   #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
@@ -317,6 +341,10 @@ impl EditorMessageBody {
       EditorMessageBody::ConfigInfoResponse(_, _) => 12,
       EditorMessageBody::FormatFile(_) => 13,
       EditorMessageBody::FormatFileResponse(_, _) => 14,
+      EditorMessageBody::UpdateSettings(_) => 15,
+      EditorMessageBody::ShowMessage(_) => 16,
+      EditorMessageBody::ShowMessageRequest(_) => 17,
+      EditorMessageBody::ShowMessageRequestResponse(_, _) => 18,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
@@ -457,4 +485,76 @@ pub enum NotFormattedReason {
   NoPlugin,
   /// The file is already formatted.
   Unchanged,
+}
+
+/// The data of an `UpdateSettings` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSettings {
+  /// The workspace folders open in the editor.
+  #[serde(default)]
+  pub workspace_folders: Vec<PathBuf>,
+  /// Whether to format the files that don't have a config file in an ancestor
+  /// directory with the global config file.
+  #[serde(default)]
+  pub use_global_config: bool,
+  /// Whether to notify the user when a file isn't formatted because it doesn't
+  /// have a config file.
+  #[serde(default = "default_true")]
+  pub show_no_config_notification: bool,
+}
+
+impl Default for EditorSettings {
+  fn default() -> Self {
+    Self {
+      workspace_folders: Vec::new(),
+      use_global_config: false,
+      show_no_config_notification: true,
+    }
+  }
+}
+
+fn default_true() -> bool {
+  true
+}
+
+/// The data of a `ShowMessage` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowMessageMessage {
+  pub kind: MessageKind,
+  pub message: String,
+}
+
+/// The data of a `ShowMessageRequest` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowMessageRequestMessage {
+  pub kind: MessageKind,
+  pub message: String,
+  pub actions: Vec<MessageAction>,
+}
+
+/// The data of a `ShowMessageRequestResponse` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowMessageRequestResponseMessage {
+  /// The action the user chose, which is `None` when they didn't choose one
+  /// (ex. they closed the message).
+  #[serde(default)]
+  pub action: Option<MessageAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageAction {
+  pub title: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MessageKind {
+  Info,
+  Warning,
+  Error,
 }

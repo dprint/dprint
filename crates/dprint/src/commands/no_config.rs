@@ -11,12 +11,16 @@ use crate::utils::LaxSingleProcessFsFlag;
 
 pub const DISMISS_ACTION_TITLE: &str = "Don't show again";
 pub const DISMISS_WORKSPACE_ACTION_TITLE: &str = "Don't show in this workspace";
+pub const LANGUAGE_SERVER_SETTINGS_OWNER: &str = "the dprint language server";
+pub const EDITOR_EXTENSION_SETTINGS_OWNER: &str = "the dprint extension";
 
 pub struct NoConfigMessageOptions {
   /// Whether the global config file would have been used.
   pub use_global_config: bool,
   /// Whether there's a global config file that isn't being used.
   pub has_global_config: bool,
+  /// What has the `useGlobalConfig` setting (ex. "the dprint language server").
+  pub settings_owner: &'static str,
 }
 
 /// Gets the message to show when no config file was found for a file.
@@ -26,8 +30,8 @@ pub fn get_no_config_message(options: NoConfigMessageOptions) -> String {
     format!("{} or \"dprint init --global\" to create a global one.", message)
   } else if options.has_global_config {
     format!(
-      "{} or enable the \"useGlobalConfig\" setting of the dprint language server to use your global one.",
-      message
+      "{} or enable the \"useGlobalConfig\" setting of {} to use your global one.",
+      message, options.settings_owner
     )
   } else {
     format!("{}.", message)
@@ -133,6 +137,7 @@ mod test {
       get_no_config_message(NoConfigMessageOptions {
         use_global_config: true,
         has_global_config: false,
+        settings_owner: LANGUAGE_SERVER_SETTINGS_OWNER,
       }),
       "No dprint configuration file found. Run \"dprint init\" in your project to create one or \"dprint init --global\" to create a global one."
     );
@@ -140,6 +145,7 @@ mod test {
       get_no_config_message(NoConfigMessageOptions {
         use_global_config: false,
         has_global_config: true,
+        settings_owner: LANGUAGE_SERVER_SETTINGS_OWNER,
       }),
       "No dprint configuration file found. Run \"dprint init\" in your project to create one or enable the \"useGlobalConfig\" setting of the dprint language server to use your global one."
     );
@@ -147,6 +153,7 @@ mod test {
       get_no_config_message(NoConfigMessageOptions {
         use_global_config: false,
         has_global_config: false,
+        settings_owner: LANGUAGE_SERVER_SETTINGS_OWNER,
       }),
       "No dprint configuration file found. Run \"dprint init\" in your project to create one."
     );

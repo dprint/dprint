@@ -277,7 +277,11 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           | EditorMessageBody::ConfigInfo(_)
           | EditorMessageBody::ConfigInfoResponse(_, _)
           | EditorMessageBody::FormatFile(_)
-          | EditorMessageBody::FormatFileResponse(_, _) => {
+          | EditorMessageBody::FormatFileResponse(_, _)
+          | EditorMessageBody::UpdateSettings(_)
+          | EditorMessageBody::ShowMessage(_)
+          | EditorMessageBody::ShowMessageRequest(_)
+          | EditorMessageBody::ShowMessageRequestResponse(_, _) => {
             // these were added in a newer schema version
             send_error_response(&context, message.id, anyhow!("Unknown message with kind: {}", message.body.as_u32()));
           }
@@ -478,6 +482,20 @@ mod test {
   use super::messages::EditorMessage;
   use super::messages::EditorMessageBody;
   use super::messages::FormatEditorMessageBody;
+
+  #[test]
+  fn should_output_editor_capabilities_without_config_file() {
+    let environment = TestEnvironmentBuilder::new().build();
+    run_test_cli(vec!["editor-capabilities"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![format!(
+        r#"{{"cliVersion":"{}","editorServiceSchemaVersions":[5,6],"configSchemaUrl":"https://dprint.dev/schemas/v0.json","capabilities":{{}}}}"#,
+        environment.cli_version()
+      )]
+    );
+    assert!(environment.take_stderr_messages().is_empty());
+  }
 
   #[test]
   fn should_output_editor_plugin_info() {

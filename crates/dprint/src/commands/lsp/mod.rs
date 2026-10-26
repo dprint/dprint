@@ -70,6 +70,14 @@ use url::Url;
 
 use crate::arg_parser::CliArgs;
 use crate::cache::RemoteCacheMode;
+use crate::commands::no_config::DISMISS_ACTION_TITLE;
+use crate::commands::no_config::DISMISS_WORKSPACE_ACTION_TITLE;
+use crate::commands::no_config::LANGUAGE_SERVER_SETTINGS_OWNER;
+use crate::commands::no_config::NoConfigMessageOptions;
+use crate::commands::no_config::NoConfigNotificationDismissal;
+use crate::commands::no_config::dismiss_no_config_notification;
+use crate::commands::no_config::get_no_config_message;
+use crate::commands::no_config::is_no_config_notification_dismissed;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
@@ -82,13 +90,6 @@ use self::config_completion::ConfigCompletions;
 use self::config_completion::get_config_file_capabilities;
 use self::config_completion::is_config_uri;
 use self::documents::Documents;
-use self::no_config::DISMISS_ACTION_TITLE;
-use self::no_config::DISMISS_WORKSPACE_ACTION_TITLE;
-use self::no_config::NoConfigMessageOptions;
-use self::no_config::NoConfigNotificationDismissal;
-use self::no_config::dismiss_no_config_notification;
-use self::no_config::get_no_config_message;
-use self::no_config::is_no_config_notification_dismissed;
 use self::notebook::get_notebook_cell_file_path;
 use self::notebook::get_notebook_cell_format_registrations;
 use self::notebook::get_notebook_document_sync_options;
@@ -105,7 +106,6 @@ mod client;
 mod config_completion;
 mod documents;
 mod language;
-mod no_config;
 mod notebook;
 mod settings;
 mod text;
@@ -252,6 +252,7 @@ impl NotFormattedReason {
         get_no_config_message(NoConfigMessageOptions {
           use_global_config: true,
           has_global_config: false,
+          settings_owner: LANGUAGE_SERVER_SETTINGS_OWNER,
         }),
       )),
       NotFormattedReason::NotMatched => Some((
@@ -628,6 +629,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let message = get_no_config_message(NoConfigMessageOptions {
       use_global_config: settings.use_global_config,
       has_global_config,
+      settings_owner: LANGUAGE_SERVER_SETTINGS_OWNER,
     });
     // the notification can only be dismissed for good in a client that shows the actions
     if !supports_message_actions {
