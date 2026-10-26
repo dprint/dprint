@@ -168,15 +168,15 @@ impl EditorContext {
   }
 }
 
-/// Reads the messages from the editor on another thread.
-fn start_reading_messages(environment: &impl Environment) -> tokio::sync::mpsc::UnboundedReceiver<EditorMessage> {
+/// Reads the messages of the schema version from the editor on another thread.
+fn start_reading_messages(environment: &impl Environment, schema_version: u32) -> tokio::sync::mpsc::UnboundedReceiver<EditorMessage> {
   let environment = environment.clone();
   let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<EditorMessage>();
   dprint_core::async_runtime::spawn_blocking(move || {
     let stdin = environment.stdin();
     let mut reader = MessageReader::new(stdin);
     loop {
-      let read_message = match EditorMessage::read(&mut reader) {
+      let read_message = match EditorMessage::read(&mut reader, schema_version) {
         Ok(message) => message,
         Err(err) if err.kind() == ErrorKind::BrokenPipe => {
           return;
@@ -226,7 +226,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   }
 
   pub async fn run(&mut self) -> Result<()> {
-    let mut rx = start_reading_messages(self.environment);
+    let mut rx = start_reading_messages(self.environment, 5);
     // The messages that need the configuration are handled one at a time on a
     // separate task from the one receiving the messages. Resolving the
     // configuration can take a long time (ex. downloading plugins), so this
@@ -283,8 +283,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           | EditorMessageBody::ShowMessage(_)
           | EditorMessageBody::ShowMessageRequest(_)
           | EditorMessageBody::ShowMessageRequestResponse(_, _) => {
-            // these were added in a newer schema version
-            send_error_response(&context, message.id, anyhow!("Unknown message with kind: {}", message.body.as_u32()));
+            unreachable!("only read with schema version 6");
           }
           EditorMessageBody::Unknown(message_kind, _) => {
             send_error_response(&context, message.id, anyhow!("Unknown message with kind: {}", message_kind));
@@ -582,7 +581,7 @@ mod test {
       let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
       dprint_core::async_runtime::spawn_blocking({
         move || loop {
-          let message = EditorMessage::read(&mut reader);
+          let message = EditorMessage::read(&mut reader, 5);
           let msg_was_err = message.is_err();
           if tx.send(message).is_err() || msg_was_err {
             break;

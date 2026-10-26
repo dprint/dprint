@@ -81,8 +81,6 @@ Notes:
 
 ### Message Kinds
 
-Kinds `4` to `7` were used by schema version 5 and aren't supported.
-
 #### `0` - Success Response (Service to Client, Client to Service)
 
 Message body:
@@ -117,15 +115,7 @@ Message body: None
 
 Response: Success response
 
-#### `8` - Cancel a format (Client to Service)
-
-Message body:
-
-- u32 - Message id of the format to cancel
-
-Response: Clients should not expect a message back. This message is fire and forget. Remember though, you may still receive a response from the CLI for this cancelled message. In that case, just ignore the message.
-
-#### `9` - File info (Client to Service)
+#### `4` - File info (Client to Service)
 
 Gets whether a file can be formatted and the configuration file that's used for it.
 
@@ -146,7 +136,7 @@ interface FileInfoData {
 
 Response: File info response or an Error response (ex. the configuration failed to resolve)
 
-#### `10` - File info response (Service to Client)
+#### `5` - File info response (Service to Client)
 
 Message body:
 
@@ -182,7 +172,61 @@ type NotFormattedReason = "noConfigFile" | "notMatched" | "noPlugin" | "unchange
 
 Response: None
 
-#### `11` - Configuration info (Client to Service)
+#### `6` - Format file (Client to Service)
+
+Formats a file with the configuration file that's used for it.
+
+Message body:
+
+- u32 - File path byte length
+- File path
+- u32 - Start byte index to format
+- u32 - End byte index to format
+- u32 - Options byte length, which may be `0`
+- JSON options:
+
+```ts
+interface FormatFileOptions {
+  /** The plugin configuration to use instead of what's in the configuration file. */
+  overrideConfig?: Record<string, unknown>;
+  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. */
+  notebookPath?: string;
+  /** Use the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
+  useGlobalConfig?: boolean;
+}
+```
+
+- u32 - File text byte length
+- File text
+
+When a file isn't formatted because there's no configuration file for it, the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it).
+
+Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response for a cancelled format
+
+#### `7` - Format file response (Service to Client)
+
+Message body:
+
+- u32 - Message id of the request
+- u32 - Response kind
+  - `0` - Not formatted
+    - u32 - Data byte length
+    - JSON data: `{ reason: NotFormattedReason }`
+  - `1` - Formatted
+    - u32 - Length of formatted file text
+    - Formatted file text
+
+Response: None
+
+#### `8` - Cancel a format (Client to Service)
+
+Message body:
+
+- u32 - Message id of the format to cancel
+
+Response: Clients should not expect a message back. This message is fire and forget. Remember though, you may still receive a response from the CLI for this cancelled message. In that case, just ignore the message.
+
+#### `9` - Configuration info (Client to Service)
 
 Gets the plugins of the configuration file that's used for a file (ex. for the JSON schema of a configuration file).
 
@@ -201,7 +245,7 @@ interface ConfigInfoData {
 
 Response: Configuration info response or an Error response
 
-#### `12` - Configuration info response (Service to Client)
+#### `10` - Configuration info response (Service to Client)
 
 Message body:
 
@@ -234,53 +278,7 @@ interface PluginInfo {
 
 Response: None
 
-#### `13` - Format file (Client to Service)
-
-Formats a file with the configuration file that's used for it.
-
-Message body:
-
-- u32 - File path byte length
-- File path
-- u32 - Start byte index to format
-- u32 - End byte index to format
-- u32 - Options byte length, which may be `0`
-- JSON options:
-
-```ts
-interface FormatFileOptions {
-  /** The plugin configuration to use instead of what's in the configuration file. */
-  overrideConfig?: Record<string, unknown>;
-  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. */
-  notebookPath?: string;
-  /** Use the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
-  useGlobalConfig?: boolean;
-}
-```
-
-- u32 - File text byte length
-- File text
-
-When a file isn't formatted because there's no configuration file for it, the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it).
-
-Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response for a cancelled format
-
-#### `14` - Format file response (Service to Client)
-
-Message body:
-
-- u32 - Message id of the request
-- u32 - Response kind
-  - `0` - Not formatted
-    - u32 - Data byte length
-    - JSON data: `{ reason: NotFormattedReason }`
-  - `1` - Formatted
-    - u32 - Length of formatted file text
-    - Formatted file text
-
-Response: None
-
-#### `15` - Update settings (Client to Service)
+#### `11` - Update settings (Client to Service)
 
 The editor's settings and workspace folders. Send this as the first message and whenever they change.
 
@@ -302,7 +300,7 @@ interface EditorSettings {
 
 Response: Success response or an Error response
 
-#### `16` - Show message (Service to Client)
+#### `12` - Show message (Service to Client)
 
 Shows a message to the user (ex. a notification).
 
@@ -321,7 +319,7 @@ interface ShowMessageData {
 
 Response: None
 
-#### `17` - Show message request (Service to Client)
+#### `13` - Show message request (Service to Client)
 
 Shows a message to the user with actions to choose from.
 
@@ -344,7 +342,7 @@ interface MessageAction {
 
 Response: Show message request response once the user responds, which may be a long time later. An Error response is the same as the user not choosing an action.
 
-#### `18` - Show message request response (Client to Service)
+#### `14` - Show message request response (Client to Service)
 
 Message body:
 

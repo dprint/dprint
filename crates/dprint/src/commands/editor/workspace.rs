@@ -96,7 +96,7 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
     pending_message_requests: Default::default(),
     has_notified_no_config: Default::default(),
   });
-  let mut rx = start_reading_messages(environment);
+  let mut rx = start_reading_messages(environment, 6);
 
   loop {
     let message = tokio::select! {
@@ -207,16 +207,10 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
           token.cancel();
         }
       }
-      EditorMessageBody::CanFormat(_) | EditorMessageBody::Format(_) => {
-        send_error_response(
-          context,
-          message.id,
-          anyhow!("Message with kind {} isn't supported in schema version 6.", message.body.as_u32()),
-        );
+      EditorMessageBody::CanFormat(_) | EditorMessageBody::CanFormatResponse(_, _) | EditorMessageBody::Format(_) | EditorMessageBody::FormatResponse(_, _) => {
+        unreachable!("only read with schema version 5");
       }
-      EditorMessageBody::CanFormatResponse(_, _)
-      | EditorMessageBody::FormatResponse(_, _)
-      | EditorMessageBody::FileInfoResponse(_, _)
+      EditorMessageBody::FileInfoResponse(_, _)
       | EditorMessageBody::ConfigInfoResponse(_, _)
       | EditorMessageBody::FormatFileResponse(_, _)
       | EditorMessageBody::ShowMessage(_)
@@ -568,16 +562,6 @@ mod test {
           vec!["test-plugin"]
         );
         assert_eq!(config_info.plugins[0].file_extensions, vec!["txt"]);
-
-        // the messages of schema version 5 aren't supported
-        assert_eq!(
-          client
-            .request(EditorMessageBody::CanFormat(PathBuf::from("/a/file.txt")))
-            .await
-            .unwrap_err()
-            .to_string(),
-          "Message with kind 4 isn't supported in schema version 6."
-        );
       }
       .boxed_local()
     });
@@ -889,7 +873,7 @@ mod test {
       let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
       dprint_core::async_runtime::spawn_blocking(move || {
         let mut reader = MessageReader::new(stdout);
-        while let Ok(message) = EditorMessage::read(&mut reader) {
+        while let Ok(message) = EditorMessage::read(&mut reader, 6) {
           if tx.send(message).is_err() {
             break;
           }

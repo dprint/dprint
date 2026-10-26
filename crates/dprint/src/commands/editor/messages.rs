@@ -17,29 +17,31 @@ pub struct EditorMessage {
 }
 
 impl EditorMessage {
-  pub fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>) -> Result<EditorMessage> {
+  /// Reads a message of the schema version, which decides what each kind of
+  /// message is.
+  pub fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>, schema_version: u32) -> Result<EditorMessage> {
     let id = reader.read_u32()?;
     let message_kind = reader.read_u32()?;
     let body_length = reader.read_u32()?;
-    let body = match message_kind {
-      0 => EditorMessageBody::Success(reader.read_u32()?),
-      1 => {
+    let body = match (message_kind, schema_version) {
+      (0, _) => EditorMessageBody::Success(reader.read_u32()?),
+      (1, _) => {
         let message_id = reader.read_u32()?;
         let data = reader.read_sized_bytes()?;
         EditorMessageBody::Error(message_id, data)
       }
-      2 => EditorMessageBody::Close,
-      3 => EditorMessageBody::IsAlive,
-      4 => {
+      (2, _) => EditorMessageBody::Close,
+      (3, _) => EditorMessageBody::IsAlive,
+      (4, 5) => {
         let file_path = reader.read_sized_bytes()?;
         EditorMessageBody::CanFormat(PathBuf::from(String::from_utf8_lossy(&file_path).to_string()))
       }
-      5 => {
+      (5, 5) => {
         let message_id = reader.read_u32()?;
         let can_format = reader.read_u32()?;
         EditorMessageBody::CanFormatResponse(message_id, can_format)
       }
-      6 => {
+      (6, 5) => {
         let (file_path, range, override_config, file_bytes) = read_format_body(reader)?;
         EditorMessageBody::Format(FormatEditorMessageBody {
           file_path,
@@ -48,7 +50,7 @@ impl EditorMessage {
           override_config,
         })
       }
-      7 => {
+      (7, 5) => {
         let message_id = reader.read_u32()?;
         let response_kind = reader.read_u32()?;
         let data = match response_kind {
@@ -63,18 +65,13 @@ impl EditorMessage {
         };
         EditorMessageBody::FormatResponse(message_id, data)
       }
-      8 => EditorMessageBody::CancelFormat(reader.read_u32()?),
-      9 => EditorMessageBody::FileInfo(reader.read_sized_bytes()?),
-      10 => {
+      (8, _) => EditorMessageBody::CancelFormat(reader.read_u32()?),
+      (4, 6) => EditorMessageBody::FileInfo(reader.read_sized_bytes()?),
+      (5, 6) => {
         let message_id = reader.read_u32()?;
         EditorMessageBody::FileInfoResponse(message_id, reader.read_sized_bytes()?)
       }
-      11 => EditorMessageBody::ConfigInfo(reader.read_sized_bytes()?),
-      12 => {
-        let message_id = reader.read_u32()?;
-        EditorMessageBody::ConfigInfoResponse(message_id, reader.read_sized_bytes()?)
-      }
-      13 => {
+      (6, 6) => {
         let (file_path, range, options, file_bytes) = read_format_body(reader)?;
         EditorMessageBody::FormatFile(FormatFileMessageBody {
           file_path,
@@ -83,7 +80,7 @@ impl EditorMessage {
           file_bytes,
         })
       }
-      14 => {
+      (7, 6) => {
         let message_id = reader.read_u32()?;
         let response_kind = reader.read_u32()?;
         let data = reader.read_sized_bytes()?;
@@ -99,10 +96,15 @@ impl EditorMessage {
         };
         EditorMessageBody::FormatFileResponse(message_id, result)
       }
-      15 => EditorMessageBody::UpdateSettings(reader.read_sized_bytes()?),
-      16 => EditorMessageBody::ShowMessage(reader.read_sized_bytes()?),
-      17 => EditorMessageBody::ShowMessageRequest(reader.read_sized_bytes()?),
-      18 => {
+      (9, 6) => EditorMessageBody::ConfigInfo(reader.read_sized_bytes()?),
+      (10, 6) => {
+        let message_id = reader.read_u32()?;
+        EditorMessageBody::ConfigInfoResponse(message_id, reader.read_sized_bytes()?)
+      }
+      (11, 6) => EditorMessageBody::UpdateSettings(reader.read_sized_bytes()?),
+      (12, 6) => EditorMessageBody::ShowMessage(reader.read_sized_bytes()?),
+      (13, 6) => EditorMessageBody::ShowMessageRequest(reader.read_sized_bytes()?),
+      (14, 6) => {
         let message_id = reader.read_u32()?;
         EditorMessageBody::ShowMessageRequestResponse(message_id, reader.read_sized_bytes()?)
       }
@@ -335,16 +337,18 @@ impl EditorMessageBody {
       EditorMessageBody::Format(_) => 6,
       EditorMessageBody::FormatResponse(_, _) => 7,
       EditorMessageBody::CancelFormat(_) => 8,
-      EditorMessageBody::FileInfo(_) => 9,
-      EditorMessageBody::FileInfoResponse(_, _) => 10,
-      EditorMessageBody::ConfigInfo(_) => 11,
-      EditorMessageBody::ConfigInfoResponse(_, _) => 12,
-      EditorMessageBody::FormatFile(_) => 13,
-      EditorMessageBody::FormatFileResponse(_, _) => 14,
-      EditorMessageBody::UpdateSettings(_) => 15,
-      EditorMessageBody::ShowMessage(_) => 16,
-      EditorMessageBody::ShowMessageRequest(_) => 17,
-      EditorMessageBody::ShowMessageRequestResponse(_, _) => 18,
+      // schema version 6 reuses the kinds of the schema version 5 messages
+      // that it doesn't have
+      EditorMessageBody::FileInfo(_) => 4,
+      EditorMessageBody::FileInfoResponse(_, _) => 5,
+      EditorMessageBody::FormatFile(_) => 6,
+      EditorMessageBody::FormatFileResponse(_, _) => 7,
+      EditorMessageBody::ConfigInfo(_) => 9,
+      EditorMessageBody::ConfigInfoResponse(_, _) => 10,
+      EditorMessageBody::UpdateSettings(_) => 11,
+      EditorMessageBody::ShowMessage(_) => 12,
+      EditorMessageBody::ShowMessageRequest(_) => 13,
+      EditorMessageBody::ShowMessageRequestResponse(_, _) => 14,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
