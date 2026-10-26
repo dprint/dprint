@@ -283,7 +283,9 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           | EditorMessageBody::UpdateSettings(_)
           | EditorMessageBody::ShowMessage(_)
           | EditorMessageBody::ShowMessageRequest(_)
-          | EditorMessageBody::ShowMessageRequestResponse(_, _) => {
+          | EditorMessageBody::ShowMessageRequestResponse(_, _)
+          | EditorMessageBody::ConfigSchema(_)
+          | EditorMessageBody::ConfigSchemaResponse(_, _) => {
             unreachable!("only read with schema version 6");
           }
           EditorMessageBody::Unknown(message_kind, _) => {

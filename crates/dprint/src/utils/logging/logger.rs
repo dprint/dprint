@@ -11,16 +11,19 @@ use std::io::Stdout;
 use std::io::Write;
 use std::io::stderr;
 use std::io::stdout;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering;
 
 use crate::utils::terminal::get_terminal_size;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum LogLevel {
-  Error,
-  Warn,
-  Info,
-  Debug,
-  Silent,
+  Error = 0,
+  Warn = 1,
+  Info = 2,
+  Debug = 3,
+  Silent = 4,
 }
 
 impl LogLevel {
@@ -89,7 +92,9 @@ pub struct LoggerOptions {
 pub struct Logger {
   output_lock: Mutex<LoggerState>,
   is_stdout_machine_readable: bool,
-  log_level: LogLevel,
+  /// The `LogLevel` as a number so it can be changed while logging (see
+  /// `Logger::set_log_level`).
+  log_level: AtomicU8,
 }
 
 struct LoggerState {
@@ -117,13 +122,24 @@ impl Logger {
         }),
       }),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
-      log_level: options.log_level,
+      log_level: AtomicU8::new(options.log_level as u8),
     }
   }
 
   #[inline]
   pub fn log_level(&self) -> LogLevel {
-    self.log_level
+    match self.log_level.load(Ordering::Relaxed) {
+      0 => LogLevel::Error,
+      1 => LogLevel::Warn,
+      2 => LogLevel::Info,
+      3 => LogLevel::Debug,
+      _ => LogLevel::Silent,
+    }
+  }
+
+  /// Changes the log level (ex. when an editor's setting for it changes).
+  pub fn set_log_level(&self, log_level: LogLevel) {
+    self.log_level.store(log_level as u8, Ordering::Relaxed);
   }
 
   pub fn log(&self, text: &str, context_name: &str) {

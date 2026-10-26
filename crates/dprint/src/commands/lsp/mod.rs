@@ -78,6 +78,8 @@ use crate::commands::no_config::NoConfigNotificationDismissal;
 use crate::commands::no_config::dismiss_no_config_notification;
 use crate::commands::no_config::get_no_config_message;
 use crate::commands::no_config::is_no_config_notification_dismissed;
+use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
+use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
@@ -103,7 +105,7 @@ use self::untitled::get_untitled_registrations;
 use self::untitled::is_untitled_uri;
 
 mod client;
-mod config_completion;
+pub(super) mod config_completion;
 mod documents;
 mod language;
 pub(super) mod notebook;
@@ -255,15 +257,8 @@ impl NotFormattedReason {
           settings_owner: LANGUAGE_SERVER_SETTINGS_OWNER,
         }),
       )),
-      NotFormattedReason::NotMatched => Some((
-        MessageType::INFO,
-        "dprint did not format this document because the configuration file in use doesn't format it (ex. its \"includes\" and \"excludes\" don't match it)."
-          .to_string(),
-      )),
-      NotFormattedReason::NoPlugin => Some((
-        MessageType::INFO,
-        "dprint did not format this document because no plugin in the configuration file in use handles it.".to_string(),
-      )),
+      NotFormattedReason::NotMatched => Some((MessageType::INFO, NOT_MATCHED_MESSAGE.to_string())),
+      NotFormattedReason::NoPlugin => Some((MessageType::INFO, NO_PLUGIN_MESSAGE.to_string())),
       NotFormattedReason::Failed => Some((
         MessageType::WARNING,
         "dprint failed to format this document. See the language server's log for details.".to_string(),

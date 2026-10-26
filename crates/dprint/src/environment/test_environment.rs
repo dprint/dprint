@@ -397,10 +397,6 @@ impl TestEnvironment {
     *self.is_stdout_machine_readable.lock() = value;
   }
 
-  pub fn set_log_level(&self, value: LogLevel) {
-    *self.log_level.lock() = value;
-  }
-
   pub fn stdout_reader(&self) -> Box<dyn Read + Send> {
     Box::new(self.std_out_pipe.lock().1.clone())
   }
@@ -935,6 +931,10 @@ impl Environment for TestEnvironment {
 
   fn log_level(&self) -> LogLevel {
     *self.log_level.lock()
+  }
+
+  fn set_log_level(&self, log_level: LogLevel) {
+    *self.log_level.lock() = log_level;
   }
 
   fn compile_wasm(&self, bytes: &[u8]) -> Result<CompilationResult> {

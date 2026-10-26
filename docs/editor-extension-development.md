@@ -78,6 +78,7 @@ Notes:
 - Send an initialize message first. The other messages that need it have an error response until then.
 - If an unknown message kind is received, return an error (don't ignore it).
 - The JSON data of a message may have more properties in the future, so ignore properties you don't know about.
+- When a configuration file fails to resolve, the editor service shows the error with a show message as well as responding with an error. It's shown once until the configuration file resolves again because the editor makes requests without the user doing anything (ex. when a file is opened).
 
 ### Message Kinds
 
@@ -157,6 +158,8 @@ interface EditorSettings {
   allowGlobalConfig?: boolean;
   /** Whether to notify the user when a file isn't formatted because it doesn't have a configuration file. Defaults to `true`. */
   showNoConfigNotification?: boolean;
+  /** Whether to log debug information to stderr. Defaults to whether the editor service was started with `--verbose`. */
+  verbose?: boolean;
 }
 ```
 
@@ -183,6 +186,8 @@ interface FormatFileOptions {
   notebookPath?: string;
   /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
   allowGlobalConfig?: boolean;
+  /** Format the file again until the output stops changing, the same as `dprint fmt`. Defaults to `false`. */
+  ensureStableFormat?: boolean;
 }
 ```
 
@@ -203,10 +208,19 @@ Message body:
 - u32 - Response kind
   - `0` - Not formatted
     - u32 - Data byte length
-    - JSON data: `{ reason: NotFormattedReason }`
-  - `1` - Formatted
-    - u32 - Data byte length
     - JSON data:
+
+```ts
+interface NotFormattedData {
+  reason: NotFormattedReason;
+  /** The message to show the user about why the file wasn't formatted (ex. for a command the user ran), which isn't provided when it's already formatted. */
+  message?: string;
+}
+```
+
+- `1` - Formatted
+  - u32 - Data byte length
+  - JSON data:
 
 ```ts
 interface FormattedData {
@@ -270,6 +284,8 @@ interface FileInfoResponseData {
   canFormat: boolean;
   /** Why the file can't be formatted. */
   reason?: NotFormattedReason;
+  /** The message to show the user about why the file can't be formatted (ex. for a command the user ran). */
+  message?: string;
 }
 
 interface ConfigFileInfo {
@@ -283,11 +299,12 @@ interface ConfigFileInfo {
  * - `globalConfigNotAllowed` - There's no configuration file in an ancestor directory and the global configuration file isn't allowed to be used (ex. offer to format with it).
  * - `notMatched` - The configuration file doesn't format the file (ex. its "includes" and "excludes" don't match it).
  * - `noPlugin` - No plugin in the configuration file handles the file.
+ * - `noPlugins` - The configuration file has no plugins.
  * - `unchanged` - The file is already formatted (only for a format).
  *
  * Handle a reason you don't know about the same as `notMatched`.
  */
-type NotFormattedReason = "noConfigFile" | "globalConfigNotAllowed" | "notMatched" | "noPlugin" | "unchanged";
+type NotFormattedReason = "noConfigFile" | "globalConfigNotAllowed" | "notMatched" | "noPlugin" | "noPlugins" | "unchanged";
 ```
 
 Response: None
@@ -398,6 +415,46 @@ Message body:
 interface ShowMessageRequestResponseData {
   /** The action the user chose, which is `null` when they didn't choose one (ex. they closed the message). */
   action: MessageAction | null;
+}
+```
+
+Response: None
+
+#### `16` - Configuration schema (Client to Service)
+
+Gets the JSON schema to validate configuration files with, which has the configuration schemas of the plugins in them.
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface ConfigSchemaData {
+  /** Files that the configuration files are used for (ex. the configuration files themselves). The schema has the plugins of each one, using the first plugin with a configuration key. */
+  filePaths: string[];
+  allowGlobalConfig?: boolean;
+}
+```
+
+Response: Configuration schema response or an Error response
+
+#### `17` - Configuration schema response (Service to Client)
+
+Message body:
+
+- u32 - Message id responding to
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface ConfigSchemaResponseData {
+  /**
+   * The JSON schema. The schemas of the plugins are in it instead of referenced by url because an
+   * editor may only download schemas from the domains the user trusts. A plugin whose schema couldn't
+   * be downloaded isn't in it, so get it again later (ex. when a configuration file changes).
+   */
+  schema: object;
 }
 ```
 

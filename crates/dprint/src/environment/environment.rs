@@ -379,6 +379,7 @@ pub trait Environment:
   fn is_ci(&self) -> bool;
   fn is_terminal_interactive(&self) -> bool;
   fn log_level(&self) -> LogLevel;
+  fn set_log_level(&self, log_level: LogLevel);
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn wasm_cache_key(&self) -> String;
   /// Returns the current CPU usage as a value from 0-100.

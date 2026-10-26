@@ -637,6 +637,10 @@ impl Environment for RealEnvironment {
     self.logger.log_level()
   }
 
+  fn set_log_level(&self, log_level: LogLevel) {
+    self.logger.set_log_level(log_level);
+  }
+
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {
     crate::plugins::compile_wasm(wasm_bytes, self.max_threads())
   }

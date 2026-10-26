@@ -10,6 +10,7 @@ use thiserror::Error;
 
 use crate::AppError;
 use crate::arg_parser::parse_args;
+use crate::environment::Environment;
 use crate::environment::TestEnvironment;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;

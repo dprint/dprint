@@ -114,6 +114,11 @@ impl EditorMessage {
         let message_id = reader.read_u32()?;
         EditorMessageBody::ShowMessageRequestResponse(message_id, reader.read_sized_bytes()?)
       }
+      (16, 6) => EditorMessageBody::ConfigSchema(reader.read_sized_bytes()?),
+      (17, 6) => {
+        let message_id = reader.read_u32()?;
+        EditorMessageBody::ConfigSchemaResponse(message_id, reader.read_sized_bytes()?)
+      }
       _ => {
         let data = reader.read_bytes(body_length as usize)?;
         EditorMessageBody::Unknown(message_kind, data)
@@ -189,12 +194,14 @@ impl Message for EditorMessage {
       | EditorMessageBody::FileInfo(data)
       | EditorMessageBody::ConfigInfo(data)
       | EditorMessageBody::ShowMessage(data)
-      | EditorMessageBody::ShowMessageRequest(data) => {
+      | EditorMessageBody::ShowMessageRequest(data)
+      | EditorMessageBody::ConfigSchema(data) => {
         builder.add_bytes(data);
       }
       EditorMessageBody::FileInfoResponse(message_id, data)
       | EditorMessageBody::ConfigInfoResponse(message_id, data)
-      | EditorMessageBody::ShowMessageRequestResponse(message_id, data) => {
+      | EditorMessageBody::ShowMessageRequestResponse(message_id, data)
+      | EditorMessageBody::ConfigSchemaResponse(message_id, data) => {
         builder.add_number(*message_id);
         builder.add_bytes(data);
       }
@@ -336,6 +343,12 @@ pub enum EditorMessageBody {
   /// The action the user chose as JSON (see
   /// `ShowMessageRequestResponseMessage`). Schema version 6.
   ShowMessageRequestResponse(u32, Vec<u8>),
+  /// Gets the JSON schema of config files as JSON (see `ConfigSchemaMessage`).
+  /// Schema version 6.
+  ConfigSchema(Vec<u8>),
+  /// The JSON schema of config files as JSON (see
+  /// `ConfigSchemaResponseMessage`). Schema version 6.
+  ConfigSchemaResponse(u32, Vec<u8>),
   #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
@@ -365,6 +378,8 @@ impl EditorMessageBody {
       EditorMessageBody::ShowMessage(_) => 13,
       EditorMessageBody::ShowMessageRequest(_) => 14,
       EditorMessageBody::ShowMessageRequestResponse(_, _) => 15,
+      EditorMessageBody::ConfigSchema(_) => 16,
+      EditorMessageBody::ConfigSchemaResponse(_, _) => 17,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
@@ -442,6 +457,10 @@ pub struct FileInfoResponseMessage {
   /// Why the file can't be formatted.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reason: Option<NotFormattedReason>,
+  /// The message to show the user about why the file can't be formatted
+  /// (ex. for a command the user ran).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub message: Option<String>,
 }
 
 /// The data of a `ConfigInfo` message.
@@ -504,6 +523,10 @@ pub struct FormatFileOptions {
   /// ancestor directory.
   #[serde(default)]
   pub allow_global_config: bool,
+  /// Whether to format the file again until the output stops changing, which
+  /// defaults to the `DPRINT_EDITOR_STABLE_FORMAT` environment variable.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub ensure_stable_format: Option<bool>,
 }
 
 /// The edits of a `FormatFile` message that formatted the file.
@@ -529,6 +552,10 @@ pub struct FormatEdit {
 #[serde(rename_all = "camelCase")]
 pub struct NotFormattedMessage {
   pub reason: NotFormattedReason,
+  /// The message to show the user about why the file wasn't formatted (ex. for
+  /// a command the user ran), which is `None` when it's already formatted.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub message: Option<String>,
 }
 
 /// Why a file isn't formatted.
@@ -546,6 +573,8 @@ pub enum NotFormattedReason {
   NotMatched,
   /// No plugin in the config file handles the file.
   NoPlugin,
+  /// The config file has no plugins.
+  NoPlugins,
   /// The file is already formatted.
   Unchanged,
 }
@@ -565,6 +594,10 @@ pub struct EditorSettings {
   /// have a config file.
   #[serde(default = "default_true")]
   pub show_no_config_notification: bool,
+  /// Whether to log debug information, which defaults to whether the editor
+  /// service was started with `--verbose`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub verbose: Option<bool>,
 }
 
 impl Default for EditorSettings {
@@ -573,6 +606,7 @@ impl Default for EditorSettings {
       workspace_folders: Vec::new(),
       allow_global_config: false,
       show_no_config_notification: true,
+      verbose: None,
     }
   }
 }
@@ -620,4 +654,24 @@ pub enum MessageKind {
   Info,
   Warning,
   Error,
+}
+
+/// The data of a `ConfigSchema` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigSchemaMessage {
+  /// Files that the config files are used for (ex. the config files
+  /// themselves). The schema has the plugins of each config file.
+  pub file_paths: Vec<PathBuf>,
+  /// Whether to allow using the global config file when there's no config file in an
+  /// ancestor directory.
+  #[serde(default)]
+  pub allow_global_config: bool,
+}
+
+/// The data of a `ConfigSchemaResponse` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigSchemaResponseMessage {
+  pub schema: serde_json::Value,
 }
