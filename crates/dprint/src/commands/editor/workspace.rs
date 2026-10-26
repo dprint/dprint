@@ -188,12 +188,7 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
           let result = result.and_then(|outcome| {
             Ok(match outcome {
               FormatOutcome::Formatted(text) => FormatFileResult::Formatted(text),
-              FormatOutcome::NotFormatted(reason) => {
-                if reason == NotFormattedReason::NoConfigFile {
-                  service.notify_no_config();
-                }
-                FormatFileResult::NotFormatted(serde_json::to_vec(&NotFormattedMessage { reason })?)
-              }
+              FormatOutcome::NotFormatted(reason) => FormatFileResult::NotFormatted(serde_json::to_vec(&NotFormattedMessage { reason })?),
             })
           });
           match result {
@@ -226,11 +221,12 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
 
 impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   async fn get_file_info(&self, message: FileInfoMessage) -> Result<FileInfoResponseMessage> {
-    let Some(scope) = self.resolve_scope(&message.file_path, message.use_global_config).await? else {
+    let allow_global_config = self.allow_global_config(message.allow_global_config);
+    let Some(scope) = self.resolve_scope(&message.file_path, allow_global_config).await? else {
       return Ok(FileInfoResponseMessage {
         config_file: None,
         can_format: false,
-        reason: Some(NotFormattedReason::NoConfigFile),
+        reason: Some(self.get_no_config_reason(allow_global_config)),
       });
     };
     let file_path = self.canonicalize(message.file_path);
@@ -246,7 +242,8 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   }
 
   async fn get_config_info(&self, message: ConfigInfoMessage) -> Result<ConfigInfoResponseMessage> {
-    let Some(scope) = self.resolve_scope(&message.file_path, message.use_global_config).await? else {
+    let allow_global_config = self.allow_global_config(message.allow_global_config);
+    let Some(scope) = self.resolve_scope(&message.file_path, allow_global_config).await? else {
       return Ok(ConfigInfoResponseMessage {
         config_file: None,
         plugins: Vec::new(),
@@ -258,14 +255,17 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     })
   }
 
-  async fn format_file(&self, body: FormatFileMessageBody, token: &Arc<CancellationToken>) -> Result<FormatOutcome> {
+  async fn format_file(self: &Rc<Self>, body: FormatFileMessageBody, token: &Arc<CancellationToken>) -> Result<FormatOutcome> {
     let options: FormatFileOptions = if body.options.is_empty() {
       Default::default()
     } else {
       serde_json::from_slice(&body.options).context("Error deserializing the format options.")?
     };
-    let Some(scope) = self.resolve_scope(&body.file_path, options.use_global_config).await? else {
-      return Ok(FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile));
+    let allow_global_config = self.allow_global_config(options.allow_global_config);
+    let Some(scope) = self.resolve_scope(&body.file_path, allow_global_config).await? else {
+      let reason = self.get_no_config_reason(allow_global_config);
+      self.notify_no_config(reason, allow_global_config);
+      return Ok(FormatOutcome::NotFormatted(reason));
     };
     let file_path = self.canonicalize(body.file_path);
     let notebook_path = options.notebook_path.map(|path| self.canonicalize(path));
@@ -299,7 +299,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
 
   /// Notifies the user that a file wasn't formatted because no config file
   /// was found for it. This is only done once per session to not annoy people.
-  fn notify_no_config(self: &Rc<Self>) {
+  fn notify_no_config(self: &Rc<Self>, reason: NotFormattedReason, allow_global_config: bool) {
     let settings = self.settings.borrow().clone();
     if !settings.show_no_config_notification || self.has_notified_no_config.replace(true) {
       return;
@@ -307,10 +307,9 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     if is_no_config_notification_dismissed(&self.environment, &settings.workspace_folders) {
       return;
     }
-    let has_global_config = !settings.use_global_config && matches!(resolve_global_config_path_and_text(&self.environment), Ok(Some(_)));
     let message = get_no_config_message(NoConfigMessageOptions {
-      use_global_config: settings.use_global_config,
-      has_global_config,
+      use_global_config: allow_global_config,
+      has_global_config: reason == NotFormattedReason::GlobalConfigNotAllowed,
       settings_owner: EDITOR_EXTENSION_SETTINGS_OWNER,
     });
     let mut actions = Vec::new();
@@ -372,18 +371,33 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     receiver.await.ok().flatten()
   }
 
+  /// Gets whether the global config file may be used, which a request or the
+  /// settings can allow.
+  fn allow_global_config(&self, request_allows: bool) -> bool {
+    request_allows || self.settings.borrow().allow_global_config
+  }
+
   /// Resolves the plugins of the config file used for the file, which is
   /// `None` when there isn't one.
-  async fn resolve_scope(&self, file_path: &Path, use_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
+  async fn resolve_scope(&self, file_path: &Path, allow_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
     let Some(dir_path) = file_path.parent() else {
       bail!("Cannot format non-file path: {}", file_path.display());
     };
-    let use_global_config = use_global_config || self.settings.borrow().use_global_config;
-    let scope = self.scope_container.resolve_by_path(dir_path, use_global_config).await?;
+    let scope = self.scope_container.resolve_by_path(dir_path, allow_global_config).await?;
     if let Some(scope) = &scope {
       scope.ensure_no_global_config_diagnostics()?;
     }
     Ok(scope)
+  }
+
+  /// Gets why there's no config file for a file that doesn't have one in an
+  /// ancestor directory.
+  fn get_no_config_reason(&self, allow_global_config: bool) -> NotFormattedReason {
+    if !allow_global_config && matches!(resolve_global_config_path_and_text(&self.environment), Ok(Some(_))) {
+      NotFormattedReason::GlobalConfigNotAllowed
+    } else {
+      NotFormattedReason::NoConfigFile
+    }
   }
 
   /// Gets why the scope can't format the file, which is `None` when it can.
@@ -552,7 +566,7 @@ mod test {
         let config_info = client
           .config_info(ConfigInfoMessage {
             file_path: PathBuf::from("/b/dprint.json"),
-            use_global_config: false,
+            allow_global_config: false,
           })
           .await
           .unwrap();
@@ -573,7 +587,7 @@ mod test {
   }
 
   #[test]
-  fn should_use_global_config_when_specified() {
+  fn should_use_global_config_when_allowed() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_global_config(|c| {
@@ -586,11 +600,11 @@ mod test {
       async move {
         assert_eq!(
           client.file_info(file_info("/dir/file.txt")).await.unwrap().reason,
-          Some(NotFormattedReason::NoConfigFile)
+          Some(NotFormattedReason::GlobalConfigNotAllowed)
         );
         let info = client
           .file_info(FileInfoMessage {
-            use_global_config: true,
+            allow_global_config: true,
             ..file_info("/dir/file.txt")
           })
           .await
@@ -599,7 +613,7 @@ mod test {
         assert!(info.config_file.unwrap().is_global);
 
         let options = FormatFileOptions {
-          use_global_config: true,
+          allow_global_config: true,
           ..Default::default()
         };
         assert_eq!(
@@ -621,7 +635,7 @@ mod test {
   }
 
   #[test]
-  fn should_use_global_config_when_the_setting_is_enabled() {
+  fn should_use_global_config_when_the_setting_allows_it() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_global_config(|c| {
@@ -634,7 +648,7 @@ mod test {
       async move {
         client
           .update_settings(EditorSettings {
-            use_global_config: true,
+            allow_global_config: true,
             ..Default::default()
           })
           .await
@@ -689,6 +703,39 @@ mod test {
         }
         .boxed_local()
       }
+    });
+  }
+
+  #[test]
+  fn should_notify_when_global_config_not_allowed() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        assert_eq!(
+          client.format("/project/file.txt", "testing", None).await.unwrap(),
+          not_formatted(NotFormattedReason::GlobalConfigNotAllowed)
+        );
+        assert_eq!(
+          client.wait_for_message_requests(1).await,
+          vec![ShowMessageRequestMessage {
+            kind: MessageKind::Info,
+            message: concat!(
+              "No dprint configuration file found. Run \"dprint init\" in your project to create one ",
+              "or enable the \"useGlobalConfig\" setting of the dprint extension to use your global one."
+            )
+            .to_string(),
+            actions: vec![action("Don't show again")],
+          }]
+        );
+      }
+      .boxed_local()
     });
   }
 
@@ -810,7 +857,7 @@ mod test {
     FileInfoMessage {
       file_path: PathBuf::from(file_path),
       notebook_path: None,
-      use_global_config: false,
+      allow_global_config: false,
     }
   }
 

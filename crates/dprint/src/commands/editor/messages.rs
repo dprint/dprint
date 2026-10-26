@@ -388,10 +388,10 @@ pub struct FileInfoMessage {
   /// formatted when the notebook would be.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notebook_path: Option<PathBuf>,
-  /// Whether to use the global config file when there's no config file in an
+  /// Whether to allow using the global config file when there's no config file in an
   /// ancestor directory.
   #[serde(default)]
-  pub use_global_config: bool,
+  pub allow_global_config: bool,
 }
 
 /// The data of a `FileInfoResponse` message.
@@ -412,10 +412,10 @@ pub struct FileInfoResponseMessage {
 pub struct ConfigInfoMessage {
   /// A file that the config file is used for (ex. the config file itself).
   pub file_path: PathBuf,
-  /// Whether to use the global config file when there's no config file in an
+  /// Whether to allow using the global config file when there's no config file in an
   /// ancestor directory.
   #[serde(default)]
-  pub use_global_config: bool,
+  pub allow_global_config: bool,
 }
 
 /// The data of a `ConfigInfoResponse` message.
@@ -462,10 +462,10 @@ pub struct FormatFileOptions {
   /// formatted when the notebook would be.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notebook_path: Option<PathBuf>,
-  /// Whether to use the global config file when there's no config file in an
+  /// Whether to allow using the global config file when there's no config file in an
   /// ancestor directory.
   #[serde(default)]
-  pub use_global_config: bool,
+  pub allow_global_config: bool,
 }
 
 /// Why a `FormatFile` message didn't format the file.
@@ -479,9 +479,12 @@ pub struct NotFormattedMessage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NotFormattedReason {
-  /// There's no config file in an ancestor directory and the global config
-  /// file isn't used or doesn't exist.
+  /// There's no config file in an ancestor directory and there's no global
+  /// config file.
   NoConfigFile,
+  /// There's no config file in an ancestor directory and the global config
+  /// file isn't allowed to be used.
+  GlobalConfigNotAllowed,
   /// The config file doesn't format the file (ex. its includes and excludes
   /// don't match it).
   NotMatched,
@@ -501,7 +504,7 @@ pub struct EditorSettings {
   /// Whether to format the files that don't have a config file in an ancestor
   /// directory with the global config file.
   #[serde(default)]
-  pub use_global_config: bool,
+  pub allow_global_config: bool,
   /// Whether to notify the user when a file isn't formatted because it doesn't
   /// have a config file.
   #[serde(default = "default_true")]
@@ -512,7 +515,7 @@ impl Default for EditorSettings {
   fn default() -> Self {
     Self {
       workspace_folders: Vec::new(),
-      use_global_config: false,
+      allow_global_config: false,
       show_no_config_notification: true,
     }
   }

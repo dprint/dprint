@@ -46,7 +46,7 @@ Ignore properties you don't know about.
 
 Without `--info`, this starts a long running process that can be communicated with over stdin and stdout.
 
-One process formats the files of a whole workspace. For each file, the editor service finds the configuration file in an ancestor directory, or uses the global configuration file when that's enabled. The configuration is read again for each request, so an edited configuration file is used for the next request without restarting the editor service.
+One process formats the files of a whole workspace. For each file, the editor service finds the configuration file in an ancestor directory, or uses the global configuration file when that's allowed. The configuration is read again for each request, so an edited configuration file is used for the next request without restarting the editor service.
 
 ### Executing
 
@@ -129,8 +129,8 @@ interface FileInfoData {
   filePath: string;
   /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. */
   notebookPath?: string;
-  /** Use the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
-  useGlobalConfig?: boolean;
+  /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
+  allowGlobalConfig?: boolean;
 }
 ```
 
@@ -160,14 +160,15 @@ interface ConfigFileInfo {
 }
 
 /**
- * - `noConfigFile` - There's no configuration file in an ancestor directory and the global configuration file isn't used or doesn't exist.
+ * - `noConfigFile` - There's no configuration file in an ancestor directory and there's no global configuration file.
+ * - `globalConfigNotAllowed` - There's no configuration file in an ancestor directory and the global configuration file isn't allowed to be used (ex. offer to format with it).
  * - `notMatched` - The configuration file doesn't format the file (ex. its "includes" and "excludes" don't match it).
  * - `noPlugin` - No plugin in the configuration file handles the file.
  * - `unchanged` - The file is already formatted (only for a format).
  *
  * Handle a reason you don't know about the same as `notMatched`.
  */
-type NotFormattedReason = "noConfigFile" | "notMatched" | "noPlugin" | "unchanged";
+type NotFormattedReason = "noConfigFile" | "globalConfigNotAllowed" | "notMatched" | "noPlugin" | "unchanged";
 ```
 
 Response: None
@@ -191,15 +192,15 @@ interface FormatFileOptions {
   overrideConfig?: Record<string, unknown>;
   /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. */
   notebookPath?: string;
-  /** Use the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
-  useGlobalConfig?: boolean;
+  /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
+  allowGlobalConfig?: boolean;
 }
 ```
 
 - u32 - File text byte length
 - File text
 
-When a file isn't formatted because there's no configuration file for it, the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it).
+When a file isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it).
 
 Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response for a cancelled format
 
@@ -239,7 +240,7 @@ Message body:
 interface ConfigInfoData {
   /** A file the configuration file is used for, which may be the configuration file itself. */
   filePath: string;
-  useGlobalConfig?: boolean;
+  allowGlobalConfig?: boolean;
 }
 ```
 
@@ -291,8 +292,8 @@ Message body:
 interface EditorSettings {
   /** The workspace folders open in the editor. */
   workspaceFolders?: string[];
-  /** Whether to format the files that don't have a configuration file in an ancestor directory with the global configuration file. Defaults to `false`. */
-  useGlobalConfig?: boolean;
+  /** Whether to allow formatting the files that don't have a configuration file in an ancestor directory with the global configuration file. Defaults to `false`. */
+  allowGlobalConfig?: boolean;
   /** Whether to notify the user when a file isn't formatted because it doesn't have a configuration file. Defaults to `true`. */
   showNoConfigNotification?: boolean;
 }
