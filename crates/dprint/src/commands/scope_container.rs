@@ -30,7 +30,11 @@ struct CachedScope<TEnvironment: Environment> {
   plugins_generation: usize,
 }
 
-pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
+/// Resolves and caches the plugins of each config file for the editors, which
+/// format the files of a whole workspace and so find the config file of each
+/// file (the language server and the editor service starting with schema
+/// version 6).
+pub struct PluginsScopeContainer<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
@@ -41,7 +45,7 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   plugins_generation: Cell<usize>,
 }
 
-impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
+impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   pub fn new(
     environment: TEnvironment,
     plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,

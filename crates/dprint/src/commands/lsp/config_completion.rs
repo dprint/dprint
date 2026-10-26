@@ -15,11 +15,11 @@ use text_size::TextSize;
 use tokio::sync::Notify;
 use url::Url;
 
+use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 
-use super::config::LspPluginsScopeContainer;
 use super::text::LineIndex;
 
 /// The dprint configuration file JSON schema, embedded at compile time so that
@@ -50,7 +50,7 @@ const SCHEMA_RETRY_INTERVAL: Duration = Duration::from_secs(60);
 /// on text + a composite schema, which keeps it easy to test without a running
 /// environment.
 pub struct ConfigCompletions<TEnvironment: Environment> {
-  scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>,
+  scope_container: Rc<PluginsScopeContainer<TEnvironment>>,
   base_schema: Rc<Value>,
   plugin_schemas: PluginSchemas<TEnvironment>,
 }
@@ -143,7 +143,7 @@ pub fn get_config_file_capabilities(capabilities: &lsp::ClientCapabilities) -> C
 }
 
 impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
-  pub fn new(environment: TEnvironment, scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>) -> Self {
+  pub fn new(environment: TEnvironment, scope_container: Rc<PluginsScopeContainer<TEnvironment>>) -> Self {
     let base_schema = serde_json::from_str(DPRINT_CONFIG_SCHEMA).expect("dprint config schema should be valid json");
     Self {
       scope_container,

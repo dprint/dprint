@@ -5,6 +5,7 @@ mod general;
 #[cfg(test)]
 mod init_spec_tests;
 mod lsp;
+mod scope_container;
 mod upgrade;
 #[cfg(target_os = "windows")]
 mod windows_install;

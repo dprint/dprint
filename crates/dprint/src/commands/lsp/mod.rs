@@ -70,6 +70,7 @@ use url::Url;
 
 use crate::arg_parser::CliArgs;
 use crate::cache::RemoteCacheMode;
+use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -77,7 +78,6 @@ use crate::plugins::PluginResolver;
 use crate::resolution::PluginConfigDiagnosticsError;
 
 use self::client::ClientWrapper;
-use self::config::LspPluginsScopeContainer;
 use self::config_completion::ConfigCompletions;
 use self::config_completion::get_config_file_capabilities;
 use self::config_completion::is_config_uri;
@@ -102,7 +102,6 @@ use self::untitled::get_untitled_registrations;
 use self::untitled::is_untitled_uri;
 
 mod client;
-mod config;
 mod config_completion;
 mod documents;
 mod language;
@@ -293,7 +292,7 @@ enum ChannelMessage {
 
 async fn handle_format_request<TEnvironment: Environment>(
   mut request: EditorFormatRequest,
-  scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>,
+  scope_container: Rc<PluginsScopeContainer<TEnvironment>>,
   ensure_stable_format: EnsureStableFormat,
   environment: &TEnvironment,
 ) -> Result<FormatOutcome> {
@@ -433,7 +432,7 @@ fn start_message_handler<TEnvironment: Environment>(
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
   let ensure_stable_format = EnsureStableFormat::for_editor(environment);
   let environment = environment.clone();
-  let scope_container = Rc::new(LspPluginsScopeContainer::new(
+  let scope_container = Rc::new(PluginsScopeContainer::new(
     environment.clone(),
     plugin_resolver.clone(),
     config_override,
