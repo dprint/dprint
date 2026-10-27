@@ -870,10 +870,14 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     dprint_core::async_runtime::spawn(async move {
       let action = service.show_message_request(MessageKind::Warning, message, &PROCESS_PLUGIN_ACTION_TITLES).await;
       let title = action.as_ref().map(|action| action.title.as_str());
-      if let Err(err) = store_process_plugin_action(&service.environment, &service.session_permissions, approval, title).await {
+      if let Err(err) = store_process_plugin_action(&service.environment, &service.session_permissions, approval.clone(), title).await {
         let message = format!("Failed storing the decision for the process plugins: {:#}", err);
         log_warn!(service.environment, "{}", message);
         service.show_message(MessageKind::Warning, message);
+      }
+      // the editor can't see that the config file formats files now
+      if service.session_permissions.read(&service.environment).is_process_plugin_allowed(&approval) {
+        service.send_config_changed(&approval.config_file);
       }
     });
   }
@@ -1135,9 +1139,22 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     if previous.is_some_and(|previous| previous != state)
       && let Some(uri) = path_source_to_uri(&config_file.source)
     {
-      let data = serde_json::to_vec(&ConfigChangedMessage { uri }).expect("message should serialize");
-      send_response_body(&self.context, EditorMessageBody::ConfigChanged(data));
+      self.send_config_changed_uri(uri);
     }
+  }
+
+  /// Tells the editor that what the config file formats may have changed.
+  fn send_config_changed(&self, config_file: &str) {
+    // the config file is a path, or a url for a remote config file
+    let uri = file_path_to_uri(Path::new(config_file)).or_else(|| config_file.parse().ok());
+    if let Some(uri) = uri {
+      self.send_config_changed_uri(uri);
+    }
+  }
+
+  fn send_config_changed_uri(&self, uri: Uri) {
+    let data = serde_json::to_vec(&ConfigChangedMessage { uri }).expect("message should serialize");
+    send_response_body(&self.context, EditorMessageBody::ConfigChanged(data));
   }
 
   /// Shows the user the error resolving the config file, which is only done
@@ -2422,6 +2439,8 @@ mod test {
             not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
           );
           assert!(client.take_message_requests().is_empty());
+          // the plugins aren't set up until they're allowed
+          assert!(client.take_progress().is_empty());
 
           // asks again once the configuration changes, then uses the process plugin once allowed
           environment
@@ -2446,6 +2465,29 @@ mod test {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
           }
           assert_eq!(outcome, Some(formatted("text_allowed")));
+          let titles = client
+            .take_progress()
+            .into_iter()
+            .filter_map(|progress| match progress {
+              ProgressMessage::Begin { title, .. } => Some(title),
+              _ => None,
+            })
+            .collect::<Vec<_>>();
+          assert_eq!(
+            titles,
+            vec![
+              "Compiling https://plugins.dprint.dev/test-plugin.wasm",
+              "Extracting zip for test-process-plugin"
+            ]
+          );
+          // the editor is told that the config file changed and that it formats files once allowed
+          assert_eq!(
+            client.take_config_changes(),
+            vec![
+              ConfigChangedMessage { uri: uri("/a/dprint.json") },
+              ConfigChangedMessage { uri: uri("/a/dprint.json") }
+            ]
+          );
         }
         .boxed_local()
       }

@@ -716,7 +716,7 @@ Response: None
 
 #### `21` - Configuration changed (Service to Client)
 
-What a configuration file formats may have changed in a way the editor can't see (ex. a configuration file that it extends changed, or its plugins were installed). Send the file info, configuration info, and configuration schema messages again for the documents that use it (ex. to update which documents the editor formats with dprint and the schema of its plugins).
+What a configuration file formats may have changed in a way the editor can't see (ex. a configuration file that it extends changed, its plugins were installed, or the user allowed its process plugins). Send the file info, configuration info, and configuration schema messages again for the documents that use it (ex. to update which documents the editor formats with dprint and the schema of its plugins).
 
 Message body:
 
