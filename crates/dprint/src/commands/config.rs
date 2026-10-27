@@ -45,6 +45,7 @@ use crate::plugins::resolve_npm_latest_version;
 use crate::resolution::GetPluginResult;
 use crate::resolution::ResolvePluginsError;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
+use crate::resolution::get_process_plugins_to_approve;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::CachedDownloader;
@@ -331,6 +332,35 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
     bail!("Editor exited with code: {}", exit_code);
   }
 
+  Ok(())
+}
+
+/// Allows the process plugins of the config file to run in editors until its
+/// configuration changes, which is for editors that can't ask whether to.
+pub async fn allow_process_plugins(args: &CliArgs, environment: &impl Environment) -> Result<()> {
+  let config = resolve_config_from_args(args, environment).await?;
+  let Some(process_plugins) = get_process_plugins_to_approve(&config) else {
+    if config.is_global {
+      log_stderr_info!(environment, "The process plugins of the global configuration file are always allowed.");
+    } else {
+      log_stderr_info!(environment, "{} has no process plugins.", config.source.display());
+    }
+    return Ok(());
+  };
+  store_process_plugin_decision(
+    environment,
+    ProcessPluginDecision {
+      approval: process_plugins.approval.clone(),
+      allowed: true,
+    },
+  )
+  .await?;
+  log_stderr_info!(
+    environment,
+    "Allowed the process plugins of {} ({}) to run in editors until its configuration changes.",
+    process_plugins.approval.config_file,
+    process_plugins.plugins.join(", "),
+  );
   Ok(())
 }
 
@@ -4408,6 +4438,21 @@ text",
     let commands = environment.take_run_commands();
     let (args, _) = &commands[0];
     assert_eq!(args[args.len() - 1], "/custom.config.json");
+  }
+
+  #[test]
+  fn config_allow_process_plugins_should_do_nothing_without_process_plugins() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .build();
+
+    run_test_cli(vec!["config", "allow-process-plugins"], &environment).unwrap();
+
+    assert_eq!(environment.take_stderr_messages(), vec!["/dprint.json has no process plugins."]);
+    assert!(!environment.path_exists(get_editor_state_file_path(&environment)));
   }
 
   fn test_plugin_resolver(environment: &TestEnvironment) -> std::rc::Rc<crate::plugins::PluginResolver<TestEnvironment>> {

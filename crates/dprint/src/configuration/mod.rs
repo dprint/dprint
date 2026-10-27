@@ -1,4 +1,5 @@
 mod deserialize_config;
+mod editor_state;
 mod get_global_config;
 mod get_init_config_file_text;
 mod get_plugin_config_map;
@@ -8,9 +9,11 @@ mod manipulation;
 mod resolve_config;
 mod resolve_main_config_path;
 mod resolve_npm_extends;
+mod settings;
 mod types;
 
 pub use deserialize_config::*;
+pub use editor_state::*;
 pub use get_global_config::*;
 pub use get_init_config_file_text::*;
 pub use get_plugin_config_map::*;
@@ -31,4 +34,5 @@ pub use resolve_main_config_path::resolve_global_config_path_and_text;
 pub use resolve_main_config_path::resolve_global_config_path_and_text_at_path_root;
 pub use resolve_main_config_path::resolve_local_config_file_dirs;
 pub use resolve_main_config_path::resolve_main_config_path_and_bytes;
+pub use settings::*;
 pub use types::*;

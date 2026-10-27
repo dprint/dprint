@@ -84,13 +84,19 @@ use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
 use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE;
 use crate::commands::scope_container::PluginsScopeContainer;
+use crate::configuration::ProcessPluginApproval;
+use crate::configuration::ProcessPluginDecision;
+use crate::configuration::read_permissions;
 use crate::configuration::resolve_global_config_path_and_text;
+use crate::configuration::store_process_plugin_decision;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginConfigDiagnostic;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginConfigDiagnosticsError;
 use crate::resolution::RangeFormattingSupport;
+use crate::resolution::UnapprovedProcessPlugins;
+use crate::resolution::get_cant_ask_message;
 use crate::utils::CANCEL_DOWNLOAD_ACTION_TITLE;
 use crate::utils::DOWNLOAD_ACTION_TITLE;
 use crate::utils::DownloadPolicy;
@@ -298,8 +304,15 @@ struct ConfigEditorRequest {
   pub use_global_config: bool,
 }
 
+/// The result of a format request along with the process plugins of the config
+/// file that weren't approved to run, which the user is asked about.
+struct FormatResponse {
+  outcome: Result<FormatOutcome>,
+  unapproved_process_plugins: Option<UnapprovedProcessPlugins>,
+}
+
 enum ChannelMessage {
-  Format(EditorFormatRequest, oneshot::Sender<Result<FormatOutcome>>),
+  Format(EditorFormatRequest, oneshot::Sender<FormatResponse>),
   /// Downloads and sets up what the config file for the file path needs.
   InstallPlugins(InstallPluginsRequest, oneshot::Sender<Result<()>>),
   Completion(ConfigEditorRequest, oneshot::Sender<Option<CompletionList>>),
@@ -310,11 +323,14 @@ enum ChannelMessage {
   HasPending(oneshot::Sender<bool>),
 }
 
+/// Formats the file, providing the process plugins of its config file that
+/// weren't approved to run in `unapproved_process_plugins`.
 async fn handle_format_request<TEnvironment: Environment>(
   mut request: EditorFormatRequest,
   scope_container: Rc<PluginsScopeContainer<TEnvironment>>,
   ensure_stable_format: EnsureStableFormat,
   environment: &TEnvironment,
+  unapproved_process_plugins: &mut Option<UnapprovedProcessPlugins>,
 ) -> Result<FormatOutcome> {
   let Some(parent_dir) = request.file_path.parent() else {
     // the backend doesn't send this, so it's an error that also goes to the client
@@ -339,6 +355,7 @@ async fn handle_format_request<TEnvironment: Environment>(
       scope.uninstalled_plugins.iter().map(|plugin| plugin.to_full_string()).collect(),
     ));
   }
+  unapproved_process_plugins.clone_from(&scope.unapproved_process_plugins);
   if request.token.is_cancelled() {
     return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Cancelled));
   }
@@ -433,13 +450,21 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let (tx, rx) = mpsc::unbounded_channel();
 
   let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
-  let recv_task = start_message_handler(environment, plugin_resolver, config_path, args.remote_cache_mode(), rx);
+  let session_process_plugin_decisions = Arc::new(Mutex::new(Vec::new()));
+  let recv_task = start_message_handler(
+    environment,
+    plugin_resolver,
+    config_path,
+    args.remote_cache_mode(),
+    session_process_plugin_decisions.clone(),
+    rx,
+  );
 
   let environment = environment.clone();
   let lsp_task = dprint_core::async_runtime::spawn(async move {
     let (service, socket, pending) = LspService::new(|client| {
       let client = ClientWrapper::new(Arc::new(client));
-      Backend::new(client.clone(), environment.clone(), tx)
+      Backend::new(client.clone(), environment.clone(), tx, session_process_plugin_decisions)
     });
     Server::new(stdin, stdout, socket, pending).serve(service).await;
   });
@@ -465,6 +490,7 @@ fn start_message_handler<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   config_override: Option<PathBuf>,
   remote_cache_mode: RemoteCacheMode,
+  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
 ) -> JoinHandle<bool> {
   // tower_lsp required Backend to implement Send and Sync, but
@@ -481,6 +507,7 @@ fn start_message_handler<TEnvironment: Environment>(
     config_override,
     remote_cache_mode,
     DownloadPolicy::for_editor(&environment),
+    session_process_plugin_decisions,
   ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
@@ -494,8 +521,12 @@ fn start_message_handler<TEnvironment: Environment>(
           let environment = environment.clone();
           dprint_core::async_runtime::spawn(async move {
             let _permit = concurrency_limiter.acquire().await;
-            let result = handle_format_request(request, scope_container, ensure_stable_format, &environment).await;
-            let _ = sender.send(result);
+            let mut unapproved_process_plugins = None;
+            let outcome = handle_format_request(request, scope_container, ensure_stable_format, &environment, &mut unapproved_process_plugins).await;
+            let _ = sender.send(FormatResponse {
+              outcome,
+              unapproved_process_plugins,
+            });
             drop(token_guard); // remove the token from the pending tokens
           });
         }
@@ -572,6 +603,8 @@ struct State<TEnvironment: Environment> {
   /// What the user was asked this session to download from domains that
   /// aren't trusted.
   asked_downloads: HashSet<Vec<String>>,
+  /// The process plugins the user was asked this session to allow running.
+  prompted_process_plugins: HashSet<ProcessPluginApproval>,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -579,13 +612,22 @@ struct Backend<TEnvironment: Environment> {
   environment: TEnvironment,
   sender: mpsc::UnboundedSender<ChannelMessage>,
   state: Mutex<State<TEnvironment>>,
+  /// What the user decided about running process plugins for this session,
+  /// which is shared with the message handler.
+  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
 }
 
 impl<TEnvironment: Environment> Backend<TEnvironment> {
-  pub fn new(client: ClientWrapper, environment: TEnvironment, sender: mpsc::UnboundedSender<ChannelMessage>) -> Self {
+  pub fn new(
+    client: ClientWrapper,
+    environment: TEnvironment,
+    sender: mpsc::UnboundedSender<ChannelMessage>,
+    session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
+  ) -> Self {
     Backend {
       client,
       sender,
+      session_process_plugin_decisions,
       state: Mutex::new(State {
         settings: LspSettings::from_environment(&environment),
         documents: Documents::new(environment.clone()),
@@ -595,6 +637,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         supports_document_changes: false,
         has_notified_no_config: false,
         asked_downloads: HashSet::new(),
+        prompted_process_plugins: HashSet::new(),
       }),
       environment,
     }
@@ -895,7 +938,61 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   async fn send_format_request_inner(&self, request: EditorFormatRequest) -> Result<FormatOutcome> {
     let (sender, receiver) = oneshot::channel();
     self.sender.send(ChannelMessage::Format(request, sender))?;
-    receiver.await?
+    let response = receiver.await?;
+    if let Some(unapproved) = response.unapproved_process_plugins {
+      self.ask_to_allow_process_plugins(unapproved);
+    }
+    response.outcome
+  }
+
+  /// Asks the user whether to allow running the process plugins of a config
+  /// file, which is only done once per session for each configuration and not
+  /// when the user denied them.
+  fn ask_to_allow_process_plugins(&self, unapproved: UnapprovedProcessPlugins) {
+    let supports_message_actions = {
+      let mut state = self.state.lock();
+      if !state.prompted_process_plugins.insert(unapproved.approval.clone()) {
+        return;
+      }
+      state.supports_message_actions
+    };
+    let permissions = read_permissions(&self.environment, &self.session_process_plugin_decisions.lock());
+    if permissions.is_process_plugin_denied(&unapproved.approval) {
+      return;
+    }
+    let message = unapproved.message(&permissions);
+    if !supports_message_actions {
+      self.client.show_message(
+        MessageType::WARNING,
+        format!("{} {}", message, get_cant_ask_message(&self.environment, &unapproved.approval)),
+      );
+      return;
+    }
+    let actions = [ALLOW_ACTION_TITLE, ALWAYS_ALLOW_ACTION_TITLE, DENY_ACTION_TITLE, ALWAYS_DENY_ACTION_TITLE]
+      .into_iter()
+      .map(new_message_action)
+      .collect();
+    let selection = self.client.show_message_request(MessageType::WARNING, message, actions);
+    let client = self.client.clone();
+    let environment = self.environment.clone();
+    let session_decisions = self.session_process_plugin_decisions.clone();
+    // don't wait on this because it only resolves once the user responds
+    dprint_core::async_runtime::spawn(async move {
+      let selection = selection.await;
+      let title = selection.as_ref().map(|selection| selection.title.as_str());
+      let decision = ProcessPluginDecision {
+        approval: unapproved.approval,
+        allowed: matches!(title, Some(ALLOW_ACTION_TITLE | ALWAYS_ALLOW_ACTION_TITLE)),
+      };
+      if !matches!(title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE)) {
+        // not choosing counts as denying for the session
+        session_decisions.lock().push(decision);
+      } else if let Err(err) = store_process_plugin_decision(&environment, decision).await {
+        let message = format!("Failed storing the decision for the process plugins: {:#}", err);
+        log_warn!(environment, "{}", message);
+        client.log_warn(message);
+      }
+    });
   }
 
   /// This is used in the test code to ensure there are no pending requests.
@@ -1226,6 +1323,11 @@ fn supports_document_changes(capabilities: &ClientCapabilities) -> bool {
     .unwrap_or(false)
 }
 
+const ALLOW_ACTION_TITLE: &str = "Allow";
+const ALWAYS_ALLOW_ACTION_TITLE: &str = "Always Allow";
+const DENY_ACTION_TITLE: &str = "Deny";
+const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
+
 fn new_message_action(title: &str) -> MessageActionItem {
   MessageActionItem {
     title: title.to_string(),
@@ -1282,6 +1384,8 @@ mod test {
 
   use super::client::ClientTrait;
   use super::*;
+  use crate::configuration::get_editor_state_file_path;
+  use crate::configuration::get_settings_file_path;
 
   macro_rules! did_open {
     ($backend:expr, $uri:expr, $text:expr) => {
@@ -2931,6 +3035,169 @@ mod test {
   }
 
   #[test]
+  fn should_ask_to_allow_process_plugins_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_process_plugin();
+      })
+      .build(); // not initialized, so the process plugin is only set up when it's allowed
+    disallow_process_plugins(&environment);
+    environment.write_file("/file.txt_ps", "text").unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      // each backend is a session and returns the messages it showed along
+      // with whether the process plugin was set up, which runs it
+      async fn run_session(
+        environment: &TestEnvironment,
+        capabilities: ClientCapabilities,
+        selection: Option<&str>,
+        expected_formats: [bool; 2],
+      ) -> (Vec<(MessageType, String, Vec<String>)>, bool) {
+        let (backend, recv_task, test_client) = setup_backend(environment.clone());
+        if let Some(selection) = selection {
+          test_client.set_message_action_selection(selection);
+        }
+        let run_test_task = dprint_core::async_runtime::spawn(async move {
+          initialize_backend(
+            &backend,
+            InitializeParams {
+              capabilities,
+              ..Default::default()
+            },
+          )
+          .await;
+          let file_uri = Uri::from_str("file:///file.txt_ps").unwrap();
+          did_open!(backend, file_uri, "text");
+          for formats in expected_formats {
+            let expected = formats.then(|| {
+              vec![TextEdit {
+                range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+                new_text: "_formatted_process".to_string(),
+              }]
+            });
+            assert_format!(backend, file_uri, expected);
+            // let the task that stores the user's selection run
+            tokio::task::yield_now().await;
+          }
+          backend.shutdown().await.unwrap();
+        });
+        try_join!(recv_task, run_test_task).unwrap();
+        test_client.take_messages();
+        let was_set_up = environment
+          .take_stderr_messages()
+          .iter()
+          .any(|message| message == "Extracting zip for test-process-plugin");
+        (test_client.take_shown_messages(), was_set_up)
+      }
+
+      fn assert_asked(shown: Vec<(MessageType, String, Vec<String>)>, reason: &str) {
+        assert_eq!(shown.len(), 1, "{shown:?}");
+        let (message_type, message, actions) = &shown[0];
+        assert_eq!(*message_type, MessageType::WARNING);
+        assert!(
+          message.starts_with("dprint didn't use the process plugins of /dprint.json (https://plugins.dprint.dev/test-process.json@"),
+          "{message}"
+        );
+        assert!(message.contains(reason), "{message}");
+        assert_eq!(*actions, vec!["Allow", "Always Allow", "Deny", "Always Deny"]);
+      }
+
+      // a client that can't ask is told how to allow them
+      let (shown, was_set_up) = run_session(&environment, Default::default(), None, [false, false]).await;
+      assert!(!was_set_up);
+      assert_eq!(shown.len(), 1, "{shown:?}");
+      assert!(shown[0].1.contains("or when \"editor.allowProcessPlugins\" isn't false in"), "{shown:?}");
+      assert_eq!(shown[0].2, Vec::<String>::new());
+
+      // denying only asks once per session
+      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny"), [false, false]).await;
+      assert!(!was_set_up);
+      assert_asked(shown, "because they weren't allowed to run.");
+
+      // allowing uses it for the session
+      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Allow"), [false, true]).await;
+      assert!(was_set_up);
+      assert_asked(shown, "because they weren't allowed to run.");
+
+      // always denying doesn't ask in the next session
+      let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Deny"), [false, false]).await;
+      assert_asked(shown, "because they weren't allowed to run.");
+      assert_eq!(
+        run_session(&environment, message_actions_capabilities(), None, [false, false]).await,
+        (Vec::new(), false)
+      );
+
+      // always allowing replaces the decision and uses it in the next session
+      environment.remove_file(get_editor_state_file_path(&environment)).unwrap();
+      let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Allow"), [false, true]).await;
+      assert_asked(shown, "because they weren't allowed to run.");
+      assert_eq!(
+        run_session(&environment, message_actions_capabilities(), None, [true, true]).await,
+        (Vec::new(), false)
+      );
+
+      // asks again when its configuration changes
+      environment
+        .write_file(
+          "/dprint.json",
+          &environment
+            .read_file("/dprint.json")
+            .unwrap()
+            .replacen('{', r#"{ "testProcessPlugin": { "ending": "changed" }, "#, 1),
+        )
+        .unwrap();
+      let (shown, _) = run_session(&environment, message_actions_capabilities(), None, [false, false]).await;
+      assert_asked(shown, "because its configuration changed since they were allowed.");
+    });
+  }
+
+  #[test]
+  fn should_use_process_plugins_of_global_config_without_asking_with_lsp() {
+    // the global config file is the user's own
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_global_config(|c| {
+        c.add_remote_process_plugin();
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let test_client = test_client.clone();
+        async move {
+          initialize_backend(
+            &backend,
+            InitializeParams {
+              capabilities: message_actions_capabilities(),
+              initialization_options: Some(serde_json::json!({ "useGlobalConfig": true })),
+              ..Default::default()
+            },
+          )
+          .await;
+          let file_uri = Uri::from_str("file:///file.txt_ps").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert_format!(
+            backend,
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_formatted_process".to_string()
+            }])
+          );
+          assert_eq!(test_client.take_shown_messages(), Vec::new());
+          backend.shutdown().await.unwrap();
+        }
+      });
+      try_join!(recv_task, run_test_task).unwrap();
+      test_client.take_messages();
+      environment.take_stderr_messages();
+    });
+  }
+
+  #[test]
   fn should_not_notify_when_no_config_file_with_lsp_after_dismissed() {
     let environment = TestEnvironmentBuilder::new().build();
 
@@ -4133,6 +4400,19 @@ mod test {
       .await
   }
 
+  fn ensure_global_config_dir(environment: &TestEnvironment) {
+    // macOS only uses this directory when it's already there
+    let file_path = get_settings_file_path(environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+  }
+
+  /// Requires the user to approve running process plugins.
+  fn disallow_process_plugins(environment: &TestEnvironment) {
+    ensure_global_config_dir(environment);
+    let file_path = get_settings_file_path(environment).unwrap();
+    environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": false } }"#).unwrap();
+  }
+
   /// The capabilities of a client that shows the actions of a message.
   fn message_actions_capabilities() -> ClientCapabilities {
     ClientCapabilities {
@@ -4156,9 +4436,21 @@ mod test {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, Default::default()));
     let (tx, rx) = mpsc::unbounded_channel();
-    let recv_task = start_message_handler(&environment, &plugin_resolver, config_override, RemoteCacheMode::Use, rx);
+    let session_process_plugin_decisions = Arc::new(Mutex::new(Vec::new()));
+    let recv_task = start_message_handler(
+      &environment,
+      &plugin_resolver,
+      config_override,
+      RemoteCacheMode::Use,
+      session_process_plugin_decisions.clone(),
+      rx,
+    );
     let test_client = Arc::new(TestClient::default());
-    (Backend::new(ClientWrapper::new(test_client.clone()), environment, tx), recv_task, test_client)
+    (
+      Backend::new(ClientWrapper::new(test_client.clone()), environment, tx, session_process_plugin_decisions),
+      recv_task,
+      test_client,
+    )
   }
 
   #[derive(Debug, Default)]

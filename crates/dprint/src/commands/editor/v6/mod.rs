@@ -263,6 +263,7 @@ pub async fn run_editor_service<TEnvironment: Environment>(
       config_path,
       args.remote_cache_mode(),
       DownloadPolicy::for_editor(environment),
+      Default::default(),
     ),
     concurrency_limiter: Rc::new(new_format_concurrency_limiter(environment)),
     ensure_stable_format: EnsureStableFormat::for_editor(environment),

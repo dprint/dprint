@@ -3096,7 +3096,7 @@ mod test {
     });
   }
 
-  const PREFERENCES_PATH: &str = "/config/dprint/init.json";
+  const PREFERENCES_PATH: &str = "/config/dprint/settings.json";
 
   /// Loads the same options for every plugin, counting how often it's asked.
   struct TestOptionsLoader {
@@ -3366,7 +3366,10 @@ mod test {
           }
         );
         let last_message = environment.take_stdout_messages().pop().unwrap();
-        assert_eq!(last_message.replace('\\', "/"), "\nSaved the plugin preferences to /config/dprint/init.json");
+        assert_eq!(
+          last_message.replace('\\', "/"),
+          "\nSaved the plugin preferences to /config/dprint/settings.json"
+        );
 
         // the next time `b` is selected instead of `a`, and `c` has no files
         // here but keeps its place ahead of the plugins that aren't preferred

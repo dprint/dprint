@@ -4,14 +4,19 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
+use parking_lot::Mutex;
 
 use crate::cache::RemoteCacheMode;
+use crate::configuration::Permissions;
+use crate::configuration::ProcessPluginDecision;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
+use crate::configuration::read_permissions;
 use crate::configuration::resolve_config_from_path_with_ancestors_and_policy;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::configuration::resolve_local_config_file_dirs;
@@ -20,7 +25,7 @@ use crate::plugins;
 use crate::plugins::PluginSourceReference;
 use crate::resolution::PluginsScope;
 use crate::resolution::ResolvePluginsScopeOptions;
-use crate::resolution::resolve_plugins_scope_with_options;
+use crate::resolution::resolve_plugins_scope_with_approval;
 use crate::utils::AsyncMutex;
 use crate::utils::DownloadPolicy;
 use crate::utils::PathSource;
@@ -31,6 +36,9 @@ struct CachedScope<TEnvironment: Environment> {
   scope: Rc<PluginsScope<TEnvironment>>,
   /// The generation of the plugins the scope was resolved with.
   plugins_generation: usize,
+  /// What the user allowed when the scope was resolved, which decides the
+  /// process plugins that are in it.
+  permissions: Permissions,
 }
 
 /// Resolves and caches the plugins of each config file for the editors, which
@@ -49,6 +57,8 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
   plugins_generation: Cell<usize>,
+  /// What the user decided about running process plugins for this session.
+  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
 }
 
 impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
@@ -58,6 +68,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     config_override: Option<PathBuf>,
     remote_cache_mode: RemoteCacheMode,
     download_policy: DownloadPolicy,
+    session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
   ) -> Self {
     Self {
       environment,
@@ -67,6 +78,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       remote_cache_mode,
       download_policy,
       plugins_generation: Default::default(),
+      session_process_plugin_decisions,
     }
   }
 
@@ -117,12 +129,14 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     // only allow one task in here per config
     let mut cell = cell.lock().await;
     let config = self.resolve_config(config_file).await?;
+    // read each time so approving a process plugin or editing the file takes effect
+    let permissions = read_permissions(&self.environment, &self.session_process_plugin_decisions.lock());
 
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
       // a plugin may have been installed since
       let is_installed = cached_scope.scope.uninstalled_plugins.is_empty();
-      if is_same_config && is_installed && cached_scope.plugins_generation == self.plugins_generation.get() {
+      if is_same_config && is_installed && cached_scope.plugins_generation == self.plugins_generation.get() && cached_scope.permissions == permissions {
         return Ok(cached_scope.scope.clone());
       }
       // forget the scope so that failing to resolve the new one
@@ -142,10 +156,20 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     let options = ResolvePluginsScopeOptions {
       download_policy: self.download_policy.clone(),
     };
-    let new_scope = Rc::new(resolve_plugins_scope_with_options(Rc::new(config), &self.environment, &self.plugin_resolver, options).await?);
+    // IMPORTANT: Process plugins don't run sandboxed, so the language server only
+    // starts the ones the user approved running with their configuration. The
+    // user opening a file (ex. in a cloned repository or in node_modules) isn't
+    // the same as choosing to run dprint there.
+    let new_scope = Rc::new(
+      resolve_plugins_scope_with_approval(Rc::new(config), &self.environment, &self.plugin_resolver, options, |approval| {
+        permissions.is_process_plugin_allowed(approval)
+      })
+      .await?,
+    );
     let _ = cell.insert(CachedScope {
       scope: new_scope.clone(),
       plugins_generation,
+      permissions,
     });
     Ok(new_scope)
   }

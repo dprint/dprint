@@ -31,8 +31,11 @@ use thiserror::Error;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::FilePatternArgs;
+use crate::configuration::ConfigMap;
 use crate::configuration::ConfigMapValue;
 use crate::configuration::GlobalConfigDiagnostic;
+use crate::configuration::Permissions;
+use crate::configuration::ProcessPluginApproval;
 use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
@@ -40,6 +43,7 @@ use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
+use crate::configuration::get_settings_file_path;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
@@ -73,7 +77,9 @@ use crate::utils::FastInsecureHasher;
 use crate::utils::GlobOutput;
 use crate::utils::OutsideBasePath;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
 use crate::utils::escape_glob_text_for_cli;
+use crate::utils::get_sha256_checksum;
 use crate::utils::is_negated_glob;
 
 pub enum GetPluginResult {
@@ -387,6 +393,9 @@ pub struct PluginsScope<TEnvironment: Environment> {
   /// doesn't allow without asking the user (ex. a domain that isn't trusted),
   /// which has the scope not have any plugins.
   pub uninstalled_plugins: Vec<PluginSourceReference>,
+  /// The process plugins that were left out of the scope because the user
+  /// didn't approve running them.
+  pub unapproved_process_plugins: Option<UnapprovedProcessPlugins>,
   global_config_diagnostics: Vec<GlobalConfigDiagnostic>,
   cached_editor_file_matcher: RefCell<Option<FileMatcher<TEnvironment>>>,
 }
@@ -406,6 +415,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       plugin_name_maps,
       plugins: plugins.into_iter().map(|p| (p.name().to_string(), p)).collect(),
       uninstalled_plugins: Vec::new(),
+      unapproved_process_plugins: None,
       global_config_diagnostics,
       cached_editor_file_matcher: Default::default(),
     })
@@ -1157,8 +1167,30 @@ pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
+  get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, |_| true).await
+}
+
+/// Gets the plugins scope like `get_plugins_scope_from_args`, but only with the
+/// process plugins that are approved (see `resolve_plugins_scope_with_approval`).
+pub async fn get_plugins_scope_from_args_with_approval<TEnvironment: Environment>(
+  args: &CliArgs,
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  is_process_plugin_approved: impl Fn(&ProcessPluginApproval) -> bool,
+) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
   match resolve_config_from_args(args, environment).await {
-    Ok(config) => resolve_plugins_scope(Rc::new(config), environment, plugin_resolver).await,
+    Ok(config) => {
+      resolve_plugins_scope_with_approval(
+        Rc::new(config),
+        environment,
+        plugin_resolver,
+        ResolvePluginsScopeOptions {
+          download_policy: DownloadPolicy::All,
+        },
+        is_process_plugin_approved,
+      )
+      .await
+    }
     // ignore
     Err(_) => Ok(PluginsScope {
       environment: environment.clone(),
@@ -1166,6 +1198,7 @@ pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(
       plugin_name_maps: Default::default(),
       plugins: Default::default(),
       uninstalled_plugins: Default::default(),
+      unapproved_process_plugins: Default::default(),
       global_config_diagnostics: Default::default(),
       cached_editor_file_matcher: Default::default(),
     }),
@@ -1208,13 +1241,71 @@ pub async fn resolve_plugins_scope_with_options<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   options: ResolvePluginsScopeOptions,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
+  resolve_plugins_scope_with_approval(config, environment, plugin_resolver, options, |_| true).await
+}
+
+/// The process plugins of a config file that were left out of its scope
+/// because the user didn't approve running them.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UnapprovedProcessPlugins {
+  pub approval: ProcessPluginApproval,
+  /// The urls or paths of the process plugins with their checksums.
+  pub plugins: Vec<String>,
+}
+
+impl UnapprovedProcessPlugins {
+  /// Gets the message that says the process plugins weren't used.
+  pub fn message(&self, permissions: &Permissions) -> String {
+    let reason = if permissions.was_allowed_with_other_config(&self.approval) {
+      "its configuration changed since they were allowed"
+    } else {
+      "they weren't allowed to run"
+    };
+    format!(
+      concat!(
+        "dprint didn't use the process plugins of {} ({}) because {}. ",
+        "Process plugins aren't sandboxed, so only allow them when you trust this configuration file."
+      ),
+      self.approval.config_file,
+      self.plugins.join(", "),
+      reason,
+    )
+  }
+}
+
+/// Resolves the plugins of the config like `resolve_plugins_scope_with_options`, but leaves
+/// the process plugins out of the scope when running them isn't approved for
+/// the config file with its configuration, so they're never set up or started.
+/// The process plugins of the global config file are always approved because
+/// it's the user's own.
+pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
+  config: Rc<ResolvedConfig>,
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  options: ResolvePluginsScopeOptions,
+  is_process_plugin_approved: impl Fn(&ProcessPluginApproval) -> bool,
+) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
   let uninstalled_plugins = config
     .plugins
     .iter()
     .filter(|plugin| plugin_resolver.needs_disallowed_download(plugin, &options.download_policy))
     .cloned()
     .collect::<Vec<_>>();
-  let plugin_references = if uninstalled_plugins.is_empty() { config.plugins.clone() } else { Vec::new() };
+  // IMPORTANT: This needs to be checked before resolving the plugins because
+  // setting up a process plugin runs it to get its information.
+  let mut plugin_references = if uninstalled_plugins.is_empty() { config.plugins.clone() } else { Vec::new() };
+  let mut unapproved_process_plugins = None;
+  if let Some(process_plugins) = get_process_plugins_to_approve(&config)
+    && !is_process_plugin_approved(&process_plugins.approval)
+  {
+    log_debug!(
+      environment,
+      "Not using the unapproved process plugins of {}",
+      process_plugins.approval.config_file
+    );
+    plugin_references.retain(|plugin| plugin.plugin_kind() == Some(PluginKind::Wasm));
+    unapproved_process_plugins = Some(process_plugins);
+  }
 
   // resolve the plugins
   let plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(plugin_references).await?);
@@ -1248,8 +1339,10 @@ pub async fn resolve_plugins_scope_with_options<TEnvironment: Environment>(
   // a shared config may configure more plugins than the ones being used, so remove the leftover
   // plugin config that only an extended config specified so it's not reported as an unknown property
   config_map.retain(|key, _| !config.extended_only_plugin_config_keys.contains(key));
-  if !uninstalled_plugins.is_empty() {
-    // the plugins weren't resolved, so don't report their config as unknown properties
+  if !uninstalled_plugins.is_empty() || unapproved_process_plugins.is_some() {
+    // the plugins weren't resolved or the config keys of the process plugins aren't
+    // known without setting them up, so don't report the plugin config that's left
+    // as an unknown property
     config_map.retain(|_, value| !matches!(value, ConfigMapValue::PluginConfig(_)));
   }
 
@@ -1298,7 +1391,66 @@ pub async fn resolve_plugins_scope_with_options<TEnvironment: Environment>(
 
   let mut scope = PluginsScope::new(environment.clone(), plugins, config, global_config_result.diagnostics)?;
   scope.uninstalled_plugins = uninstalled_plugins;
+  scope.unapproved_process_plugins = unapproved_process_plugins;
   Ok(scope)
+}
+
+/// Gets the process plugins of the config file that an editor needs to be
+/// allowed to run, which is none for the global config file because it's the
+/// user's own.
+pub fn get_process_plugins_to_approve(config: &ResolvedConfig) -> Option<UnapprovedProcessPlugins> {
+  if config.is_global {
+    return None;
+  }
+  let plugins = config
+    .plugins
+    .iter()
+    .filter(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm))
+    .map(|plugin| plugin.to_full_string())
+    .collect::<Vec<_>>();
+  if plugins.is_empty() {
+    return None;
+  }
+  Some(UnapprovedProcessPlugins {
+    approval: get_process_plugin_approval(config),
+    plugins,
+  })
+}
+
+/// Gets the message that says how to have the process plugins of a config file
+/// run when the editor can't ask whether to allow them.
+pub fn get_cant_ask_message(environment: &impl Environment, approval: &ProcessPluginApproval) -> String {
+  let file_path = get_settings_file_path(environment).map(|path| path.display().to_string());
+  format!(
+    concat!(
+      "The editor can't ask whether to allow them, so they only run once you allow them by running ",
+      "`dprint config allow-process-plugins --config \"{}\"` or when \"editor.allowProcessPlugins\" isn't false in {}."
+    ),
+    approval.config_file,
+    file_path.as_deref().unwrap_or("settings.json in dprint's global config directory"),
+  )
+}
+
+/// Gets what the user approves when allowing the process plugins of the config
+/// file to run, which includes its plugins and configuration so that a change
+/// to either needs to be approved again.
+fn get_process_plugin_approval(config: &ResolvedConfig) -> ProcessPluginApproval {
+  #[derive(serde::Serialize)]
+  struct ApprovedConfig<'a> {
+    plugins: Vec<String>,
+    config: &'a ConfigMap,
+  }
+
+  let approved_config = ApprovedConfig {
+    plugins: config.plugins.iter().map(|plugin| plugin.to_full_string()).collect(),
+    // only the trusted config is used for process plugins
+    config: &config.trusted_config_map,
+  };
+  let config_text = serde_json::to_string(&approved_config).expect("config should serialize");
+  ProcessPluginApproval {
+    config_file: config.source.display(),
+    config_hash: get_sha256_checksum(config_text.as_bytes()),
+  }
 }
 
 /// Keeps only the highest precedence plugin for each plugin name.

@@ -1,13 +1,12 @@
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use serde::Deserialize;
-use serde::Serialize;
 
+use crate::configuration::EditorState;
+use crate::configuration::read_editor_state;
+use crate::configuration::update_editor_state;
 use crate::environment::Environment;
-use crate::utils::LaxSingleProcessFsFlag;
 
 pub const DISMISS_ACTION_TITLE: &str = "Don't show again";
 pub const DISMISS_WORKSPACE_ACTION_TITLE: &str = "Don't show in this workspace";
@@ -47,7 +46,7 @@ pub enum NoConfigNotificationDismissal {
 /// Gets if the user dismissed the notification everywhere or for one of the
 /// provided workspace folders.
 pub fn is_no_config_notification_dismissed(environment: &impl Environment, workspace_folders: &[PathBuf]) -> bool {
-  let state = read_state(environment).no_config_notification;
+  let state = read_editor_state(environment).no_config_notification;
   state.dismissed
     || workspace_folders
       .iter()
@@ -57,21 +56,10 @@ pub fn is_no_config_notification_dismissed(environment: &impl Environment, works
 /// Stores that the user dismissed the notification. A server can't update the
 /// editor's settings, so this is stored in the cache directory instead.
 pub async fn dismiss_no_config_notification<TEnvironment: Environment>(environment: &TEnvironment, dismissal: NoConfigNotificationDismissal) -> Result<()> {
-  // prevent another language server process from storing a dismissal between
-  // the read and write of the state file, which would lose one of the two
-  let lock_dir = environment.get_cache_dir().join("locks");
-  let _ignore = environment.mk_dir_all(&lock_dir);
-  let _flag = LaxSingleProcessFsFlag::lock(
-    environment,
-    lock_dir.join(".lsp-state.lock"),
-    "Waiting for file lock for the language server state...",
-  )
-  .await;
-  store_dismissal(environment, dismissal)
+  update_editor_state(environment, |state| add_dismissal(state, dismissal)).await
 }
 
-fn store_dismissal(environment: &impl Environment, dismissal: NoConfigNotificationDismissal) -> Result<()> {
-  let mut state = read_state(environment);
+fn add_dismissal(state: &mut EditorState, dismissal: NoConfigNotificationDismissal) {
   match dismissal {
     NoConfigNotificationDismissal::Everywhere => state.no_config_notification.dismissed = true,
     NoConfigNotificationDismissal::WorkspaceFolders(folders) => {
@@ -81,43 +69,6 @@ fn store_dismissal(environment: &impl Environment, dismissal: NoConfigNotificati
         .extend(folders.iter().map(|folder| folder_key(folder)));
     }
   }
-  let file_path = get_state_file_path(environment);
-  if let Some(dir_path) = file_path.parent() {
-    environment.mk_dir_all(dir_path)?;
-  }
-  environment.atomic_write_file_bytes(file_path, &serde_json::to_vec_pretty(&state)?)?;
-  Ok(())
-}
-
-#[derive(Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-struct LspState {
-  no_config_notification: NoConfigNotificationState,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-struct NoConfigNotificationState {
-  dismissed: bool,
-  /// The lowercased paths of the folders, which are in a sorted set so that
-  /// finding one doesn't go over every folder.
-  dismissed_workspace_folders: BTreeSet<String>,
-}
-
-fn read_state(environment: &impl Environment) -> LspState {
-  // start over when the file can't be read or was written by a version with another format
-  environment
-    .maybe_read_file(get_state_file_path(environment))
-    .ok()
-    .flatten()
-    .and_then(|text| serde_json::from_str(&text).ok())
-    .unwrap_or_default()
-}
-
-/// The file is in the cache directory so that the list of workspace folders
-/// that builds up in it is discarded when the cache is cleared.
-fn get_state_file_path(environment: &impl Environment) -> PathBuf {
-  environment.get_cache_dir().join("lsp-state.json")
 }
 
 /// Folders are compared case insensitively because clients differ in the
@@ -129,7 +80,13 @@ fn folder_key(folder: &Path) -> String {
 #[cfg(test)]
 mod test {
   use super::*;
+  use crate::configuration::get_editor_state_file_path;
+  use crate::configuration::update_editor_state_without_lock;
   use crate::environment::TestEnvironment;
+
+  fn store_dismissal(environment: &TestEnvironment, dismissal: NoConfigNotificationDismissal) -> Result<()> {
+    update_editor_state_without_lock(environment, |state| add_dismissal(state, dismissal))
+  }
 
   #[test]
   fn no_config_message() {
@@ -192,7 +149,7 @@ mod test {
   fn ignores_invalid_state_file() {
     let environment = TestEnvironment::new();
     environment.mk_dir_all(environment.get_cache_dir()).unwrap();
-    environment.write_file(get_state_file_path(&environment), "not json").unwrap();
+    environment.write_file(get_editor_state_file_path(&environment), "not json").unwrap();
     assert!(!is_no_config_notification_dismissed(&environment, &[]));
     store_dismissal(&environment, NoConfigNotificationDismissal::Everywhere).unwrap();
     assert!(is_no_config_notification_dismissed(&environment, &[]));

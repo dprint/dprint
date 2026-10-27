@@ -172,5 +172,5 @@ Compiling https://plugins.dprint.dev/test-plugin.wasm
   ]
 }
 
-# /config/dprint/init.json
+# /config/dprint/settings.json
 (does not exist)

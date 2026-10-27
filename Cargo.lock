@@ -1685,6 +1685,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "840785e1a8b4fdb27be18440a35a81af64820dc185c3973ff8b012d4c6282512"
 dependencies = [
  "indexmap",
+ "serde",
 ]
 
 [[package]]
