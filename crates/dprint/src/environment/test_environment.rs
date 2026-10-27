@@ -59,12 +59,18 @@ use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 use crate::utils::LogLevel;
+use crate::utils::OutputSink;
+use crate::utils::ProgressBars;
+use crate::utils::ProgressBarsCell;
 use crate::utils::PromptScreen;
 use crate::utils::PromptTerminal;
 use crate::utils::ScriptedPromptTerminal;
 use crate::utils::ShowConfirmStrategy;
 use crate::utils::TerminalSize;
 use crate::utils::get_bytes_hash;
+use crate::utils::get_sink_text;
+use crate::utils::get_stderr_text;
+use crate::utils::log_action_with_progress;
 
 #[derive(Default)]
 struct BufferData {
@@ -139,6 +145,9 @@ impl Write for TestPipeWriter {
 #[derive(Clone)]
 pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
+  /// Where to log and show progress instead of stderr.
+  output_sink: Arc<Mutex<Option<Arc<dyn OutputSink>>>>,
+  progress_bars: ProgressBarsCell,
   sys: Arc<InMemorySys>,
   staged_files: Arc<Mutex<Vec<PathBuf>>>,
   dirty_files: Arc<Mutex<Vec<PathBuf>>>,
@@ -196,6 +205,8 @@ impl TestEnvironment {
   pub fn new() -> TestEnvironment {
     let env = TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
+      output_sink: Default::default(),
+      progress_bars: Default::default(),
       sys: Default::default(),
       staged_files: Default::default(),
       dirty_files: Default::default(),
@@ -830,8 +841,17 @@ impl Environment for TestEnvironment {
     self.stdout_messages.lock().push(String::from(text));
   }
 
-  fn log_stderr_with_context(&self, text: &str, _: &str) {
-    self.stderr_messages.lock().push(String::from(text));
+  fn log_stderr_with_context(&self, level: LogLevel, text: &str, context_name: &str) {
+    if let Some(sink) = &*self.output_sink.lock() {
+      sink.log(level, &get_sink_text(text, context_name));
+      return;
+    }
+    self.stderr_messages.lock().push(get_stderr_text(level, text).into_owned());
+  }
+
+  fn set_output_sink(&self, sink: Arc<dyn OutputSink>) {
+    *self.output_sink.lock() = Some(sink.clone());
+    self.progress_bars.set(Some(Arc::new(ProgressBars::with_sink(sink))));
   }
 
   fn log_machine_readable(&self, text: &[u8]) {
@@ -843,8 +863,11 @@ impl Environment for TestEnvironment {
     &self,
     message: &str,
     action: TCreate,
-    _: usize,
+    total_size: usize,
   ) -> TResult {
+    if let Some(progress_bars) = self.progress_bars() {
+      return log_action_with_progress(Some(&progress_bars), message, action, total_size);
+    }
     self.__log_stderr__(message);
     action(Box::new(|_| {}))
   }
@@ -935,6 +958,10 @@ impl Environment for TestEnvironment {
 
   fn set_log_level(&self, log_level: LogLevel) {
     *self.log_level.lock() = log_level;
+  }
+
+  fn progress_bars(&self) -> Option<Arc<ProgressBars>> {
+    self.progress_bars.get()
   }
 
   fn compile_wasm(&self, bytes: &[u8]) -> Result<CompilationResult> {

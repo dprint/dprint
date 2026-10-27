@@ -11,8 +11,13 @@ use std::io::Stdout;
 use std::io::Write;
 use std::io::stderr;
 use std::io::stdout;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering;
+
+use parking_lot::RwLock;
+
+use super::OutputSink;
 
 use crate::utils::terminal::get_terminal_size;
 
@@ -95,6 +100,8 @@ pub struct Logger {
   /// The `LogLevel` as a number so it can be changed while logging (see
   /// `Logger::set_log_level`).
   log_level: AtomicU8,
+  /// Where to log instead of stderr.
+  sink: RwLock<Option<Arc<dyn OutputSink>>>,
 }
 
 struct LoggerState {
@@ -123,7 +130,13 @@ impl Logger {
       }),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
       log_level: AtomicU8::new(options.log_level as u8),
+      sink: Default::default(),
     }
+  }
+
+  /// Logs to the sink instead of stderr from now on.
+  pub fn set_sink(&self, sink: Arc<dyn OutputSink>) {
+    *self.sink.write() = Some(sink);
   }
 
   #[inline]
@@ -161,12 +174,23 @@ impl Logger {
   /// Don't ever call this directly. It's only used by the macro, which
   /// is why it has this name to discourage its accidental use.
   pub fn __log_stderr__(&self, text: &str) {
-    self.log_stderr_with_context(text, "dprint");
+    self.__log_stderr_with_level__(LogLevel::Info, text);
   }
 
-  pub fn log_stderr_with_context(&self, text: &str, context_name: &str) {
+  /// Don't ever call this directly. It's only used by the macro, which
+  /// is why it has this name to discourage its accidental use.
+  pub fn __log_stderr_with_level__(&self, level: LogLevel, text: &str) {
+    self.log_stderr_with_context(level, text, "dprint");
+  }
+
+  pub fn log_stderr_with_context(&self, level: LogLevel, text: &str, context_name: &str) {
+    if let Some(sink) = &*self.sink.read() {
+      sink.log(level, &get_sink_text(text, context_name));
+      return;
+    }
+    let text = get_stderr_text(level, text);
     let mut state = self.output_lock.lock();
-    self.inner_log(&mut state, false, text, context_name);
+    self.inner_log(&mut state, false, &text, context_name);
   }
 
   pub fn log_text_items(&self, text_items: &[LoggerTextItem], context_name: &str) {
@@ -320,4 +344,23 @@ pub fn render_text_items_with_width(text_items: &[LoggerTextItem], terminal_widt
       },
     )
     .unwrap_or_default()
+}
+
+/// Gets the text to log to stderr, which says when it's debug information.
+pub fn get_stderr_text(level: LogLevel, text: &str) -> Cow<'_, str> {
+  if level == LogLevel::Debug {
+    Cow::Owned(format!("[DEBUG] {}", text))
+  } else {
+    Cow::Borrowed(text)
+  }
+}
+
+/// Gets the text to log to a sink, which says where it's from when that's not
+/// dprint (ex. a plugin).
+pub fn get_sink_text<'a>(text: &'a str, context_name: &str) -> Cow<'a, str> {
+  if context_name == "dprint" {
+    Cow::Borrowed(text)
+  } else {
+    Cow::Owned(format!("[{}] {}", context_name, text))
+  }
 }

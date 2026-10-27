@@ -15,18 +15,26 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
+use deno_tower_lsp::lsp_types::Uri;
 use dprint_core::communication::RcIdStore;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
+use parking_lot::Mutex;
+use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::arg_parser::CliArgs;
 use crate::commands::lsp::config_completion::ConfigJsonSchemaBuilder;
 use crate::commands::lsp::config_completion::PluginSchemaUrl;
+use crate::commands::lsp::file_path_to_uri;
+use crate::commands::lsp::language::get_language_file_name;
 use crate::commands::lsp::notebook::trim_formatted_cell_text;
+use crate::commands::lsp::text::Utf16TextEdit;
 use crate::commands::lsp::text::get_utf16_edits;
 use crate::commands::lsp::text::normalize_to_source_line_endings;
+use crate::commands::lsp::untitled::is_untitled_uri;
+use crate::commands::lsp::uri_to_file_path;
 use crate::commands::no_config::DISMISS_ACTION_TITLE;
 use crate::commands::no_config::DISMISS_WORKSPACE_ACTION_TITLE;
 use crate::commands::no_config::EDITOR_EXTENSION_SETTINGS_OWNER;
@@ -41,15 +49,20 @@ use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
+use crate::configuration::ResolvedConfig;
+use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::paths::get_plugin_names_for_file_on_disk;
 use crate::plugins::PluginConfigDiagnostic;
 use crate::plugins::PluginResolver;
+use crate::resolution::GetPluginResult;
 use crate::resolution::PluginConfigDiagnosticsError;
 use crate::resolution::PluginsScope;
 use crate::utils::LogLevel;
+use crate::utils::OutputSink;
+use crate::utils::PathSource;
 use crate::utils::Semaphore;
 
 use super::EditorContext;
@@ -60,30 +73,41 @@ use super::send_error_response;
 use super::send_response_body;
 use super::start_reading_messages;
 
+mod config_diagnostics;
 mod messages;
 
+use self::config_diagnostics::PluginSectionDiagnostic;
+use self::config_diagnostics::get_config_diagnostics;
+use self::config_diagnostics::get_config_error_diagnostic;
 use self::messages::ClientInfo;
+use self::messages::ConfigChangedMessage;
 use self::messages::ConfigDiagnostic;
+use self::messages::ConfigDiagnosticsMessage;
 use self::messages::ConfigFileInfo;
 use self::messages::ConfigInfoMessage;
 use self::messages::ConfigInfoResponseMessage;
 use self::messages::ConfigSchemaMessage;
 use self::messages::ConfigSchemaResponseMessage;
+use self::messages::DocumentInfo;
+use self::messages::DocumentLanguage;
 use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
 use self::messages::EditorSettings;
 use self::messages::FileInfoMessage;
 use self::messages::FileInfoResponseMessage;
 use self::messages::FormatEdit;
+use self::messages::FormatFileMessage;
 use self::messages::FormatFileMessageBody;
-use self::messages::FormatFileOptions;
 use self::messages::FormatFileResult;
 use self::messages::FormattedMessage;
 use self::messages::InitializeMessage;
+use self::messages::LogMessage;
+use self::messages::LogMessageLevel;
 use self::messages::MessageAction;
 use self::messages::MessageKind;
 use self::messages::NotFormattedMessage;
 use self::messages::NotFormattedReason;
+use self::messages::ProgressMessage;
 use self::messages::ShowMessageMessage;
 use self::messages::ShowMessageRequestMessage;
 use self::messages::ShowMessageRequestResponseMessage;
@@ -109,6 +133,13 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
   /// The error that was shown to the user for the plugin config diagnostics
   /// of each config file.
   plugin_config_errors: RefCell<HashMap<String, ShownPluginConfigError<TEnvironment>>>,
+  /// The config that each config file last resolved to, which is how a
+  /// change to a config file it extends is noticed.
+  resolved_configs: RefCell<HashMap<String, Rc<ResolvedConfig>>>,
+  /// The scope whose config diagnostics were checked for each config file.
+  checked_scopes: RefCell<HashMap<String, Weak<PluginsScope<TEnvironment>>>>,
+  /// The config diagnostics that were last sent for each config file uri.
+  sent_config_diagnostics: RefCell<HashMap<String, Vec<ConfigDiagnostic>>>,
   /// The editor, which is `None` until it initializes the editor service.
   client_info: RefCell<Option<ClientInfo>>,
   settings: RefCell<EditorSettings>,
@@ -122,6 +153,22 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
 enum FormatOutcome {
   Formatted(Vec<FormatEdit>),
   NotFormatted(NotFormattedMessage),
+}
+
+/// The files a document may be formatted as.
+struct DocumentFile {
+  /// The file paths in order of preference, which are in the same directory
+  /// and never empty.
+  candidates: Vec<PathBuf>,
+  /// The notebook's path when the document is one of its cells.
+  notebook_path: Option<PathBuf>,
+}
+
+/// The file a document is formatted as.
+struct ChosenFile {
+  file_path: PathBuf,
+  /// Why it can't be formatted, which is `None` when it can.
+  cant_format_reason: Option<NotFormattedReason>,
 }
 
 /// The error that was shown to the user for the plugin config diagnostics of
@@ -150,12 +197,30 @@ pub async fn run_editor_service<TEnvironment: Environment>(
     config_errors: Default::default(),
     config_find_errors: Default::default(),
     plugin_config_errors: Default::default(),
+    resolved_configs: Default::default(),
+    checked_scopes: Default::default(),
+    sent_config_diagnostics: Default::default(),
     client_info: Default::default(),
     settings: Default::default(),
     pending_message_requests: Default::default(),
     has_notified_no_config: Default::default(),
   });
   let mut rx = start_reading_messages::<EditorMessageBody>(environment);
+
+  // what's logged and the progress go to the editor instead of stderr
+  let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
+  environment.set_output_sink(Arc::new(EditorOutputSink {
+    sender: output_sender,
+    percentages: Default::default(),
+  }));
+  dprint_core::async_runtime::spawn({
+    let service = service.clone();
+    async move {
+      while let Some(body) = output_receiver.recv().await {
+        send_response_body(&service.context, body);
+      }
+    }
+  });
 
   loop {
     let message = tokio::select! {
@@ -310,7 +375,11 @@ pub async fn run_editor_service<TEnvironment: Environment>(
       | EditorMessageBody::FormatFileResponse(_, _)
       | EditorMessageBody::ShowMessage(_)
       | EditorMessageBody::ShowMessageRequest(_)
-      | EditorMessageBody::ConfigSchemaResponse(_, _) => {
+      | EditorMessageBody::ConfigSchemaResponse(_, _)
+      | EditorMessageBody::Log(_)
+      | EditorMessageBody::Progress(_)
+      | EditorMessageBody::ConfigDiagnostics(_)
+      | EditorMessageBody::ConfigChanged(_) => {
         send_error_response(context, message.id, anyhow!("CLI cannot handle a message with kind {}.", message.body.kind()));
       }
       EditorMessageBody::Unknown(message_kind, _) => {
@@ -321,10 +390,11 @@ pub async fn run_editor_service<TEnvironment: Environment>(
 }
 
 impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
-  async fn get_file_info(&self, message: FileInfoMessage) -> Result<FileInfoResponseMessage> {
+  async fn get_file_info(self: &Rc<Self>, message: FileInfoMessage) -> Result<FileInfoResponseMessage> {
     let allow_global_config = self.allow_global_config(message.allow_global_config);
-    let is_notebook_cell = message.notebook_path.is_some();
-    let Some(scope) = self.resolve_scope(&message.file_path, allow_global_config).await? else {
+    let document_file = self.get_document_file(&message.document)?;
+    let is_notebook_cell = document_file.notebook_path.is_some();
+    let Some(scope) = self.resolve_scope(&document_file.candidates[0], allow_global_config).await? else {
       let reason = self.get_no_config_reason(allow_global_config);
       return Ok(FileInfoResponseMessage {
         config_file: None,
@@ -333,11 +403,9 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         message: get_not_formatted_message(reason, is_notebook_cell, allow_global_config),
       });
     };
-    let file_path = self.canonicalize(message.file_path);
-    let notebook_path = message.notebook_path.map(|path| self.canonicalize(path));
-    // the editor service only receives a path, so an extensionless file's
+    // the editor service only receives a uri, so an extensionless file's
     // shebang is resolved from the file on disk
-    let reason = self.get_cant_format_reason(&scope, &file_path, notebook_path.as_deref(), None);
+    let reason = self.choose_file(&scope, document_file, None).cant_format_reason;
     Ok(FileInfoResponseMessage {
       config_file: get_config_file_info(&scope),
       can_format: reason.is_none(),
@@ -346,9 +414,10 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     })
   }
 
-  async fn get_config_info(&self, message: ConfigInfoMessage) -> Result<ConfigInfoResponseMessage> {
+  async fn get_config_info(self: &Rc<Self>, message: ConfigInfoMessage) -> Result<ConfigInfoResponseMessage> {
     let allow_global_config = self.allow_global_config(message.allow_global_config);
-    let Some(scope) = self.resolve_scope(&message.file_path, allow_global_config).await? else {
+    let file_path = self.get_uri_file_path(&message.uri)?;
+    let Some(scope) = self.resolve_scope(&file_path, allow_global_config).await? else {
       return Ok(ConfigInfoResponseMessage {
         config_file: None,
         plugins: Vec::new(),
@@ -360,12 +429,15 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     })
   }
 
-  async fn get_config_schema(&self, message: ConfigSchemaMessage) -> ConfigSchemaResponseMessage {
+  async fn get_config_schema(self: &Rc<Self>, message: ConfigSchemaMessage) -> ConfigSchemaResponseMessage {
     let allow_global_config = self.allow_global_config(message.allow_global_config);
     let mut plugins = Vec::new();
-    for file_path in &message.file_paths {
+    for uri in &message.uris {
+      let Ok(file_path) = self.get_uri_file_path(uri) else {
+        continue;
+      };
       // a config file that fails to resolve was shown to the user, so its plugins are only left out
-      if let Ok(Some(scope)) = self.resolve_scope(file_path, allow_global_config).await {
+      if let Ok(Some(scope)) = self.resolve_scope(&file_path, allow_global_config).await {
         plugins.extend(scope.plugins.values().map(|plugin| PluginSchemaUrl {
           config_key: plugin.info().config_key.clone(),
           url: plugin.info().config_schema_url.clone(),
@@ -378,13 +450,10 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   }
 
   async fn format_file(self: &Rc<Self>, body: FormatFileMessageBody, token: &Arc<CancellationToken>) -> Result<FormatOutcome> {
-    let options: FormatFileOptions = if body.options.is_empty() {
-      Default::default()
-    } else {
-      serde_json::from_slice(&body.options).context("Error deserializing the format options.")?
-    };
-    let allow_global_config = self.allow_global_config(options.allow_global_config);
-    let is_notebook_cell = options.notebook_path.is_some();
+    let message: FormatFileMessage = serde_json::from_slice(&body.data).context("Error deserializing the format file message.")?;
+    let allow_global_config = self.allow_global_config(message.allow_global_config);
+    let document_file = self.get_document_file(&message.document)?;
+    let is_notebook_cell = document_file.notebook_path.is_some();
     let not_formatted = |reason| {
       Ok(FormatOutcome::NotFormatted(NotFormattedMessage {
         reason,
@@ -392,18 +461,23 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         diagnostics: Vec::new(),
       }))
     };
-    let Some(scope) = self.resolve_scope(&body.file_path, allow_global_config).await? else {
+    let Some(scope) = self.resolve_scope(&document_file.candidates[0], allow_global_config).await? else {
       let reason = self.get_no_config_reason(allow_global_config);
-      self.notify_no_config(reason, allow_global_config, options.show_no_config_notification);
+      self.notify_no_config(reason, allow_global_config, message.show_no_config_notification);
       return not_formatted(reason);
     };
-    let file_path = self.canonicalize(body.file_path);
-    let notebook_path = options.notebook_path.map(|path| self.canonicalize(path));
-    if let Some(reason) = self.get_cant_format_reason(&scope, &file_path, notebook_path.as_deref(), Some(&body.file_bytes)) {
+    let chosen_file = self.choose_file(&scope, document_file, Some(&body.file_bytes));
+    if let Some(reason) = chosen_file.cant_format_reason {
       return not_formatted(reason);
     }
+    let file_path = chosen_file.file_path;
     let file_text = String::from_utf8(body.file_bytes).context("The file text isn't valid UTF-8.")?;
-    let range = get_byte_range(&file_text, body.start, body.end);
+    // many plugins don't format a range (ex. Wasm plugins of plugin schema version 3), so
+    // the whole text is formatted and only the edits within the range's lines are kept
+    let range = message
+      .range
+      .and_then(|range| get_byte_range(&file_text, range.start, range.end))
+      .and_then(|range| expand_to_lines(&file_text, range));
 
     let _permit = self.concurrency_limiter.acquire().await;
     if token.is_cancelled() {
@@ -415,11 +489,11 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         HostFormatRequest {
           file_path,
           file_bytes: file_text.clone().into_bytes(),
-          range: range.clone(),
-          override_config: options.override_config,
+          range: None,
+          override_config: message.override_config,
           token: token.clone(),
         },
-        options.ensure_stable_format.map(EnsureStableFormat).unwrap_or(self.ensure_stable_format),
+        message.ensure_stable_format.map(EnsureStableFormat).unwrap_or(self.ensure_stable_format),
       )
       .await;
     let formatted_text = match result {
@@ -430,7 +504,6 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         None => bail!("{}", dprint_core::plugins::error_to_string(&err)),
       },
     };
-    let is_notebook_cell = notebook_path.is_some();
     // this may take a while for a large file, so don't hold up the other messages
     let edits = dprint_core::async_runtime::spawn_blocking(move || {
       let formatted_text = String::from_utf8(formatted_text).context("The formatted text isn't valid UTF-8.")?;
@@ -442,7 +515,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       } else {
         formatted_text
       };
-      Ok::<_, anyhow::Error>(get_utf16_edits(&file_text, &formatted_text))
+      Ok::<_, anyhow::Error>(get_range_edits(&file_text, &formatted_text, &range))
     })
     .await??;
     if edits.is_empty() {
@@ -487,8 +560,9 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         .iter()
         .map(|diagnostic| ConfigDiagnostic {
           plugin_name: Some(diagnostic.plugin_name.clone()),
-          property_name: diagnostic.diagnostic.property_name.clone(),
+          property_name: Some(diagnostic.diagnostic.property_name.clone()),
           message: diagnostic.diagnostic.message.clone(),
+          range: None,
         })
         .collect(),
     })
@@ -501,8 +575,9 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     if !show.unwrap_or(settings.show_no_config_notification) || self.has_notified_no_config.get() {
       return;
     }
+    let workspace_folders = get_workspace_folder_paths(&settings);
     // the workspace folders may change to ones where it wasn't dismissed
-    if is_no_config_notification_dismissed(&self.environment, &settings.workspace_folders) {
+    if is_no_config_notification_dismissed(&self.environment, &workspace_folders) {
       return;
     }
     self.has_notified_no_config.set(true);
@@ -512,7 +587,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       settings_owner: EDITOR_EXTENSION_SETTINGS_OWNER,
     });
     let mut actions = Vec::new();
-    if !settings.workspace_folders.is_empty() {
+    if !workspace_folders.is_empty() {
       actions.push(DISMISS_WORKSPACE_ACTION_TITLE);
     }
     actions.push(DISMISS_ACTION_TITLE);
@@ -523,7 +598,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         return;
       };
       let dismissal = match action.title.as_str() {
-        DISMISS_WORKSPACE_ACTION_TITLE => NoConfigNotificationDismissal::WorkspaceFolders(settings.workspace_folders),
+        DISMISS_WORKSPACE_ACTION_TITLE => NoConfigNotificationDismissal::WorkspaceFolders(workspace_folders),
         DISMISS_ACTION_TITLE => NoConfigNotificationDismissal::Everywhere,
         // the editor responded with an action that wasn't offered
         _ => return,
@@ -588,7 +663,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
 
   /// Resolves the plugins of the config file used for the file, which is
   /// `None` when there isn't one.
-  async fn resolve_scope(&self, file_path: &Path, allow_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
+  async fn resolve_scope(self: &Rc<Self>, file_path: &Path, allow_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
     let Some(dir_path) = file_path.parent() else {
       bail!("Cannot format non-file path: {}", file_path.display());
     };
@@ -605,22 +680,108 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let Some(config_file) = config_file else {
       return Ok(None);
     };
-    let result = async {
-      let scope = self.scope_container.resolve_config_file(&config_file).await?;
-      scope.ensure_no_global_config_diagnostics()?;
-      Ok(scope)
-    }
-    .await;
     let key = get_config_file_key(&config_file);
-    match result {
-      Ok(scope) => {
-        self.config_errors.borrow_mut().remove(&key);
-        Ok(Some(scope))
-      }
+    let scope = match self.scope_container.resolve_config_file(&config_file).await {
+      Ok(scope) => scope,
       Err(err) => {
-        self.show_config_error(key, &err);
-        Err(err)
+        self.show_config_error(key.clone(), &err);
+        self.checked_scopes.borrow_mut().remove(&key);
+        self.send_config_diagnostics(&config_file.source, vec![get_config_error_diagnostic(Some(&config_file.content), &err)]);
+        return Err(err);
       }
+    };
+    self.check_config_diagnostics(&key, &config_file, &scope);
+    if let Err(err) = scope.ensure_no_global_config_diagnostics() {
+      let err = anyhow::Error::from(err);
+      self.show_config_error(key, &err);
+      return Err(err);
+    }
+    self.config_errors.borrow_mut().remove(&key);
+    self.notify_if_config_changed(key, &config_file, &scope);
+    Ok(Some(scope))
+  }
+
+  /// Sends the problems with the config file to the editor, which is done
+  /// once for each time it resolves to a new scope. The problems with the
+  /// configuration of its plugins are only known once they're set up, so
+  /// they're sent once that's done.
+  fn check_config_diagnostics(self: &Rc<Self>, key: &str, config_file: &ResolvedConfigPathWithText, scope: &Rc<PluginsScope<TEnvironment>>) {
+    let weak_scope = Rc::downgrade(scope);
+    let previous = self.checked_scopes.borrow_mut().insert(key.to_string(), weak_scope.clone());
+    if previous.is_some_and(|previous| previous.ptr_eq(&weak_scope)) {
+      return;
+    }
+    let config_text = config_file.content.clone();
+    self.send_config_diagnostics(
+      &config_file.source,
+      get_config_diagnostics(Some(&config_text), scope.global_config_diagnostics(), &[]),
+    );
+    let service = self.clone();
+    let key = key.to_string();
+    let source = config_file.source.clone();
+    let scope = scope.clone();
+    dprint_core::async_runtime::spawn(async move {
+      let mut plugin_diagnostics = Vec::new();
+      for plugin in scope.plugins.values() {
+        // a plugin that fails to be set up is reported when it formats
+        if let Ok(GetPluginResult::HadDiagnostics(diagnostics)) = plugin.get_or_create_checking_config_diagnostics(&service.environment).await {
+          plugin_diagnostics.extend(diagnostics.into_iter().map(|diagnostic| (plugin.info().config_key.clone(), diagnostic)));
+        }
+      }
+      if plugin_diagnostics.is_empty() {
+        return;
+      }
+      // the config file may have changed in the meantime
+      let is_current = service
+        .checked_scopes
+        .borrow()
+        .get(&key)
+        .is_some_and(|checked| checked.ptr_eq(&Rc::downgrade(&scope)));
+      if !is_current {
+        return;
+      }
+      let plugin_diagnostics = plugin_diagnostics
+        .iter()
+        .map(|(config_key, diagnostic)| PluginSectionDiagnostic { config_key, diagnostic })
+        .collect::<Vec<_>>();
+      service.send_config_diagnostics(
+        &source,
+        get_config_diagnostics(Some(&config_text), scope.global_config_diagnostics(), &plugin_diagnostics),
+      );
+    });
+  }
+
+  /// Sends the problems with the config file to the editor when they're
+  /// different from the ones that were sent before.
+  fn send_config_diagnostics(&self, source: &PathSource, diagnostics: Vec<ConfigDiagnostic>) {
+    let Some(uri) = path_source_to_uri(source) else {
+      return;
+    };
+    let mut sent_config_diagnostics = self.sent_config_diagnostics.borrow_mut();
+    let previous = sent_config_diagnostics.get(uri.as_str());
+    // there's nothing to clear when nothing was sent
+    if previous == Some(&diagnostics) || previous.is_none() && diagnostics.is_empty() {
+      return;
+    }
+    sent_config_diagnostics.insert(uri.as_str().to_string(), diagnostics.clone());
+    drop(sent_config_diagnostics);
+    let data = serde_json::to_vec(&ConfigDiagnosticsMessage { uri, diagnostics }).expect("message should serialize");
+    send_response_body(&self.context, EditorMessageBody::ConfigDiagnostics(data));
+  }
+
+  /// Tells the editor when the config file resolves to a different config
+  /// than before because what it formats may have changed in a way the editor
+  /// can't see (ex. a config file that it extends changed).
+  fn notify_if_config_changed(&self, key: String, config_file: &ResolvedConfigPathWithText, scope: &PluginsScope<TEnvironment>) {
+    let Some(config) = &scope.config else {
+      return;
+    };
+    let previous = self.resolved_configs.borrow_mut().insert(key, config.clone());
+    if previous.is_some_and(|previous| previous != *config)
+      && let Some(uri) = path_source_to_uri(&config_file.source)
+    {
+      let data = serde_json::to_vec(&ConfigChangedMessage { uri }).expect("message should serialize");
+      send_response_body(&self.context, EditorMessageBody::ConfigChanged(data));
     }
   }
 
@@ -696,6 +857,79 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     if has_plugin { None } else { Some(NotFormattedReason::NoPlugin) }
   }
 
+  /// Gets the files the document may be formatted as.
+  fn get_document_file(&self, document: &DocumentInfo) -> Result<DocumentFile> {
+    if let Some(notebook_uri) = &document.notebook_uri {
+      // the cli only formats notebooks on the file system
+      let Some(notebook_path) = uri_to_file_path(notebook_uri) else {
+        bail!("Cannot format cell of a notebook that is not on the file system: {}", notebook_uri.as_str());
+      };
+      let Some(dir_path) = notebook_path.parent() else {
+        bail!("Cannot format cell of a notebook without a directory: {}", notebook_path.display());
+      };
+      return Ok(DocumentFile {
+        candidates: get_language_file_paths(dir_path, "code_block", document)?,
+        notebook_path: Some(notebook_path),
+      });
+    }
+    if is_untitled_uri(&document.uri) {
+      return Ok(DocumentFile {
+        candidates: get_language_file_paths(&self.get_untitled_dir_path(&document.uri)?, "Untitled", document)?,
+        notebook_path: None,
+      });
+    }
+    let file_path = self.get_uri_file_path(&document.uri)?;
+    if file_path.parent().is_none() {
+      bail!("Cannot format non-file path: {}", file_path.display());
+    }
+    Ok(DocumentFile {
+      candidates: vec![file_path],
+      notebook_path: None,
+    })
+  }
+
+  /// Gets the path of a file for the uri, which is in the directory an
+  /// untitled document is formatted in for an untitled uri.
+  fn get_uri_file_path(&self, uri: &Uri) -> Result<PathBuf> {
+    if is_untitled_uri(uri) {
+      return Ok(self.get_untitled_dir_path(uri)?.join("Untitled"));
+    }
+    match uri_to_file_path(uri) {
+      Some(file_path) => Ok(file_path),
+      None => bail!(
+        "Cannot format document that is not a file, an untitled document or a notebook cell: {}",
+        uri.as_str()
+      ),
+    }
+  }
+
+  /// Gets the directory that an untitled document is formatted in, which is
+  /// the first workspace folder or otherwise the home directory.
+  fn get_untitled_dir_path(&self, uri: &Uri) -> Result<PathBuf> {
+    let workspace_folder = get_workspace_folder_paths(&self.settings.borrow()).into_iter().next();
+    match workspace_folder.or_else(|| self.environment.get_home_dir().map(|dir| dir.into_path_buf())) {
+      Some(dir_path) => Ok(dir_path),
+      None => bail!("Cannot format untitled document without a workspace folder or home directory: {}", uri.as_str()),
+    }
+  }
+
+  /// Chooses the file to format the document as, which is the first one the
+  /// scope can format or otherwise the first one.
+  fn choose_file(&self, scope: &PluginsScope<TEnvironment>, document_file: DocumentFile, file_bytes: Option<&[u8]>) -> ChosenFile {
+    let notebook_path = document_file.notebook_path.map(|path| self.canonicalize(path));
+    let mut first = None;
+    for candidate in document_file.candidates {
+      let file_path = self.canonicalize(candidate);
+      let cant_format_reason = self.get_cant_format_reason(scope, &file_path, notebook_path.as_deref(), file_bytes);
+      if cant_format_reason.is_none() {
+        return ChosenFile { file_path, cant_format_reason };
+      }
+      first.get_or_insert((file_path, cant_format_reason));
+    }
+    let (file_path, cant_format_reason) = first.expect("there should be a candidate");
+    ChosenFile { file_path, cant_format_reason }
+  }
+
   /// Canonicalizes the path so that it matches the canonicalized config paths
   /// (ex. for the includes and excludes).
   fn canonicalize(&self, path: PathBuf) -> PathBuf {
@@ -730,9 +964,59 @@ fn get_not_formatted_message(reason: NotFormattedReason, is_notebook_cell: bool,
 fn get_config_file_info<TEnvironment: Environment>(scope: &PluginsScope<TEnvironment>) -> Option<ConfigFileInfo> {
   let config = scope.config.as_ref()?;
   Some(ConfigFileInfo {
-    path: config.source.display(),
+    uri: path_source_to_uri(&config.source)?,
     is_global: config.is_global,
   })
+}
+
+/// Gets the uri of a config file.
+fn path_source_to_uri(source: &PathSource) -> Option<Uri> {
+  match source {
+    PathSource::Local(local) => file_path_to_uri(local.path.as_ref()),
+    PathSource::Remote(remote) => remote.url.as_str().parse().ok(),
+    PathSource::Npm(_) => None,
+  }
+}
+
+fn get_workspace_folder_paths(settings: &EditorSettings) -> Vec<PathBuf> {
+  settings.workspace_folders.iter().filter_map(uri_to_file_path).collect()
+}
+
+/// Gets the paths to format a document that isn't a file as, which are in
+/// the directory and named by the document's language (ex. `Untitled.ts`).
+fn get_language_file_paths(dir_path: &Path, base_name: &str, document: &DocumentInfo) -> Result<Vec<PathBuf>> {
+  let Some(language) = &document.language else {
+    bail!("Provide the language of the document to format it: {}", document.uri.as_str());
+  };
+  let file_names = get_language_file_names(base_name, language);
+  if file_names.is_empty() {
+    bail!("Could not determine a file path to format the document with language: {}", language.id);
+  }
+  Ok(file_names.into_iter().map(|file_name| dir_path.join(file_name)).collect())
+}
+
+/// Gets the file names of the language in order of preference, which are
+/// the editor's file extensions and file names followed by the file
+/// extension dprint knows for the language.
+fn get_language_file_names(base_name: &str, language: &DocumentLanguage) -> Vec<String> {
+  // the editor's file names can't be paths
+  let is_file_name = |name: &str| !name.is_empty() && !name.contains(['/', '\\']) && name != "." && name != "..";
+  let mut file_names = Vec::new();
+  let extension_file_names = language
+    .file_extensions
+    .iter()
+    .filter(|extension| extension.len() > 1 && extension.starts_with('.'))
+    .map(|extension| format!("{}{}", base_name, extension));
+  let editor_file_names = language.file_names.iter().cloned();
+  for file_name in extension_file_names
+    .chain(editor_file_names)
+    .chain(get_language_file_name(base_name, &language.id))
+  {
+    if is_file_name(&file_name) && !file_names.contains(&file_name) {
+      file_names.push(file_name);
+    }
+  }
+  file_names
 }
 
 /// Gets whether the message can only be handled once the editor service is
@@ -746,6 +1030,37 @@ fn requires_initialize(body: &EditorMessageBody) -> bool {
       | EditorMessageBody::ConfigSchema(_)
       | EditorMessageBody::FormatFile(_)
   )
+}
+
+/// Expands the range to the whole lines it touches, including the last
+/// line's line break, which is `None` for the whole text. A range that ends
+/// at the start of a line (ex. after selecting whole lines) doesn't include
+/// that line.
+fn expand_to_lines(text: &str, range: std::ops::Range<usize>) -> FormatRange {
+  let start = text[..range.start].rfind('\n').map(|index| index + 1).unwrap_or(0);
+  let end = if range.end > start && text.as_bytes()[range.end - 1] == b'\n' {
+    range.end
+  } else {
+    text[range.end..].find('\n').map(|index| range.end + index + 1).unwrap_or(text.len())
+  };
+  if start == 0 && end == text.len() { None } else { Some(start..end) }
+}
+
+/// Gets the edits that change the text to the formatted text, which are only
+/// the ones within the range when there is one.
+fn get_range_edits(text: &str, formatted_text: &str, range: &FormatRange) -> Vec<Utf16TextEdit> {
+  let edits = get_utf16_edits(text, formatted_text);
+  let Some(range) = range else {
+    return edits;
+  };
+  let start = text[..range.start].encode_utf16().count() as u32;
+  let end = start + text[range.clone()].encode_utf16().count() as u32;
+  // an insertion after the range's last line break is on the next line
+  let ends_with_line_break = text[range.clone()].ends_with('\n');
+  edits
+    .into_iter()
+    .filter(|edit| edit.start >= start && edit.end <= end && !(ends_with_line_break && edit.start == end))
+    .collect()
 }
 
 /// Converts the UTF-16 offsets of a range to format to bytes, which is `None`
@@ -767,6 +1082,74 @@ fn utf16_to_byte_offset(text: &str, offset: u32) -> usize {
     }
   }
   text.len()
+}
+
+/// Sends what's logged and the progress to the editor.
+struct EditorOutputSink {
+  sender: mpsc::UnboundedSender<EditorMessageBody>,
+  /// The last percentage sent for each progress, which is `None` when it's
+  /// not known.
+  percentages: Mutex<HashMap<usize, Option<u8>>>,
+}
+
+impl EditorOutputSink {
+  fn send(&self, body: EditorMessageBody) {
+    // the editor service is shutting down when this fails
+    let _ = self.sender.send(body);
+  }
+
+  fn send_progress(&self, message: ProgressMessage) {
+    self.send(EditorMessageBody::Progress(serde_json::to_vec(&message).expect("message should serialize")));
+  }
+}
+
+impl OutputSink for EditorOutputSink {
+  fn log(&self, level: LogLevel, text: &str) {
+    let level = match level {
+      LogLevel::Error => LogMessageLevel::Error,
+      LogLevel::Warn => LogMessageLevel::Warn,
+      LogLevel::Info => LogMessageLevel::Info,
+      LogLevel::Debug => LogMessageLevel::Debug,
+      LogLevel::Silent => return,
+    };
+    let message = LogMessage {
+      level,
+      message: text.to_string(),
+    };
+    self.send(EditorMessageBody::Log(serde_json::to_vec(&message).expect("message should serialize")));
+  }
+
+  fn start_progress(&self, id: usize, title: &str, total_size: usize) {
+    let percentage = (total_size > 0).then_some(0);
+    self.percentages.lock().insert(id, percentage);
+    self.send_progress(ProgressMessage::Begin {
+      id,
+      title: title.to_string(),
+      percentage,
+    });
+  }
+
+  fn update_progress(&self, id: usize, position: usize, total_size: usize) {
+    if total_size == 0 {
+      return;
+    }
+    let percentage = std::cmp::min(100, position as u128 * 100 / total_size as u128) as u8;
+    {
+      let mut percentages = self.percentages.lock();
+      // only send when it changes because this is updated often (ex. for each part of a download)
+      match percentages.get_mut(&id) {
+        Some(previous) if *previous != Some(percentage) => *previous = Some(percentage),
+        _ => return,
+      }
+    }
+    self.send_progress(ProgressMessage::Report { id, percentage });
+  }
+
+  fn finish_progress(&self, id: usize) {
+    if self.percentages.lock().remove(&id).is_some() {
+      self.send_progress(ProgressMessage::End { id });
+    }
+  }
 }
 
 #[cfg(test)]
@@ -791,6 +1174,7 @@ mod test {
   use pretty_assertions::assert_eq;
   use tokio::sync::oneshot;
 
+  use crate::commands::lsp::file_path_to_uri;
   use crate::commands::no_config::NoConfigNotificationDismissal;
   use crate::commands::no_config::dismiss_no_config_notification;
   use crate::commands::no_config::is_no_config_notification_dismissed;
@@ -804,28 +1188,39 @@ mod test {
   use crate::test_helpers::run_test_cli;
   use crate::utils::LogLevel;
 
+  use deno_tower_lsp::lsp_types::Position;
+  use deno_tower_lsp::lsp_types::Range;
+  use deno_tower_lsp::lsp_types::Uri;
+
   use super::messages::ClientInfo;
+  use super::messages::ConfigChangedMessage;
   use super::messages::ConfigDiagnostic;
+  use super::messages::ConfigDiagnosticsMessage;
   use super::messages::ConfigFileInfo;
   use super::messages::ConfigInfoMessage;
   use super::messages::ConfigInfoResponseMessage;
   use super::messages::ConfigSchemaMessage;
   use super::messages::ConfigSchemaResponseMessage;
+  use super::messages::DocumentInfo;
+  use super::messages::DocumentLanguage;
   use super::messages::EditorMessage;
   use super::messages::EditorMessageBody;
   use super::messages::EditorSettings;
   use super::messages::FileInfoMessage;
   use super::messages::FileInfoResponseMessage;
   use super::messages::FormatEdit;
+  use super::messages::FormatFileMessage;
   use super::messages::FormatFileMessageBody;
-  use super::messages::FormatFileOptions;
   use super::messages::FormatFileResult;
   use super::messages::FormattedMessage;
   use super::messages::InitializeMessage;
+  use super::messages::LogMessage;
   use super::messages::MessageAction;
   use super::messages::MessageKind;
   use super::messages::NotFormattedMessage;
   use super::messages::NotFormattedReason;
+  use super::messages::OffsetRange;
+  use super::messages::ProgressMessage;
   use super::messages::ShowMessageMessage;
   use super::messages::ShowMessageRequestMessage;
   use super::messages::ShowMessageRequestResponseMessage;
@@ -906,7 +1301,7 @@ mod test {
 
         let config_info = client
           .config_info(ConfigInfoMessage {
-            file_path: PathBuf::from("/b/dprint.json"),
+            uri: uri("/b/dprint.json"),
             allow_global_config: false,
           })
           .await
@@ -921,10 +1316,8 @@ mod test {
       .boxed_local()
     });
     // the plugin is only compiled once for both config files
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
-    );
+    // what's logged goes to the editor instead
+    assert!(environment.take_stderr_messages().is_empty());
   }
 
   #[test]
@@ -1011,7 +1404,7 @@ mod test {
         async move {
           client
             .update_settings(EditorSettings {
-              workspace_folders: vec![PathBuf::from("/project")],
+              workspace_folders: vec![uri("/project")],
               ..Default::default()
             })
             .await
@@ -1170,7 +1563,7 @@ mod test {
     run_session(&environment, &[], |client| {
       async move {
         let settings = |folder: &str| EditorSettings {
-          workspace_folders: vec![PathBuf::from(folder)],
+          workspace_folders: vec![uri(folder)],
           ..Default::default()
         };
         client.update_settings(settings("/a")).await.unwrap();
@@ -1258,10 +1651,8 @@ mod test {
       }
       .boxed_local()
     });
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
-    );
+    // what's logged goes to the editor instead
+    assert!(environment.take_stderr_messages().is_empty());
   }
 
   #[test]
@@ -1309,10 +1700,8 @@ mod test {
       }
       .boxed_local()
     });
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
-    );
+    // what's logged goes to the editor instead
+    assert!(environment.take_stderr_messages().is_empty());
   }
 
   #[test]
@@ -1374,10 +1763,8 @@ mod test {
       }
       .boxed_local()
     });
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
-    );
+    // what's logged goes to the editor instead
+    assert!(environment.take_stderr_messages().is_empty());
   }
 
   #[test]
@@ -1467,10 +1854,8 @@ mod test {
         .boxed_local()
       }
     });
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
-    );
+    // what's logged goes to the editor instead
+    assert!(environment.take_stderr_messages().is_empty());
   }
 
   #[test]
@@ -1634,7 +2019,8 @@ mod test {
             message: Some(expected_message.to_string()),
             diagnostics: vec![ConfigDiagnostic {
               plugin_name: Some("test-plugin".to_string()),
-              property_name: "non-existent".to_string(),
+              property_name: Some("non-existent".to_string()),
+              range: None,
               message: "Unknown property in configuration".to_string(),
             }],
           };
@@ -1705,26 +2091,43 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
-        // the plugin puts its ending in place of the range and at the end of the text when it's not there
+        // the whole text is formatted, where the plugin adds its ending to the end,
+        // but only the edits within the lines of the range are kept
         assert_eq!(
-          client.format_range("/file.txt", "a\nb\nc_formatted\n", 2..3, None).await.unwrap(),
-          formatted("a\n_formatted\n_\nc_formatted\n")
+          client.format_range("/file.txt", "a\nb", 2..3, None).await.unwrap(),
+          formatted("a\nb_formatted\n")
         );
-        // a notebook cell keeps its trailing whitespace after a range that ends before the end of the cell
+        assert_eq!(
+          client.format_range("/file.txt", "a\nb", 0..1, None).await.unwrap(),
+          not_formatted(NotFormattedReason::Unchanged)
+        );
+        // a notebook cell's trailing whitespace is still trimmed
         let cell_options = FormatFileOptions {
           notebook_path: Some(PathBuf::from("/dir/notebook.ipynb")),
           ..Default::default()
         };
         assert_eq!(
-          client
-            .format_range("/dir/code_block.txt", "a\nb_formatted\n", 0..1, Some(cell_options))
-            .await
-            .unwrap(),
-          formatted("_formatted\n_\nb_formatted\n")
+          client.format_range("/dir/code_block.txt", "a\nb", 2..3, Some(cell_options)).await.unwrap(),
+          formatted("a\nb_formatted")
         );
       }
       .boxed_local()
     });
+  }
+
+  #[test]
+  fn should_only_keep_the_edits_within_the_range() {
+    let get = |text: &str, formatted_text: &str, range: std::ops::Range<usize>| {
+      super::get_range_edits(text, formatted_text, &Some(range))
+        .into_iter()
+        .map(|edit| (edit.start, edit.end, edit.new_text))
+        .collect::<Vec<_>>()
+    };
+    // the indent of the next line isn't within the range's lines
+    assert_eq!(get("a\nb", "a!\n  b", 0..2), vec![(1, 1, "!".to_string())]);
+    // but an insertion at the end of a range without a line break is
+    assert_eq!(get("a\nb", "a\nb!", 2..3), vec![(3, 3, "!".to_string())]);
+    assert_eq!(get("a\nb", "!a\nb", 2..3), Vec::new());
   }
 
   #[test]
@@ -1767,6 +2170,214 @@ mod test {
         );
       }
       .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_format_untitled_documents_as_a_file_of_their_language() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        client
+          .update_settings(EditorSettings {
+            workspace_folders: vec![uri("/project")],
+            ..Default::default()
+          })
+          .await
+          .unwrap();
+        let options = |language| FormatFileOptions {
+          language: Some(language),
+          ..Default::default()
+        };
+        // the first file extension that the config file formats
+        assert_eq!(
+          client
+            .format("untitled:Untitled-1", "text", Some(options(language("plaintext", &[".unknown", ".txt"]))))
+            .await
+            .unwrap(),
+          formatted("text_formatted")
+        );
+        // the file extension dprint knows for the language
+        assert_eq!(
+          client.format("untitled:Untitled-1", "text", Some(options(language("txt", &[])))).await.unwrap(),
+          formatted("text_formatted")
+        );
+        assert_eq!(
+          client
+            .format("untitled:Untitled-1", "text", Some(options(language("unknown-language", &[".unknown"]))))
+            .await
+            .unwrap(),
+          not_formatted(NotFormattedReason::NoPlugin)
+        );
+        let file_info = client
+          .file_info(FileInfoMessage {
+            document: DocumentInfo {
+              uri: uri("untitled:Untitled-1"),
+              language: Some(language("plaintext", &[".txt"])),
+              notebook_uri: None,
+            },
+            allow_global_config: false,
+          })
+          .await
+          .unwrap();
+        assert!(file_info.can_format);
+        assert_eq!(file_info.config_file, Some(local_config("/project/dprint.json")));
+        // the language is needed to name the file
+        assert_eq!(
+          client.format("untitled:Untitled-1", "text", None).await.unwrap_err().to_string(),
+          "Provide the language of the document to format it: untitled:Untitled-1"
+        );
+        assert_eq!(
+          client.format("https://dprint.dev/file.txt", "text", None).await.unwrap_err().to_string(),
+          "Cannot format document that is not a file, an untitled document or a notebook cell: https://dprint.dev/file.txt"
+        );
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_send_the_progress_and_what_is_logged() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .build(); // not initialized, so the plugin is compiled when it's used
+
+    run_session(&environment, &[], |client| {
+      async move {
+        assert_eq!(client.format("/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
+        assert_eq!(
+          client.take_progress(),
+          vec![
+            ProgressMessage::Begin {
+              id: 0,
+              title: "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+              percentage: Some(0),
+            },
+            ProgressMessage::End { id: 0 },
+          ]
+        );
+        // debug messages are only sent when the setting is on
+        assert!(client.take_logs().iter().all(|log| !log.starts_with("debug: ")));
+        client
+          .update_settings(EditorSettings {
+            verbose: Some(true),
+            ..Default::default()
+          })
+          .await
+          .unwrap();
+        client.format("/file.txt", "text", None).await.unwrap();
+        let logs = client.take_logs();
+        assert!(logs.iter().any(|log| log.starts_with("debug: ")), "{logs:?}");
+        assert!(logs.iter().all(|log| !log.contains("[DEBUG]")), "{logs:?}");
+      }
+      .boxed_local()
+    });
+    // what's logged goes to the editor instead
+    assert!(environment.take_stderr_messages().is_empty());
+  }
+
+  #[test]
+  fn should_send_the_diagnostics_of_config_files() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+    let config_text = environment.read_file("/dprint.json").unwrap();
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          // there's nothing to send when it has no problems
+          assert_eq!(client.format("/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
+          assert!(client.take_config_diagnostics().is_empty());
+
+          // where it doesn't parse
+          environment.write_file("/dprint.json", "{\n  \"a\": }").unwrap();
+          assert!(client.format("/file.txt", "text", None).await.is_err());
+          let diagnostics = client.take_config_diagnostics();
+          assert_eq!(diagnostics.len(), 1);
+          assert_eq!(diagnostics[0].uri, uri("/dprint.json"));
+          assert_eq!(diagnostics[0].diagnostics.len(), 1);
+          assert_eq!(diagnostics[0].diagnostics[0].range, Some(Range::new(Position::new(1, 7), Position::new(1, 8))));
+
+          // the problems with the configuration of a plugin, which are sent once it's set up
+          let config_text = config_text.replacen('{', "{\n  \"test-plugin\": { \"non-existent\": 1 },", 1);
+          environment.write_file("/dprint.json", &config_text).unwrap();
+          client.format("/file.txt", "text", None).await.unwrap();
+          let diagnostics = client.wait_for_config_diagnostics(2).await;
+          assert_eq!(
+            diagnostics,
+            vec![
+              // the plugins weren't set up yet
+              ConfigDiagnosticsMessage {
+                uri: uri("/dprint.json"),
+                diagnostics: Vec::new(),
+              },
+              ConfigDiagnosticsMessage {
+                uri: uri("/dprint.json"),
+                diagnostics: vec![ConfigDiagnostic {
+                  message: "Unknown property in configuration".to_string(),
+                  plugin_name: Some("test-plugin".to_string()),
+                  property_name: Some("non-existent".to_string()),
+                  range: Some(Range::new(Position::new(1, 19), Position::new(1, 33))),
+                }],
+              },
+            ]
+          );
+          let logs = client.take_logs();
+          assert!(
+            logs.contains(&"warn: [test-plugin]: Unknown property in configuration (non-existent)".to_string()),
+            "{logs:?}"
+          );
+        }
+        .boxed_local()
+      }
+    });
+  }
+
+  #[test]
+  fn should_say_when_a_config_file_changed_in_a_way_the_editor_cannot_see() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/a/base.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+    environment.write_file("/a/dprint.json", r#"{ "extends": "./base.json" }"#).unwrap();
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
+          assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
+          assert!(client.take_config_changes().is_empty());
+
+          // the config file that it extends changed
+          let base_text = environment.read_file("/a/base.json").unwrap();
+          environment
+            .write_file("/a/base.json", &base_text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1))
+            .unwrap();
+          assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_changed"));
+          assert_eq!(client.take_config_changes(), vec![ConfigChangedMessage { uri: uri("/a/dprint.json") }]);
+        }
+        .boxed_local()
+      }
     });
   }
 
@@ -1814,10 +2425,41 @@ mod test {
 
   fn file_info(file_path: &str) -> FileInfoMessage {
     FileInfoMessage {
-      file_path: PathBuf::from(file_path),
-      notebook_path: None,
+      document: DocumentInfo {
+        uri: uri(file_path),
+        language: None,
+        notebook_uri: None,
+      },
       allow_global_config: false,
     }
+  }
+
+  fn format_file_body(file_path: &str, text: &str, range: Option<std::ops::Range<u32>>, options: FormatFileOptions) -> EditorMessageBody {
+    let language = options.language.or_else(|| {
+      // a notebook cell's language is the file extension of its path in the tests
+      options.notebook_path.as_ref()?;
+      let extension = Path::new(file_path).extension()?.to_string_lossy().to_string();
+      Some(language(&extension, &[&format!(".{}", extension)]))
+    });
+    let message = FormatFileMessage {
+      document: DocumentInfo {
+        uri: uri(file_path),
+        language,
+        notebook_uri: options.notebook_path.map(|path| uri(&path.to_string_lossy().replace('\\', "/"))),
+      },
+      range: range.map(|range| OffsetRange {
+        start: range.start,
+        end: range.end,
+      }),
+      override_config: options.override_config,
+      allow_global_config: options.allow_global_config,
+      ensure_stable_format: options.ensure_stable_format,
+      show_no_config_notification: options.show_no_config_notification,
+    };
+    EditorMessageBody::FormatFile(FormatFileMessageBody {
+      data: serde_json::to_vec(&message).unwrap(),
+      file_bytes: text.as_bytes().to_vec(),
+    })
   }
 
   fn apply_edits(text: &str, edits: &[FormatEdit]) -> String {
@@ -1836,9 +2478,39 @@ mod test {
 
   fn local_config(path: &str) -> ConfigFileInfo {
     ConfigFileInfo {
-      path: path.to_string(),
+      uri: uri(path),
       is_global: false,
     }
+  }
+
+  /// Gets the uri of a document, which is a file uri for a path.
+  fn uri(path_or_uri: &str) -> Uri {
+    if path_or_uri.starts_with('/') {
+      file_path_to_uri(Path::new(path_or_uri)).unwrap()
+    } else {
+      path_or_uri.parse().unwrap()
+    }
+  }
+
+  fn language(id: &str, file_extensions: &[&str]) -> DocumentLanguage {
+    DocumentLanguage {
+      id: id.to_string(),
+      file_extensions: file_extensions.iter().map(ToString::to_string).collect(),
+      file_names: Vec::new(),
+    }
+  }
+
+  /// The options of formatting a document in the tests.
+  #[derive(Debug, Default, Clone)]
+  struct FormatFileOptions {
+    language: Option<DocumentLanguage>,
+    /// The notebook when the document is one of its cells, whose language
+    /// defaults to the file extension of the document's path.
+    notebook_path: Option<PathBuf>,
+    override_config: ConfigKeyMap,
+    allow_global_config: bool,
+    ensure_stable_format: Option<bool>,
+    show_no_config_notification: Option<bool>,
   }
 
   /// Runs the schema version 6 editor service with the client, which is shut
@@ -1888,6 +2560,10 @@ mod test {
   struct ShownMessages {
     messages: Vec<ShowMessageMessage>,
     message_requests: Vec<ShowMessageRequestMessage>,
+    logs: Vec<LogMessage>,
+    progress: Vec<ProgressMessage>,
+    config_diagnostics: Vec<ConfigDiagnosticsMessage>,
+    config_changes: Vec<ConfigChangedMessage>,
     /// The title of the action to choose for a message request.
     answer: Option<String>,
     /// Whether to respond to a message request with an error, which is what
@@ -1919,6 +2595,26 @@ mod test {
           let message_id = match &message.body {
             EditorMessageBody::ShowMessage(data) => {
               response_client.shown.borrow_mut().messages.push(serde_json::from_slice(data).unwrap());
+              continue;
+            }
+            EditorMessageBody::Log(data) => {
+              response_client.shown.borrow_mut().logs.push(serde_json::from_slice(data).unwrap());
+              continue;
+            }
+            EditorMessageBody::Progress(data) => {
+              response_client.shown.borrow_mut().progress.push(serde_json::from_slice(data).unwrap());
+              continue;
+            }
+            EditorMessageBody::ConfigDiagnostics(data) => {
+              response_client
+                .shown
+                .borrow_mut()
+                .config_diagnostics
+                .push(serde_json::from_slice(data).unwrap());
+              continue;
+            }
+            EditorMessageBody::ConfigChanged(data) => {
+              response_client.shown.borrow_mut().config_changes.push(serde_json::from_slice(data).unwrap());
               continue;
             }
             EditorMessageBody::ShowMessageRequest(data) => {
@@ -1967,6 +2663,38 @@ mod test {
       std::mem::take(&mut self.shown.borrow_mut().message_requests)
     }
 
+    /// Takes the text of what was logged at each level.
+    pub fn take_logs(&self) -> Vec<String> {
+      std::mem::take(&mut self.shown.borrow_mut().logs)
+        .into_iter()
+        .map(|log| format!("{}: {}", serde_json::to_value(log.level).unwrap().as_str().unwrap(), log.message))
+        .collect()
+    }
+
+    pub fn take_progress(&self) -> Vec<ProgressMessage> {
+      std::mem::take(&mut self.shown.borrow_mut().progress)
+    }
+
+    pub fn take_config_diagnostics(&self) -> Vec<ConfigDiagnosticsMessage> {
+      std::mem::take(&mut self.shown.borrow_mut().config_diagnostics)
+    }
+
+    /// Waits for the service to have sent the number of config diagnostics
+    /// messages, which it may send after responding to a message.
+    pub async fn wait_for_config_diagnostics(&self, count: usize) -> Vec<ConfigDiagnosticsMessage> {
+      for _ in 0..100 {
+        if self.shown.borrow().config_diagnostics.len() >= count {
+          break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+      }
+      self.take_config_diagnostics()
+    }
+
+    pub fn take_config_changes(&self) -> Vec<ConfigChangedMessage> {
+      std::mem::take(&mut self.shown.borrow_mut().config_changes)
+    }
+
     /// Waits for the service to have sent the number of message requests, which
     /// it sends separately from responding to a message.
     pub async fn wait_for_message_requests(&self, count: usize) -> Vec<ShowMessageRequestMessage> {
@@ -2012,7 +2740,7 @@ mod test {
 
     pub async fn config_schema(&self, file_paths: &[&str]) -> Result<serde_json::Value> {
       let message = ConfigSchemaMessage {
-        file_paths: file_paths.iter().map(PathBuf::from).collect(),
+        uris: file_paths.iter().map(|file_path| uri(file_path)).collect(),
         allow_global_config: false,
       };
       match self.request(EditorMessageBody::ConfigSchema(serde_json::to_vec(&message)?)).await? {
@@ -2052,16 +2780,8 @@ mod test {
       range: std::ops::Range<u32>,
       options: Option<FormatFileOptions>,
     ) -> Result<Result<Vec<FormatEdit>, NotFormattedMessage>> {
-      let body = EditorMessageBody::FormatFile(FormatFileMessageBody {
-        file_path: file_path.as_ref().to_path_buf(),
-        start: range.start,
-        end: range.end,
-        options: match options {
-          Some(options) => serde_json::to_vec(&options)?,
-          None => Vec::new(),
-        },
-        file_bytes: text.as_bytes().to_vec(),
-      });
+      let file_path = file_path.as_ref().to_string_lossy().replace('\\', "/");
+      let body = format_file_body(&file_path, text, Some(range), options.unwrap_or_default());
       match self.request(body).await? {
         EditorMessageBody::FormatFileResponse(_, FormatFileResult::Formatted(data)) => Ok(Ok(serde_json::from_slice::<FormattedMessage>(&data)?.edits)),
         EditorMessageBody::FormatFileResponse(_, FormatFileResult::NotFormatted(data)) => Ok(Err(serde_json::from_slice(&data)?)),
@@ -2075,13 +2795,7 @@ mod test {
       let message_id = self.id_generator.next();
       let (tx, rx) = oneshot::channel();
       self.pending.store(message_id, tx);
-      let body = EditorMessageBody::FormatFile(FormatFileMessageBody {
-        file_path: PathBuf::from(file_path),
-        start: 0,
-        end: text.encode_utf16().count() as u32,
-        options: Vec::new(),
-        file_bytes: text.as_bytes().to_vec(),
-      });
+      let body = format_file_body(file_path, text, None, Default::default());
       self.writer.send(EditorMessage { id: message_id, body }).unwrap();
       (message_id, rx)
     }

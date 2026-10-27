@@ -79,6 +79,29 @@ Notes:
 - If an unknown message kind is received, return an error (don't ignore it).
 - The JSON data of a message may have more properties in the future, so ignore properties you don't know about.
 - When a configuration file fails to resolve, the editor service shows the error with a show message as well as responding with an error. It's shown once until the configuration file resolves again because the editor makes requests without the user doing anything (ex. when a file is opened).
+- The editor service sends what it logs as log messages, so stderr only has what isn't (ex. a crash).
+
+### Documents
+
+Documents are identified by their uri, like in the language server protocol (ex. `file:///home/user/project/file.ts`). The plugin that formats a document is chosen by its file path, so a document that isn't a file is formatted as one:
+
+- An untitled document (ex. `untitled:Untitled-1`) is formatted as a file in the first workspace folder, or the home directory when there isn't one.
+- A notebook cell is formatted as a file in the notebook's directory when `notebookUri` is provided, which is what the jupyter plugin does when `dprint fmt` formats a notebook. It's only formatted when the notebook would be.
+
+The file is named after the document's language (ex. `Untitled.ts` or `code_block.py`), so provide the `language` of these documents:
+
+```ts
+interface DocumentLanguage {
+  /** The editor's id of the language (ex. "typescript"). */
+  id: string;
+  /** The file extensions the editor associates with the language with the leading period (ex. ".ts"). */
+  fileExtensions?: string[];
+  /** The file names the editor associates with the language (ex. "Dockerfile"). */
+  fileNames?: string[];
+}
+```
+
+The file name is the first of the file extensions, the file names and then the file extension dprint knows for the language id that the configuration file formats, or otherwise the first one. Requests for any other kind of uri have an Error response.
 
 ### Message Kinds
 
@@ -152,13 +175,13 @@ Message body:
 
 ```ts
 interface EditorSettings {
-  /** The workspace folders open in the editor. */
+  /** The uris of the workspace folders open in the editor. */
   workspaceFolders?: string[];
   /** Whether to allow formatting the files that don't have a configuration file in an ancestor directory with the global configuration file. Defaults to `false`. */
   allowGlobalConfig?: boolean;
   /** Whether to notify the user when a file isn't formatted because it doesn't have a configuration file. Defaults to `true`. */
   showNoConfigNotification?: boolean;
-  /** Whether to log debug information to stderr. Defaults to whether the editor service was started with `--verbose`. */
+  /** Whether to send debug log messages. Defaults to whether the editor service was started with `--verbose`. */
   verbose?: boolean;
 }
 ```
@@ -167,42 +190,48 @@ Response: Success response or an Error response
 
 #### `6` - Format file (Client to Service)
 
-Formats a file with the configuration file that's used for it.
+Formats a document with the configuration file that's used for it.
 
 Message body:
 
-- u32 - File path byte length
-- File path
-- u32 - UTF-16 offset in the file text to start formatting at
-- u32 - UTF-16 offset in the file text to end formatting at (ex. the length of the text in UTF-16 code units to format the whole file)
-- u32 - Options byte length, which may be `0`
-- JSON options:
+- u32 - Data byte length
+- JSON data:
 
 ```ts
-interface FormatFileOptions {
+interface FormatFileData {
+  uri: string;
+  /** The language of the document, which is needed for a document that isn't a file (see "Documents"). */
+  language?: DocumentLanguage;
+  /** The uri of the notebook when the document is one of its cells. */
+  notebookUri?: string;
+  /** The range of UTF-16 offsets in the text to format, which is the whole text when not provided. */
+  range?: OffsetRange;
   /** The plugin configuration to use instead of what's in the configuration file. */
   overrideConfig?: Record<string, unknown>;
-  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. See below for the file path to send for a cell. */
-  notebookPath?: string;
   /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
   allowGlobalConfig?: boolean;
-  /** Format the file again until the output stops changing, the same as `dprint fmt`. Defaults to `false` unless the `DPRINT_EDITOR_STABLE_FORMAT` environment variable is `1` or `true`. */
+  /** Format the text again until the output stops changing, the same as `dprint fmt`. Defaults to `false` unless the `DPRINT_EDITOR_STABLE_FORMAT` environment variable is `1` or `true`. */
   ensureStableFormat?: boolean;
-  /** Whether to notify the user when the file isn't formatted because it doesn't have a configuration file. Defaults to the `showNoConfigNotification` setting. */
+  /** Whether to notify the user when the document isn't formatted because it doesn't have a configuration file. Defaults to the `showNoConfigNotification` setting. */
   showNoConfigNotification?: boolean;
+}
+
+interface OffsetRange {
+  start: number;
+  end: number;
 }
 ```
 
-- u32 - File text byte length
-- File text
+- u32 - Text byte length
+- Text
 
 The formatted text keeps the line endings of the text that was sent. For a notebook cell, the trailing whitespace of the formatted text is trimmed like the jupyter plugin does (except after a range that ends before the end of the cell).
 
-The plugin that formats a file is chosen by its file path, so for a notebook cell send the path of a file in the notebook's directory with the file extension of the cell's language (ex. `/project/code_block.py` for a Python cell of `/project/notebook.ipynb`) rather than the path of the notebook. This is what the jupyter plugin does when `dprint fmt` formats a notebook. The file doesn't need to exist.
+A range is expanded to the whole lines it touches. Many plugins don't format a range, so the whole text is formatted and only the edits within the expanded range are provided.
 
-When a file isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it). Send `showNoConfigNotification: false` for a command the user ran that says why the file wasn't formatted itself.
+When a document isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it). Send `showNoConfigNotification: false` for a command the user ran that says why the document wasn't formatted itself.
 
-When the configuration of a plugin that formats the file has problems (`configDiagnostics`), the editor service shows them to the user once until the configuration file changes because a format usually happens without the user doing anything (ex. on save).
+When the configuration of a plugin that formats the document has problems (`configDiagnostics`), the editor service shows them to the user once until the configuration file changes because a format usually happens without the user doing anything (ex. on save).
 
 Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response for a cancelled format
 
@@ -219,18 +248,34 @@ Message body:
 ```ts
 interface NotFormattedData {
   reason: NotFormattedReason;
-  /** The message to show the user about why the file wasn't formatted (ex. for a command the user ran), which isn't provided when it's already formatted. */
+  /** The message to show the user about why the document wasn't formatted (ex. for a command the user ran), which isn't provided when it's already formatted. */
   message?: string;
   /** The problems with the configuration, which are only provided for `configDiagnostics`. */
   diagnostics?: ConfigDiagnostic[];
 }
 
-/** A problem with the configuration of the configuration file. */
+/** A problem with a configuration file. */
 interface ConfigDiagnostic {
+  message: string;
   /** The plugin whose configuration has the problem, which isn't provided for a problem outside a plugin's configuration. */
   pluginName?: string;
-  propertyName: string;
-  message: string;
+  /** The property that has the problem, when there is one. */
+  propertyName?: string;
+  /** Where the problem is in the configuration file, which isn't provided when that's not known (ex. it's in a configuration file that it extends). */
+  range?: Range;
+}
+
+/** A range in a text, which is the same as in the language server protocol. */
+interface Range {
+  start: Position;
+  end: Position;
+}
+
+interface Position {
+  /** The zero-based line. */
+  line: number;
+  /** The zero-based offset in UTF-16 code units from the start of the line. */
+  character: number;
 }
 ```
 
@@ -266,7 +311,7 @@ Response: Clients should not expect a message back. This message is fire and for
 
 #### `9` - File info (Client to Service)
 
-Gets whether a file can be formatted and the configuration file that's used for it.
+Gets whether a document can be formatted and the configuration file that's used for it.
 
 Message body:
 
@@ -275,9 +320,11 @@ Message body:
 
 ```ts
 interface FileInfoData {
-  filePath: string;
-  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. Send the same file path as when formatting the cell. */
-  notebookPath?: string;
+  uri: string;
+  /** The language of the document, which is needed for a document that isn't a file (see "Documents"). */
+  language?: DocumentLanguage;
+  /** The uri of the notebook when the document is one of its cells. */
+  notebookUri?: string;
   /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
   allowGlobalConfig?: boolean;
 }
@@ -295,17 +342,17 @@ Message body:
 
 ```ts
 interface FileInfoResponseData {
-  /** The configuration file that's used for the file, which is `null` when there isn't one. */
+  /** The configuration file that's used for the document, which is `null` when there isn't one. */
   configFile: ConfigFileInfo | null;
   canFormat: boolean;
-  /** Why the file can't be formatted. */
+  /** Why the document can't be formatted. */
   reason?: NotFormattedReason;
-  /** The message to show the user about why the file can't be formatted (ex. for a command the user ran). */
+  /** The message to show the user about why the document can't be formatted (ex. for a command the user ran). */
   message?: string;
 }
 
 interface ConfigFileInfo {
-  path: string;
+  uri: string;
   /** Whether it's the global configuration file. */
   isGlobal: boolean;
 }
@@ -313,22 +360,29 @@ interface ConfigFileInfo {
 /**
  * - `noConfigFile` - There's no configuration file in an ancestor directory and there's no global configuration file.
  * - `globalConfigNotAllowed` - There's no configuration file in an ancestor directory and the global configuration file isn't allowed to be used (ex. offer to format with it).
- * - `notMatched` - The configuration file doesn't format the file (ex. its "includes" and "excludes" don't match it).
- * - `noPlugin` - No plugin in the configuration file handles the file.
+ * - `notMatched` - The configuration file doesn't format the document (ex. its "includes" and "excludes" don't match it).
+ * - `noPlugin` - No plugin in the configuration file handles the document.
  * - `noPlugins` - The configuration file has no plugins.
- * - `configDiagnostics` - The configuration of a plugin that formats the file has problems (only for a format).
- * - `unchanged` - The file is already formatted (only for a format).
+ * - `configDiagnostics` - The configuration of a plugin that formats the document has problems (only for a format).
+ * - `unchanged` - The document is already formatted (only for a format).
  *
  * Handle a reason you don't know about the same as `notMatched`.
  */
-type NotFormattedReason = "noConfigFile" | "globalConfigNotAllowed" | "notMatched" | "noPlugin" | "noPlugins" | "configDiagnostics" | "unchanged";
+type NotFormattedReason =
+  | "noConfigFile"
+  | "globalConfigNotAllowed"
+  | "notMatched"
+  | "noPlugin"
+  | "noPlugins"
+  | "configDiagnostics"
+  | "unchanged";
 ```
 
 Response: None
 
 #### `11` - Configuration info (Client to Service)
 
-Gets the plugins of the configuration file that's used for a file (ex. for the JSON schema of a configuration file).
+Gets the plugins of the configuration file that's used for a document (ex. for the JSON schema of a configuration file).
 
 Message body:
 
@@ -337,8 +391,8 @@ Message body:
 
 ```ts
 interface ConfigInfoData {
-  /** A file the configuration file is used for, which may be the configuration file itself. */
-  filePath: string;
+  /** A document the configuration file is used for, which may be the configuration file itself. */
+  uri: string;
   allowGlobalConfig?: boolean;
 }
 ```
@@ -355,7 +409,7 @@ Message body:
 
 ```ts
 interface ConfigInfoResponseData {
-  /** The configuration file that's used for the file, which is `null` when there isn't one. */
+  /** The configuration file that's used for the document, which is `null` when there isn't one. */
   configFile: ConfigFileInfo | null;
   /** The plugins of the configuration file, which is empty when there isn't one. */
   plugins: PluginInfo[];
@@ -448,8 +502,8 @@ Message body:
 
 ```ts
 interface ConfigSchemaData {
-  /** Files that the configuration files are used for (ex. the configuration files themselves). The schema has the plugins of each one, using the first plugin with a configuration key whose schema could be downloaded. */
-  filePaths: string[];
+  /** Documents that the configuration files are used for (ex. the configuration files themselves). The schema has the plugins of each one, using the first plugin with a configuration key whose schema could be downloaded. */
+  uris: string[];
   allowGlobalConfig?: boolean;
 }
 ```
@@ -472,6 +526,89 @@ interface ConfigSchemaResponseData {
    * be downloaded isn't in it, so get it again later (ex. when a configuration file changes).
    */
   schema: object;
+}
+```
+
+Response: None
+
+#### `18` - Log (Service to Client)
+
+What the editor service logs (ex. for an output panel).
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface LogData {
+  /** Treat a level you don't know about the same as `info`. Debug messages are only sent when the `verbose` setting is on. */
+  level: "error" | "warn" | "info" | "debug";
+  message: string;
+}
+```
+
+Response: None
+
+#### `19` - Progress (Service to Client)
+
+The progress of something that may take a while (ex. downloading or compiling a plugin the first time it's used), which an editor can show so it doesn't look like nothing is happening.
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+type ProgressData =
+  | {
+    /** Identifies the progress in the messages that follow. */
+    id: number;
+    kind: "begin";
+    /** What's being done (ex. "Downloading https://plugins.dprint.dev/typescript-0.95.0.wasm"). */
+    title: string;
+    /** From 0 to 100, which isn't provided when the progress isn't known. */
+    percentage?: number;
+  }
+  | { id: number; kind: "report"; percentage: number }
+  | { id: number; kind: "end" };
+```
+
+Response: None
+
+#### `20` - Configuration diagnostics (Service to Client)
+
+The problems with a configuration file (ex. to show in the editor's problems panel). The editor service sends these when it resolves a configuration file and again once it checked the configuration of its plugins, which a request that uses the configuration file does.
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface ConfigDiagnosticsData {
+  /** The configuration file. */
+  uri: string;
+  /** These replace the problems sent before for the configuration file, so this is empty once they're fixed. */
+  diagnostics: ConfigDiagnostic[];
+}
+```
+
+Response: None
+
+#### `21` - Configuration changed (Service to Client)
+
+What a configuration file formats may have changed in a way the editor can't see (ex. a configuration file that it extends changed). Send the file info and configuration info messages again for the documents that use it (ex. to update which documents the editor formats with dprint).
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface ConfigChangedData {
+  /** The configuration file. */
+  uri: string;
 }
 ```
 

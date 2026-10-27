@@ -394,6 +394,11 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     if self.plugins.is_empty() { Err(NoPluginsFoundError) } else { Ok(()) }
   }
 
+  /// The problems with the global configuration (ex. an unknown property).
+  pub fn global_config_diagnostics(&self) -> &[GlobalConfigDiagnostic] {
+    &self.global_config_diagnostics
+  }
+
   pub fn ensure_no_global_config_diagnostics(&self) -> Result<(), ResolveConfigError> {
     if self.global_config_diagnostics.is_empty() {
       return Ok(());

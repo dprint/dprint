@@ -49,7 +49,9 @@ use crate::utils::Logger;
 use crate::utils::LoggerOptions;
 use crate::utils::LoggerPromptTerminal;
 use crate::utils::NoProxy;
+use crate::utils::OutputSink;
 use crate::utils::ProgressBars;
+use crate::utils::ProgressBarsCell;
 use crate::utils::PromptTerminal;
 use crate::utils::RealUrlDownloader;
 use crate::utils::ShowConfirmStrategy;
@@ -75,7 +77,7 @@ pub struct RealEnvironmentOptions {
 
 #[derive(Clone)]
 pub struct RealEnvironment {
-  progress_bars: Option<Arc<ProgressBars>>,
+  progress_bars: ProgressBarsCell,
   url_downloader: Arc<RealUrlDownloader>,
   logger: Arc<Logger>,
   system: Arc<Mutex<System>>,
@@ -88,7 +90,7 @@ impl RealEnvironment {
       is_stdout_machine_readable: options.is_stdout_machine_readable,
       log_level: options.log_level,
     }));
-    let progress_bars = ProgressBars::new(&logger).map(Arc::new);
+    let progress_bars = ProgressBarsCell::new(ProgressBars::new(&logger).map(Arc::new));
     let no_proxy = NoProxy::from_env();
     let url_downloader = Arc::new(RealUrlDownloader::new(
       progress_bars.clone(),
@@ -546,8 +548,13 @@ impl Environment for RealEnvironment {
     self.logger.log_machine_readable(bytes);
   }
 
-  fn log_stderr_with_context(&self, text: &str, context_name: &str) {
-    self.logger.log_stderr_with_context(text, context_name);
+  fn log_stderr_with_context(&self, level: LogLevel, text: &str, context_name: &str) {
+    self.logger.log_stderr_with_context(level, text, context_name);
+  }
+
+  fn set_output_sink(&self, sink: Arc<dyn OutputSink>) {
+    self.logger.set_sink(sink.clone());
+    self.progress_bars.set(Some(Arc::new(ProgressBars::with_sink(sink))));
   }
 
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
@@ -556,7 +563,7 @@ impl Environment for RealEnvironment {
     action: TCreate,
     total_size: usize,
   ) -> TResult {
-    log_action_with_progress(self.progress_bars.as_deref(), message, action, total_size)
+    log_action_with_progress(self.progress_bars.get().as_deref(), message, action, total_size)
   }
 
   fn get_cache_dir(&self) -> CanonicalizedPathBuf {
@@ -702,8 +709,8 @@ impl Environment for RealEnvironment {
     Box::new(io::stdin())
   }
 
-  fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
-    self.progress_bars.as_ref()
+  fn progress_bars(&self) -> Option<Arc<ProgressBars>> {
+    self.progress_bars.get()
   }
 
   #[cfg(windows)]

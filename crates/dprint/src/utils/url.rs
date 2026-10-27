@@ -15,7 +15,7 @@ use self::unsafe_certs::NoCertificateVerification;
 use super::Logger;
 use super::certs::get_root_cert_store;
 use super::logging::ProgressBarStyle;
-use super::logging::ProgressBars;
+use super::logging::ProgressBarsCell;
 use super::no_proxy::NoProxy;
 use crate::environment::DownloadOptions;
 use crate::environment::DownloadProxy;
@@ -31,14 +31,14 @@ const READ_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_GZIP_RESERVE_RATIO: usize = 20;
 
 pub struct RealUrlDownloader {
-  progress_bars: Option<Arc<ProgressBars>>,
+  progress_bars: ProgressBarsCell,
   client_store: Arc<ClientStore<RealProxyUrlProvider>>,
   logger: Arc<Logger>,
 }
 
 impl RealUrlDownloader {
   pub fn new(
-    progress_bars: Option<Arc<ProgressBars>>,
+    progress_bars: ProgressBarsCell,
     logger: Arc<Logger>,
     no_proxy: NoProxy,
     unsafely_ignore_certificates: Option<UnsafelyIgnoreCertificates>,
@@ -173,7 +173,7 @@ impl RealUrlDownloader {
     let total_size = headers.get("content-length").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
     let mut content = Vec::new();
     content.try_reserve_exact(total_size)?;
-    let progress = self.progress_bars.as_ref().map(|progress_bars| {
+    let progress = self.progress_bars.get().map(|progress_bars| {
       let mut message = format!("Downloading {}", url);
       if retry_count > 0 {
         message.push_str(&format!(" (Retry {}/{})", retry_count, MAX_RETRIES))
@@ -1005,7 +1005,7 @@ mod test {
 
   fn create_downloader(no_proxy: NoProxy) -> RealUrlDownloader {
     RealUrlDownloader::new(
-      None,
+      Default::default(),
       Arc::new(Logger::new(&LoggerOptions {
         initial_context_name: "dprint".to_string(),
         is_stdout_machine_readable: true,
@@ -1021,7 +1021,7 @@ mod test {
   fn unsafe_ignore_cert() {
     fn create_downloader(ignore_option: Option<Vec<String>>) -> RealUrlDownloader {
       RealUrlDownloader::new(
-        None,
+        Default::default(),
         Arc::new(Logger::new(&LoggerOptions {
           initial_context_name: "dprint".to_string(),
           is_stdout_machine_readable: true,

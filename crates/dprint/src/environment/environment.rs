@@ -27,6 +27,7 @@ use sys_traits::ThreadSleep;
 use crate::plugins::CompilationResult;
 use crate::utils::BasicShowConfirmStrategy;
 use crate::utils::LogLevel;
+use crate::utils::OutputSink;
 use crate::utils::ProgressBars;
 use crate::utils::PromptTerminal;
 use crate::utils::ShowConfirmStrategy;
@@ -169,7 +170,7 @@ pub trait UrlDownloader {
 macro_rules! log_debug {
   ($logger:expr, $($arg:tt)*) => {
     if $logger.log_level().is_debug() {
-      $logger.__log_stderr__(&format!("[DEBUG] {}", format_args!($($arg)*)));
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Debug, &format!($($arg)*));
     }
   }
 }
@@ -177,12 +178,12 @@ macro_rules! log_debug {
 macro_rules! log_stderr_info {
   ($logger:expr, $single_arg:expr $(,)? ) => {
     if $logger.log_level().is_info() {
-      $logger.__log_stderr__($single_arg);
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Info, $single_arg);
     }
   };
   ($logger:expr, $($arg:tt)*) => {
     if $logger.log_level().is_info() {
-      $logger.__log_stderr__(&format!($($arg)*));
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Info, &format!($($arg)*));
     }
   }
 }
@@ -203,12 +204,12 @@ macro_rules! log_stdout_info {
 macro_rules! log_warn {
   ($logger:expr, $single_arg:expr $(,)? ) => {
     if $logger.log_level().is_warn() {
-      $logger.__log_stderr__($single_arg);
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Warn, $single_arg);
     }
   };
   ($logger:expr, $($arg:tt)*) => {
     if $logger.log_level().is_warn() {
-      $logger.__log_stderr__(&format!($($arg)*));
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Warn, &format!($($arg)*));
     }
   }
 }
@@ -216,12 +217,12 @@ macro_rules! log_warn {
 macro_rules! log_error {
   ($logger:expr, $single_arg:expr $(,)? ) => {
     if $logger.log_level().is_error() {
-      $logger.__log_stderr__($single_arg);
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Error, $single_arg);
     }
   };
   ($logger:expr, $($arg:tt)*) => {
     if $logger.log_level().is_error() {
-      $logger.__log_stderr__(&format!($($arg)*));
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Error, &format!($($arg)*));
     }
   }
 }
@@ -332,12 +333,19 @@ pub trait Environment:
   fn __log__(&self, text: &str);
   /// Don't ever call this directly in the code. That's why this has this weird name.
   fn __log_stderr__(&self, text: &str) {
-    self.log_stderr_with_context(text, "dprint");
+    self.__log_stderr_with_level__(LogLevel::Info, text);
+  }
+  /// Don't ever call this directly in the code. That's why this has this weird name.
+  fn __log_stderr_with_level__(&self, level: LogLevel, text: &str) {
+    self.log_stderr_with_context(level, text, "dprint");
   }
   /// Logs an error to the console providing the context name.
   /// This will cause the logger to output the context name when appropriate.
   /// Ex. Will log the dprint process plugin name.
-  fn log_stderr_with_context(&self, text: &str, context_name: &str);
+  fn log_stderr_with_context(&self, level: LogLevel, text: &str, context_name: &str);
+  /// Sends what's logged and the progress of what's being done to the sink
+  /// instead of stderr from now on (ex. for an editor that shows them).
+  fn set_output_sink(&self, sink: Arc<dyn OutputSink>);
   /// Information to force output when the environment is in "machine readable mode".
   fn log_machine_readable(&self, bytes: &[u8]);
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
@@ -386,7 +394,7 @@ pub trait Environment:
   async fn cpu_usage(&self) -> u8;
   fn stdout(&self) -> Box<dyn Write + Send>;
   fn stdin(&self) -> Box<dyn Read + Send>;
-  fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
+  fn progress_bars(&self) -> Option<Arc<ProgressBars>> {
     None
   }
   #[cfg(windows)]

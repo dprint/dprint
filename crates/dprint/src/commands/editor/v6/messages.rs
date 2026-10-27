@@ -4,8 +4,9 @@ use dprint_core::communication::MessageReader;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Result;
-use std::path::PathBuf;
 
+use deno_tower_lsp::lsp_types::Range;
+use deno_tower_lsp::lsp_types::Uri;
 use dprint_core::configuration::ConfigKeyMap;
 
 use super::super::messages::EditorPluginInfo;
@@ -24,7 +25,7 @@ pub enum EditorMessageBody {
   Initialize(Vec<u8>),
   /// The settings of the editor as JSON (see `EditorSettings`).
   UpdateSettings(Vec<u8>),
-  /// Formats a file with the config file that's found for it.
+  /// Formats a document with the config file that's found for it.
   FormatFile(FormatFileMessageBody),
   FormatFileResponse(u32, FormatFileResult),
   CancelFormat(u32),
@@ -52,6 +53,16 @@ pub enum EditorMessageBody {
   /// The JSON schema of config files as JSON (see
   /// `ConfigSchemaResponseMessage`).
   ConfigSchemaResponse(u32, Vec<u8>),
+  /// What was logged as JSON (see `LogMessage`).
+  Log(Vec<u8>),
+  /// The progress of something that may take a while as JSON (see
+  /// `ProgressMessage`).
+  Progress(Vec<u8>),
+  /// The problems with a config file as JSON (see `ConfigDiagnosticsMessage`).
+  ConfigDiagnostics(Vec<u8>),
+  /// What a config file formats may have changed as JSON (see
+  /// `ConfigChangedMessage`).
+  ConfigChanged(Vec<u8>),
   #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
@@ -70,18 +81,9 @@ impl MessageBody for EditorMessageBody {
       4 => EditorMessageBody::Initialize(reader.read_sized_bytes()?),
       5 => EditorMessageBody::UpdateSettings(reader.read_sized_bytes()?),
       6 => {
-        let file_path = reader.read_sized_bytes()?;
-        let start = reader.read_u32()?;
-        let end = reader.read_u32()?;
-        let options = reader.read_sized_bytes()?;
+        let data = reader.read_sized_bytes()?;
         let file_bytes = reader.read_sized_bytes()?;
-        EditorMessageBody::FormatFile(FormatFileMessageBody {
-          file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
-          start,
-          end,
-          options,
-          file_bytes,
-        })
+        EditorMessageBody::FormatFile(FormatFileMessageBody { data, file_bytes })
       }
       7 => {
         let message_id = reader.read_u32()?;
@@ -121,6 +123,10 @@ impl MessageBody for EditorMessageBody {
         let message_id = reader.read_u32()?;
         EditorMessageBody::ConfigSchemaResponse(message_id, reader.read_sized_bytes()?)
       }
+      18 => EditorMessageBody::Log(reader.read_sized_bytes()?),
+      19 => EditorMessageBody::Progress(reader.read_sized_bytes()?),
+      20 => EditorMessageBody::ConfigDiagnostics(reader.read_sized_bytes()?),
+      21 => EditorMessageBody::ConfigChanged(reader.read_sized_bytes()?),
       _ => {
         let data = reader.read_bytes(body_length as usize)?;
         EditorMessageBody::Unknown(kind, data)
@@ -140,7 +146,11 @@ impl MessageBody for EditorMessageBody {
       | EditorMessageBody::ConfigInfo(data)
       | EditorMessageBody::ShowMessage(data)
       | EditorMessageBody::ShowMessageRequest(data)
-      | EditorMessageBody::ConfigSchema(data) => {
+      | EditorMessageBody::ConfigSchema(data)
+      | EditorMessageBody::Log(data)
+      | EditorMessageBody::Progress(data)
+      | EditorMessageBody::ConfigDiagnostics(data)
+      | EditorMessageBody::ConfigChanged(data) => {
         builder.add_bytes(data);
       }
       EditorMessageBody::Error(message_id, data)
@@ -152,11 +162,7 @@ impl MessageBody for EditorMessageBody {
         builder.add_bytes(data);
       }
       EditorMessageBody::FormatFile(body) => {
-        let path = body.file_path.to_string_lossy().to_string();
-        builder.add_owned_bytes(path.into_bytes());
-        builder.add_number(body.start);
-        builder.add_number(body.end);
-        builder.add_bytes(&body.options);
+        builder.add_bytes(&body.data);
         builder.add_bytes(&body.file_bytes);
       }
       EditorMessageBody::FormatFileResponse(message_id, result) => {
@@ -196,6 +202,10 @@ impl MessageBody for EditorMessageBody {
       EditorMessageBody::ShowMessageRequestResponse(_, _) => 15,
       EditorMessageBody::ConfigSchema(_) => 16,
       EditorMessageBody::ConfigSchemaResponse(_, _) => 17,
+      EditorMessageBody::Log(_) => 18,
+      EditorMessageBody::Progress(_) => 19,
+      EditorMessageBody::ConfigDiagnostics(_) => 20,
+      EditorMessageBody::ConfigChanged(_) => 21,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
@@ -207,13 +217,8 @@ impl MessageBody for EditorMessageBody {
 
 #[derive(Debug)]
 pub struct FormatFileMessageBody {
-  pub file_path: PathBuf,
-  /// The UTF-16 offset in the file text to start formatting at.
-  pub start: u32,
-  /// The UTF-16 offset in the file text to end formatting at.
-  pub end: u32,
-  /// The `FormatFileOptions` as JSON, which may be empty.
-  pub options: Vec<u8>,
+  /// The `FormatFileMessage` as JSON.
+  pub data: Vec<u8>,
   pub file_bytes: Vec<u8>,
 }
 
@@ -248,15 +253,42 @@ pub struct ClientInfo {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileInfoMessage {
-  pub file_path: PathBuf,
-  /// The path of the notebook when the file is one of its cells, which is only
-  /// formatted when the notebook would be.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub notebook_path: Option<PathBuf>,
+  #[serde(flatten)]
+  pub document: DocumentInfo,
   /// Whether to allow using the global config file when there's no config file in an
   /// ancestor directory.
   #[serde(default)]
   pub allow_global_config: bool,
+}
+
+/// What identifies a document, which is formatted as a file.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentInfo {
+  pub uri: Uri,
+  /// The language of the document, which is needed for a document that isn't
+  /// a file (ex. an untitled document or a notebook cell).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub language: Option<DocumentLanguage>,
+  /// The uri of the notebook when the document is one of its cells, which is
+  /// only formatted when the notebook would be.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub notebook_uri: Option<Uri>,
+}
+
+/// The language of a document.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentLanguage {
+  /// The editor's id of the language (ex. "typescript").
+  pub id: String,
+  /// The file extensions the editor associates with the language with the
+  /// leading period (ex. ".ts").
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub file_extensions: Vec<String>,
+  /// The file names the editor associates with the language (ex. "Dockerfile").
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub file_names: Vec<String>,
 }
 
 /// The data of a `FileInfoResponse` message.
@@ -279,8 +311,8 @@ pub struct FileInfoResponseMessage {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigInfoMessage {
-  /// A file that the config file is used for (ex. the config file itself).
-  pub file_path: PathBuf,
+  /// A document that the config file is used for (ex. the config file itself).
+  pub uri: Uri,
   /// Whether to allow using the global config file when there's no config file in an
   /// ancestor directory.
   #[serde(default)]
@@ -300,22 +332,24 @@ pub struct ConfigInfoResponseMessage {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigFileInfo {
-  pub path: String,
+  pub uri: Uri,
   /// Whether it's the global config file.
   pub is_global: bool,
 }
 
-/// The options of a `FormatFile` message.
-#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+/// The data of a `FormatFile` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FormatFileOptions {
+pub struct FormatFileMessage {
+  #[serde(flatten)]
+  pub document: DocumentInfo,
+  /// The range of UTF-16 offsets in the text to format, which is the whole
+  /// text when `None`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub range: Option<OffsetRange>,
   /// The plugin config to use instead of what's in the config file.
   #[serde(default, skip_serializing_if = "ConfigKeyMap::is_empty")]
   pub override_config: ConfigKeyMap,
-  /// The path of the notebook when the file is one of its cells, which is only
-  /// formatted when the notebook would be.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub notebook_path: Option<PathBuf>,
   /// Whether to allow using the global config file when there's no config file in an
   /// ancestor directory.
   #[serde(default)]
@@ -328,6 +362,14 @@ pub struct FormatFileOptions {
   /// have a config file, which defaults to the setting.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub show_no_config_notification: Option<bool>,
+}
+
+/// A range of UTF-16 offsets in a text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OffsetRange {
+  pub start: u32,
+  pub end: u32,
 }
 
 /// The edits of a `FormatFile` message that formatted the file.
@@ -362,16 +404,22 @@ pub struct NotFormattedMessage {
   pub diagnostics: Vec<ConfigDiagnostic>,
 }
 
-/// A problem with the configuration of the config file.
+/// A problem with a config file.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigDiagnostic {
+  pub message: String,
   /// The plugin whose configuration has the problem, which is `None` for a
   /// problem outside a plugin's configuration.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub plugin_name: Option<String>,
-  pub property_name: String,
-  pub message: String,
+  /// The property that has the problem, when there is one.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub property_name: Option<String>,
+  /// Where the problem is in the config file, which is `None` when that's
+  /// not known (ex. it's in a config file that it extends).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub range: Option<Range>,
 }
 
 /// Why a file isn't formatted.
@@ -402,9 +450,9 @@ pub enum NotFormattedReason {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorSettings {
-  /// The workspace folders open in the editor.
+  /// The uris of the workspace folders open in the editor.
   #[serde(default)]
-  pub workspace_folders: Vec<PathBuf>,
+  pub workspace_folders: Vec<Uri>,
   /// Whether to format the files that don't have a config file in an ancestor
   /// directory with the global config file.
   #[serde(default)]
@@ -413,7 +461,7 @@ pub struct EditorSettings {
   /// have a config file.
   #[serde(default = "default_true")]
   pub show_no_config_notification: bool,
-  /// Whether to log debug information, which defaults to whether the editor
+  /// Whether to send debug log messages, which defaults to whether the editor
   /// service was started with `--verbose`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub verbose: Option<bool>,
@@ -479,9 +527,9 @@ pub enum MessageKind {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigSchemaMessage {
-  /// Files that the config files are used for (ex. the config files
+  /// Documents that the config files are used for (ex. the config files
   /// themselves). The schema has the plugins of each config file.
-  pub file_paths: Vec<PathBuf>,
+  pub uris: Vec<Uri>,
   /// Whether to allow using the global config file when there's no config file in an
   /// ancestor directory.
   #[serde(default)]
@@ -493,4 +541,58 @@ pub struct ConfigSchemaMessage {
 #[serde(rename_all = "camelCase")]
 pub struct ConfigSchemaResponseMessage {
   pub schema: serde_json::Value,
+}
+
+/// The data of a `Log` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogMessage {
+  pub level: LogMessageLevel,
+  pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LogMessageLevel {
+  Error,
+  Warn,
+  Info,
+  Debug,
+}
+
+/// The data of a `Progress` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ProgressMessage {
+  #[serde(rename_all = "camelCase")]
+  Begin {
+    id: usize,
+    /// What's being done.
+    title: String,
+    /// From 0 to 100, which is `None` when the progress isn't known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    percentage: Option<u8>,
+  },
+  #[serde(rename_all = "camelCase")]
+  Report { id: usize, percentage: u8 },
+  #[serde(rename_all = "camelCase")]
+  End { id: usize },
+}
+
+/// The data of a `ConfigDiagnostics` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigDiagnosticsMessage {
+  /// The config file.
+  pub uri: Uri,
+  /// These replace the problems sent before for the config file.
+  pub diagnostics: Vec<ConfigDiagnostic>,
+}
+
+/// The data of a `ConfigChanged` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigChangedMessage {
+  /// The config file.
+  pub uri: Uri,
 }

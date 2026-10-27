@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -108,11 +109,11 @@ use self::untitled::is_untitled_uri;
 mod client;
 pub(super) mod config_completion;
 mod documents;
-mod language;
+pub(super) mod language;
 pub(super) mod notebook;
 mod settings;
 pub(super) mod text;
-mod untitled;
+pub(super) mod untitled;
 
 /// The formatting option a client provides in a format request to format a
 /// document without a config file in an ancestor directory using the global
@@ -1036,6 +1037,19 @@ pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
       }
     }
   }
+}
+
+/// Gets the uri of a file path, which is the reverse of `uri_to_file_path`.
+pub fn file_path_to_uri(file_path: &Path) -> Option<Uri> {
+  let url = match Url::from_file_path(file_path) {
+    Ok(url) => url,
+    // a unix-style path, which is used in the tests even on Windows (see `uri_to_file_path`)
+    Err(()) if cfg!(windows) && file_path.to_string_lossy().starts_with('/') => {
+      Url::parse(&format!("file://{}", file_path.to_string_lossy().replace('\\', "/"))).ok()?
+    }
+    Err(()) => return None,
+  };
+  url.as_str().parse().ok()
 }
 
 /// Gets the plugin's configuration diagnostics when the format request failed
