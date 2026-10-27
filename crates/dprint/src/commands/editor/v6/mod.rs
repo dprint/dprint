@@ -21,7 +21,6 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::arg_parser::CliArgs;
-use crate::arg_parser::EditorServiceSchemaVersion;
 use crate::commands::lsp::config_completion::ConfigJsonSchemaBuilder;
 use crate::commands::lsp::config_completion::PluginSchemaUrl;
 use crate::commands::lsp::notebook::trim_formatted_cell_text;
@@ -52,30 +51,33 @@ use crate::utils::Semaphore;
 
 use super::EditorContext;
 use super::get_editor_plugin_infos;
-use super::messages::ClientInfo;
-use super::messages::ConfigFileInfo;
-use super::messages::ConfigInfoMessage;
-use super::messages::ConfigInfoResponseMessage;
-use super::messages::ConfigSchemaMessage;
-use super::messages::ConfigSchemaResponseMessage;
-use super::messages::EditorMessage;
-use super::messages::EditorMessageBody;
-use super::messages::EditorSettings;
-use super::messages::FileInfoMessage;
-use super::messages::FileInfoResponseMessage;
-use super::messages::FormatEdit;
-use super::messages::FormatFileMessageBody;
-use super::messages::FormatFileOptions;
-use super::messages::FormatFileResult;
-use super::messages::FormattedMessage;
-use super::messages::InitializeMessage;
-use super::messages::MessageAction;
-use super::messages::MessageKind;
-use super::messages::NotFormattedMessage;
-use super::messages::NotFormattedReason;
-use super::messages::ShowMessageMessage;
-use super::messages::ShowMessageRequestMessage;
-use super::messages::ShowMessageRequestResponseMessage;
+use super::messages::MessageBody;
+mod messages;
+
+use self::messages::ClientInfo;
+use self::messages::ConfigFileInfo;
+use self::messages::ConfigInfoMessage;
+use self::messages::ConfigInfoResponseMessage;
+use self::messages::ConfigSchemaMessage;
+use self::messages::ConfigSchemaResponseMessage;
+use self::messages::EditorMessage;
+use self::messages::EditorMessageBody;
+use self::messages::EditorSettings;
+use self::messages::FileInfoMessage;
+use self::messages::FileInfoResponseMessage;
+use self::messages::FormatEdit;
+use self::messages::FormatFileMessageBody;
+use self::messages::FormatFileOptions;
+use self::messages::FormatFileResult;
+use self::messages::FormattedMessage;
+use self::messages::InitializeMessage;
+use self::messages::MessageAction;
+use self::messages::MessageKind;
+use self::messages::NotFormattedMessage;
+use self::messages::NotFormattedReason;
+use self::messages::ShowMessageMessage;
+use self::messages::ShowMessageRequestMessage;
+use self::messages::ShowMessageRequestResponseMessage;
 use super::new_format_concurrency_limiter;
 use super::send_error_response;
 use super::send_response_body;
@@ -83,7 +85,7 @@ use super::start_reading_messages;
 
 struct WorkspaceEditorService<TEnvironment: Environment> {
   environment: TEnvironment,
-  context: EditorContext,
+  context: EditorContext<EditorMessageBody>,
   scope_container: PluginsScopeContainer<TEnvironment>,
   concurrency_limiter: Rc<Semaphore>,
   ensure_stable_format: EnsureStableFormat,
@@ -110,7 +112,7 @@ enum FormatOutcome {
   NotFormatted(NotFormattedMessage),
 }
 
-pub async fn run_workspace_editor_service<TEnvironment: Environment>(
+pub async fn run_editor_service<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
@@ -130,7 +132,7 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
     pending_message_requests: Default::default(),
     has_notified_no_config: Default::default(),
   });
-  let mut rx = start_reading_messages(environment, EditorServiceSchemaVersion::V6);
+  let mut rx = start_reading_messages::<EditorMessageBody>(environment);
 
   loop {
     let message = tokio::select! {
@@ -146,7 +148,7 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
       send_error_response(
         context,
         message.id,
-        anyhow!("Send an initialize message before message kind {}.", message.body.as_u32()),
+        anyhow!("Send an initialize message before message kind {}.", message.body.kind()),
       );
       continue;
     }
@@ -280,16 +282,13 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
           token.cancel();
         }
       }
-      EditorMessageBody::CanFormat(_) | EditorMessageBody::CanFormatResponse(_, _) | EditorMessageBody::Format(_) | EditorMessageBody::FormatResponse(_, _) => {
-        unreachable!("only read with schema version 5");
-      }
       EditorMessageBody::FileInfoResponse(_, _)
       | EditorMessageBody::ConfigInfoResponse(_, _)
       | EditorMessageBody::FormatFileResponse(_, _)
       | EditorMessageBody::ShowMessage(_)
       | EditorMessageBody::ShowMessageRequest(_)
       | EditorMessageBody::ConfigSchemaResponse(_, _) => {
-        send_error_response(context, message.id, anyhow!("CLI cannot handle a message with kind {}.", message.body.as_u32()));
+        send_error_response(context, message.id, anyhow!("CLI cannot handle a message with kind {}.", message.body.kind()));
       }
       EditorMessageBody::Unknown(message_kind, _) => {
         send_error_response(context, message.id, anyhow!("Unknown message with kind: {}", message_kind));
@@ -701,7 +700,6 @@ mod test {
   use pretty_assertions::assert_eq;
   use tokio::sync::oneshot;
 
-  use crate::arg_parser::EditorServiceSchemaVersion;
   use crate::commands::no_config::NoConfigNotificationDismissal;
   use crate::commands::no_config::dismiss_no_config_notification;
   use crate::commands::no_config::is_no_config_notification_dismissed;
@@ -714,30 +712,30 @@ mod test {
   use crate::test_helpers::run_test_cli;
   use crate::utils::LogLevel;
 
-  use super::super::messages::ClientInfo;
-  use super::super::messages::ConfigFileInfo;
-  use super::super::messages::ConfigInfoMessage;
-  use super::super::messages::ConfigInfoResponseMessage;
-  use super::super::messages::ConfigSchemaMessage;
-  use super::super::messages::ConfigSchemaResponseMessage;
-  use super::super::messages::EditorMessage;
-  use super::super::messages::EditorMessageBody;
-  use super::super::messages::EditorSettings;
-  use super::super::messages::FileInfoMessage;
-  use super::super::messages::FileInfoResponseMessage;
-  use super::super::messages::FormatEdit;
-  use super::super::messages::FormatFileMessageBody;
-  use super::super::messages::FormatFileOptions;
-  use super::super::messages::FormatFileResult;
-  use super::super::messages::FormattedMessage;
-  use super::super::messages::InitializeMessage;
-  use super::super::messages::MessageAction;
-  use super::super::messages::MessageKind;
-  use super::super::messages::NotFormattedMessage;
-  use super::super::messages::NotFormattedReason;
-  use super::super::messages::ShowMessageMessage;
-  use super::super::messages::ShowMessageRequestMessage;
-  use super::super::messages::ShowMessageRequestResponseMessage;
+  use super::messages::ClientInfo;
+  use super::messages::ConfigFileInfo;
+  use super::messages::ConfigInfoMessage;
+  use super::messages::ConfigInfoResponseMessage;
+  use super::messages::ConfigSchemaMessage;
+  use super::messages::ConfigSchemaResponseMessage;
+  use super::messages::EditorMessage;
+  use super::messages::EditorMessageBody;
+  use super::messages::EditorSettings;
+  use super::messages::FileInfoMessage;
+  use super::messages::FileInfoResponseMessage;
+  use super::messages::FormatEdit;
+  use super::messages::FormatFileMessageBody;
+  use super::messages::FormatFileOptions;
+  use super::messages::FormatFileResult;
+  use super::messages::FormattedMessage;
+  use super::messages::InitializeMessage;
+  use super::messages::MessageAction;
+  use super::messages::MessageKind;
+  use super::messages::NotFormattedMessage;
+  use super::messages::NotFormattedReason;
+  use super::messages::ShowMessageMessage;
+  use super::messages::ShowMessageRequestMessage;
+  use super::messages::ShowMessageRequestResponseMessage;
 
   #[test]
   fn should_format_files_with_the_config_file_of_each() {
@@ -1482,14 +1480,6 @@ mod test {
     });
   }
 
-  #[test]
-  fn should_not_start_schema_version_that_does_not_exist() {
-    let environment = TestEnvironment::new();
-    let err = run_test_cli(vec!["editor-service", "--parent-pid", "1", "--schema-version", "7"], &environment).unwrap_err();
-    err.assert_exit_code(10);
-    assert!(err.to_string().contains("[possible values: 5, 6]"), "{err:#}");
-  }
-
   #[derive(Debug, PartialEq)]
   enum FormatOutcome {
     Formatted(String),
@@ -1595,7 +1585,7 @@ mod test {
       let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
       dprint_core::async_runtime::spawn_blocking(move || {
         let mut reader = MessageReader::new(stdout);
-        while let Ok(message) = EditorMessage::read(&mut reader, EditorServiceSchemaVersion::V6) {
+        while let Ok(message) = EditorMessage::read(&mut reader) {
           if tx.send(message).is_err() {
             break;
           }
