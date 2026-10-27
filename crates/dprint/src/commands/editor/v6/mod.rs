@@ -53,16 +53,16 @@ use crate::commands::not_formatted_messages::NO_CELL_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
+use crate::commands::not_formatted_messages::PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE;
 use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE;
 use crate::commands::process_plugin_approval::PROCESS_PLUGIN_ACTION_TITLES;
 use crate::commands::process_plugin_approval::store_process_plugin_action;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::ProcessPluginApproval;
-use crate::configuration::ProcessPluginDecision;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
-use crate::configuration::read_permissions;
+use crate::configuration::SessionPermissions;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -177,8 +177,8 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
   pending_message_requests: RcIdStore<oneshot::Sender<Option<MessageAction>>>,
   /// Whether the user was notified this session about a file without a config file.
   has_notified_no_config: Cell<bool>,
-  /// What the user decided about running process plugins for this session.
-  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
+  /// What the user allowed for this session.
+  session_permissions: Arc<SessionPermissions>,
   /// The process plugins the user was asked this session to allow running.
   prompted_process_plugins: RefCell<HashSet<ProcessPluginApproval>>,
 }
@@ -262,7 +262,7 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
-  let session_process_plugin_decisions = Arc::new(Mutex::new(Vec::new()));
+  let session_permissions = Arc::new(SessionPermissions::default());
   let service = Rc::new(WorkspaceEditorService {
     environment: environment.clone(),
     context: EditorContext::new(environment),
@@ -275,7 +275,7 @@ pub async fn run_editor_service<TEnvironment: Environment>(
       config_path,
       args.remote_cache_mode(),
       DownloadPolicy::for_editor(environment),
-      session_process_plugin_decisions.clone(),
+      session_permissions.clone(),
     ),
     concurrency_limiter: Rc::new(new_format_concurrency_limiter(environment)),
     ensure_stable_format: EnsureStableFormat::for_editor(environment),
@@ -291,7 +291,7 @@ pub async fn run_editor_service<TEnvironment: Environment>(
     settings: Default::default(),
     pending_message_requests: Default::default(),
     has_notified_no_config: Default::default(),
-    session_process_plugin_decisions,
+    session_permissions,
     prompted_process_plugins: Default::default(),
   });
   let mut rx = start_reading_messages::<EditorMessageBody>(environment);
@@ -859,7 +859,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     if !self.prompted_process_plugins.borrow_mut().insert(unapproved.approval.clone()) {
       return;
     }
-    let permissions = read_permissions(&self.environment, &self.session_process_plugin_decisions.lock());
+    let permissions = self.session_permissions.read(&self.environment);
     if permissions.is_process_plugin_denied(&unapproved.approval) {
       return;
     }
@@ -870,7 +870,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     dprint_core::async_runtime::spawn(async move {
       let action = service.show_message_request(MessageKind::Warning, message, &PROCESS_PLUGIN_ACTION_TITLES).await;
       let title = action.as_ref().map(|action| action.title.as_str());
-      if let Err(err) = store_process_plugin_action(&service.environment, &service.session_process_plugin_decisions, approval, title).await {
+      if let Err(err) = store_process_plugin_action(&service.environment, &service.session_permissions, approval, title).await {
         let message = format!("Failed storing the decision for the process plugins: {:#}", err);
         log_warn!(service.environment, "{}", message);
         service.show_message(MessageKind::Warning, message);
@@ -1185,6 +1185,9 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     if !scope.uninstalled_plugins.is_empty() {
       return Some(NotFormattedReason::DownloadRequired);
     }
+    if scope.unapproved_process_plugins.is_some() {
+      return Some(NotFormattedReason::ProcessPluginsNotAllowed);
+    }
     if scope.plugins.is_empty() {
       return Some(NotFormattedReason::NoPlugins);
     }
@@ -1319,6 +1322,7 @@ fn get_not_formatted_message(reason: NotFormattedReason, is_notebook_cell: bool,
     NotFormattedReason::ConfigError => None,
     NotFormattedReason::RangeFormattingNotSupported => Some(RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string()),
     NotFormattedReason::DownloadRequired => Some(DOWNLOAD_REQUIRED_MESSAGE.to_string()),
+    NotFormattedReason::ProcessPluginsNotAllowed => Some(PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE.to_string()),
     NotFormattedReason::Unchanged => None,
   }
 }
@@ -1578,6 +1582,7 @@ mod test {
   use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
   use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
   use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
+  use crate::commands::not_formatted_messages::PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -2381,9 +2386,10 @@ mod test {
   #[test]
   fn should_ask_to_allow_process_plugins() {
     let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
       .add_remote_process_plugin()
       .with_local_config("/a/dprint.json", |c| {
-        c.add_remote_process_plugin();
+        c.add_remote_wasm_plugin().add_remote_process_plugin();
       })
       .build(); // not initialized, so the process plugin is only set up when it's allowed
     disallow_process_plugins(&environment);
@@ -2394,14 +2400,18 @@ mod test {
         async move {
           // not allowed, which is only asked once per session
           client.set_message_request_answer(Some("Deny"));
+          // nothing is formatted with the config file, not even with its wasm plugin
+          let info = client.file_info(file_info("/a/file.txt")).await.unwrap();
+          assert_eq!(info.reason, Some(NotFormattedReason::ProcessPluginsNotAllowed));
+          assert_eq!(info.message.as_deref(), Some(PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE));
           assert_eq!(
             client.format("/a/file.txt_ps", "text", None).await.unwrap(),
-            not_formatted(NotFormattedReason::NoPlugins)
+            not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
           );
           let requests = client.wait_for_message_requests(1).await;
           assert_eq!(requests.len(), 1);
           assert_eq!(requests[0].kind, MessageKind::Warning);
-          assert!(requests[0].message.contains("because they weren't allowed to run."), "{}", requests[0].message);
+          assert!(requests[0].message.contains(") weren't allowed to run."), "{}", requests[0].message);
           assert_eq!(
             requests[0].actions,
             vec![action("Allow"), action("Always Allow"), action("Deny"), action("Always Deny")]
@@ -2409,7 +2419,7 @@ mod test {
           client.take_message_requests();
           assert_eq!(
             client.format("/a/file.txt_ps", "text", None).await.unwrap(),
-            not_formatted(NotFormattedReason::NoPlugins)
+            not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
           );
           assert!(client.take_message_requests().is_empty());
 

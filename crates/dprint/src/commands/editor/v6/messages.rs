@@ -588,6 +588,9 @@ pub enum NotFormattedReason {
   ConfigDiagnostics,
   /// A plugin that formats the file doesn't support formatting a range.
   RangeFormattingNotSupported,
+  /// The user didn't allow running the process plugins of the config file,
+  /// so nothing is formatted with it.
+  ProcessPluginsNotAllowed,
   /// The file is already formatted.
   Unchanged,
 }

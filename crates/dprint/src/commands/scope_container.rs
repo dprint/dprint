@@ -8,15 +8,13 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
-use parking_lot::Mutex;
 
 use crate::cache::RemoteCacheMode;
 use crate::configuration::Permissions;
-use crate::configuration::ProcessPluginDecision;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
+use crate::configuration::SessionPermissions;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
-use crate::configuration::read_permissions;
 use crate::configuration::resolve_config_from_path_with_ancestors_and_policy;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::configuration::resolve_local_config_file_dirs;
@@ -57,8 +55,8 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
   plugins_generation: Cell<usize>,
-  /// What the user decided about running process plugins for this session.
-  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
+  /// What the user allowed for this session.
+  session_permissions: Arc<SessionPermissions>,
 }
 
 impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
@@ -68,7 +66,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     config_override: Option<PathBuf>,
     remote_cache_mode: RemoteCacheMode,
     download_policy: DownloadPolicy,
-    session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
+    session_permissions: Arc<SessionPermissions>,
   ) -> Self {
     Self {
       environment,
@@ -78,7 +76,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       remote_cache_mode,
       download_policy,
       plugins_generation: Default::default(),
-      session_process_plugin_decisions,
+      session_permissions,
     }
   }
 
@@ -130,7 +128,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     let mut cell = cell.lock().await;
     let config = self.resolve_config(config_file).await?;
     // read each time so approving a process plugin or editing the file takes effect
-    let permissions = read_permissions(&self.environment, &self.session_process_plugin_decisions.lock());
+    let permissions = self.session_permissions.read(&self.environment);
 
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
@@ -156,10 +154,10 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     let options = ResolvePluginsScopeOptions {
       download_policy: self.download_policy.clone(),
     };
-    // IMPORTANT: Process plugins don't run sandboxed, so the editors only start
-    // the ones the user approved running with their configuration. The user
-    // opening a file (ex. in a cloned repository or in node_modules) isn't the
-    // same as choosing to run dprint there.
+    // IMPORTANT: Process plugins don't run sandboxed, so the editors only use
+    // the plugins when the user approved running its process plugins with their
+    // configuration. The user opening a file (ex. in a cloned repository or in
+    // node_modules) isn't the same as choosing to run dprint there.
     let new_scope = Rc::new(
       resolve_plugins_scope_with_approval(Rc::new(config), &self.environment, &self.plugin_resolver, options, |approval| {
         permissions.is_process_plugin_allowed(approval)

@@ -18,7 +18,7 @@ use crate::arg_parser::CliArgs;
 use crate::configuration::Permissions;
 use crate::configuration::ProcessPluginApproval;
 use crate::configuration::ResolvedConfig;
-use crate::configuration::read_permissions;
+use crate::configuration::SessionPermissions;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -60,9 +60,9 @@ pub async fn output_editor_info<TEnvironment: Environment>(
   }
 
   // IMPORTANT: An editor gets this when it opens a project, which isn't the same
-  // as the user choosing to run dprint there, so only start the process plugins
-  // the user allowed.
-  let permissions = read_permissions(environment, &[]);
+  // as the user choosing to run dprint there, so only provide the plugins when
+  // the user allowed its process plugins.
+  let permissions = SessionPermissions::default().read(environment);
   let scope = get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, |approval| permissions.is_process_plugin_allowed(approval)).await?;
   scope.ensure_no_global_config_diagnostics()?;
   if let Some(unapproved) = &scope.unapproved_process_plugins {
@@ -109,6 +109,7 @@ struct EditorService<'a, TEnvironment: Environment> {
   plugins_scope: Option<Rc<PluginsScope<TEnvironment>>>,
   /// What the user allowed when the plugins were resolved.
   permissions: Option<Permissions>,
+  session_permissions: SessionPermissions,
   /// The process plugins that weren't allowed to run that the log said so about.
   warned_process_plugins: HashSet<ProcessPluginApproval>,
   context: Rc<EditorContext<EditorMessageBody>>,
@@ -127,6 +128,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       plugin_resolver,
       plugins_scope: None,
       permissions: None,
+      session_permissions: Default::default(),
       warned_process_plugins: Default::default(),
       context: Rc::new(EditorContext::new(environment)),
       pending_format_tokens: Default::default(),
@@ -295,7 +297,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let _update_permit = self.config_semaphore.acquire().await;
     let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
     // read each time so allowing process plugins or editing the file takes effect
-    let permissions = read_permissions(self.environment, &[]);
+    let permissions = self.session_permissions.read(self.environment);
 
     let last_config = self.plugins_scope.as_ref().and_then(|scope| scope.config.as_ref());
     let has_config_changed =
@@ -316,9 +318,10 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       }
       self.plugin_resolver.clear_and_shutdown_initialized().await;
 
-      // IMPORTANT: Process plugins don't run sandboxed, so only start the ones the
-      // user allowed. The editor starting the service in a project (ex. one that
-      // was just cloned) isn't the same as the user choosing to run dprint there.
+      // IMPORTANT: Process plugins don't run sandboxed, so only use the plugins
+      // when the user allowed its process plugins. The editor starting the service
+      // in a project (ex. one that was just cloned) isn't the same as the user
+      // choosing to run dprint there.
       let scope = resolve_plugins_scope_with_approval(
         config.clone(),
         self.environment,
@@ -340,8 +343,8 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     Ok(self.plugins_scope.as_ref().unwrap().config.clone().unwrap())
   }
 
-  /// Says in the log that the process plugins of the config file weren't
-  /// allowed to run, which is only done once per session for each
+  /// Says in the log that dprint isn't formatting with the config file because
+  /// its process plugins weren't allowed to run, which is only done once per session for each
   /// configuration and not when the user denied them. Schema version 5 of
   /// the editor service can't ask the user whether to allow them.
   fn warn_unapproved_process_plugins(&mut self, unapproved: &UnapprovedProcessPlugins, permissions: &Permissions) {
@@ -691,7 +694,7 @@ mod test {
   }
 
   #[test]
-  fn should_not_output_unapproved_process_plugins_in_editor_info() {
+  fn should_not_output_plugins_with_unapproved_process_plugins_in_editor_info() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_process_plugin()
       .add_remote_wasm_plugin()
@@ -703,14 +706,13 @@ mod test {
     run_test_cli(vec!["editor-info"], &environment).unwrap();
     let stdout_messages = environment.take_stdout_messages();
     assert_eq!(stdout_messages.len(), 1);
-    assert!(stdout_messages[0].contains(r#""name":"test-plugin""#), "{stdout_messages:?}");
-    assert!(!stdout_messages[0].contains("test-process-plugin"), "{stdout_messages:?}");
-    // it's never set up, which runs it
+    // the wasm plugin isn't used either so that it doesn't format differently than the cli
+    assert!(stdout_messages[0].contains(r#""plugins":[]"#), "{stdout_messages:?}");
+    // the process plugin is never set up, which runs it
     let stderr_messages = environment.take_stderr_messages();
-    assert_eq!(stderr_messages.len(), 2, "{stderr_messages:?}");
-    assert_eq!(stderr_messages[0], "Compiling https://plugins.dprint.dev/test-plugin.wasm");
+    assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
     assert!(
-      stderr_messages[1].starts_with("dprint didn't use the process plugins of /dprint.json"),
+      stderr_messages[0].starts_with("dprint isn't formatting files with /dprint.json because its process plugins ("),
       "{stderr_messages:?}"
     );
   }
@@ -744,12 +746,15 @@ mod test {
     let stderr_messages = environment.take_stderr_messages();
     assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
     assert!(
-      stderr_messages[0].starts_with("dprint didn't use the process plugins of /dprint.json (https://plugins.dprint.dev/test-process.json@"),
+      stderr_messages[0].starts_with(concat!(
+        "dprint isn't formatting files with /dprint.json because its process plugins ",
+        "(https://plugins.dprint.dev/test-process.json@"
+      )),
       "{stderr_messages:?}"
     );
     assert!(
       stderr_messages[0].contains(concat!(
-        "they only run once you allow them by running `dprint config allow-process-plugins --config \"/dprint.json\"` ",
+        "dprint only formats with it once you allow them by running `dprint config editor-approve --config \"/dprint.json\"` ",
         "or when \"editor.allowProcessPlugins\" isn't false in"
       )),
       "{stderr_messages:?}"
@@ -768,7 +773,7 @@ mod test {
       .build(); // not initialized, so the process plugin is only set up when it's allowed
     disallow_process_plugins(&environment);
 
-    run_test_cli(vec!["config", "allow-process-plugins"], &environment).unwrap();
+    run_test_cli(vec!["config", "editor-approve"], &environment).unwrap();
     let stderr_messages = environment.take_stderr_messages();
     assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
     assert!(

@@ -432,6 +432,7 @@ interface ConfigFileInfo {
  * - `downloadRequired` - A plugin of the configuration file or a configuration file it extends needs to be downloaded from a domain that isn't trusted, so nothing is formatted with it until the editor installs it and the user allows downloading it (see "Installing plugins").
  * - `configDiagnostics` - The configuration of a plugin that formats the document has problems (only for a format).
  * - `rangeFormattingNotSupported` - A plugin that formats the document doesn't support formatting a range (only for a format).
+ * - `processPluginsNotAllowed` - The user didn't allow running the process plugins of the configuration file, so nothing is formatted with it (see the show message request).
  * - `unchanged` - The document is already formatted (only for a format).
  *
  * Handle a reason you don't know about the same as `notMatched`.
@@ -446,6 +447,7 @@ type NotFormattedReason =
   | "downloadRequired"
   | "configDiagnostics"
   | "rangeFormattingNotSupported"
+  | "processPluginsNotAllowed"
   | "unchanged";
 ```
 
@@ -588,7 +590,7 @@ interface MessageAction {
 
 Response: Show message request response once the user responds, which may be a long time later. An Error response is the same as the user not choosing an action.
 
-Among other things, this asks the user whether to allow running the process plugins of a configuration file. Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start them until the user chooses "Allow" or "Always Allow". Opening a project isn't the same as choosing to run dprint in it. Until then, the requests that use the configuration file are handled without its process plugins.
+Among other things, this asks the user whether to allow running the process plugins of a configuration file. Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start them until the user chooses "Allow" or "Always Allow". Opening a project isn't the same as choosing to run dprint in it. Until then, nothing is formatted with the configuration file, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The requests that use it respond with the `processPluginsNotAllowed` reason. The user can also allow them by running `dprint config editor-approve` in the directory of the configuration file.
 
 #### `15` - Show message request response (Client to Service)
 

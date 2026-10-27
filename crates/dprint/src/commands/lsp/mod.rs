@@ -82,13 +82,13 @@ use crate::commands::no_config::get_no_config_message;
 use crate::commands::no_config::is_no_config_notification_dismissed;
 use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
+use crate::commands::not_formatted_messages::PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE;
 use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE;
 use crate::commands::process_plugin_approval::PROCESS_PLUGIN_ACTION_TITLES;
 use crate::commands::process_plugin_approval::store_process_plugin_action;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::ProcessPluginApproval;
-use crate::configuration::ProcessPluginDecision;
-use crate::configuration::read_permissions;
+use crate::configuration::SessionPermissions;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -260,6 +260,9 @@ enum NotFormattedReason {
   NoPlugin,
   /// A plugin that formats the file doesn't support formatting a range.
   RangeFormattingNotSupported,
+  /// The user didn't allow running the process plugins of the config file,
+  /// so nothing is formatted with it.
+  ProcessPluginsNotAllowed,
   /// The document is already formatted.
   Unchanged,
   /// Formatting failed, which is logged.
@@ -283,6 +286,7 @@ impl NotFormattedReason {
       NotFormattedReason::NotMatched => Some((MessageType::INFO, NOT_MATCHED_MESSAGE.to_string())),
       NotFormattedReason::NoPlugin => Some((MessageType::INFO, NO_PLUGIN_MESSAGE.to_string())),
       NotFormattedReason::RangeFormattingNotSupported => Some((MessageType::INFO, RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string())),
+      NotFormattedReason::ProcessPluginsNotAllowed => Some((MessageType::INFO, PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE.to_string())),
       NotFormattedReason::Failed => Some((
         MessageType::WARNING,
         "dprint failed to format this document. See the language server's log for details.".to_string(),
@@ -357,6 +361,14 @@ async fn handle_format_request<TEnvironment: Environment>(
     ));
   }
   unapproved_process_plugins.clone_from(&scope.unapproved_process_plugins);
+  if scope.unapproved_process_plugins.is_some() {
+    log_debug!(
+      environment,
+      "Not formatting {} because the process plugins of its config file weren't allowed",
+      request.file_path.display()
+    );
+    return Ok(FormatOutcome::NotFormatted(NotFormattedReason::ProcessPluginsNotAllowed));
+  }
   if request.token.is_cancelled() {
     return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Cancelled));
   }
@@ -451,13 +463,13 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let (tx, rx) = mpsc::unbounded_channel();
 
   let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
-  let session_process_plugin_decisions = Arc::new(Mutex::new(Vec::new()));
+  let session_permissions = Arc::new(SessionPermissions::default());
   let recv_task = start_message_handler(
     environment,
     plugin_resolver,
     config_path,
     args.remote_cache_mode(),
-    session_process_plugin_decisions.clone(),
+    session_permissions.clone(),
     rx,
   );
 
@@ -465,7 +477,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let lsp_task = dprint_core::async_runtime::spawn(async move {
     let (service, socket, pending) = LspService::new(|client| {
       let client = ClientWrapper::new(Arc::new(client));
-      Backend::new(client.clone(), environment.clone(), tx, session_process_plugin_decisions)
+      Backend::new(client.clone(), environment.clone(), tx, session_permissions)
     });
     Server::new(stdin, stdout, socket, pending).serve(service).await;
   });
@@ -491,7 +503,7 @@ fn start_message_handler<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   config_override: Option<PathBuf>,
   remote_cache_mode: RemoteCacheMode,
-  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
+  session_permissions: Arc<SessionPermissions>,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
 ) -> JoinHandle<bool> {
   // tower_lsp required Backend to implement Send and Sync, but
@@ -508,7 +520,7 @@ fn start_message_handler<TEnvironment: Environment>(
     config_override,
     remote_cache_mode,
     DownloadPolicy::for_editor(&environment),
-    session_process_plugin_decisions,
+    session_permissions,
   ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
@@ -615,7 +627,7 @@ struct Backend<TEnvironment: Environment> {
   state: Mutex<State<TEnvironment>>,
   /// What the user decided about running process plugins for this session,
   /// which is shared with the message handler.
-  session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
+  session_permissions: Arc<SessionPermissions>,
 }
 
 impl<TEnvironment: Environment> Backend<TEnvironment> {
@@ -623,12 +635,12 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     client: ClientWrapper,
     environment: TEnvironment,
     sender: mpsc::UnboundedSender<ChannelMessage>,
-    session_process_plugin_decisions: Arc<Mutex<Vec<ProcessPluginDecision>>>,
+    session_permissions: Arc<SessionPermissions>,
   ) -> Self {
     Backend {
       client,
       sender,
-      session_process_plugin_decisions,
+      session_permissions,
       state: Mutex::new(State {
         settings: LspSettings::from_environment(&environment),
         documents: Documents::new(environment.clone()),
@@ -957,7 +969,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       }
       state.supports_message_actions
     };
-    let permissions = read_permissions(&self.environment, &self.session_process_plugin_decisions.lock());
+    let permissions = self.session_permissions.read(&self.environment);
     if permissions.is_process_plugin_denied(&unapproved.approval) {
       return;
     }
@@ -973,15 +985,15 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let selection = self.client.show_message_request(MessageType::WARNING, message, actions);
     let client = self.client.clone();
     let environment = self.environment.clone();
-    let session_decisions = self.session_process_plugin_decisions.clone();
+    let session_permissions = self.session_permissions.clone();
     // don't wait on this because it only resolves once the user responds
     dprint_core::async_runtime::spawn(async move {
       let selection = selection.await;
       let title = selection.as_ref().map(|selection| selection.title.as_str());
-      if let Err(err) = store_process_plugin_action(&environment, &session_decisions, unapproved.approval, title).await {
+      if let Err(err) = store_process_plugin_action(&environment, &session_permissions, unapproved.approval, title).await {
         let message = format!("Failed storing the decision for the process plugins: {:#}", err);
         log_warn!(environment, "{}", message);
-        client.log_warn(message);
+        client.show_message(MessageType::WARNING, message);
       }
     });
   }
@@ -3081,10 +3093,7 @@ mod test {
         assert_eq!(shown.len(), 1, "{shown:?}");
         let (message_type, message, actions) = &shown[0];
         assert_eq!(*message_type, MessageType::WARNING);
-        assert!(
-          message.starts_with("dprint didn't use the process plugins of /dprint.json (https://plugins.dprint.dev/test-process.json@"),
-          "{message}"
-        );
+        assert!(message.starts_with("dprint isn't formatting files with /dprint.json because "), "{message}");
         assert!(message.contains(reason), "{message}");
         assert_eq!(*actions, vec!["Allow", "Always Allow", "Deny", "Always Deny"]);
       }
@@ -3099,16 +3108,16 @@ mod test {
       // denying only asks once per session
       let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny"), [false, false]).await;
       assert!(!was_set_up);
-      assert_asked(shown, "because they weren't allowed to run.");
+      assert_asked(shown, "because its process plugins (https://plugins.dprint.dev/test-process.json@");
 
       // allowing uses it for the session
       let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Allow"), [false, true]).await;
       assert!(was_set_up);
-      assert_asked(shown, "because they weren't allowed to run.");
+      assert_asked(shown, "because its process plugins (https://plugins.dprint.dev/test-process.json@");
 
       // always denying doesn't ask in the next session
       let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Deny"), [false, false]).await;
-      assert_asked(shown, "because they weren't allowed to run.");
+      assert_asked(shown, "because its process plugins (https://plugins.dprint.dev/test-process.json@");
       assert_eq!(
         run_session(&environment, message_actions_capabilities(), None, [false, false]).await,
         (Vec::new(), false)
@@ -3117,7 +3126,7 @@ mod test {
       // always allowing replaces the decision and uses it in the next session
       environment.remove_file(get_editor_state_file_path(&environment)).unwrap();
       let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Allow"), [false, true]).await;
-      assert_asked(shown, "because they weren't allowed to run.");
+      assert_asked(shown, "because its process plugins (https://plugins.dprint.dev/test-process.json@");
       assert_eq!(
         run_session(&environment, message_actions_capabilities(), None, [true, true]).await,
         (Vec::new(), false)
@@ -3134,7 +3143,10 @@ mod test {
         )
         .unwrap();
       let (shown, _) = run_session(&environment, message_actions_capabilities(), None, [false, false]).await;
-      assert_asked(shown, "because its configuration changed since they were allowed.");
+      assert_asked(
+        shown,
+        "because its configuration changed since its process plugins (https://plugins.dprint.dev/test-process.json@",
+      );
     });
   }
 
@@ -4422,18 +4434,18 @@ mod test {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, Default::default()));
     let (tx, rx) = mpsc::unbounded_channel();
-    let session_process_plugin_decisions = Arc::new(Mutex::new(Vec::new()));
+    let session_permissions = Arc::new(SessionPermissions::default());
     let recv_task = start_message_handler(
       &environment,
       &plugin_resolver,
       config_override,
       RemoteCacheMode::Use,
-      session_process_plugin_decisions.clone(),
+      session_permissions.clone(),
       rx,
     );
     let test_client = Arc::new(TestClient::default());
     (
-      Backend::new(ClientWrapper::new(test_client.clone()), environment, tx, session_process_plugin_decisions),
+      Backend::new(ClientWrapper::new(test_client.clone()), environment, tx, session_permissions),
       recv_task,
       test_client,
     )

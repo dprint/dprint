@@ -32,6 +32,10 @@ pub struct Settings {
   /// What the user told `dprint init` to remember for the next time it runs.
   #[serde(default)]
   pub init: Option<InitPreferences>,
+  /// The paths of the properties dprint doesn't know (ex. `editor.allowProcessPlugin`),
+  /// which are likely a typo.
+  #[serde(skip)]
+  pub unknown_properties: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -60,7 +64,15 @@ pub(super) fn read_settings(environment: &impl Environment) -> Result<Option<Set
   let text = environment
     .read_file(&file_path)
     .with_context(|| format!("Failed reading {}", file_path.display()))?;
-  jsonc_parser::parse_to_serde_value::<Option<Settings>>(&text, &Default::default()).with_context(|| format!("Failed parsing {}", file_path.display()))
+  let Some(value) = jsonc_parser::parse_to_serde_value::<Option<serde_json::Value>>(&text, &Default::default())
+    .with_context(|| format!("Failed parsing {}", file_path.display()))?
+  else {
+    return Ok(None);
+  };
+  let unknown_properties = get_unknown_properties(&value);
+  let mut settings = serde_json::from_value::<Settings>(value).with_context(|| format!("Failed parsing {}", file_path.display()))?;
+  settings.unknown_properties = unknown_properties;
+  Ok(Some(settings))
 }
 
 /// Sets a property of the settings at the path of property names, keeping the
@@ -98,6 +110,31 @@ pub(super) fn set_setting(environment: &impl Environment, property_path: &[&str]
     .write_file(&file_path, &text)
     .with_context(|| format!("Failed writing {}", file_path.display()))?;
   Ok(file_path)
+}
+
+/// Gets the paths of the properties of the settings that dprint doesn't know.
+/// The `init` preferences aren't checked because only `dprint init` writes them.
+fn get_unknown_properties(value: &serde_json::Value) -> Vec<String> {
+  let mut unknown_properties = Vec::new();
+  let Some(obj) = value.as_object() else {
+    return unknown_properties;
+  };
+  for (name, value) in obj {
+    match name.as_str() {
+      "$schema" | "init" => {}
+      "editor" => {
+        if let Some(editor) = value.as_object() {
+          for name in editor.keys() {
+            if name != "allowProcessPlugins" {
+              unknown_properties.push(format!("editor.{}", name));
+            }
+          }
+        }
+      }
+      _ => unknown_properties.push(name.clone()),
+    }
+  }
+  unknown_properties
 }
 
 #[cfg(test)]

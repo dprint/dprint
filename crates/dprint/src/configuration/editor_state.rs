@@ -1,13 +1,17 @@
 use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::time::UNIX_EPOCH;
 
 use anyhow::Result;
+use parking_lot::Mutex;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::environment::Environment;
 use crate::utils::LaxSingleProcessFsFlag;
 
+use super::get_settings_file_path;
 use super::read_settings;
 
 /// Name of the file in the cache directory with what the editor integrations
@@ -64,6 +68,23 @@ pub struct ProcessPluginDecision {
   #[serde(flatten)]
   pub approval: ProcessPluginApproval,
   pub allowed: bool,
+  /// When the user decided, in milliseconds since the Unix epoch, so that the
+  /// most recent decision wins (ex. allowing them with `dprint config
+  /// editor-approve` after denying them for the session).
+  #[serde(default)]
+  pub decided_at: u64,
+}
+
+impl ProcessPluginDecision {
+  /// Creates the decision the user made now.
+  pub fn new(environment: &impl Environment, approval: ProcessPluginApproval, allowed: bool) -> Self {
+    let decided_at = environment
+      .sys_time_now()
+      .duration_since(UNIX_EPOCH)
+      .map(|duration| duration.as_millis() as u64)
+      .unwrap_or(0);
+    Self { approval, allowed, decided_at }
+  }
 }
 
 /// What the user allowed the editor integrations to do.
@@ -71,8 +92,8 @@ pub struct ProcessPluginDecision {
 pub struct Permissions {
   /// Whether process plugins run without the user approving them.
   pub allow_process_plugins: Option<bool>,
-  /// The decisions to always use followed by the ones for the session, so
-  /// the last one for a config file wins.
+  /// The decisions to always use followed by the ones for the session, where
+  /// the most recent one for a config file wins.
   pub process_plugin_decisions: Vec<ProcessPluginDecision>,
 }
 
@@ -101,33 +122,71 @@ impl Permissions {
     self
       .process_plugin_decisions
       .iter()
-      .rev()
-      .find(|decision| decision.approval == *approval)
+      .filter(|decision| decision.approval == *approval)
+      // the last one wins a tie, which is the one for the session
+      .max_by_key(|decision| decision.decided_at)
       .map(|decision| decision.allowed)
   }
 }
 
-/// Reads what the user allowed the editor integrations to do, along with what
-/// they decided for the current session.
-pub fn read_permissions(environment: &impl Environment, session_decisions: &[ProcessPluginDecision]) -> Permissions {
-  let allow_process_plugins = match read_settings(environment) {
-    Ok(settings) => settings.unwrap_or_default().editor.allow_process_plugins,
-    Err(err) => {
-      log_warn!(environment, "Ignoring the settings because of a problem reading them: {:#}", err);
-      // IMPORTANT: Don't allow what the user may have tried to disallow.
-      Some(false)
+/// What an editor integration keeps for its session about what the user
+/// allowed it to do, which is shared by its threads.
+#[derive(Debug, Default)]
+pub struct SessionPermissions {
+  /// What the user decided about running process plugins for the session.
+  process_plugin_decisions: Mutex<Vec<ProcessPluginDecision>>,
+  /// The problems with the settings that were logged, which are only logged
+  /// once because the settings are read for each request.
+  logged_settings_problems: Mutex<HashSet<String>>,
+}
+
+impl SessionPermissions {
+  /// Reads what the user allowed the editor integrations to do, along with
+  /// what they decided for the session.
+  pub fn read(&self, environment: &impl Environment) -> Permissions {
+    let allow_process_plugins = match read_settings(environment) {
+      Ok(Some(settings)) => {
+        for property_name in &settings.unknown_properties {
+          let file_path = get_settings_file_path(environment).map(|path| path.display().to_string()).unwrap_or_default();
+          self.log_settings_problem(environment, format!("Unknown property in {}: {}", file_path, property_name));
+        }
+        settings.editor.allow_process_plugins
+      }
+      Ok(None) => None,
+      Err(err) => {
+        self.log_settings_problem(
+          environment,
+          format!(
+            "Requiring approval to run process plugins in editors because the settings couldn't be read: {:#}",
+            err
+          ),
+        );
+        // IMPORTANT: Don't allow what the user may have tried to disallow.
+        Some(false)
+      }
+    };
+    // only read the decisions when they're used
+    let mut process_plugin_decisions = if allow_process_plugins == Some(false) {
+      read_editor_state(environment).process_plugin_decisions
+    } else {
+      Vec::new()
+    };
+    process_plugin_decisions.extend(self.process_plugin_decisions.lock().iter().cloned());
+    Permissions {
+      allow_process_plugins,
+      process_plugin_decisions,
     }
-  };
-  // only read the decisions when they're used
-  let mut process_plugin_decisions = if allow_process_plugins == Some(false) {
-    read_editor_state(environment).process_plugin_decisions
-  } else {
-    Vec::new()
-  };
-  process_plugin_decisions.extend(session_decisions.iter().cloned());
-  Permissions {
-    allow_process_plugins,
-    process_plugin_decisions,
+  }
+
+  /// Uses the decision for the rest of the session.
+  pub fn add_process_plugin_decision(&self, decision: ProcessPluginDecision) {
+    self.process_plugin_decisions.lock().push(decision);
+  }
+
+  fn log_settings_problem(&self, environment: &impl Environment, message: String) {
+    if self.logged_settings_problems.lock().insert(message.clone()) {
+      log_warn!(environment, "{}", message);
+    }
   }
 }
 
@@ -210,7 +269,16 @@ mod test {
     ProcessPluginDecision {
       approval: approval(config_file, config_hash),
       allowed,
+      decided_at: 0,
     }
+  }
+
+  fn read_permissions(environment: &TestEnvironment, session_decisions: &[ProcessPluginDecision]) -> Permissions {
+    let session_permissions = SessionPermissions::default();
+    for decision in session_decisions {
+      session_permissions.add_process_plugin_decision(decision.clone());
+    }
+    session_permissions.read(environment)
   }
 
   fn require_approval(environment: &TestEnvironment) {
@@ -259,6 +327,66 @@ mod test {
   }
 
   #[test]
+  fn should_use_the_most_recent_decision() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let stored = |allowed, decided_at| {
+      update_editor_state_without_lock(&environment, |state| {
+        add_process_plugin_decision(
+          state,
+          ProcessPluginDecision {
+            decided_at,
+            ..decision("/a/dprint.json", "1", allowed)
+          },
+        )
+      })
+      .unwrap();
+    };
+    let session_decision = ProcessPluginDecision {
+      decided_at: 2,
+      ..decision("/a/dprint.json", "1", false)
+    };
+
+    // ex. allowing them with `dprint config editor-approve` after denying them for the session
+    stored(true, 3);
+    assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    stored(true, 1);
+    assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_denied(&approval("/a/dprint.json", "1")));
+  }
+
+  #[test]
+  fn should_record_when_the_decision_was_made() {
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(5);
+    assert_eq!(ProcessPluginDecision::new(&environment, approval("/a/dprint.json", "1"), true).decided_at, 5000);
+  }
+
+  #[test]
+  fn should_log_unknown_settings_once() {
+    let environment = TestEnvironment::new();
+    let file_path = get_settings_file_path(&environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    environment
+      .write_file(&file_path, r#"{ "editor": { "allowProcessPlugin": false }, "other": 1 }"#)
+      .unwrap();
+    let session_permissions = SessionPermissions::default();
+    // the property isn't known, so process plugins are allowed by default
+    assert!(
+      session_permissions
+        .read(&environment)
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1"))
+    );
+    session_permissions.read(&environment);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        format!("Unknown property in {}: editor.allowProcessPlugin", file_path.display()),
+        format!("Unknown property in {}: other", file_path.display()),
+      ]
+    );
+  }
+
+  #[test]
   fn should_forget_the_oldest_decisions() {
     let mut state = EditorState::default();
     for i in 0..MAX_PROCESS_PLUGIN_DECISIONS + 2 {
@@ -274,11 +402,18 @@ mod test {
     let file_path = get_settings_file_path(&environment).unwrap();
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
     environment.write_file(&file_path, "{ nope").unwrap();
-    assert!(!read_permissions(&environment, &[]).is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    let session_permissions = SessionPermissions::default();
+    assert!(
+      !session_permissions
+        .read(&environment)
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1"))
+    );
+    // only logged once
+    session_permissions.read(&environment);
     let messages = environment.take_stderr_messages();
     assert_eq!(messages.len(), 1);
     assert!(
-      messages[0].contains("Ignoring the settings because of a problem reading them"),
+      messages[0].starts_with("Requiring approval to run process plugins in editors because the settings couldn't be read: "),
       "{}",
       messages[0]
     );
