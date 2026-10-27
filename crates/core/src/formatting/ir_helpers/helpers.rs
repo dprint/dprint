@@ -221,23 +221,37 @@ pub fn gen_js_like_comment_block(text: &str) -> PrintItems {
   const TRAILING_STAR_SLASH: StringContainer = StringContainer::proc_macro_new_with_char_count("*/", 2);
 
   let mut items = PrintItems::new();
-  let add_ignore_indent = text.contains('\n');
   let last_line_trailing_whitespace = get_last_line_trailing_whitespace(text);
 
   items.push_sc(&LEADING_STAR_SLASH);
-  if add_ignore_indent {
-    items.push_signal(Signal::StartIgnoringIndent);
+
+  for (i, line) in text.lines().enumerate() {
+    if i > 0 {
+      items.push_signal(Signal::NewLine);
+    }
+
+    // Trim non-first lines so that printer applies proper indentation
+    let line = if i > 0 { line.trim() } else { line.trim_end() };
+
+    for (j, part) in line.split('\t').enumerate() {
+      if j > 0 {
+        items.push_signal(Signal::Tab);
+      }
+      if !part.is_empty() {
+        items.push_string(part.to_string());
+      }
+    }
   }
-  items.extend(gen_from_string_trim_line_ends(text));
+
+  if text.ends_with('\n') {
+    items.push_signal(Signal::NewLine);
+  }
 
   // add back the last line's trailing whitespace
   if !last_line_trailing_whitespace.is_empty() {
     items.extend(gen_from_raw_string(last_line_trailing_whitespace));
   }
 
-  if add_ignore_indent {
-    items.push_signal(Signal::FinishIgnoringIndent);
-  }
   items.push_sc(&TRAILING_STAR_SLASH);
 
   return items;
