@@ -143,7 +143,7 @@ Response: Success response or an Error response (ex. it was already initialized)
 
 #### `5` - Update settings (Client to Service)
 
-The editor's settings and workspace folders. Send this whenever they change after initializing.
+The editor's settings and workspace folders. Send this whenever they change after initializing. These replace all the settings, so send every setting each time.
 
 Message body:
 
@@ -186,8 +186,10 @@ interface FormatFileOptions {
   notebookPath?: string;
   /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
   allowGlobalConfig?: boolean;
-  /** Format the file again until the output stops changing, the same as `dprint fmt`. Defaults to `false`. */
+  /** Format the file again until the output stops changing, the same as `dprint fmt`. Defaults to `false` unless the `DPRINT_EDITOR_STABLE_FORMAT` environment variable is `1` or `true`. */
   ensureStableFormat?: boolean;
+  /** Whether to notify the user when the file isn't formatted because it doesn't have a configuration file. Defaults to the `showNoConfigNotification` setting. */
+  showNoConfigNotification?: boolean;
 }
 ```
 
@@ -196,7 +198,7 @@ interface FormatFileOptions {
 
 The formatted text keeps the line endings of the text that was sent. For a notebook cell, the trailing whitespace of the formatted text is trimmed like the jupyter plugin does (except after a range that ends before the end of the cell).
 
-When a file isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it). A request with `allowGlobalConfig` doesn't notify because it's for a command the user ran, and the editor says why the file wasn't formatted instead.
+When a file isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it). Send `showNoConfigNotification: false` for a command the user ran that says why the file wasn't formatted itself.
 
 Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response for a cancelled format
 
@@ -431,7 +433,7 @@ Message body:
 
 ```ts
 interface ConfigSchemaData {
-  /** Files that the configuration files are used for (ex. the configuration files themselves). The schema has the plugins of each one, using the first plugin with a configuration key. */
+  /** Files that the configuration files are used for (ex. the configuration files themselves). The schema has the plugins of each one, using the first plugin with a configuration key whose schema could be downloaded. */
   filePaths: string[];
   allowGlobalConfig?: boolean;
 }

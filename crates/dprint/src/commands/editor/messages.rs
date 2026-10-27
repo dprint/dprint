@@ -527,6 +527,10 @@ pub struct FormatFileOptions {
   /// defaults to the `DPRINT_EDITOR_STABLE_FORMAT` environment variable.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub ensure_stable_format: Option<bool>,
+  /// Whether to notify the user when the file isn't formatted because it doesn't
+  /// have a config file, which defaults to the setting.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub show_no_config_notification: Option<bool>,
 }
 
 /// The edits of a `FormatFile` message that formatted the file.

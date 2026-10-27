@@ -71,7 +71,15 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   /// `use_global_config` is for using the global config file when there's no
   /// config file in an ancestor directory.
   pub async fn resolve_by_path(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
-    let config_file_bytes = if let Some(path) = &self.config_override {
+    match self.find_config_file(dir_path, use_global_config)? {
+      Some(config_file) => Ok(Some(self.resolve_config_file(&config_file).await?)),
+      None => Ok(None),
+    }
+  }
+
+  /// Finds the config file to format the files in the provided directory with.
+  pub fn find_config_file(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<ResolvedConfigPathWithText>> {
+    Ok(if let Some(path) = &self.config_override {
       let dirs = resolve_local_config_file_dirs(&self.environment, &self.environment.cwd().as_ref().join(path)).context("failed resolving --config path")?;
       let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
       let content = self.environment.read_file(&path).context("failed resolving --config path")?;
@@ -89,25 +97,23 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
         None if use_global_config => resolve_global_config_path_and_text_at_path_root(&self.environment, dir_path)?,
         None => None,
       }
-    };
-    let Some(config_file_bytes) = config_file_bytes else {
-      return Ok(None);
-    };
+    })
+  }
+
+  /// Resolves the plugins of the config file found by `find_config_file`.
+  pub async fn resolve_config_file(&self, config_file: &ResolvedConfigPathWithText) -> Result<Rc<PluginsScope<TEnvironment>>> {
     let cell = {
-      // the base path is part of the key because the global config
-      // file has a different one for each root directory (ex. drive)
-      let key = format!("{}\n{}", config_file_bytes.source.display(), config_file_bytes.base_path.display());
       let mut plugins_scope_by_config = self.plugins_scope_by_config.borrow_mut();
-      plugins_scope_by_config.entry(key).or_default().clone()
+      plugins_scope_by_config.entry(get_config_file_key(config_file)).or_default().clone()
     };
     // only allow one task in here per config
     let mut cell = cell.lock().await;
-    let config = self.resolve_config(&config_file_bytes).await?;
+    let config = self.resolve_config(config_file).await?;
 
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
       if is_same_config && cached_scope.plugins_generation == self.plugins_generation.get() {
-        return Ok(Some(cached_scope.scope.clone()));
+        return Ok(cached_scope.scope.clone());
       }
       // forget the scope so that failing to resolve the new one
       // doesn't have this be seen as a config change again
@@ -128,7 +134,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       scope: new_scope.clone(),
       plugins_generation,
     });
-    Ok(Some(new_scope))
+    Ok(new_scope)
   }
 
   /// Resolves the config of a config file, merging in the config file of an
@@ -136,4 +142,11 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText) -> Result<ResolvedConfig> {
     Ok(resolve_config_from_path_with_ancestors(config_file, self.remote_cache_mode, &self.environment).await?)
   }
+}
+
+/// Gets the key that identifies the config file found for a directory.
+pub fn get_config_file_key(config_file: &ResolvedConfigPathWithText) -> String {
+  // the base path is part of the key because the global config
+  // file has a different one for each root directory (ex. drive)
+  format!("{}\n{}", config_file.source.display(), config_file.base_path.display())
 }

@@ -253,19 +253,47 @@ impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
       }
       let definition_name = format!("plugin-{}", plugin.config_key);
       let pointer = format!("#/definitions/{}", escape_json_pointer_token(&definition_name));
-      definitions.insert(definition_name, embed_schema(&plugin_schema, &pointer));
+      let mut plugin_schema = embed_schema(&plugin_schema, &pointer);
       let reference = serde_json::json!({ "$ref": pointer });
+      // add the properties the cli handles for every plugin (ex. "associations")
       let property = match &plugin_config_schema {
-        // the properties the cli handles for every plugin (ex. "associations")
-        Some(plugin_config_schema) => serde_json::json!({ "allOf": [reference, plugin_config_schema] }),
-        None => reference,
+        Some(plugin_config_schema) if !add_plugin_config_properties(&mut plugin_schema, plugin_config_schema) => {
+          serde_json::json!({ "allOf": [reference, plugin_config_schema] })
+        }
+        _ => reference,
       };
+      definitions.insert(definition_name, plugin_schema);
       properties.insert(plugin.config_key.clone(), property);
     }
     root.insert("properties".to_string(), Value::Object(properties));
     root.insert("definitions".to_string(), Value::Object(definitions));
     schema
   }
+}
+
+/// Adds the properties of the base schema's plugin section to the plugin's
+/// schema, which returns `false` when they can't be added.
+///
+/// These are added to the plugin's schema rather than combining the two
+/// schemas with `allOf` because a plugin's schema with `"additionalProperties":
+/// false` would otherwise disallow them.
+fn add_plugin_config_properties(plugin_schema: &mut Value, plugin_config_schema: &Value) -> bool {
+  let (Value::Object(plugin_schema), Some(Value::Object(config_properties))) = (plugin_schema, plugin_config_schema.get("properties")) else {
+    return false;
+  };
+  // the keywords next to a reference are ignored in draft 7
+  if plugin_schema.contains_key("$ref") {
+    return false;
+  }
+  let Value::Object(properties) = plugin_schema.entry("properties").or_insert_with(|| Value::Object(Map::new())) else {
+    return false;
+  };
+  for (key, value) in config_properties {
+    if !properties.contains_key(key) {
+      properties.insert(key.clone(), value.clone());
+    }
+  }
+  true
 }
 
 /// The url of a plugin's config schema, which is empty when it doesn't have one.
@@ -277,21 +305,27 @@ pub struct PluginSchemaUrl {
 /// Gets the schema to put in the definitions of another schema at the JSON
 /// pointer, which changes the references within the schema to point there.
 fn embed_schema(schema: &Value, pointer: &str) -> Value {
-  fn update_references(value: &mut Value, pointer: &str) {
+  fn update_references(value: &mut Value, id: Option<&str>, pointer: &str) {
     match value {
       Value::Object(object) => {
-        if let Some(Value::String(reference)) = object.get_mut("$ref")
-          && let Some(rest) = reference.strip_prefix('#')
-        {
-          *reference = format!("{}{}", pointer, rest);
+        if let Some(Value::String(reference)) = object.get_mut("$ref") {
+          // a reference within the schema is either only a fragment or starts with the schema's id
+          let rest = match id {
+            Some(id) if reference == id => Some(""),
+            Some(id) => reference.strip_prefix(id).and_then(|rest| rest.strip_prefix('#')),
+            None => None,
+          };
+          if let Some(rest) = rest.or_else(|| reference.strip_prefix('#')) {
+            *reference = format!("{}{}", pointer, rest);
+          }
         }
         for value in object.values_mut() {
-          update_references(value, pointer);
+          update_references(value, id, pointer);
         }
       }
       Value::Array(items) => {
         for item in items {
-          update_references(item, pointer);
+          update_references(item, id, pointer);
         }
       }
       _ => {}
@@ -299,12 +333,16 @@ fn embed_schema(schema: &Value, pointer: &str) -> Value {
   }
 
   let mut schema = schema.clone();
+  let mut id = None;
   if let Value::Object(object) = &mut schema {
     // these only apply to a schema that's its own document
     object.remove("$schema");
-    object.remove("$id");
+    id = match object.remove("$id") {
+      Some(Value::String(id)) => Some(id.trim_end_matches('#').to_string()),
+      _ => None,
+    };
   }
-  update_references(&mut schema, pointer);
+  update_references(&mut schema, id.as_deref().filter(|id| !id.is_empty()), pointer);
   schema
 }
 

@@ -44,8 +44,8 @@ const CONFIG_SCHEMA_URL: &str = "https://dprint.dev/schemas/v0.json";
 /// which an editor uses to choose the schema version to start it with. This
 /// doesn't need a config file.
 ///
-/// An older version of dprint doesn't have the `--info` flag, so it fails and
-/// the editor uses `dprint editor-info` with schema version 5 instead.
+/// An older version of dprint doesn't have the `--info` flag, so it fails. An
+/// editor that also supports schema version 5 can then use `dprint editor-info`.
 pub fn output_editor_service_info(environment: &impl Environment) -> Result<()> {
   #[derive(serde::Serialize)]
   #[serde(rename_all = "camelCase")]

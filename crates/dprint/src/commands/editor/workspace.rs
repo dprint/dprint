@@ -39,6 +39,7 @@ use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
 use crate::commands::scope_container::PluginsScopeContainer;
+use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -89,9 +90,10 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
   /// The log level the editor service was started with, which the `verbose`
   /// setting changes.
   initial_log_level: LogLevel,
-  /// The error that was shown to the user for resolving the config of each
-  /// directory, which is removed once it resolves.
-  config_errors: RefCell<HashMap<PathBuf, String>>,
+  /// The error that was shown to the user for resolving each config file,
+  /// which is removed once it resolves. The key is `None` for an error
+  /// finding a config file.
+  config_errors: RefCell<HashMap<Option<String>, String>>,
   /// The editor, which is `None` until it initializes the editor service.
   client_info: RefCell<Option<ClientInfo>>,
   settings: RefCell<EditorSettings>,
@@ -368,11 +370,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     };
     let Some(scope) = self.resolve_scope(&body.file_path, allow_global_config).await? else {
       let reason = self.get_no_config_reason(allow_global_config);
-      // a request that allows the global config file itself is from a command
-      // the user ran, which says why the file wasn't formatted instead
-      if !options.allow_global_config {
-        self.notify_no_config(reason, allow_global_config);
-      }
+      self.notify_no_config(reason, allow_global_config, options.show_no_config_notification);
       return not_formatted(reason);
     };
     let file_path = self.canonicalize(body.file_path);
@@ -430,14 +428,16 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
 
   /// Notifies the user that a file wasn't formatted because no config file
   /// was found for it. This is only done once per session to not annoy people.
-  fn notify_no_config(self: &Rc<Self>, reason: NotFormattedReason, allow_global_config: bool) {
+  fn notify_no_config(self: &Rc<Self>, reason: NotFormattedReason, allow_global_config: bool, show: Option<bool>) {
     let settings = self.settings.borrow().clone();
-    if !settings.show_no_config_notification || self.has_notified_no_config.replace(true) {
+    if !show.unwrap_or(settings.show_no_config_notification) || self.has_notified_no_config.get() {
       return;
     }
+    // the workspace folders may change to ones where it wasn't dismissed
     if is_no_config_notification_dismissed(&self.environment, &settings.workspace_folders) {
       return;
     }
+    self.has_notified_no_config.set(true);
     let message = get_no_config_message(NoConfigMessageOptions {
       use_global_config: allow_global_config,
       has_global_config: reason == NotFormattedReason::GlobalConfigNotAllowed,
@@ -523,36 +523,44 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let Some(dir_path) = file_path.parent() else {
       bail!("Cannot format non-file path: {}", file_path.display());
     };
-    let result = async {
-      let scope = self.scope_container.resolve_by_path(dir_path, allow_global_config).await?;
-      if let Some(scope) = &scope {
-        scope.ensure_no_global_config_diagnostics()?;
+    let config_file = match self.scope_container.find_config_file(dir_path, allow_global_config) {
+      Ok(Some(config_file)) => config_file,
+      Ok(None) => {
+        self.config_errors.borrow_mut().remove(&None);
+        return Ok(None);
       }
+      Err(err) => {
+        self.show_config_error(None, &err);
+        return Err(err);
+      }
+    };
+    self.config_errors.borrow_mut().remove(&None);
+    let result = async {
+      let scope = self.scope_container.resolve_config_file(&config_file).await?;
+      scope.ensure_no_global_config_diagnostics()?;
       Ok(scope)
     }
     .await;
-    match &result {
-      Ok(_) => {
-        self.config_errors.borrow_mut().remove(dir_path);
+    let key = Some(get_config_file_key(&config_file));
+    match result {
+      Ok(scope) => {
+        self.config_errors.borrow_mut().remove(&key);
+        Ok(Some(scope))
       }
-      Err(err) => self.show_config_error(dir_path, err),
+      Err(err) => {
+        self.show_config_error(key, &err);
+        Err(err)
+      }
     }
-    result
   }
 
-  /// Shows the user the error resolving the config of the directory, which is
-  /// only done once until the config resolves because the editor makes requests
-  /// without the user doing anything (ex. when a file is opened).
-  fn show_config_error(&self, dir_path: &Path, err: &anyhow::Error) {
+  /// Shows the user the error resolving the config file, which is only done
+  /// once until it resolves because the editor makes requests without the
+  /// user doing anything (ex. when a file is opened).
+  fn show_config_error(&self, key: Option<String>, err: &anyhow::Error) {
     let message = format!("{:#}", err);
-    let was_shown = {
-      let mut config_errors = self.config_errors.borrow_mut();
-      // the directories of a config file have the same error
-      let was_shown = config_errors.values().any(|shown_message| *shown_message == message);
-      config_errors.insert(dir_path.to_path_buf(), message.clone());
-      was_shown
-    };
-    if !was_shown {
+    let previous_message = self.config_errors.borrow_mut().insert(key, message.clone());
+    if previous_message.as_ref() != Some(&message) {
       self.show_message(MessageKind::Error, message);
     }
   }
@@ -999,13 +1007,14 @@ mod test {
   }
 
   #[test]
-  fn should_not_notify_when_no_config_file_and_request_allows_global_config() {
+  fn should_not_notify_when_no_config_file_and_request_turns_off_notification() {
     let environment = TestEnvironmentBuilder::new().build();
 
     run_session(&environment, &[], |client| {
       async move {
         let options = FormatFileOptions {
           allow_global_config: true,
+          show_no_config_notification: Some(false),
           ..Default::default()
         };
         assert_eq!(
@@ -1015,6 +1024,72 @@ mod test {
         // the notification is still shown for a format that doesn't
         assert_eq!(
           client.format("/project/file.txt", "testing", None).await.unwrap(),
+          not_formatted(NotFormattedReason::NoConfigFile)
+        );
+        assert_eq!(client.wait_for_message_requests(1).await.len(), 1);
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_notify_when_no_config_file_and_request_allows_global_config() {
+    let environment = TestEnvironmentBuilder::new().build();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        client
+          .update_settings(EditorSettings {
+            show_no_config_notification: false,
+            ..Default::default()
+          })
+          .await
+          .unwrap();
+        // the request's option is used instead of the setting
+        let options = FormatFileOptions {
+          allow_global_config: true,
+          show_no_config_notification: Some(true),
+          ..Default::default()
+        };
+        assert_eq!(
+          client.format("/project/file.txt", "testing", Some(options)).await.unwrap(),
+          not_formatted(NotFormattedReason::NoConfigFile)
+        );
+        assert_eq!(
+          client.wait_for_message_requests(1).await[0].message,
+          "No dprint configuration file found. Run \"dprint init\" in your project to create one or \"dprint init --global\" to create a global one."
+        );
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_notify_when_no_config_file_in_workspace_folders_that_were_not_dismissed() {
+    let environment = TestEnvironmentBuilder::new().build();
+    environment
+      .run_in_runtime(dismiss_no_config_notification(
+        &environment,
+        NoConfigNotificationDismissal::WorkspaceFolders(vec![PathBuf::from("/a")]),
+      ))
+      .unwrap();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        let settings = |folder: &str| EditorSettings {
+          workspace_folders: vec![PathBuf::from(folder)],
+          ..Default::default()
+        };
+        client.update_settings(settings("/a")).await.unwrap();
+        assert_eq!(
+          client.format("/a/file.txt", "testing", None).await.unwrap(),
+          not_formatted(NotFormattedReason::NoConfigFile)
+        );
+        assert!(client.take_message_requests().is_empty());
+
+        client.update_settings(settings("/b")).await.unwrap();
+        assert_eq!(
+          client.format("/b/file.txt", "testing", None).await.unwrap(),
           not_formatted(NotFormattedReason::NoConfigFile)
         );
         assert_eq!(client.wait_for_message_requests(1).await.len(), 1);
@@ -1161,7 +1236,11 @@ mod test {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "$id": "https://plugins.dprint.dev/test/schema.json",
         "type": "object",
-        "properties": { "ending": { "$ref": "#/definitions/ending" } },
+        "properties": {
+          "ending": { "$ref": "#/definitions/ending" },
+          "other": { "$ref": "https://plugins.dprint.dev/test/schema.json#/definitions/ending" }
+        },
+        "additionalProperties": false,
         "definitions": { "ending": { "type": "string" } }
       }"##,
     );
@@ -1170,20 +1249,29 @@ mod test {
       async move {
         let schema = client.config_schema(&["/a/dprint.json"]).await.unwrap();
         // the plugin's schema is in the definitions with its references changed to point there
+        // and the properties the cli handles for every plugin added, which its "additionalProperties"
+        // would otherwise disallow
+        let mut properties = serde_json::json!({
+          "ending": { "$ref": "#/definitions/plugin-test-plugin/definitions/ending" },
+          "other": { "$ref": "#/definitions/plugin-test-plugin/definitions/ending" }
+        });
+        for (key, value) in schema["additionalProperties"]["properties"].as_object().unwrap() {
+          properties[key] = value.clone();
+        }
         assert_eq!(
           schema["definitions"]["plugin-test-plugin"],
           serde_json::json!({
             "type": "object",
-            "properties": { "ending": { "$ref": "#/definitions/plugin-test-plugin/definitions/ending" } },
+            "properties": properties,
+            "additionalProperties": false,
             "definitions": { "ending": { "type": "string" } }
           })
         );
-        // and it's combined with what the cli handles for every plugin
+        assert!(schema["definitions"]["plugin-test-plugin"]["properties"]["associations"].is_object());
         assert_eq!(
-          schema["properties"]["test-plugin"]["allOf"][0],
+          schema["properties"]["test-plugin"],
           serde_json::json!({ "$ref": "#/definitions/plugin-test-plugin" })
         );
-        assert_eq!(schema["properties"]["test-plugin"]["allOf"][1], schema["additionalProperties"]);
         assert_eq!(schema["properties"]["plugins"]["type"], "array");
 
         // there are no plugins without a config file
@@ -1275,12 +1363,11 @@ mod test {
           assert_eq!(messages[0].kind, MessageKind::Error);
           assert!(messages[0].message.contains("/a/dprint.json"), "{}", messages[0].message);
 
-          // shown again after it resolved
+          // shown again after it resolved, which a file in any of its directories shows
           environment.write_file("/a/dprint.json", &config_text).unwrap();
           assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
-          assert_eq!(client.format("/a/sub/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           environment.write_file("/a/dprint.json", "{").unwrap();
-          assert!(client.format("/a/file.txt", "text", None).await.is_err());
+          assert!(client.format("/a/sub/file.txt", "text", None).await.is_err());
           assert_eq!(client.take_messages().len(), 1);
         }
         .boxed_local()
