@@ -177,6 +177,7 @@ mod test {
   use dprint_core::communication::SingleThreadMessageWriter;
   use pretty_assertions::assert_eq;
 
+  use crate::configuration::get_settings_file_path;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -261,5 +262,13 @@ mod test {
       }
       assert!(context.output_closed.is_cancelled());
     });
+  }
+
+  /// Requires the user to approve running process plugins.
+  pub(super) fn disallow_process_plugins(environment: &TestEnvironment) {
+    let file_path = get_settings_file_path(environment).unwrap();
+    // macOS only uses this directory when it's already there
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": false } }"#).unwrap();
   }
 }

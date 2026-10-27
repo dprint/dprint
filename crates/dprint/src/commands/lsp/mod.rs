@@ -83,12 +83,13 @@ use crate::commands::no_config::is_no_config_notification_dismissed;
 use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
 use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE;
+use crate::commands::process_plugin_approval::PROCESS_PLUGIN_ACTION_TITLES;
+use crate::commands::process_plugin_approval::store_process_plugin_action;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::ProcessPluginApproval;
 use crate::configuration::ProcessPluginDecision;
 use crate::configuration::read_permissions;
 use crate::configuration::resolve_global_config_path_and_text;
-use crate::configuration::store_process_plugin_decision;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginConfigDiagnostic;
@@ -968,10 +969,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       );
       return;
     }
-    let actions = [ALLOW_ACTION_TITLE, ALWAYS_ALLOW_ACTION_TITLE, DENY_ACTION_TITLE, ALWAYS_DENY_ACTION_TITLE]
-      .into_iter()
-      .map(new_message_action)
-      .collect();
+    let actions = PROCESS_PLUGIN_ACTION_TITLES.into_iter().map(new_message_action).collect();
     let selection = self.client.show_message_request(MessageType::WARNING, message, actions);
     let client = self.client.clone();
     let environment = self.environment.clone();
@@ -980,14 +978,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     dprint_core::async_runtime::spawn(async move {
       let selection = selection.await;
       let title = selection.as_ref().map(|selection| selection.title.as_str());
-      let decision = ProcessPluginDecision {
-        approval: unapproved.approval,
-        allowed: matches!(title, Some(ALLOW_ACTION_TITLE | ALWAYS_ALLOW_ACTION_TITLE)),
-      };
-      if !matches!(title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE)) {
-        // not choosing counts as denying for the session
-        session_decisions.lock().push(decision);
-      } else if let Err(err) = store_process_plugin_decision(&environment, decision).await {
+      if let Err(err) = store_process_plugin_action(&environment, &session_decisions, unapproved.approval, title).await {
         let message = format!("Failed storing the decision for the process plugins: {:#}", err);
         log_warn!(environment, "{}", message);
         client.log_warn(message);
@@ -1322,11 +1313,6 @@ fn supports_document_changes(capabilities: &ClientCapabilities) -> bool {
     .and_then(|workspace_edit| workspace_edit.document_changes)
     .unwrap_or(false)
 }
-
-const ALLOW_ACTION_TITLE: &str = "Allow";
-const ALWAYS_ALLOW_ACTION_TITLE: &str = "Always Allow";
-const DENY_ACTION_TITLE: &str = "Deny";
-const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 
 fn new_message_action(title: &str) -> MessageActionItem {
   MessageActionItem {

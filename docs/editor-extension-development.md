@@ -588,6 +588,8 @@ interface MessageAction {
 
 Response: Show message request response once the user responds, which may be a long time later. An Error response is the same as the user not choosing an action.
 
+Among other things, this asks the user whether to allow running the process plugins of a configuration file. Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start them until the user chooses "Allow" or "Always Allow". Opening a project isn't the same as choosing to run dprint in it. Until then, the requests that use the configuration file are handled without its process plugins.
+
 #### `15` - Show message request response (Client to Service)
 
 Message body:

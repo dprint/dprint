@@ -416,11 +416,12 @@ mod test {
   use tokio::sync::oneshot;
   use tokio_util::sync::CancellationToken;
 
-  use crate::configuration::get_settings_file_path;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::test_helpers::run_test_cli;
+
+  use super::super::test::disallow_process_plugins;
 
   use super::messages::EditorMessage;
   use super::messages::EditorMessageBody;
@@ -498,14 +499,6 @@ mod test {
     let pid = std::process::id().to_string();
     run_test_cli(vec!["editor-service", "--parent-pid", &pid], environment).unwrap();
     result.join().unwrap();
-  }
-
-  /// Requires the user to approve running process plugins.
-  fn disallow_process_plugins(environment: &TestEnvironment) {
-    let file_path = get_settings_file_path(environment).unwrap();
-    // macOS only uses this directory when it's already there
-    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
-    environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": false } }"#).unwrap();
   }
 
   enum MessageResponseChannel {

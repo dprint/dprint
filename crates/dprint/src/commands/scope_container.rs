@@ -156,10 +156,10 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     let options = ResolvePluginsScopeOptions {
       download_policy: self.download_policy.clone(),
     };
-    // IMPORTANT: Process plugins don't run sandboxed, so the language server only
-    // starts the ones the user approved running with their configuration. The
-    // user opening a file (ex. in a cloned repository or in node_modules) isn't
-    // the same as choosing to run dprint there.
+    // IMPORTANT: Process plugins don't run sandboxed, so the editors only start
+    // the ones the user approved running with their configuration. The user
+    // opening a file (ex. in a cloned repository or in node_modules) isn't the
+    // same as choosing to run dprint there.
     let new_scope = Rc::new(
       resolve_plugins_scope_with_approval(Rc::new(config), &self.environment, &self.plugin_resolver, options, |approval| {
         permissions.is_process_plugin_allowed(approval)
