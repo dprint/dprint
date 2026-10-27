@@ -602,6 +602,59 @@ const testKnownPluginsJob = job("test_known_plugins", {
   ],
 });
 
+// === packslip job ===
+
+// Signs a packslip (https://packslip.dev) describing the release zips so
+// packslip-compatible installers can pick and verify the right download
+// (dprint/dprint#1406). It's a separate job so the action never gets a token
+// that can change the release -- the draft_release job attaches the bundle.
+// The installer is left out since installers want the dprint executable.
+const createPackslip = step({
+  name: "Create packslip",
+  id: "packslip",
+  // an exact version so regenerating never quietly moves the pin to a newer
+  // release, since whatever runs here can sign as this workflow
+  uses: "jdx/packslip@v1.11.1",
+  with: {
+    artifacts: profiles.map(profile => `${profile.artifactsName}/${profile.zipFileName}`).join(" "),
+    bin: "dprint",
+    // the draft_release job attests the zips (see SHASUMS256.txt)
+    attest: "link",
+    upload: false,
+  },
+  outputs: ["bundle"] as const,
+});
+
+const packslipJob = job("packslip", {
+  name: "packslip",
+  runsOn: "ubuntu-latest",
+  timeoutMinutes: 15,
+  needs: [buildJob],
+  if: isTag,
+  permissions: {
+    contents: "read",
+    // signing with the workflow's identity
+    "id-token": "write",
+  },
+  steps: [
+    step({
+      name: "Download artifacts",
+      uses: "actions/download-artifact@v8",
+      with: { pattern: "*-artifacts" },
+    }),
+    createPackslip,
+    step({
+      name: "Upload packslip",
+      uses: "actions/upload-artifact@v7",
+      with: {
+        name: "packslip-bundle",
+        path: createPackslip.outputs.bundle,
+        "if-no-files-found": "error",
+      },
+    }),
+  ],
+});
+
 // === draft_release job ===
 
 // Builds the "## Changes" list from the commits between the previous release
@@ -636,7 +689,7 @@ const draftReleaseJob = job("draft_release", {
   name: "draft_release",
   runsOn: "ubuntu-latest",
   timeoutMinutes: 35,
-  needs: [buildJob],
+  needs: [buildJob, packslipJob],
   if: isTag,
   // contents: drafting the release. id-token + attestations: signing the
   // build provenance attestation. artifact-metadata: creating the artifact
@@ -713,6 +766,7 @@ const draftReleaseJob = job("draft_release", {
             return output;
           }).flat(),
           "SHASUMS256.txt",
+          "packslip-bundle/packslip.sigstore.json",
         ].join("\n"),
         body: `## Changes
 
@@ -729,6 +783,12 @@ Verify a download with the [GitHub CLI](https://cli.github.com/):
 
 \`\`\`shell
 gh attestation verify dprint-x86_64-unknown-linux-gnu.zip --repo dprint/dprint
+\`\`\`
+
+The zips are also described by a signed [packslip](https://packslip.dev) (\`packslip.sigstore.json\`):
+
+\`\`\`shell
+packslip verify packslip.sigstore.json --artifact dprint-x86_64-unknown-linux-gnu.zip
 \`\`\`
 
 ## Checksums
@@ -791,6 +851,7 @@ workflow({
   jobs: [
     buildJob,
     testKnownPluginsJob,
+    packslipJob,
     draftReleaseJob,
   ],
 }).writeOrLint({
