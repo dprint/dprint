@@ -357,6 +357,21 @@ pub struct NotFormattedMessage {
   /// a command the user ran), which is `None` when it's already formatted.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub message: Option<String>,
+  /// The problems with the configuration, which are only for `ConfigDiagnostics`.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub diagnostics: Vec<ConfigDiagnostic>,
+}
+
+/// A problem with the configuration of the config file.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigDiagnostic {
+  /// The plugin whose configuration has the problem, which is `None` for a
+  /// problem outside a plugin's configuration.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub plugin_name: Option<String>,
+  pub property_name: String,
+  pub message: String,
 }
 
 /// Why a file isn't formatted.
@@ -376,6 +391,9 @@ pub enum NotFormattedReason {
   NoPlugin,
   /// The config file has no plugins.
   NoPlugins,
+  /// The configuration of a plugin that formats the file has problems (see
+  /// `diagnostics`).
+  ConfigDiagnostics,
   /// The file is already formatted.
   Unchanged,
 }

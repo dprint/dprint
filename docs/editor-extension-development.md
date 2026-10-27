@@ -182,7 +182,7 @@ Message body:
 interface FormatFileOptions {
   /** The plugin configuration to use instead of what's in the configuration file. */
   overrideConfig?: Record<string, unknown>;
-  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. */
+  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. See below for the file path to send for a cell. */
   notebookPath?: string;
   /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
   allowGlobalConfig?: boolean;
@@ -198,7 +198,11 @@ interface FormatFileOptions {
 
 The formatted text keeps the line endings of the text that was sent. For a notebook cell, the trailing whitespace of the formatted text is trimmed like the jupyter plugin does (except after a range that ends before the end of the cell).
 
+The plugin that formats a file is chosen by its file path, so for a notebook cell send the path of a file in the notebook's directory with the file extension of the cell's language (ex. `/project/code_block.py` for a Python cell of `/project/notebook.ipynb`) rather than the path of the notebook. This is what the jupyter plugin does when `dprint fmt` formats a notebook. The file doesn't need to exist.
+
 When a file isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it). Send `showNoConfigNotification: false` for a command the user ran that says why the file wasn't formatted itself.
+
+When the configuration of a plugin that formats the file has problems (`configDiagnostics`), the editor service shows them to the user once until the configuration file changes because a format usually happens without the user doing anything (ex. on save).
 
 Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response for a cancelled format
 
@@ -217,6 +221,16 @@ interface NotFormattedData {
   reason: NotFormattedReason;
   /** The message to show the user about why the file wasn't formatted (ex. for a command the user ran), which isn't provided when it's already formatted. */
   message?: string;
+  /** The problems with the configuration, which are only provided for `configDiagnostics`. */
+  diagnostics?: ConfigDiagnostic[];
+}
+
+/** A problem with the configuration of the configuration file. */
+interface ConfigDiagnostic {
+  /** The plugin whose configuration has the problem, which isn't provided for a problem outside a plugin's configuration. */
+  pluginName?: string;
+  propertyName: string;
+  message: string;
 }
 ```
 
@@ -262,7 +276,7 @@ Message body:
 ```ts
 interface FileInfoData {
   filePath: string;
-  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. */
+  /** The path of the notebook when the file is one of its cells, which is only formatted when the notebook would be. Send the same file path as when formatting the cell. */
   notebookPath?: string;
   /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
   allowGlobalConfig?: boolean;
@@ -302,11 +316,12 @@ interface ConfigFileInfo {
  * - `notMatched` - The configuration file doesn't format the file (ex. its "includes" and "excludes" don't match it).
  * - `noPlugin` - No plugin in the configuration file handles the file.
  * - `noPlugins` - The configuration file has no plugins.
+ * - `configDiagnostics` - The configuration of a plugin that formats the file has problems (only for a format).
  * - `unchanged` - The file is already formatted (only for a format).
  *
  * Handle a reason you don't know about the same as `notMatched`.
  */
-type NotFormattedReason = "noConfigFile" | "globalConfigNotAllowed" | "notMatched" | "noPlugin" | "noPlugins" | "unchanged";
+type NotFormattedReason = "noConfigFile" | "globalConfigNotAllowed" | "notMatched" | "noPlugin" | "noPlugins" | "configDiagnostics" | "unchanged";
 ```
 
 Response: None

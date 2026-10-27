@@ -179,12 +179,44 @@ fn send_response_body<TBody: MessageBody>(context: &EditorContext<TBody>, body: 
 
 #[cfg(test)]
 mod test {
+  use std::io::Read;
+  use std::io::Write;
+  use std::time::Duration;
+
+  use dprint_core::communication::MessageReader;
+  use dprint_core::communication::MessageWriter;
+  use dprint_core::communication::SingleThreadMessageWriter;
   use pretty_assertions::assert_eq;
 
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::test_helpers::run_test_cli;
+
+  use super::EditorContext;
+  use super::messages::MessageBody;
+  use super::messages::MessageBuilder;
+  use super::send_response_body;
+
+  /// A message body for testing what the schema versions share.
+  #[derive(Debug)]
+  struct TestMessageBody;
+
+  impl MessageBody for TestMessageBody {
+    fn read<TRead: Read + Unpin>(_reader: &mut MessageReader<TRead>, _kind: u32, _body_length: u32) -> std::io::Result<Self> {
+      Ok(TestMessageBody)
+    }
+
+    fn write<'a>(&'a self, _builder: &mut MessageBuilder<'a>) {}
+
+    fn kind(&self) -> u32 {
+      0
+    }
+
+    fn error(_message_id: u32, _data: Vec<u8>) -> Self {
+      TestMessageBody
+    }
+  }
 
   #[test]
   fn should_output_editor_service_info_without_config_file() {
@@ -206,5 +238,39 @@ mod test {
     let err = run_test_cli(vec!["editor-service", "--parent-pid", "1", "--schema-version", "7"], &environment).unwrap_err();
     err.assert_exit_code(10);
     assert!(err.to_string().contains("[possible values: 5, 6]"), "{err:#}");
+  }
+
+  #[test]
+  fn should_not_panic_sending_response_when_output_closed() {
+    struct ClosedWriter;
+
+    impl Write for ClosedWriter {
+      fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe."))
+      }
+
+      fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+      }
+    }
+
+    TestEnvironment::new().run_in_runtime(async move {
+      let context = EditorContext::<TestMessageBody> {
+        id_generator: Default::default(),
+        cancellation_tokens: Default::default(),
+        writer: SingleThreadMessageWriter::for_stdin(MessageWriter::new(ClosedWriter)),
+        output_closed: Default::default(),
+      };
+      // the first message fails to be written on the writer thread
+      // and then the messages after that can't be sent
+      for _ in 0..500 {
+        send_response_body(&context, TestMessageBody);
+        if context.output_closed.is_cancelled() {
+          break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+      }
+      assert!(context.output_closed.is_cancelled());
+    });
   }
 }

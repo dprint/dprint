@@ -61,6 +61,7 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::OutputPluginConfigDiagnosticsError;
+use crate::plugins::PluginConfigDiagnostic;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
@@ -73,20 +74,18 @@ use crate::utils::escape_glob_text_for_cli;
 use crate::utils::is_negated_glob;
 
 pub enum GetPluginResult {
-  /// The text of each of the plugin's configuration diagnostics in the form
-  /// it was logged.
-  HadDiagnostics(Vec<String>),
+  HadDiagnostics(Vec<PluginConfigDiagnostic>),
   Success(InitializedPluginWithConfig),
 }
 
 /// The error for formatting with a plugin that has configuration diagnostics.
 ///
 /// The diagnostics are only logged the first time the plugin is used, so this
-/// has their text for a consumer that reports each failure (ex. the lsp).
+/// has them for a consumer that reports each failure (ex. the lsp).
 #[derive(Debug, Error)]
 #[error("Had {} configuration errors.", .diagnostics.len())]
 pub struct PluginConfigDiagnosticsError {
-  pub diagnostics: Vec<String>,
+  pub diagnostics: Vec<PluginConfigDiagnostic>,
 }
 
 pub struct PluginConfigOverride {
@@ -107,7 +106,7 @@ pub struct PluginWithConfig {
   /// (ex. the exec plugin's `cacheKeyFiles` hash) invalidate the cache.
   serialized_resolved_config: String,
   /// The configuration diagnostics once checked, which is empty for none.
-  config_diagnostics: tokio::sync::Mutex<Option<Vec<String>>>,
+  config_diagnostics: tokio::sync::Mutex<Option<Vec<PluginConfigDiagnostic>>>,
 }
 
 pub struct PluginWithConfigOptions {
@@ -311,9 +310,12 @@ impl InitializedPluginWithConfig {
         global: self.plugin.format_config.global.clone(),
       });
       for diagnostic in self.instance.config_diagnostics(format_config).await? {
-        let message = format!("[{}]: {}", self.info().name, diagnostic);
-        log_warn!(environment, "{}", message);
-        diagnostics.push(message);
+        let diagnostic = PluginConfigDiagnostic {
+          plugin_name: self.info().name.to_string(),
+          diagnostic,
+        };
+        log_warn!(environment, "{}", diagnostic);
+        diagnostics.push(diagnostic);
       }
     }
 

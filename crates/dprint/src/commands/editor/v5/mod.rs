@@ -1085,40 +1085,6 @@ mod test {
   }
 
   #[test]
-  fn should_not_panic_sending_response_when_output_closed() {
-    struct ClosedWriter;
-
-    impl Write for ClosedWriter {
-      fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
-        Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe."))
-      }
-
-      fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-      }
-    }
-
-    TestEnvironment::new().run_in_runtime(async move {
-      let context = super::EditorContext {
-        id_generator: Default::default(),
-        cancellation_tokens: Default::default(),
-        writer: SingleThreadMessageWriter::for_stdin(MessageWriter::new(ClosedWriter)),
-        output_closed: Default::default(),
-      };
-      // the first message fails to be written on the writer thread
-      // and then the messages after that can't be sent
-      for _ in 0..500 {
-        super::send_response_body(&context, EditorMessageBody::Success(0));
-        if context.output_closed.is_cancelled() {
-          break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-      }
-      assert!(context.output_closed.is_cancelled());
-    });
-  }
-
-  #[test]
   fn should_clamp_format_range_to_text_for_editor_service() {
     let txt_file_path = PathBuf::from("/file.txt");
     let environment = TestEnvironmentBuilder::new()

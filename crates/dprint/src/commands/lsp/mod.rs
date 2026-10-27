@@ -84,6 +84,7 @@ use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
+use crate::plugins::PluginConfigDiagnostic;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginConfigDiagnosticsError;
 
@@ -644,10 +645,11 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       let Some(selection) = selection.await else {
         return;
       };
-      let dismissal = if selection.title == DISMISS_WORKSPACE_ACTION_TITLE {
-        NoConfigNotificationDismissal::WorkspaceFolders(workspace_folders)
-      } else {
-        NoConfigNotificationDismissal::Everywhere
+      let dismissal = match selection.title.as_str() {
+        DISMISS_WORKSPACE_ACTION_TITLE => NoConfigNotificationDismissal::WorkspaceFolders(workspace_folders),
+        DISMISS_ACTION_TITLE => NoConfigNotificationDismissal::Everywhere,
+        // the client responded with an action that wasn't offered
+        _ => return,
       };
       if let Err(err) = dismiss_no_config_notification(&environment, dismissal).await {
         let message = format!("Failed storing to not show the no configuration file notification: {:#}", err);
@@ -675,7 +677,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         // the first time the plugin is used, so tell the client each time
         for diagnostic in get_plugin_config_diagnostics(&err) {
           message.push('\n');
-          message.push_str(diagnostic);
+          message.push_str(&diagnostic.to_string());
         }
         self.client.log_error(message);
         FormatOutcome::NotFormatted(NotFormattedReason::Failed)
@@ -1036,9 +1038,9 @@ pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
   }
 }
 
-/// Gets the text of the plugin's configuration diagnostics when the format
-/// request failed because of them.
-fn get_plugin_config_diagnostics(err: &anyhow::Error) -> &[String] {
+/// Gets the plugin's configuration diagnostics when the format request failed
+/// because of them.
+fn get_plugin_config_diagnostics(err: &anyhow::Error) -> &[PluginConfigDiagnostic] {
   err
     .downcast_ref::<FormatError>()
     .and_then(|err| err.downcast_ref::<PluginConfigDiagnosticsError>())
