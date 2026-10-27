@@ -21,6 +21,7 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::arg_parser::CliArgs;
+use crate::arg_parser::EditorServiceSchemaVersion;
 use crate::commands::lsp::config_completion::ConfigJsonSchemaBuilder;
 use crate::commands::lsp::config_completion::PluginSchemaUrl;
 use crate::commands::lsp::notebook::trim_formatted_cell_text;
@@ -129,7 +130,7 @@ pub async fn run_workspace_editor_service<TEnvironment: Environment>(
     pending_message_requests: Default::default(),
     has_notified_no_config: Default::default(),
   });
-  let mut rx = start_reading_messages(environment, 6);
+  let mut rx = start_reading_messages(environment, EditorServiceSchemaVersion::V6);
 
   loop {
     let message = tokio::select! {
@@ -700,6 +701,7 @@ mod test {
   use pretty_assertions::assert_eq;
   use tokio::sync::oneshot;
 
+  use crate::arg_parser::EditorServiceSchemaVersion;
   use crate::commands::no_config::NoConfigNotificationDismissal;
   use crate::commands::no_config::dismiss_no_config_notification;
   use crate::commands::no_config::is_no_config_notification_dismissed;
@@ -1485,7 +1487,7 @@ mod test {
     let environment = TestEnvironment::new();
     let err = run_test_cli(vec!["editor-service", "--parent-pid", "1", "--schema-version", "7"], &environment).unwrap_err();
     err.assert_exit_code(10);
-    assert!(err.to_string().contains("7 is not in 5..=6"), "{err:#}");
+    assert!(err.to_string().contains("[possible values: 5, 6]"), "{err:#}");
   }
 
   #[derive(Debug, PartialEq)]
@@ -1593,7 +1595,7 @@ mod test {
       let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
       dprint_core::async_runtime::spawn_blocking(move || {
         let mut reader = MessageReader::new(stdout);
-        while let Ok(message) = EditorMessage::read(&mut reader, 6) {
+        while let Ok(message) = EditorMessage::read(&mut reader, EditorServiceSchemaVersion::V6) {
           if tx.send(message).is_err() {
             break;
           }

@@ -19,6 +19,7 @@ mod messages;
 mod workspace;
 
 use crate::arg_parser::CliArgs;
+use crate::arg_parser::EditorServiceSchemaVersion;
 use crate::arg_parser::EditorServiceSubCommand;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::resolve_config_from_args;
@@ -35,9 +36,6 @@ use self::messages::EditorMessageBody;
 use self::messages::EditorPluginInfo;
 use self::messages::FormatEditorMessageBody;
 
-/// The schema versions of the editor service, where the first is the one that's
-/// used when `--schema-version` isn't specified.
-const EDITOR_SERVICE_SCHEMA_VERSIONS: [u32; 2] = [5, 6];
 const CONFIG_SCHEMA_URL: &str = "https://dprint.dev/schemas/v0.json";
 
 /// Outputs what the editor service supports (`dprint editor-service --info`),
@@ -51,7 +49,7 @@ pub fn output_editor_service_info(environment: &impl Environment) -> Result<()> 
   #[serde(rename_all = "camelCase")]
   struct EditorServiceInfo {
     cli_version: String,
-    editor_service_schema_versions: &'static [u32],
+    editor_service_schema_versions: Vec<u32>,
     config_schema_url: &'static str,
     /// What the editor service supports in addition to its schema version.
     capabilities: EditorServiceCapabilities,
@@ -63,7 +61,7 @@ pub fn output_editor_service_info(environment: &impl Environment) -> Result<()> 
 
   environment.log_machine_readable(&serde_json::to_vec(&EditorServiceInfo {
     cli_version: environment.cli_version(),
-    editor_service_schema_versions: &EDITOR_SERVICE_SCHEMA_VERSIONS,
+    editor_service_schema_versions: EditorServiceSchemaVersion::ALL.iter().map(|version| version.as_u32()).collect(),
     config_schema_url: CONFIG_SCHEMA_URL,
     capabilities: EditorServiceCapabilities {},
   })?);
@@ -134,11 +132,11 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   start_parent_process_checker_task(editor_service_cmd.parent_pid);
 
   match editor_service_cmd.schema_version {
-    6 => workspace::run_workspace_editor_service(args, environment, plugin_resolver).await,
-    _ => {
+    EditorServiceSchemaVersion::V5 => {
       let mut editor_service = EditorService::new(args, environment, plugin_resolver);
       editor_service.run().await
     }
+    EditorServiceSchemaVersion::V6 => workspace::run_workspace_editor_service(args, environment, plugin_resolver).await,
   }
 }
 
@@ -169,7 +167,7 @@ impl EditorContext {
 }
 
 /// Reads the messages of the schema version from the editor on another thread.
-fn start_reading_messages(environment: &impl Environment, schema_version: u32) -> tokio::sync::mpsc::UnboundedReceiver<EditorMessage> {
+fn start_reading_messages(environment: &impl Environment, schema_version: EditorServiceSchemaVersion) -> tokio::sync::mpsc::UnboundedReceiver<EditorMessage> {
   let environment = environment.clone();
   let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<EditorMessage>();
   dprint_core::async_runtime::spawn_blocking(move || {
@@ -226,7 +224,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   }
 
   pub async fn run(&mut self) -> Result<()> {
-    let mut rx = start_reading_messages(self.environment, 5);
+    let mut rx = start_reading_messages(self.environment, EditorServiceSchemaVersion::V5);
     // The messages that need the configuration are handled one at a time on a
     // separate task from the one receiving the messages. Resolving the
     // configuration can take a long time (ex. downloading plugins), so this
@@ -477,6 +475,7 @@ mod test {
   use tokio::sync::oneshot;
   use tokio_util::sync::CancellationToken;
 
+  use crate::arg_parser::EditorServiceSchemaVersion;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -584,7 +583,7 @@ mod test {
       let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
       dprint_core::async_runtime::spawn_blocking({
         move || loop {
-          let message = EditorMessage::read(&mut reader, 5);
+          let message = EditorMessage::read(&mut reader, EditorServiceSchemaVersion::V5);
           let msg_was_err = message.is_err();
           if tx.send(message).is_err() || msg_was_err {
             break;

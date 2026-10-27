@@ -10,6 +10,10 @@ use std::path::PathBuf;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::FormatRange;
 
+use crate::arg_parser::EditorServiceSchemaVersion;
+use crate::arg_parser::EditorServiceSchemaVersion::V5;
+use crate::arg_parser::EditorServiceSchemaVersion::V6;
+
 #[derive(Debug)]
 pub struct EditorMessage {
   pub id: u32,
@@ -19,7 +23,7 @@ pub struct EditorMessage {
 impl EditorMessage {
   /// Reads a message of the schema version, which decides what each kind of
   /// message is.
-  pub fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>, schema_version: u32) -> Result<EditorMessage> {
+  pub fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>, schema_version: EditorServiceSchemaVersion) -> Result<EditorMessage> {
     let id = reader.read_u32()?;
     let message_kind = reader.read_u32()?;
     let body_length = reader.read_u32()?;
@@ -32,16 +36,16 @@ impl EditorMessage {
       }
       (2, _) => EditorMessageBody::Close,
       (3, _) => EditorMessageBody::IsAlive,
-      (4, 5) => {
+      (4, V5) => {
         let file_path = reader.read_sized_bytes()?;
         EditorMessageBody::CanFormat(PathBuf::from(String::from_utf8_lossy(&file_path).to_string()))
       }
-      (5, 5) => {
+      (5, V5) => {
         let message_id = reader.read_u32()?;
         let can_format = reader.read_u32()?;
         EditorMessageBody::CanFormatResponse(message_id, can_format)
       }
-      (6, 5) => {
+      (6, V5) => {
         let (file_path, range, override_config, file_bytes) = read_format_body(reader)?;
         EditorMessageBody::Format(FormatEditorMessageBody {
           file_path,
@@ -50,7 +54,7 @@ impl EditorMessage {
           override_config,
         })
       }
-      (7, 5) => {
+      (7, V5) => {
         let message_id = reader.read_u32()?;
         let response_kind = reader.read_u32()?;
         let data = match response_kind {
@@ -66,9 +70,9 @@ impl EditorMessage {
         EditorMessageBody::FormatResponse(message_id, data)
       }
       (8, _) => EditorMessageBody::CancelFormat(reader.read_u32()?),
-      (4, 6) => EditorMessageBody::Initialize(reader.read_sized_bytes()?),
-      (5, 6) => EditorMessageBody::UpdateSettings(reader.read_sized_bytes()?),
-      (6, 6) => {
+      (4, V6) => EditorMessageBody::Initialize(reader.read_sized_bytes()?),
+      (5, V6) => EditorMessageBody::UpdateSettings(reader.read_sized_bytes()?),
+      (6, V6) => {
         let file_path = reader.read_sized_bytes()?;
         let start = reader.read_u32()?;
         let end = reader.read_u32()?;
@@ -82,7 +86,7 @@ impl EditorMessage {
           file_bytes,
         })
       }
-      (7, 6) => {
+      (7, V6) => {
         let message_id = reader.read_u32()?;
         let response_kind = reader.read_u32()?;
         let data = reader.read_sized_bytes()?;
@@ -98,24 +102,24 @@ impl EditorMessage {
         };
         EditorMessageBody::FormatFileResponse(message_id, result)
       }
-      (9, 6) => EditorMessageBody::FileInfo(reader.read_sized_bytes()?),
-      (10, 6) => {
+      (9, V6) => EditorMessageBody::FileInfo(reader.read_sized_bytes()?),
+      (10, V6) => {
         let message_id = reader.read_u32()?;
         EditorMessageBody::FileInfoResponse(message_id, reader.read_sized_bytes()?)
       }
-      (11, 6) => EditorMessageBody::ConfigInfo(reader.read_sized_bytes()?),
-      (12, 6) => {
+      (11, V6) => EditorMessageBody::ConfigInfo(reader.read_sized_bytes()?),
+      (12, V6) => {
         let message_id = reader.read_u32()?;
         EditorMessageBody::ConfigInfoResponse(message_id, reader.read_sized_bytes()?)
       }
-      (13, 6) => EditorMessageBody::ShowMessage(reader.read_sized_bytes()?),
-      (14, 6) => EditorMessageBody::ShowMessageRequest(reader.read_sized_bytes()?),
-      (15, 6) => {
+      (13, V6) => EditorMessageBody::ShowMessage(reader.read_sized_bytes()?),
+      (14, V6) => EditorMessageBody::ShowMessageRequest(reader.read_sized_bytes()?),
+      (15, V6) => {
         let message_id = reader.read_u32()?;
         EditorMessageBody::ShowMessageRequestResponse(message_id, reader.read_sized_bytes()?)
       }
-      (16, 6) => EditorMessageBody::ConfigSchema(reader.read_sized_bytes()?),
-      (17, 6) => {
+      (16, V6) => EditorMessageBody::ConfigSchema(reader.read_sized_bytes()?),
+      (17, V6) => {
         let message_id = reader.read_u32()?;
         EditorMessageBody::ConfigSchemaResponse(message_id, reader.read_sized_bytes()?)
       }

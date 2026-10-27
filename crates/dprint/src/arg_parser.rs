@@ -393,7 +393,43 @@ pub struct OutputFormatTimesSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct EditorServiceSubCommand {
   pub parent_pid: u32,
-  pub schema_version: u32,
+  pub schema_version: EditorServiceSchemaVersion,
+}
+
+/// A schema version of the editor service, which decides the messages it
+/// sends and receives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorServiceSchemaVersion {
+  /// Formats the files the editor resolved the config file of.
+  V5,
+  /// Formats the files of a whole workspace.
+  V6,
+}
+
+impl EditorServiceSchemaVersion {
+  /// The schema versions, where the first is the one that's used when
+  /// `--schema-version` isn't specified.
+  pub const ALL: [Self; 2] = [Self::V5, Self::V6];
+
+  pub fn as_u32(self) -> u32 {
+    match self {
+      Self::V5 => 5,
+      Self::V6 => 6,
+    }
+  }
+}
+
+impl clap::ValueEnum for EditorServiceSchemaVersion {
+  fn value_variants<'a>() -> &'a [Self] {
+    &Self::ALL
+  }
+
+  fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+    Some(clap::builder::PossibleValue::new(match self {
+      Self::V5 => "5",
+      Self::V6 => "6",
+    }))
+  }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -652,7 +688,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("editor-service", matches) if matches.get_flag("info") => SubCommand::EditorServiceInfo,
     ("editor-service", matches) => SubCommand::EditorService(EditorServiceSubCommand {
       parent_pid: matches.get_one::<String>("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
-      schema_version: *matches.get_one::<u32>("schema-version").unwrap(),
+      schema_version: *matches.get_one::<EditorServiceSchemaVersion>("schema-version").unwrap(),
     }),
     ("lsp", _) => SubCommand::Lsp,
     ("completions", matches) => SubCommand::Completions(matches.get_one::<clap_complete::Shell>("shell").unwrap().to_owned()),
@@ -1261,7 +1297,7 @@ EXAMPLES:
           Arg::new("schema-version")
             .long("schema-version")
             .num_args(1)
-            .value_parser(clap::value_parser!(u32).range(5..=6))
+            .value_parser(clap::value_parser!(EditorServiceSchemaVersion))
             .default_value("5"),
         ),
     );
@@ -2250,7 +2286,7 @@ mod test {
       test_args(vec!["editor-service", "--parent-pid", "1"]).unwrap().sub_command,
       SubCommand::EditorService(EditorServiceSubCommand {
         parent_pid: 1,
-        schema_version: 5
+        schema_version: EditorServiceSchemaVersion::V5
       })
     ));
     // it doesn't start the editor service
