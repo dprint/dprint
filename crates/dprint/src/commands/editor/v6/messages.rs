@@ -335,6 +335,13 @@ pub struct ConfigInfoResponseMessage {
   pub config_file: Option<ConfigFileInfo>,
   /// The plugins of the config file.
   pub plugins: Vec<EditorPluginInfo>,
+  /// Why the config file doesn't format anything (ex. it failed to resolve).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reason: Option<NotFormattedReason>,
+  /// The message to show the user about why the config file doesn't format
+  /// anything.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -466,6 +473,9 @@ pub enum NotFormattedReason {
   NoPlugin,
   /// The config file has no plugins.
   NoPlugins,
+  /// The config file failed to resolve (ex. it has a syntax error), which
+  /// the message says.
+  ConfigError,
   /// The configuration of a plugin that formats the file has problems (see
   /// `diagnostics`).
   ConfigDiagnostics,

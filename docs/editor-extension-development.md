@@ -79,7 +79,7 @@ Notes:
 - Send an initialize message first. The other messages that need it have an error response until then.
 - If an unknown message kind is received, return an error (don't ignore it).
 - The JSON data of a message may have more properties in the future, so ignore properties you don't know about.
-- When a configuration file fails to resolve, the editor service shows the error with a show message as well as responding with an error. It's shown once until the configuration file resolves again because the editor makes requests without the user doing anything (ex. when a file is opened).
+- When a configuration file fails to resolve, the editor service shows the error with a show message as well as responding with the `configError` reason. It's shown once until the configuration file resolves again because the editor makes requests without the user doing anything (ex. when a file is opened).
 - The editor service sends what it logs as log messages, so stderr only has what isn't (ex. a crash).
 - Messages are sent in the order they're made, so the log and progress messages made while handling a request are received before its response.
 
@@ -235,7 +235,7 @@ When a document isn't formatted because there's no configuration file for it (`n
 
 When the configuration of a plugin that formats the document has problems (`configDiagnostics`), the editor service shows them to the user once until the configuration file changes because a format usually happens without the user doing anything (ex. on save).
 
-Response: Format file response, an Error response when the request can't be handled (ex. the configuration failed to resolve), or no response once it's cancelled
+Response: Format file response, an Error response when the request can't be handled (ex. the uri isn't supported), or no response once it's cancelled
 
 #### `7` - Format file response (Service to Client)
 
@@ -356,7 +356,7 @@ interface FileInfoData {
 }
 ```
 
-Response: File info response or an Error response (ex. the configuration failed to resolve), or no response once it's cancelled
+Response: File info response, an Error response when the request can't be handled (ex. the uri isn't supported), or no response once it's cancelled
 
 #### `10` - File info response (Service to Client)
 
@@ -389,6 +389,7 @@ interface ConfigFileInfo {
  * - `notMatched` - The configuration file doesn't format the document (ex. its "includes" and "excludes" don't match it).
  * - `noPlugin` - No plugin in the configuration file handles the document.
  * - `noPlugins` - The configuration file has no plugins.
+ * - `configError` - The configuration file failed to resolve (ex. it has a syntax error), which the message says.
  * - `configDiagnostics` - The configuration of a plugin that formats the document has problems (only for a format).
  * - `rangeFormattingNotSupported` - A plugin that formats the document doesn't support formatting a range (only for a format).
  * - `unchanged` - The document is already formatted (only for a format).
@@ -401,6 +402,7 @@ type NotFormattedReason =
   | "notMatched"
   | "noPlugin"
   | "noPlugins"
+  | "configError"
   | "configDiagnostics"
   | "rangeFormattingNotSupported"
   | "unchanged";
@@ -439,8 +441,12 @@ Message body:
 interface ConfigInfoResponseData {
   /** The configuration file that's used for the document, which is `null` when there isn't one. */
   configFile: ConfigFileInfo | null;
-  /** The plugins of the configuration file, which is empty when there isn't one. */
+  /** The plugins of the configuration file, which is empty when it doesn't format anything. */
   plugins: PluginInfo[];
+  /** Why the configuration file doesn't format anything (ex. `noConfigFile` or `configError`). */
+  reason?: NotFormattedReason;
+  /** The message to show the user about why the configuration file doesn't format anything. */
+  message?: string;
 }
 
 interface PluginInfo {

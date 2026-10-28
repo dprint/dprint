@@ -162,6 +162,23 @@ enum FormatOutcome {
   Failed(FormatFailedMessage),
 }
 
+/// The config file that's used for a document.
+enum DocumentConfig<TEnvironment: Environment> {
+  Resolved(Rc<PluginsScope<TEnvironment>>),
+  /// There's no config file for the document.
+  NotFound,
+  /// The config file failed to resolve, which was shown to the user.
+  Failed(ConfigFailure),
+}
+
+/// A config file that failed to resolve.
+struct ConfigFailure {
+  /// The config file, which is `None` when it failed to be found (ex. an
+  /// ancestor directory couldn't be read).
+  config_file: Option<ConfigFileInfo>,
+  message: String,
+}
+
 /// The files a document may be formatted as.
 struct DocumentFile {
   /// The file paths in order of preference, which are in the same directory
@@ -396,14 +413,25 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let allow_global_config = self.allow_global_config(message.allow_global_config);
     let document_file = self.get_document_file(&message.document)?;
     let is_notebook_cell = document_file.notebook_path.is_some();
-    let Some(scope) = self.resolve_scope(&document_file.candidates[0], allow_global_config).await? else {
-      let reason = self.get_no_config_reason(allow_global_config);
-      return Ok(FileInfoResponseMessage {
-        config_file: None,
-        can_format: false,
-        reason: Some(reason),
-        message: get_not_formatted_message(reason, is_notebook_cell, allow_global_config),
-      });
+    let scope = match self.resolve_scope(&document_file.candidates[0], allow_global_config).await? {
+      DocumentConfig::Resolved(scope) => scope,
+      DocumentConfig::NotFound => {
+        let reason = self.get_no_config_reason(allow_global_config);
+        return Ok(FileInfoResponseMessage {
+          config_file: None,
+          can_format: false,
+          reason: Some(reason),
+          message: get_not_formatted_message(reason, is_notebook_cell, allow_global_config),
+        });
+      }
+      DocumentConfig::Failed(failure) => {
+        return Ok(FileInfoResponseMessage {
+          config_file: failure.config_file,
+          can_format: false,
+          reason: Some(NotFormattedReason::ConfigError),
+          message: Some(failure.message),
+        });
+      }
     };
     // the editor service only receives a uri, so an extensionless file's
     // shebang is resolved from the file on disk
@@ -419,15 +447,31 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   async fn get_config_info(self: &Rc<Self>, message: ConfigInfoMessage) -> Result<ConfigInfoResponseMessage> {
     let allow_global_config = self.allow_global_config(message.allow_global_config);
     let file_path = self.get_uri_file_path(&message.uri)?;
-    let Some(scope) = self.resolve_scope(&file_path, allow_global_config).await? else {
-      return Ok(ConfigInfoResponseMessage {
-        config_file: None,
-        plugins: Vec::new(),
-      });
+    let scope = match self.resolve_scope(&file_path, allow_global_config).await? {
+      DocumentConfig::Resolved(scope) => scope,
+      DocumentConfig::NotFound => {
+        let reason = self.get_no_config_reason(allow_global_config);
+        return Ok(ConfigInfoResponseMessage {
+          config_file: None,
+          plugins: Vec::new(),
+          reason: Some(reason),
+          message: get_not_formatted_message(reason, false, allow_global_config),
+        });
+      }
+      DocumentConfig::Failed(failure) => {
+        return Ok(ConfigInfoResponseMessage {
+          config_file: failure.config_file,
+          plugins: Vec::new(),
+          reason: Some(NotFormattedReason::ConfigError),
+          message: Some(failure.message),
+        });
+      }
     };
     Ok(ConfigInfoResponseMessage {
       config_file: get_config_file_info(&scope),
       plugins: get_editor_plugin_infos(&scope).await?,
+      reason: None,
+      message: None,
     })
   }
 
@@ -439,7 +483,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         continue;
       };
       // a config file that fails to resolve was shown to the user, so its plugins are only left out
-      if let Ok(Some(scope)) = self.resolve_scope(&file_path, allow_global_config).await {
+      if let Ok(DocumentConfig::Resolved(scope)) = self.resolve_scope(&file_path, allow_global_config).await {
         plugins.extend(scope.plugins.values().map(|plugin| PluginSchemaUrl {
           config_key: plugin.info().config_key.clone(),
           url: plugin.info().config_schema_url.clone(),
@@ -463,10 +507,20 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         diagnostics: Vec::new(),
       }))
     };
-    let Some(scope) = self.resolve_scope(&document_file.candidates[0], allow_global_config).await? else {
-      let reason = self.get_no_config_reason(allow_global_config);
-      self.notify_no_config(reason, allow_global_config, message.show_no_config_notification);
-      return not_formatted(reason);
+    let scope = match self.resolve_scope(&document_file.candidates[0], allow_global_config).await? {
+      DocumentConfig::Resolved(scope) => scope,
+      DocumentConfig::NotFound => {
+        let reason = self.get_no_config_reason(allow_global_config);
+        self.notify_no_config(reason, allow_global_config, message.show_no_config_notification);
+        return not_formatted(reason);
+      }
+      DocumentConfig::Failed(failure) => {
+        return Ok(FormatOutcome::NotFormatted(NotFormattedMessage {
+          reason: NotFormattedReason::ConfigError,
+          message: Some(failure.message),
+          diagnostics: Vec::new(),
+        }));
+      }
     };
     let chosen_file = self.choose_file(&scope, document_file, Some(&body.file_bytes));
     if let Some(reason) = chosen_file.cant_format_reason {
@@ -687,9 +741,8 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     request_allows || self.settings.borrow().allow_global_config
   }
 
-  /// Resolves the plugins of the config file used for the file, which is
-  /// `None` when there isn't one.
-  async fn resolve_scope(self: &Rc<Self>, file_path: &Path, allow_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
+  /// Resolves the plugins of the config file used for the file.
+  async fn resolve_scope(self: &Rc<Self>, file_path: &Path, allow_global_config: bool) -> Result<DocumentConfig<TEnvironment>> {
     let Some(dir_path) = file_path.parent() else {
       bail!("Cannot format non-file path: {}", file_path.display());
     };
@@ -700,31 +753,43 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       }
       Err(err) => {
         self.show_config_find_error(dir_path, &err);
-        return Err(err);
+        return Ok(DocumentConfig::Failed(ConfigFailure {
+          config_file: None,
+          message: format!("{:#}", err),
+        }));
       }
     };
     let Some(config_file) = config_file else {
-      return Ok(None);
+      return Ok(DocumentConfig::NotFound);
     };
     let key = get_config_file_key(&config_file);
+    let failed = |err: &anyhow::Error| {
+      DocumentConfig::Failed(ConfigFailure {
+        config_file: path_source_to_uri(&config_file.source).map(|uri| ConfigFileInfo {
+          uri,
+          is_global: config_file.is_global_config,
+        }),
+        message: format!("{:#}", err),
+      })
+    };
     let scope = match self.scope_container.resolve_config_file(&config_file).await {
       Ok(scope) => scope,
       Err(err) => {
         self.show_config_error(key.clone(), &err);
         self.checked_scopes.borrow_mut().remove(&key);
         self.send_config_diagnostics(&config_file.source, vec![get_config_error_diagnostic(Some(&config_file.content), &err)]);
-        return Err(err);
+        return Ok(failed(&err));
       }
     };
     self.check_config_diagnostics(&key, &config_file, &scope);
     if let Err(err) = scope.ensure_no_global_config_diagnostics() {
       let err = anyhow::Error::from(err);
       self.show_config_error(key, &err);
-      return Err(err);
+      return Ok(failed(&err));
     }
     self.config_errors.borrow_mut().remove(&key);
     self.notify_if_config_changed(key, &config_file, &scope);
-    Ok(Some(scope))
+    Ok(DocumentConfig::Resolved(scope))
   }
 
   /// Sends the problems with the config file to the editor, which is done
@@ -987,6 +1052,8 @@ fn get_not_formatted_message(reason: NotFormattedReason, is_notebook_cell: bool,
     NotFormattedReason::NoPlugins => Some(NO_PLUGINS_MESSAGE.to_string()),
     // the message is created with the diagnostics instead
     NotFormattedReason::ConfigDiagnostics => None,
+    // the message is the error
+    NotFormattedReason::ConfigError => None,
     NotFormattedReason::RangeFormattingNotSupported => Some(RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string()),
     NotFormattedReason::Unchanged => None,
   }
@@ -1888,8 +1955,32 @@ mod test {
       move |client| {
         async move {
           // for each file of the config file
-          assert!(client.format("/a/file.txt", "text", None).await.is_err());
-          assert!(client.format("/a/sub/file.txt", "text", None).await.is_err());
+          assert_eq!(
+            client.format("/a/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ConfigError)
+          );
+          // the message is the error
+          let message = client.not_formatted_message("/a/file.txt").await;
+          assert!(message.message.unwrap().contains("/a/dprint.json"));
+          let info = client.file_info(file_info("/a/file.txt")).await.unwrap();
+          assert_eq!(info.config_file, Some(local_config("/a/dprint.json")));
+          assert!(!info.can_format);
+          assert_eq!(info.reason, Some(NotFormattedReason::ConfigError));
+          assert!(info.message.unwrap().contains("/a/dprint.json"));
+          let info = client
+            .config_info(ConfigInfoMessage {
+              uri: uri("/a/dprint.json"),
+              allow_global_config: false,
+            })
+            .await
+            .unwrap();
+          assert_eq!(info.config_file, Some(local_config("/a/dprint.json")));
+          assert!(info.plugins.is_empty());
+          assert_eq!(info.reason, Some(NotFormattedReason::ConfigError));
+          assert_eq!(
+            client.format("/a/sub/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ConfigError)
+          );
           let messages = client.take_messages();
           assert_eq!(messages.len(), 1);
           assert_eq!(messages[0].kind, MessageKind::Error);
@@ -1899,7 +1990,10 @@ mod test {
           environment.write_file("/a/dprint.json", &config_text).unwrap();
           assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           environment.write_file("/a/dprint.json", "{").unwrap();
-          assert!(client.format("/a/sub/file.txt", "text", None).await.is_err());
+          assert_eq!(
+            client.format("/a/sub/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ConfigError)
+          );
           assert_eq!(client.take_messages().len(), 1);
         }
         .boxed_local()
@@ -2019,13 +2113,22 @@ mod test {
       move |client| {
         async move {
           // for each directory with the error, including after finding no config file for another directory
-          assert!(client.format("/a/file.txt", "text", None).await.is_err());
-          assert!(client.format("/a/sub/file.txt", "text", None).await.is_err());
+          assert_eq!(
+            client.format("/a/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ConfigError)
+          );
+          assert_eq!(
+            client.format("/a/sub/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ConfigError)
+          );
           assert_eq!(
             client.format("/b/file.txt", "text", None).await.unwrap(),
             not_formatted(NotFormattedReason::NoConfigFile)
           );
-          assert!(client.format("/a/file.txt", "text", None).await.is_err());
+          assert_eq!(
+            client.format("/a/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ConfigError)
+          );
           let messages = client.take_messages();
           assert_eq!(messages.len(), 1, "{messages:?}");
           assert_eq!(messages[0].kind, MessageKind::Error);
@@ -2039,7 +2142,10 @@ mod test {
             );
           }
           environment.mk_dir_all("/a/dprint.json").unwrap();
-          assert!(client.format("/a/file.txt", "text", None).await.is_err());
+          assert_eq!(
+            client.format("/a/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ConfigError)
+          );
           assert_eq!(client.take_messages().len(), 1);
         }
         .boxed_local()
@@ -2417,7 +2523,10 @@ mod test {
 
           // where it doesn't parse
           environment.write_file("/dprint.json", "{\n  \"a\": }").unwrap();
-          assert!(client.format("/file.txt", "text", None).await.is_err());
+          assert_eq!(
+            client.format("/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ConfigError)
+          );
           let diagnostics = client.take_config_diagnostics();
           assert_eq!(diagnostics.len(), 1);
           assert_eq!(diagnostics[0].uri, uri("/dprint.json"));
