@@ -404,10 +404,10 @@ pub struct ConfigFileInfo {
 pub struct FormatFileMessage {
   #[serde(flatten)]
   pub document: DocumentInfo,
-  /// The range of UTF-16 offsets in the text to format, which is the whole
+  /// The ranges of UTF-16 offsets in the text to format, which is the whole
   /// text when `None`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub range: Option<OffsetRange>,
+  pub ranges: Option<Vec<OffsetRange>>,
   /// The plugin config to use instead of what's in the config file.
   #[serde(default, skip_serializing_if = "ConfigKeyMap::is_empty")]
   pub override_config: ConfigKeyMap,

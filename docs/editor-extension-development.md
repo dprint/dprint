@@ -206,8 +206,8 @@ interface FormatFileData {
   language?: DocumentLanguage;
   /** The uri of the notebook when the document is one of its cells. */
   notebookUri?: string;
-  /** The range of UTF-16 offsets in the text to format, which is the whole text when not provided. */
-  range?: OffsetRange;
+  /** The ranges of UTF-16 offsets in the text to format (ex. the selections or the changed lines), which is the whole text when not provided. */
+  ranges?: OffsetRange[];
   /** The plugin configuration to use instead of what's in the configuration file. */
   overrideConfig?: Record<string, unknown>;
   /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
@@ -230,6 +230,8 @@ interface OffsetRange {
 The formatted text keeps the line endings of the text that was sent. For a notebook cell, the trailing whitespace of the formatted text is trimmed like the jupyter plugin does (except after a range that ends before the end of the cell).
 
 A plugin that says it formats a range (`supportsRangeFormatting` in its plugin info) is given the range as it is and decides what to format around it (ex. the nodes it overlaps), so its edits may be outside the range. A plugin that doesn't say is given the range expanded to the whole lines it touches and only the edits within those lines are provided. A plugin that says it doesn't format a range doesn't format the document (`rangeFormattingNotSupported`).
+
+The ranges are formatted one at a time from the first one in the document to the last, each in the text that formatting the ones before it changed, and ranges that overlap or touch are formatted as one. The edits are for the text that was sent, so send several ranges in one request instead of a request for each range. No ranges formats nothing.
 
 When a document isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it). Send `showNoConfigNotification: false` for a command the user ran that says why the document wasn't formatted itself.
 

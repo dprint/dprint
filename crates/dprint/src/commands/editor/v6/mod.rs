@@ -32,7 +32,10 @@ use crate::commands::lsp::file_path_to_uri;
 use crate::commands::lsp::language::get_language_file_name;
 use crate::commands::lsp::notebook::trim_formatted_cell_text;
 use crate::commands::lsp::text::RangeFormat;
+use crate::commands::lsp::text::apply_utf16_edits;
 use crate::commands::lsp::text::get_range_utf16_edits;
+use crate::commands::lsp::text::get_utf16_edits;
+use crate::commands::lsp::text::map_utf16_range;
 use crate::commands::lsp::text::normalize_to_source_line_endings;
 use crate::commands::lsp::untitled::is_untitled_uri;
 use crate::commands::lsp::uri_to_file_path;
@@ -113,6 +116,7 @@ use self::messages::MessageAction;
 use self::messages::MessageKind;
 use self::messages::NotFormattedMessage;
 use self::messages::NotFormattedReason;
+use self::messages::OffsetRange;
 use self::messages::PluginInfo;
 use self::messages::ProgressMessage;
 use self::messages::ShowMessageMessage;
@@ -554,65 +558,107 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     }
     let file_path = chosen_file.file_path;
     let file_text = String::from_utf8(body.file_bytes).context("The file text isn't valid UTF-8.")?;
-    let range = message.range.and_then(|range| get_byte_range(&file_text, range.start, range.end));
-    let range_format = match range {
-      Some(range) => match scope.range_formatting_support(&file_path, file_text.as_bytes()) {
-        RangeFormattingSupport::Supported => RangeFormat::new(&file_text, Some(range), true),
-        RangeFormattingSupport::Unknown => RangeFormat::new(&file_text, Some(range), false),
+    // `None` formats the whole text
+    let mut ranges = match &message.ranges {
+      Some(ranges) => get_utf16_ranges(&file_text, ranges),
+      None => vec![None],
+    };
+    if ranges.is_empty() {
+      return not_formatted(NotFormattedReason::Unchanged);
+    }
+    let plugins_format_range = match ranges.iter().any(|range| range.is_some()) {
+      true => match scope.range_formatting_support(&file_path, file_text.as_bytes()) {
+        RangeFormattingSupport::Supported => true,
+        RangeFormattingSupport::Unknown => false,
         RangeFormattingSupport::NotSupported => return not_formatted(NotFormattedReason::RangeFormattingNotSupported),
       },
-      None => RangeFormat::new(&file_text, None, true),
+      false => true,
     };
 
     let _permit = self.concurrency_limiter.acquire().await;
-    if token.is_cancelled() {
-      // the response isn't sent for a cancelled format
-      return not_formatted(NotFormattedReason::Unchanged);
-    }
-    let result = scope
-      .format_stable(
-        HostFormatRequest {
-          file_path,
-          file_bytes: file_text.clone().into_bytes(),
-          range: range_format.plugin_range.clone(),
-          override_config: message.override_config,
-          token: token.clone(),
-        },
-        message.ensure_stable_format.map(EnsureStableFormat).unwrap_or(self.ensure_stable_format),
-      )
-      .await;
-    let formatted_text = match result {
-      Ok(Some(formatted_text)) => formatted_text,
-      Ok(None) => return not_formatted(NotFormattedReason::Unchanged),
-      Err(err) => {
-        if let Some(err) = err.downcast_ref::<PluginConfigDiagnosticsError>() {
-          return Ok(self.get_plugin_config_diagnostics_outcome(&scope, &err.diagnostics));
-        }
-        let reason = if err.downcast_ref::<CriticalFormatError>().is_some() {
-          FormatFailedReason::PluginError
-        } else {
-          FormatFailedReason::FormatError
-        };
-        return Ok(FormatOutcome::Failed(FormatFailedMessage {
-          reason,
-          message: dprint_core::plugins::error_to_string(&err),
-        }));
+    let ensure_stable_format = message.ensure_stable_format.map(EnsureStableFormat).unwrap_or(self.ensure_stable_format);
+    let start_time = std::time::Instant::now();
+    // each range is formatted in the text that formatting the ones before it changed
+    let file_text = Arc::new(file_text);
+    let mut text = file_text.clone();
+    let mut edits = Vec::new();
+    for index in 0..ranges.len() {
+      if token.is_cancelled() {
+        // the response isn't sent for a cancelled format
+        return not_formatted(NotFormattedReason::Unchanged);
       }
-    };
-    // this may take a while for a large file, so don't hold up the other messages
-    let edits = dprint_core::async_runtime::spawn_blocking(move || {
-      let formatted_text = String::from_utf8(formatted_text).context("The formatted text isn't valid UTF-8.")?;
-      // the editor owns the document's line endings, so match them rather than
-      // imposing the plugin's configured newline kind (see #965)
-      let formatted_text = normalize_to_source_line_endings(&file_text, formatted_text);
-      let formatted_text = if is_notebook_cell {
-        trim_formatted_cell_text(&file_text, formatted_text, &range_format.cell_range())
-      } else {
-        formatted_text
+      let range = ranges[index].as_ref().and_then(|range| get_byte_range(&text, range.start, range.end));
+      let range_format = RangeFormat::new(&text, range, plugins_format_range);
+      let result = scope
+        .format_stable(
+          HostFormatRequest {
+            file_path: file_path.clone(),
+            file_bytes: text.as_bytes().to_vec(),
+            range: range_format.plugin_range.clone(),
+            override_config: message.override_config.clone(),
+            token: token.clone(),
+          },
+          ensure_stable_format,
+        )
+        .await;
+      let formatted_text = match result {
+        Ok(Some(formatted_text)) => formatted_text,
+        Ok(None) => continue,
+        Err(err) => {
+          if let Some(err) = err.downcast_ref::<PluginConfigDiagnosticsError>() {
+            return Ok(self.get_plugin_config_diagnostics_outcome(&scope, &err.diagnostics));
+          }
+          let reason = if err.downcast_ref::<CriticalFormatError>().is_some() {
+            FormatFailedReason::PluginError
+          } else {
+            FormatFailedReason::FormatError
+          };
+          return Ok(FormatOutcome::Failed(FormatFailedMessage {
+            reason,
+            message: dprint_core::plugins::error_to_string(&err),
+          }));
+        }
       };
-      Ok::<_, anyhow::Error>(get_range_utf16_edits(&file_text, &formatted_text, &range_format.edits_range))
-    })
-    .await??;
+      // this may take a while for a large file, so don't hold up the other messages
+      let range_edits = dprint_core::async_runtime::spawn_blocking({
+        let text = text.clone();
+        move || {
+          let formatted_text = String::from_utf8(formatted_text).context("The formatted text isn't valid UTF-8.")?;
+          // the editor owns the document's line endings, so match them rather than
+          // imposing the plugin's configured newline kind (see #965)
+          let formatted_text = normalize_to_source_line_endings(&text, formatted_text);
+          let formatted_text = if is_notebook_cell {
+            trim_formatted_cell_text(&text, formatted_text, &range_format.cell_range())
+          } else {
+            formatted_text
+          };
+          Ok::<_, anyhow::Error>(get_range_utf16_edits(&text, &formatted_text, &range_format.edits_range))
+        }
+      })
+      .await??;
+      if range_edits.is_empty() {
+        continue;
+      }
+      if ranges.len() == 1 {
+        edits = range_edits;
+        break;
+      }
+      for later_range in ranges[index + 1..].iter_mut().flatten() {
+        *later_range = map_utf16_range(later_range.clone(), &range_edits);
+      }
+      text = Arc::new(apply_utf16_edits(&text, &range_edits));
+    }
+    log_debug!(
+      self.environment,
+      "Formatted {} in {}ms",
+      message.document.uri.as_str(),
+      start_time.elapsed().as_millis()
+    );
+    // the edits of each range are for the text that the ones before it changed,
+    // so get the edits of the text that was sent instead
+    if ranges.len() > 1 && !Arc::ptr_eq(&text, &file_text) {
+      edits = dprint_core::async_runtime::spawn_blocking(move || get_utf16_edits(&file_text, &text)).await?;
+    }
     if edits.is_empty() {
       return not_formatted(NotFormattedReason::Unchanged);
     }
@@ -1178,6 +1224,32 @@ fn requires_initialize(body: &EditorMessageBody) -> bool {
       | EditorMessageBody::ConfigSchema(_)
       | EditorMessageBody::FormatFile(_)
   )
+}
+
+/// Gets the ranges of UTF-16 offsets to format in order, which are merged
+/// when they overlap or touch. It's a single `None` for the whole text when a
+/// range has all of it.
+fn get_utf16_ranges(text: &str, ranges: &[OffsetRange]) -> Vec<Option<std::ops::Range<u32>>> {
+  let len = text.encode_utf16().count() as u32;
+  let mut ranges = ranges
+    .iter()
+    .map(|range| {
+      let end = std::cmp::min(range.end, len);
+      std::cmp::min(range.start, end)..end
+    })
+    .collect::<Vec<_>>();
+  ranges.sort_by_key(|range| (range.start, range.end));
+  let mut merged: Vec<std::ops::Range<u32>> = Vec::with_capacity(ranges.len());
+  for range in ranges {
+    match merged.last_mut() {
+      Some(last) if range.start <= last.end => last.end = std::cmp::max(last.end, range.end),
+      _ => merged.push(range),
+    }
+  }
+  if merged.iter().any(|range| range.start == 0 && range.end == len) {
+    return vec![None];
+  }
+  merged.into_iter().map(Some).collect()
 }
 
 /// Converts the UTF-16 offsets of a range to format to bytes, which is `None`
@@ -2401,6 +2473,44 @@ mod test {
           client.format_range("/dir/code_block.txt", "a\nb_x", 0..1, Some(cell_options)).await.unwrap(),
           formatted("_x_b_x")
         );
+
+        // several ranges are formatted one after the other, which is like formatting
+        // each one in the text that formatting the ones before it changed
+        let options = FormatFileOptions {
+          override_config: ConfigKeyMap::from([("ending".to_string(), "x".into())]),
+          ..Default::default()
+        };
+        assert_eq!(
+          client
+            .format_ranges("/file.txt", "a\nb\nc\nd\n", vec![4..5, 0..1], Some(options.clone()))
+            .await
+            .unwrap(),
+          formatted("_x_b\n_x_d\n")
+        );
+        // ranges in the same lines are only formatted once
+        assert_eq!(
+          client
+            .format_ranges("/file.txt", "ab\nc\n", vec![0..1, 1..2], Some(options.clone()))
+            .await
+            .unwrap(),
+          formatted("_x_c\n")
+        );
+        // a range with the whole text formats it all
+        assert_eq!(
+          client.format_ranges("/file.txt", "a", vec![0..1, 0..0], Some(options)).await.unwrap(),
+          formatted("a_x")
+        );
+        // the edits of a plugin that formats a range may be outside of it, which
+        // moves the ranges after it
+        assert_eq!(
+          client.format_ranges("/file.txt_ps", "ab\ncd", vec![0..1, 3..4], None).await.unwrap(),
+          formatted("_formatted_process_b\n_formatted_process_d_formatted_process")
+        );
+        // no ranges formats nothing
+        assert_eq!(
+          client.format_ranges("/file.txt", "a\n", Vec::new(), None).await.unwrap(),
+          not_formatted(NotFormattedReason::Unchanged)
+        );
       }
       .boxed_local()
     });
@@ -2713,7 +2823,7 @@ mod test {
     }
   }
 
-  fn format_file_body(file_path: &str, text: &str, range: Option<std::ops::Range<u32>>, options: FormatFileOptions) -> EditorMessageBody {
+  fn format_file_body(file_path: &str, text: &str, ranges: Option<Vec<std::ops::Range<u32>>>, options: FormatFileOptions) -> EditorMessageBody {
     let language = options.language.or_else(|| {
       // a notebook cell's language is the file extension of its path in the tests
       options.notebook_path.as_ref()?;
@@ -2726,9 +2836,14 @@ mod test {
         language,
         notebook_uri: options.notebook_path.map(|path| uri(&path.to_string_lossy().replace('\\', "/"))),
       },
-      range: range.map(|range| OffsetRange {
-        start: range.start,
-        end: range.end,
+      ranges: ranges.map(|ranges| {
+        ranges
+          .into_iter()
+          .map(|range| OffsetRange {
+            start: range.start,
+            end: range.end,
+          })
+          .collect()
       }),
       override_config: options.override_config,
       allow_global_config: options.allow_global_config,
@@ -3063,7 +3178,18 @@ mod test {
       range: std::ops::Range<u32>,
       options: Option<FormatFileOptions>,
     ) -> Result<FormatOutcome> {
-      Ok(match self.format_edits(file_path, text, range, options).await? {
+      self.format_ranges(file_path, text, vec![range], options).await
+    }
+
+    /// Formats the text between the pairs of UTF-16 offsets and applies the edits.
+    pub async fn format_ranges(
+      &self,
+      file_path: impl AsRef<Path>,
+      text: &str,
+      ranges: Vec<std::ops::Range<u32>>,
+      options: Option<FormatFileOptions>,
+    ) -> Result<FormatOutcome> {
+      Ok(match self.format_ranges_edits(file_path, text, ranges, options).await? {
         Ok(edits) => FormatOutcome::Formatted(apply_edits(text, &edits)),
         Err(message) => FormatOutcome::NotFormatted(message.reason),
       })
@@ -3077,8 +3203,19 @@ mod test {
       range: std::ops::Range<u32>,
       options: Option<FormatFileOptions>,
     ) -> Result<Result<Vec<FormatEdit>, NotFormattedMessage>> {
+      self.format_ranges_edits(file_path, text, vec![range], options).await
+    }
+
+    /// Gets the edits that format the ranges of the text or why it wasn't formatted.
+    pub async fn format_ranges_edits(
+      &self,
+      file_path: impl AsRef<Path>,
+      text: &str,
+      ranges: Vec<std::ops::Range<u32>>,
+      options: Option<FormatFileOptions>,
+    ) -> Result<Result<Vec<FormatEdit>, NotFormattedMessage>> {
       let file_path = file_path.as_ref().to_string_lossy().replace('\\', "/");
-      let body = format_file_body(&file_path, text, Some(range), options.unwrap_or_default());
+      let body = format_file_body(&file_path, text, Some(ranges), options.unwrap_or_default());
       match self.request(body).await? {
         EditorMessageBody::FormatFileResponse(_, FormatFileResult::Formatted(data)) => Ok(Ok(serde_json::from_slice::<FormattedMessage>(&data)?.edits)),
         EditorMessageBody::FormatFileResponse(_, FormatFileResult::NotFormatted(data)) => Ok(Err(serde_json::from_slice(&data)?)),
