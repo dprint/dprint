@@ -415,10 +415,6 @@ pub struct FormatFileMessage {
   /// ancestor directory.
   #[serde(default)]
   pub allow_global_config: bool,
-  /// Whether to format the file again until the output stops changing, which
-  /// defaults to the `DPRINT_EDITOR_STABLE_FORMAT` environment variable.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub ensure_stable_format: Option<bool>,
   /// Whether to notify the user when the file isn't formatted because it doesn't
   /// have a config file, which defaults to the setting.
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -535,13 +531,17 @@ pub enum NotFormattedReason {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorSettings {
-  /// The uris of the workspace folders open in the editor.
+  /// The workspace folders open in the editor.
   #[serde(default)]
-  pub workspace_folders: Vec<Uri>,
+  pub workspace_folders: Vec<WorkspaceFolder>,
   /// Whether to format the files that don't have a config file in an ancestor
   /// directory with the global config file.
   #[serde(default)]
   pub allow_global_config: bool,
+  /// Whether to format a file again until the output stops changing, which
+  /// defaults to the `DPRINT_EDITOR_STABLE_FORMAT` environment variable.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub ensure_stable_format: Option<bool>,
   /// Whether to notify the user when a file isn't formatted because it doesn't
   /// have a config file.
   #[serde(default = "default_true")]
@@ -557,10 +557,25 @@ impl Default for EditorSettings {
     Self {
       workspace_folders: Vec::new(),
       allow_global_config: false,
+      ensure_stable_format: None,
       show_no_config_notification: true,
       verbose: None,
     }
   }
+}
+
+/// A workspace folder open in the editor and the settings of the files in it,
+/// which are the editor's settings when not provided.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFolder {
+  pub uri: Uri,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub allow_global_config: Option<bool>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub ensure_stable_format: Option<bool>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub show_no_config_notification: Option<bool>,
 }
 
 fn default_true() -> bool {

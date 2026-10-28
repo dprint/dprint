@@ -176,17 +176,30 @@ Message body:
 - JSON data:
 
 ```ts
-interface EditorSettings {
-  /** The uris of the workspace folders open in the editor. */
-  workspaceFolders?: string[];
-  /** Whether to allow formatting the files that don't have a configuration file in an ancestor directory with the global configuration file. Defaults to `false`. */
-  allowGlobalConfig?: boolean;
-  /** Whether to notify the user when a file isn't formatted because it doesn't have a configuration file. Defaults to `true`. */
-  showNoConfigNotification?: boolean;
+interface EditorSettings extends DocumentSettings {
+  /** The workspace folders open in the editor. */
+  workspaceFolders?: WorkspaceFolder[];
   /** Whether to send debug log messages. Defaults to whether the editor service was started with `--verbose`. */
   verbose?: boolean;
 }
+
+/** The settings of the documents, which may be different for the documents of a workspace folder. */
+interface DocumentSettings {
+  /** Whether to allow formatting the files that don't have a configuration file in an ancestor directory with the global configuration file. Defaults to `false`. */
+  allowGlobalConfig?: boolean;
+  /** Format a document again until the output stops changing, the same as `dprint fmt`. Defaults to `false` unless the `DPRINT_EDITOR_STABLE_FORMAT` environment variable is `1` or `true`. */
+  ensureStableFormat?: boolean;
+  /** Whether to notify the user when a document isn't formatted because it doesn't have a configuration file. Defaults to `true`. */
+  showNoConfigNotification?: boolean;
+}
+
+/** A workspace folder and the settings of its documents, which are the editor's settings when not provided. */
+interface WorkspaceFolder extends DocumentSettings {
+  uri: string;
+}
 ```
+
+A document uses the settings of the innermost workspace folder it's in, which is the directory it's formatted in for a document that isn't a file (see "Documents").
 
 Response: Success response or an Error response
 
@@ -212,9 +225,7 @@ interface FormatFileData {
   overrideConfig?: Record<string, unknown>;
   /** Allow using the global configuration file when there's no configuration file in an ancestor directory, regardless of the setting (ex. for a command the user runs). */
   allowGlobalConfig?: boolean;
-  /** Format the text again until the output stops changing, the same as `dprint fmt`. Defaults to `false` unless the `DPRINT_EDITOR_STABLE_FORMAT` environment variable is `1` or `true`. */
-  ensureStableFormat?: boolean;
-  /** Whether to notify the user when the document isn't formatted because it doesn't have a configuration file. Defaults to the `showNoConfigNotification` setting. */
+  /** Whether to notify the user when the document isn't formatted because it doesn't have a configuration file, regardless of the setting (ex. `false` for a command the user ran). */
   showNoConfigNotification?: boolean;
 }
 

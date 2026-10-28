@@ -184,6 +184,13 @@ struct ConfigFailure {
   message: String,
 }
 
+/// The settings of a document.
+struct DocumentSettings {
+  allow_global_config: bool,
+  ensure_stable_format: EnsureStableFormat,
+  show_no_config_notification: bool,
+}
+
 /// The files a document may be formatted as.
 struct DocumentFile {
   /// The file paths in order of preference, which are in the same directory
@@ -415,8 +422,8 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   }
 
   async fn get_file_info(self: &Rc<Self>, message: FileInfoMessage) -> Result<FileInfoResponseMessage> {
-    let allow_global_config = self.allow_global_config(message.allow_global_config);
     let document_file = self.get_document_file(&message.document)?;
+    let allow_global_config = message.allow_global_config || self.get_document_settings(&document_file.candidates[0]).allow_global_config;
     let is_notebook_cell = document_file.notebook_path.is_some();
     let scope = match self.resolve_scope(&document_file.candidates[0], allow_global_config).await? {
       DocumentConfig::Resolved(scope) => scope,
@@ -465,8 +472,8 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   }
 
   async fn get_config_info(self: &Rc<Self>, message: ConfigInfoMessage) -> Result<ConfigInfoResponseMessage> {
-    let allow_global_config = self.allow_global_config(message.allow_global_config);
     let file_path = self.get_uri_file_path(&message.uri)?;
+    let allow_global_config = message.allow_global_config || self.get_document_settings(&file_path).allow_global_config;
     let scope = match self.resolve_scope(&file_path, allow_global_config).await? {
       DocumentConfig::Resolved(scope) => scope,
       DocumentConfig::NotFound => {
@@ -506,12 +513,12 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   }
 
   async fn get_config_schema(self: &Rc<Self>, message: ConfigSchemaMessage) -> ConfigSchemaResponseMessage {
-    let allow_global_config = self.allow_global_config(message.allow_global_config);
     let mut plugins = Vec::new();
     for uri in &message.uris {
       let Ok(file_path) = self.get_uri_file_path(uri) else {
         continue;
       };
+      let allow_global_config = message.allow_global_config || self.get_document_settings(&file_path).allow_global_config;
       // a config file that fails to resolve was shown to the user, so its plugins are only left out
       if let Ok(DocumentConfig::Resolved(scope)) = self.resolve_scope(&file_path, allow_global_config).await {
         plugins.extend(scope.plugins.values().map(|plugin| PluginSchemaUrl {
@@ -527,8 +534,10 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
 
   async fn format_file(self: &Rc<Self>, body: FormatFileMessageBody, token: &Arc<CancellationToken>) -> Result<FormatOutcome> {
     let message: FormatFileMessage = serde_json::from_slice(&body.data).context("Error deserializing the format file message.")?;
-    let allow_global_config = self.allow_global_config(message.allow_global_config);
     let document_file = self.get_document_file(&message.document)?;
+    // the settings of the directory the document is formatted in
+    let settings = self.get_document_settings(&document_file.candidates[0]);
+    let allow_global_config = message.allow_global_config || settings.allow_global_config;
     let is_notebook_cell = document_file.notebook_path.is_some();
     let not_formatted = |reason| {
       Ok(FormatOutcome::NotFormatted(NotFormattedMessage {
@@ -541,7 +550,9 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       DocumentConfig::Resolved(scope) => scope,
       DocumentConfig::NotFound => {
         let reason = self.get_no_config_reason(allow_global_config);
-        self.notify_no_config(reason, allow_global_config, message.show_no_config_notification);
+        if message.show_no_config_notification.unwrap_or(settings.show_no_config_notification) {
+          self.notify_no_config(reason, allow_global_config);
+        }
         return not_formatted(reason);
       }
       DocumentConfig::Failed(failure) => {
@@ -576,7 +587,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     };
 
     let _permit = self.concurrency_limiter.acquire().await;
-    let ensure_stable_format = message.ensure_stable_format.map(EnsureStableFormat).unwrap_or(self.ensure_stable_format);
+    let ensure_stable_format = settings.ensure_stable_format;
     let start_time = std::time::Instant::now();
     // each range is formatted in the text that formatting the ones before it changed
     let file_text = Arc::new(file_text);
@@ -722,9 +733,9 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
 
   /// Notifies the user that a file wasn't formatted because no config file
   /// was found for it. This is only done once per session to not annoy people.
-  fn notify_no_config(self: &Rc<Self>, reason: NotFormattedReason, allow_global_config: bool, show: Option<bool>) {
+  fn notify_no_config(self: &Rc<Self>, reason: NotFormattedReason, allow_global_config: bool) {
     let settings = self.settings.borrow().clone();
-    if !show.unwrap_or(settings.show_no_config_notification) || self.has_notified_no_config.get() {
+    if self.has_notified_no_config.get() {
       return;
     }
     let workspace_folders = get_workspace_folder_paths(&settings);
@@ -807,10 +818,36 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     *self.settings.borrow_mut() = settings;
   }
 
-  /// Gets whether the global config file may be used, which a request or the
-  /// settings can allow.
-  fn allow_global_config(&self, request_allows: bool) -> bool {
-    request_allows || self.settings.borrow().allow_global_config
+  /// Gets the settings of a file, which are the ones of the innermost
+  /// workspace folder it's in that has them and otherwise the editor's.
+  fn get_document_settings(&self, file_path: &Path) -> DocumentSettings {
+    let settings = self.settings.borrow();
+    let mut folders = settings
+      .workspace_folders
+      .iter()
+      .filter_map(|folder| Some((uri_to_file_path(&folder.uri)?, folder)))
+      .filter(|(folder_path, _)| file_path.starts_with(folder_path))
+      .collect::<Vec<_>>();
+    // the innermost folder first
+    folders.sort_by_key(|(folder_path, _)| std::cmp::Reverse(folder_path.components().count()));
+    let folders = folders.into_iter().map(|(_, folder)| folder).collect::<Vec<_>>();
+    let ensure_stable_format = folders
+      .iter()
+      .find_map(|folder| folder.ensure_stable_format)
+      .or(settings.ensure_stable_format)
+      .map(EnsureStableFormat)
+      .unwrap_or(self.ensure_stable_format);
+    DocumentSettings {
+      allow_global_config: folders
+        .iter()
+        .find_map(|folder| folder.allow_global_config)
+        .unwrap_or(settings.allow_global_config),
+      ensure_stable_format,
+      show_no_config_notification: folders
+        .iter()
+        .find_map(|folder| folder.show_no_config_notification)
+        .unwrap_or(settings.show_no_config_notification),
+    }
   }
 
   /// Resolves the plugins of the config file used for the file.
@@ -1173,7 +1210,7 @@ fn path_source_to_uri(source: &PathSource) -> Option<Uri> {
 }
 
 fn get_workspace_folder_paths(settings: &EditorSettings) -> Vec<PathBuf> {
-  settings.workspace_folders.iter().filter_map(uri_to_file_path).collect()
+  settings.workspace_folders.iter().filter_map(|folder| uri_to_file_path(&folder.uri)).collect()
 }
 
 /// Gets the paths to format a document that isn't a file as, which are in
@@ -1428,6 +1465,7 @@ mod test {
   use super::messages::ShowMessageMessage;
   use super::messages::ShowMessageRequestMessage;
   use super::messages::ShowMessageRequestResponseMessage;
+  use super::messages::WorkspaceFolder;
 
   #[test]
   fn should_format_files_with_the_config_file_of_each() {
@@ -1609,6 +1647,23 @@ mod test {
           .unwrap();
         assert_eq!(client.format("/dir/file.txt", "testing", None).await.unwrap(), formatted("testing_global"));
         assert!(client.take_message_requests().is_empty());
+
+        // a workspace folder's setting is used for its files
+        client
+          .update_settings(EditorSettings {
+            workspace_folders: vec![WorkspaceFolder {
+              allow_global_config: Some(true),
+              ..workspace_folder("/allowed")
+            }],
+            ..Default::default()
+          })
+          .await
+          .unwrap();
+        assert_eq!(client.format("/allowed/file.txt", "testing", None).await.unwrap(), formatted("testing_global"));
+        assert_eq!(
+          client.format("/dir/file.txt", "testing", None).await.unwrap(),
+          not_formatted(NotFormattedReason::GlobalConfigNotAllowed)
+        );
       }
       .boxed_local()
     });
@@ -1624,7 +1679,7 @@ mod test {
         async move {
           client
             .update_settings(EditorSettings {
-              workspace_folders: vec![uri("/project")],
+              workspace_folders: vec![workspace_folder("/project")],
               ..Default::default()
             })
             .await
@@ -1783,7 +1838,7 @@ mod test {
     run_session(&environment, &[], |client| {
       async move {
         let settings = |folder: &str| EditorSettings {
-          workspace_folders: vec![uri(folder)],
+          workspace_folders: vec![workspace_folder(folder)],
           ..Default::default()
         };
         client.update_settings(settings("/a")).await.unwrap();
@@ -2004,13 +2059,39 @@ mod test {
           client.format("/file.txt", "unstable_fmt_true", None).await.unwrap(),
           formatted("unstable_fmt_false_formatted")
         );
-        let options = FormatFileOptions {
-          ensure_stable_format: Some(true),
-          ..Default::default()
-        };
+        let unstable_error = "Formatting not stable. Bailed after 5 tries. This indicates a bug in the plugin where it formats the file differently each time.";
+        client
+          .update_settings(EditorSettings {
+            ensure_stable_format: Some(true),
+            ..Default::default()
+          })
+          .await
+          .unwrap();
         assert_eq!(
-          client.format("/file.txt", "unstable_fmt_true", Some(options)).await.unwrap_err().to_string(),
-          "Formatting not stable. Bailed after 5 tries. This indicates a bug in the plugin where it formats the file differently each time."
+          client.format("/file.txt", "unstable_fmt_true", None).await.unwrap_err().to_string(),
+          unstable_error
+        );
+        // the setting of a workspace folder is used for its files
+        client
+          .update_settings(EditorSettings {
+            workspace_folders: vec![
+              workspace_folder("/project"),
+              WorkspaceFolder {
+                ensure_stable_format: Some(true),
+                ..workspace_folder("/project/sub")
+              },
+            ],
+            ..Default::default()
+          })
+          .await
+          .unwrap();
+        assert_eq!(
+          client.format("/project/file.txt", "unstable_fmt_true", None).await.unwrap(),
+          formatted("unstable_fmt_false_formatted")
+        );
+        assert_eq!(
+          client.format("/project/sub/file.txt", "unstable_fmt_true", None).await.unwrap_err().to_string(),
+          unstable_error
         );
       }
       .boxed_local()
@@ -2573,7 +2654,7 @@ mod test {
       async move {
         client
           .update_settings(EditorSettings {
-            workspace_folders: vec![uri("/project")],
+            workspace_folders: vec![workspace_folder("/project")],
             ..Default::default()
           })
           .await
@@ -2847,7 +2928,6 @@ mod test {
       }),
       override_config: options.override_config,
       allow_global_config: options.allow_global_config,
-      ensure_stable_format: options.ensure_stable_format,
       show_no_config_notification: options.show_no_config_notification,
     };
     EditorMessageBody::FormatFile(FormatFileMessageBody {
@@ -2875,6 +2955,15 @@ mod test {
     FileInfoPlugin {
       name: "test-plugin".to_string(),
       version: "0.2.0".to_string(),
+    }
+  }
+
+  fn workspace_folder(path: &str) -> WorkspaceFolder {
+    WorkspaceFolder {
+      uri: uri(path),
+      allow_global_config: None,
+      ensure_stable_format: None,
+      show_no_config_notification: None,
     }
   }
 
@@ -2921,7 +3010,6 @@ mod test {
     notebook_path: Option<PathBuf>,
     override_config: ConfigKeyMap,
     allow_global_config: bool,
-    ensure_stable_format: Option<bool>,
     show_no_config_notification: Option<bool>,
   }
 
