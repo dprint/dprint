@@ -301,78 +301,31 @@ pub async fn run_editor_service<TEnvironment: Environment>(
           }
         }
       }
-      EditorMessageBody::FileInfo(data) => {
-        // these are handled at the same time, which the scope container
-        // handles by only resolving each config file once
-        let service = service.clone();
-        dprint_core::async_runtime::spawn(async move {
-          let result = async {
-            let message = serde_json::from_slice(&data).context("Error deserializing the file info message.")?;
-            let response = service.get_file_info(message).await?;
-            Ok::<_, anyhow::Error>(serde_json::to_vec(&response)?)
-          }
-          .await;
-          match result {
-            Ok(data) => send_response_body(&service.context, EditorMessageBody::FileInfoResponse(message.id, data)),
-            Err(err) => send_error_response(&service.context, message.id, err),
-          }
-        });
-      }
-      EditorMessageBody::ConfigInfo(data) => {
-        let service = service.clone();
-        dprint_core::async_runtime::spawn(async move {
-          let result = async {
-            let message = serde_json::from_slice(&data).context("Error deserializing the config info message.")?;
-            let response = service.get_config_info(message).await?;
-            Ok::<_, anyhow::Error>(serde_json::to_vec(&response)?)
-          }
-          .await;
-          match result {
-            Ok(data) => send_response_body(&service.context, EditorMessageBody::ConfigInfoResponse(message.id, data)),
-            Err(err) => send_error_response(&service.context, message.id, err),
-          }
-        });
-      }
-      EditorMessageBody::ConfigSchema(data) => {
-        let service = service.clone();
-        dprint_core::async_runtime::spawn(async move {
-          let result = async {
-            let message = serde_json::from_slice(&data).context("Error deserializing the config schema message.")?;
-            let response = service.get_config_schema(message).await;
-            Ok::<_, anyhow::Error>(serde_json::to_vec(&response)?)
-          }
-          .await;
-          match result {
-            Ok(data) => send_response_body(&service.context, EditorMessageBody::ConfigSchemaResponse(message.id, data)),
-            Err(err) => send_error_response(&service.context, message.id, err),
-          }
-        });
-      }
-      EditorMessageBody::FormatFile(body) => {
-        // store this now so the format can be cancelled while it's waiting to be handled
-        let token = Arc::new(CancellationToken::new());
-        let token_storage_guard = context.cancellation_tokens.store_with_owned_guard(message.id, token.clone());
-        let service = service.clone();
-        dprint_core::async_runtime::spawn(async move {
-          let result = service.format_file(body, &token).await;
-          drop(token_storage_guard);
-          // the editor isn't waiting on a cancelled format
-          if token.is_cancelled() {
-            return;
-          }
-          let result = result.and_then(|outcome| {
-            Ok(match outcome {
-              FormatOutcome::Formatted(edits) => FormatFileResult::Formatted(serde_json::to_vec(&FormattedMessage { edits })?),
-              FormatOutcome::NotFormatted(message) => FormatFileResult::NotFormatted(serde_json::to_vec(&message)?),
-            })
-          });
-          match result {
-            Ok(result) => send_response_body(&service.context, EditorMessageBody::FormatFileResponse(message.id, result)),
-            Err(err) => send_error_response(&service.context, message.id, err),
-          }
-        });
-      }
-      EditorMessageBody::CancelFormat(message_id) => {
+      // these are handled at the same time, which the scope container
+      // handles by only resolving each config file once
+      EditorMessageBody::FileInfo(data) => service.spawn_request(message.id, |service, _| async move {
+        let data = serde_json::from_slice(&data).context("Error deserializing the file info message.")?;
+        let response = service.get_file_info(data).await?;
+        Ok(EditorMessageBody::FileInfoResponse(message.id, serde_json::to_vec(&response)?))
+      }),
+      EditorMessageBody::ConfigInfo(data) => service.spawn_request(message.id, |service, _| async move {
+        let data = serde_json::from_slice(&data).context("Error deserializing the config info message.")?;
+        let response = service.get_config_info(data).await?;
+        Ok(EditorMessageBody::ConfigInfoResponse(message.id, serde_json::to_vec(&response)?))
+      }),
+      EditorMessageBody::ConfigSchema(data) => service.spawn_request(message.id, |service, _| async move {
+        let data = serde_json::from_slice(&data).context("Error deserializing the config schema message.")?;
+        let response = service.get_config_schema(data).await;
+        Ok(EditorMessageBody::ConfigSchemaResponse(message.id, serde_json::to_vec(&response)?))
+      }),
+      EditorMessageBody::FormatFile(body) => service.spawn_request(message.id, |service, token| async move {
+        let result = match service.format_file(body, &token).await? {
+          FormatOutcome::Formatted(edits) => FormatFileResult::Formatted(serde_json::to_vec(&FormattedMessage { edits })?),
+          FormatOutcome::NotFormatted(message) => FormatFileResult::NotFormatted(serde_json::to_vec(&message)?),
+        };
+        Ok(EditorMessageBody::FormatFileResponse(message.id, result))
+      }),
+      EditorMessageBody::CancelRequest(message_id) => {
         if let Some(token) = context.cancellation_tokens.get_cloned(message_id) {
           token.cancel();
         }
@@ -397,6 +350,43 @@ pub async fn run_editor_service<TEnvironment: Environment>(
 }
 
 impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
+  /// Handles a request on its own task so that the other messages are handled
+  /// in the meantime. The request stops when it's cancelled, which is when the
+  /// editor isn't waiting on its response anymore.
+  fn spawn_request<TFuture: Future<Output = Result<EditorMessageBody>> + 'static>(
+    self: &Rc<Self>,
+    message_id: u32,
+    handle: impl FnOnce(Rc<Self>, Arc<CancellationToken>) -> TFuture,
+  ) {
+    let context = &self.context;
+    // the message id identifies the request to cancel
+    if context.cancellation_tokens.get_cloned(message_id).is_some() {
+      send_error_response(context, message_id, anyhow!("A request with message id {} is already in progress.", message_id));
+      return;
+    }
+    // stored now so the request can be cancelled before it's handled
+    let token = Arc::new(CancellationToken::new());
+    let token_storage_guard = context.cancellation_tokens.store_with_owned_guard(message_id, token.clone());
+    let request = handle(self.clone(), token.clone());
+    let service = self.clone();
+    dprint_core::async_runtime::spawn(async move {
+      let result = tokio::select! {
+        biased;
+        _ = token.cancelled() => return,
+        result = request => result,
+      };
+      drop(token_storage_guard);
+      // the editor isn't waiting on a cancelled request
+      if token.is_cancelled() {
+        return;
+      }
+      match result {
+        Ok(body) => send_response_body(&service.context, body),
+        Err(err) => send_error_response(&service.context, message_id, err),
+      }
+    });
+  }
+
   async fn get_file_info(self: &Rc<Self>, message: FileInfoMessage) -> Result<FileInfoResponseMessage> {
     let allow_global_config = self.allow_global_config(message.allow_global_config);
     let document_file = self.get_document_file(&message.document)?;
@@ -2099,13 +2089,79 @@ mod test {
         // the plugin formats this until the format is cancelled
         let (message_id, receiver) = client.send_format("/file.txt", "wait_cancellation");
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        client.notify(EditorMessageBody::CancelFormat(message_id));
+        client.notify(EditorMessageBody::CancelRequest(message_id));
         // the plugin stopped, so it can format another file
         assert_eq!(client.format("/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
         // there's no response for a cancelled format
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         client.pending.take(message_id);
         assert!(receiver.await.is_err());
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_cancel_any_request() {
+    const PLUGIN_URL: &str = "https://plugins.dprint.dev/test-plugin.wasm";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .build(); // not initialized, so the plugin is downloaded
+    environment.add_unresponsive_remote_file(PLUGIN_URL);
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          // this waits on downloading the plugin until it's cancelled
+          let message = ConfigInfoMessage {
+            uri: uri("/dprint.json"),
+            allow_global_config: false,
+          };
+          let (message_id, receiver) = client.send_request(EditorMessageBody::ConfigInfo(serde_json::to_vec(&message).unwrap()));
+          tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+          client.notify(EditorMessageBody::CancelRequest(message_id));
+          environment.remove_unresponsive_remote_file(PLUGIN_URL);
+          assert_eq!(client.config_info(message).await.unwrap().plugins.len(), 1);
+          // there's no response for a cancelled request
+          tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+          client.pending.take(message_id);
+          assert!(receiver.await.is_err());
+        }
+        .boxed_local()
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_handle_a_request_with_the_message_id_of_one_in_progress() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        // the plugin formats this until the format is cancelled
+        let (message_id, receiver) = client.send_format("/file.txt", "wait_cancellation");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        client.send_with_id(message_id, EditorMessageBody::FileInfo(serde_json::to_vec(&file_info("/file.txt")).unwrap()));
+        match receiver.await.unwrap() {
+          EditorMessageBody::Error(_, data) => assert_eq!(
+            String::from_utf8(data).unwrap(),
+            format!("A request with message id {} is already in progress.", message_id)
+          ),
+          body => panic!("Unexpected response: {body:?}"),
+        }
+        client.notify(EditorMessageBody::CancelRequest(message_id));
+        // the format was cancelled, so the plugin can format another file
+        assert_eq!(client.format("/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
       }
       .boxed_local()
     });
@@ -2822,12 +2878,23 @@ mod test {
     /// Sends a format of the whole text without waiting for the response,
     /// providing the message id and the receiver of the response.
     pub fn send_format(&self, file_path: &str, text: &str) -> (u32, oneshot::Receiver<EditorMessageBody>) {
+      self.send_request(format_file_body(file_path, text, None, Default::default()))
+    }
+
+    /// Sends the request without waiting for the response, providing the
+    /// message id and the receiver of the response.
+    pub fn send_request(&self, body: EditorMessageBody) -> (u32, oneshot::Receiver<EditorMessageBody>) {
       let message_id = self.id_generator.next();
       let (tx, rx) = oneshot::channel();
       self.pending.store(message_id, tx);
-      let body = format_file_body(file_path, text, None, Default::default());
-      self.writer.send(EditorMessage { id: message_id, body }).unwrap();
+      self.send_with_id(message_id, body);
       (message_id, rx)
+    }
+
+    /// Sends the message with the message id, whose response goes to what's
+    /// waiting on a response for that id.
+    pub fn send_with_id(&self, message_id: u32, body: EditorMessageBody) {
+      self.writer.send(EditorMessage { id: message_id, body }).unwrap();
     }
 
     /// Sends a message that doesn't get a response.

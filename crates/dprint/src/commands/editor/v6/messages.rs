@@ -28,7 +28,8 @@ pub enum EditorMessageBody {
   /// Formats a document with the config file that's found for it.
   FormatFile(FormatFileMessageBody),
   FormatFileResponse(u32, FormatFileResult),
-  CancelFormat(u32),
+  /// Cancels the request with the message id.
+  CancelRequest(u32),
   /// Gets information about formatting a file as JSON (see `FileInfoMessage`).
   FileInfo(Vec<u8>),
   /// The information about formatting a file as JSON (see
@@ -101,7 +102,7 @@ impl MessageBody for EditorMessageBody {
         };
         EditorMessageBody::FormatFileResponse(message_id, result)
       }
-      8 => EditorMessageBody::CancelFormat(reader.read_u32()?),
+      8 => EditorMessageBody::CancelRequest(reader.read_u32()?),
       9 => EditorMessageBody::FileInfo(reader.read_sized_bytes()?),
       10 => {
         let message_id = reader.read_u32()?;
@@ -136,7 +137,7 @@ impl MessageBody for EditorMessageBody {
 
   fn write<'a>(&'a self, builder: &mut MessageBuilder<'a>) {
     match self {
-      EditorMessageBody::Success(message_id) | EditorMessageBody::CancelFormat(message_id) => {
+      EditorMessageBody::Success(message_id) | EditorMessageBody::CancelRequest(message_id) => {
         builder.add_number(*message_id);
       }
       EditorMessageBody::Close | EditorMessageBody::IsAlive => {}
@@ -192,7 +193,7 @@ impl MessageBody for EditorMessageBody {
       EditorMessageBody::UpdateSettings(_) => 5,
       EditorMessageBody::FormatFile(_) => 6,
       EditorMessageBody::FormatFileResponse(_, _) => 7,
-      EditorMessageBody::CancelFormat(_) => 8,
+      EditorMessageBody::CancelRequest(_) => 8,
       EditorMessageBody::FileInfo(_) => 9,
       EditorMessageBody::FileInfoResponse(_, _) => 10,
       EditorMessageBody::ConfigInfo(_) => 11,
