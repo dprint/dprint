@@ -80,11 +80,13 @@ use super::send_response_body;
 use super::start_reading_messages;
 
 mod config_diagnostics;
+mod local_executable;
 mod messages;
 
 use self::config_diagnostics::PluginSectionDiagnostic;
 use self::config_diagnostics::get_config_diagnostics;
 use self::config_diagnostics::get_config_error_diagnostic;
+use self::local_executable::find_local_executable;
 use self::messages::ClientInfo;
 use self::messages::ConfigChangedMessage;
 use self::messages::ConfigDiagnostic;
@@ -491,6 +493,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
           includes: None,
           excludes: None,
           shebangs: None,
+          local_executable: None,
           reason: Some(reason),
           message: get_not_formatted_message(reason, false, allow_global_config),
         });
@@ -502,6 +505,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
           includes: None,
           excludes: None,
           shebangs: None,
+          local_executable: None,
           reason: Some(NotFormattedReason::ConfigError),
           message: Some(failure.message),
         });
@@ -514,6 +518,11 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       includes: config.and_then(|config| config.includes.clone()),
       excludes: config.and_then(|config| config.excludes.clone()),
       shebangs: config.and_then(|config| config.shebangs.clone()),
+      local_executable: config.and_then(|config| match &config.source {
+        // the global config file isn't in a project
+        PathSource::Local(source) if !config.is_global => find_local_executable(&self.environment, source.path.parent()?.as_ref()),
+        _ => None,
+      }),
       reason: None,
       message: None,
     })

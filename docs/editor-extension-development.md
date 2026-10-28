@@ -52,7 +52,7 @@ One process formats the files of a whole workspace. For each file, the editor se
 
 Run `dprint editor-service --parent-pid <provide your current process pid here> --schema-version 6`
 
-Start one process per dprint executable (ex. when workspace folders use different versions of dprint from their `node_modules`).
+Start one process per dprint executable (ex. when workspace folders use different versions of dprint from their `node_modules`). The configuration info message provides the dprint executable that's installed for a configuration file (`localExecutable`), so start a process with it for the documents of the configuration file when its version is different from the one in use (and the user trusts the project).
 
 Specifying `--config <path>` uses that configuration file for every file instead of finding one.
 
@@ -475,10 +475,18 @@ interface ConfigInfoResponseData {
   excludes?: string[];
   /** The file extension (without the leading period) that an extensionless file is formatted as by its shebang (ex. `{ "#!/usr/bin/env node": "js" }`). */
   shebangs?: Record<string, string>;
+  /** The dprint executable installed in the `node_modules` folder of the configuration file's directory or an ancestor directory (ex. with `npm install dprint`). */
+  localExecutable?: LocalExecutable;
   /** Why the configuration file doesn't format anything (ex. `noConfigFile` or `configError`). */
   reason?: NotFormattedReason;
   /** The message to show the user about why the configuration file doesn't format anything. */
   message?: string;
+}
+
+interface LocalExecutable {
+  path: string;
+  /** The version of dprint in its `package.json`. */
+  version: string;
 }
 
 interface PluginInfo {

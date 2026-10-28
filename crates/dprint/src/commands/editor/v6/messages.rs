@@ -4,6 +4,7 @@ use dprint_core::communication::MessageReader;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Result;
+use std::path::PathBuf;
 
 use deno_tower_lsp::lsp_types::Range;
 use deno_tower_lsp::lsp_types::Uri;
@@ -361,6 +362,10 @@ pub struct ConfigInfoResponseMessage {
   /// The file extension to format an extensionless file with by its shebang.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub shebangs: Option<IndexMap<String, String>>,
+  /// The dprint executable installed in the `node_modules` folder of the config
+  /// file's directory or an ancestor directory.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub local_executable: Option<LocalExecutable>,
   /// Why the config file doesn't format anything (ex. it failed to resolve).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reason: Option<NotFormattedReason>,
@@ -368,6 +373,14 @@ pub struct ConfigInfoResponseMessage {
   /// anything.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub message: Option<String>,
+}
+
+/// A dprint executable that's installed in a project.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalExecutable {
+  pub path: PathBuf,
+  pub version: String,
 }
 
 /// A plugin of a config file.
