@@ -5,7 +5,6 @@
 //! removing its module.
 
 use anyhow::Result;
-use dprint_core::communication::IdGenerator;
 use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
 use dprint_core::communication::RcIdStore;
@@ -13,6 +12,8 @@ use dprint_core::communication::SingleThreadMessageWriter;
 use std::io::ErrorKind;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use tokio_util::sync::CancellationToken;
 
 use dprint_core::plugins::process::start_parent_process_checker_task;
@@ -108,8 +109,10 @@ async fn get_editor_plugin_infos<TEnvironment: Environment>(scope: &PluginsScope
 
 /// What's used to send messages of a schema version to the editor.
 struct EditorContext<TBody: MessageBody> {
-  pub id_generator: IdGenerator,
-  pub writer: SingleThreadMessageWriter<EditorMessage<TBody>>,
+  /// Shared with the threads that send messages (ex. what's logged), which
+  /// has the messages be sent in the order they're made.
+  pub id_generator: Arc<AtomicIdGenerator>,
+  pub writer: Arc<SingleThreadMessageWriter<EditorMessage<TBody>>>,
   pub cancellation_tokens: RcIdStore<Arc<CancellationToken>>,
   /// Cancelled when a response can't be sent because the editor closed
   /// the service's output, which is when the service should exit.
@@ -123,10 +126,21 @@ impl<TBody: MessageBody> EditorContext<TBody> {
       id_generator: Default::default(),
       // this is the writer that doesn't panic when writing fails, which
       // happens when the editor closes the service's output
-      writer: SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdout)),
+      writer: Arc::new(SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdout))),
       cancellation_tokens: Default::default(),
       output_closed: Default::default(),
     }
+  }
+}
+
+/// Generates the ids of the messages sent to the editor, which can be done
+/// from any thread.
+#[derive(Default)]
+struct AtomicIdGenerator(AtomicU32);
+
+impl AtomicIdGenerator {
+  pub fn next(&self) -> u32 {
+    self.0.fetch_add(1, Ordering::Relaxed)
   }
 }
 
@@ -181,6 +195,7 @@ fn send_response_body<TBody: MessageBody>(context: &EditorContext<TBody>, body: 
 mod test {
   use std::io::Read;
   use std::io::Write;
+  use std::sync::Arc;
   use std::time::Duration;
 
   use dprint_core::communication::MessageReader;
@@ -258,7 +273,7 @@ mod test {
       let context = EditorContext::<TestMessageBody> {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
-        writer: SingleThreadMessageWriter::for_stdin(MessageWriter::new(ClosedWriter)),
+        writer: Arc::new(SingleThreadMessageWriter::for_stdin(MessageWriter::new(ClosedWriter))),
         output_closed: Default::default(),
       };
       // the first message fails to be written on the writer thread

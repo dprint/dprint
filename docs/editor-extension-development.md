@@ -80,6 +80,7 @@ Notes:
 - The JSON data of a message may have more properties in the future, so ignore properties you don't know about.
 - When a configuration file fails to resolve, the editor service shows the error with a show message as well as responding with an error. It's shown once until the configuration file resolves again because the editor makes requests without the user doing anything (ex. when a file is opened).
 - The editor service sends what it logs as log messages, so stderr only has what isn't (ex. a crash).
+- Messages are sent in the order they're made, so the log and progress messages made while handling a request are received before its response.
 
 ### Documents
 

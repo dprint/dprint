@@ -17,10 +17,10 @@ use anyhow::anyhow;
 use anyhow::bail;
 use deno_tower_lsp::lsp_types::Uri;
 use dprint_core::communication::RcIdStore;
+use dprint_core::communication::SingleThreadMessageWriter;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
 use parking_lot::Mutex;
-use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -67,6 +67,7 @@ use crate::utils::OutputSink;
 use crate::utils::PathSource;
 use crate::utils::Semaphore;
 
+use super::AtomicIdGenerator;
 use super::EditorContext;
 use super::get_editor_plugin_infos;
 use super::messages::MessageBody;
@@ -216,20 +217,14 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   });
   let mut rx = start_reading_messages::<EditorMessageBody>(environment);
 
-  // what's logged and the progress go to the editor instead of stderr
-  let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
+  // what's logged and the progress go to the editor instead of stderr, which
+  // are sent right away so they're before the response of the request they're for
   environment.set_output_sink(Arc::new(EditorOutputSink {
-    sender: output_sender,
+    id_generator: service.context.id_generator.clone(),
+    writer: Arc::downgrade(&service.context.writer),
+    output_closed: service.context.output_closed.clone(),
     percentages: Default::default(),
   }));
-  dprint_core::async_runtime::spawn({
-    let service = service.clone();
-    async move {
-      while let Some(body) = output_receiver.recv().await {
-        send_response_body(&service.context, body);
-      }
-    }
-  });
 
   loop {
     let message = tokio::select! {
@@ -1084,9 +1079,13 @@ fn utf16_to_byte_offset(text: &str, offset: u32) -> usize {
   text.len()
 }
 
-/// Sends what's logged and the progress to the editor.
+/// Sends what's logged and the progress to the editor from any thread.
 struct EditorOutputSink {
-  sender: mpsc::UnboundedSender<EditorMessageBody>,
+  id_generator: Arc<AtomicIdGenerator>,
+  /// Weak so that the writer stops once the editor service does, which the
+  /// output sink would otherwise outlive.
+  writer: std::sync::Weak<SingleThreadMessageWriter<EditorMessage>>,
+  output_closed: CancellationToken,
   /// The last percentage sent for each progress, which is `None` when it's
   /// not known.
   percentages: Mutex<HashMap<usize, Option<u8>>>,
@@ -1094,8 +1093,16 @@ struct EditorOutputSink {
 
 impl EditorOutputSink {
   fn send(&self, body: EditorMessageBody) {
-    // the editor service is shutting down when this fails
-    let _ = self.sender.send(body);
+    let Some(writer) = self.writer.upgrade() else {
+      return;
+    };
+    let message = EditorMessage {
+      id: self.id_generator.next(),
+      body,
+    };
+    if writer.send(message).is_err() {
+      self.output_closed.cancel();
+    }
   }
 
   fn send_progress(&self, message: ProgressMessage) {
@@ -1817,6 +1824,36 @@ mod test {
         }
         .boxed_local()
       }
+    });
+  }
+
+  #[test]
+  fn should_send_what_is_logged_for_a_request_before_its_response() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        client
+          .update_settings(EditorSettings {
+            verbose: Some(true),
+            ..Default::default()
+          })
+          .await
+          .unwrap();
+        for _ in 0..10 {
+          client.take_logs();
+          assert_eq!(client.format("/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
+          let logs = client.take_logs();
+          assert!(logs.iter().any(|log| log.starts_with("debug: Host formatting")), "{logs:?}");
+        }
+      }
+      .boxed_local()
     });
   }
 
