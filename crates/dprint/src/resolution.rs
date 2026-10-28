@@ -31,6 +31,7 @@ use thiserror::Error;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::FilePatternArgs;
+use crate::configuration::ConfigMapValue;
 use crate::configuration::GlobalConfigDiagnostic;
 use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
@@ -64,6 +65,7 @@ use crate::plugins::OutputPluginConfigDiagnosticsError;
 use crate::plugins::PluginConfigDiagnostic;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
@@ -380,6 +382,9 @@ pub struct PluginsScope<TEnvironment: Environment> {
   pub config: Option<Rc<ResolvedConfig>>,
   pub plugins: IndexMap<String, Rc<PluginWithConfig>>,
   pub plugin_name_maps: PluginNameResolutionMaps,
+  /// The plugins that need to be downloaded, which has the scope not have any
+  /// plugins for an editor that only downloads them when the user asks it to.
+  pub uninstalled_plugins: Vec<PluginSourceReference>,
   global_config_diagnostics: Vec<GlobalConfigDiagnostic>,
   cached_editor_file_matcher: RefCell<Option<FileMatcher<TEnvironment>>>,
 }
@@ -398,6 +403,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       config: Some(config),
       plugin_name_maps,
       plugins: plugins.into_iter().map(|p| (p.name().to_string(), p)).collect(),
+      uninstalled_plugins: Vec::new(),
       global_config_diagnostics,
       cached_editor_file_matcher: Default::default(),
     })
@@ -1157,6 +1163,7 @@ pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(
       config: None,
       plugin_name_maps: Default::default(),
       plugins: Default::default(),
+      uninstalled_plugins: Default::default(),
       global_config_diagnostics: Default::default(),
       cached_editor_file_matcher: Default::default(),
     }),
@@ -1176,8 +1183,41 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
+  resolve_plugins_scope_with_options(config, environment, plugin_resolver, ResolvePluginsScopeOptions { install_plugins: true }).await
+}
+
+/// How to resolve the plugins of a config.
+pub struct ResolvePluginsScopeOptions {
+  /// Whether to download and set up the plugins that aren't installed. When
+  /// this is `false` (ex. for the editor service, which only downloads them
+  /// when the user asks it to) and a plugin isn't installed, none of the
+  /// plugins are resolved because formatting with only some of them would
+  /// format differently than the CLI.
+  pub install_plugins: bool,
+}
+
+/// Resolves the plugins of the config like `resolve_plugins_scope` with the
+/// options.
+pub async fn resolve_plugins_scope_with_options<TEnvironment: Environment>(
+  config: Rc<ResolvedConfig>,
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  options: ResolvePluginsScopeOptions,
+) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
+  let uninstalled_plugins = if options.install_plugins {
+    Vec::new()
+  } else {
+    config
+      .plugins
+      .iter()
+      .filter(|plugin| !plugin_resolver.is_installed(plugin))
+      .cloned()
+      .collect::<Vec<_>>()
+  };
+  let plugin_references = if uninstalled_plugins.is_empty() { config.plugins.clone() } else { Vec::new() };
+
   // resolve the plugins
-  let plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(config.plugins.clone()).await?);
+  let plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(plugin_references).await?);
   let mut config_map = config.config_map.clone();
   let mut trusted_config_map = config.trusted_config_map.clone();
 
@@ -1208,6 +1248,10 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   // a shared config may configure more plugins than the ones being used, so remove the leftover
   // plugin config that only an extended config specified so it's not reported as an unknown property
   config_map.retain(|key, _| !config.extended_only_plugin_config_keys.contains(key));
+  if !uninstalled_plugins.is_empty() {
+    // the plugins weren't resolved, so don't report their config as unknown properties
+    config_map.retain(|_, value| !matches!(value, ConfigMapValue::PluginConfig(_)));
+  }
 
   // now get global config
   let global_config_result = get_global_config(config_map);
@@ -1252,7 +1296,9 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
     plugins.push(result?);
   }
 
-  Ok(PluginsScope::new(environment.clone(), plugins, config, global_config_result.diagnostics)?)
+  let mut scope = PluginsScope::new(environment.clone(), plugins, config, global_config_result.diagnostics)?;
+  scope.uninstalled_plugins = uninstalled_plugins;
+  Ok(scope)
 }
 
 /// Keeps only the highest precedence plugin for each plugin name.

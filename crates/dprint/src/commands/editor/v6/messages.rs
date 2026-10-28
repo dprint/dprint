@@ -68,6 +68,9 @@ pub enum EditorMessageBody {
   /// Forgets the config files and plugins, as if the editor service started
   /// again.
   Reset,
+  /// Installs the plugins of the config file of a document as JSON (see
+  /// `InstallPluginsMessage`).
+  InstallPlugins(Vec<u8>),
   #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
@@ -134,6 +137,7 @@ impl MessageBody for EditorMessageBody {
       20 => EditorMessageBody::ConfigDiagnostics(reader.read_sized_bytes()?),
       21 => EditorMessageBody::ConfigChanged(reader.read_sized_bytes()?),
       22 => EditorMessageBody::Reset,
+      23 => EditorMessageBody::InstallPlugins(reader.read_sized_bytes()?),
       _ => {
         let data = reader.read_bytes(body_length as usize)?;
         EditorMessageBody::Unknown(kind, data)
@@ -157,7 +161,8 @@ impl MessageBody for EditorMessageBody {
       | EditorMessageBody::Log(data)
       | EditorMessageBody::Progress(data)
       | EditorMessageBody::ConfigDiagnostics(data)
-      | EditorMessageBody::ConfigChanged(data) => {
+      | EditorMessageBody::ConfigChanged(data)
+      | EditorMessageBody::InstallPlugins(data) => {
         builder.add_bytes(data);
       }
       EditorMessageBody::Error(message_id, data)
@@ -218,6 +223,7 @@ impl MessageBody for EditorMessageBody {
       EditorMessageBody::ConfigDiagnostics(_) => 20,
       EditorMessageBody::ConfigChanged(_) => 21,
       EditorMessageBody::Reset => 22,
+      EditorMessageBody::InstallPlugins(_) => 23,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
@@ -345,14 +351,30 @@ pub struct ConfigInfoMessage {
   pub allow_global_config: bool,
 }
 
-/// The data of a `ConfigInfoResponse` message.
+/// The data of an `InstallPlugins` message.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallPluginsMessage {
+  /// A document that the config file is used for (ex. the config file itself).
+  pub uri: Uri,
+  /// Whether to allow using the global config file when there's no config file in an
+  /// ancestor directory.
+  #[serde(default)]
+  pub allow_global_config: bool,
+}
+
+/// The data of a `ConfigInfoResponse` message.
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigInfoResponseMessage {
   /// The config file that's used for the file, which is `None` when there isn't one.
   pub config_file: Option<ConfigFileInfo>,
   /// The plugins of the config file.
   pub plugins: Vec<PluginInfo>,
+  /// The plugins of the config file that are downloaded (ex. a url, but not a
+  /// plugin in node_modules) and whether they're installed.
+  #[serde(default)]
+  pub remote_plugins: Vec<RemotePlugin>,
   /// The `includes` of the config file, which are relative to its directory.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub includes: Option<Vec<String>>,
@@ -373,6 +395,24 @@ pub struct ConfigInfoResponseMessage {
   /// anything.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub message: Option<String>,
+}
+
+/// A plugin that's downloaded to be used.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotePlugin {
+  /// The url or npm specifier of the plugin as it is in the config file.
+  pub source: String,
+  pub kind: RemotePluginKind,
+  /// Whether it's downloaded and set up.
+  pub installed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RemotePluginKind {
+  Wasm,
+  Process,
 }
 
 /// A dprint executable that's installed in a project.
@@ -536,6 +576,9 @@ pub enum NotFormattedReason {
   /// The config file failed to resolve (ex. it has a syntax error), which
   /// the message says.
   ConfigError,
+  /// A plugin of the config file needs to be downloaded, which the editor
+  /// asks for with an `InstallPlugins` message.
+  PluginsNotInstalled,
   /// The configuration of a plugin that formats the file has problems (see
   /// `diagnostics`).
   ConfigDiagnostics,

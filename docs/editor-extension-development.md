@@ -60,7 +60,13 @@ The editor service checks every 5 seconds whether the provided process id still 
 
 Keep the process running for as long as the editor uses it. It finds the configuration files itself and notices when they change, so there's no need to start it again when a configuration file is created, changed, or deleted, or when the workspace folders change (send the update settings message instead). Starting it again loses what the user chose for the session (ex. dismissing a notification). Send the reset message when the user asks for dprint to start again (ex. a restart command), and only start a new process when the dprint executable changed or the process exited.
 
-A request may take a while the first time it uses a configuration file because its plugins may need to be downloaded and set up, which the progress messages show. Send the configuration info message once the editor finds a configuration file so that happens before the first format. If the editor times out requests, don't time them out while there's progress or check that the editor service is still responding with the active message instead, and cancel a request that's timed out.
+### Installing plugins
+
+The editor service never downloads plugins on its own because opening a project isn't the same as choosing to download what its configuration file says. Until the plugins of a configuration file are installed, nothing is formatted with it and the requests that use it respond with the `pluginsNotInstalled` reason. A plugin is installed once it's in dprint's cache (ex. from running `dprint fmt` or `dprint config install`) or the editor sends the install plugins message. A plugin that's a file (ex. in `node_modules`) doesn't need to be installed.
+
+The configuration info message says which plugins are downloaded and whether they're installed (`remotePlugins`), so the editor can decide when to install them. For example, an editor that's only used in projects the user trusts may install the Wasm plugins when it finds a configuration file, and the process plugins when a document is formatted, while another editor may ask the user first.
+
+Installing may take a while, which the progress messages show. If the editor times out requests, don't time them out while there's progress or check that the editor service is still responding with the active message instead, and cancel a request that's timed out.
 
 ### Messages
 
@@ -414,6 +420,7 @@ interface ConfigFileInfo {
  * - `noPlugin` - No plugin in the configuration file handles the document.
  * - `noPlugins` - The configuration file has no plugins.
  * - `configError` - The configuration file failed to resolve (ex. it has a syntax error), which the message says.
+ * - `pluginsNotInstalled` - A plugin of the configuration file needs to be downloaded, so nothing is formatted with it until the editor installs the plugins (see "Installing plugins").
  * - `configDiagnostics` - The configuration of a plugin that formats the document has problems (only for a format).
  * - `rangeFormattingNotSupported` - A plugin that formats the document doesn't support formatting a range (only for a format).
  * - `unchanged` - The document is already formatted (only for a format).
@@ -427,6 +434,7 @@ type NotFormattedReason =
   | "noPlugin"
   | "noPlugins"
   | "configError"
+  | "pluginsNotInstalled"
   | "configDiagnostics"
   | "rangeFormattingNotSupported"
   | "unchanged";
@@ -438,7 +446,7 @@ Response: None
 
 Gets the plugins of the configuration file that's used for a document and which files they format (ex. to only be the formatter of the documents dprint may format).
 
-This downloads and sets up the plugins of the configuration file when they aren't yet, so send it once the editor finds a configuration file (ex. when a project is opened) so that the first format doesn't wait on that.
+This doesn't download plugins. The plugins are only provided once they're installed (see "Installing plugins").
 
 Message body:
 
@@ -467,8 +475,10 @@ Message body:
 interface ConfigInfoResponseData {
   /** The configuration file that's used for the document, which is `null` when there isn't one. */
   configFile: ConfigFileInfo | null;
-  /** The plugins of the configuration file, which is empty when it doesn't format anything. */
+  /** The plugins of the configuration file, which is empty when it doesn't format anything (ex. its plugins aren't installed). */
   plugins: PluginInfo[];
+  /** The plugins of the configuration file that are downloaded to be used (ex. a url, but not a plugin in `node_modules`). */
+  remotePlugins: RemotePlugin[];
   /** The `includes` of the configuration file, which are relative to its directory. */
   includes?: string[];
   /** The `excludes` of the configuration file, which are relative to its directory. */
@@ -481,6 +491,15 @@ interface ConfigInfoResponseData {
   reason?: NotFormattedReason;
   /** The message to show the user about why the configuration file doesn't format anything. */
   message?: string;
+}
+
+interface RemotePlugin {
+  /** The url or npm specifier of the plugin as it is in the configuration file. */
+  source: string;
+  /** Handle a kind you don't know about the same as `process`. */
+  kind: "wasm" | "process";
+  /** Whether it's downloaded and set up, which is when it can be used. */
+  installed: boolean;
 }
 
 interface LocalExecutable {
@@ -682,7 +701,7 @@ Response: None
 
 #### `21` - Configuration changed (Service to Client)
 
-What a configuration file formats may have changed in a way the editor can't see (ex. a configuration file that it extends changed). Send the file info, configuration info, and configuration schema messages again for the documents that use it (ex. to update which documents the editor formats with dprint and the schema of its plugins).
+What a configuration file formats may have changed in a way the editor can't see (ex. a configuration file that it extends changed, or its plugins were installed). Send the file info, configuration info, and configuration schema messages again for the documents that use it (ex. to update which documents the editor formats with dprint and the schema of its plugins).
 
 Message body:
 
@@ -705,3 +724,22 @@ Forgets the configuration files and stops the plugins, as if the editor service 
 Message body: None
 
 Response: Success response once the plugins were stopped
+
+#### `23` - Install plugins (Client to Service)
+
+Downloads and sets up the plugins of the configuration file that's used for a document that aren't installed (see "Installing plugins"), which the progress messages show.
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface InstallPluginsData {
+  /** A document the configuration file is used for, which may be the configuration file itself. */
+  uri: string;
+  allowGlobalConfig?: boolean;
+}
+```
+
+Response: Success response once they're installed (a configuration changed message is sent before it when the configuration file formats files now), an Error response (ex. a plugin failed to download), or no response once it's cancelled

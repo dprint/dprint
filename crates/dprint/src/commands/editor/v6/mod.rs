@@ -51,6 +51,7 @@ use crate::commands::not_formatted_messages::NO_CELL_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
+use crate::commands::not_formatted_messages::PLUGINS_NOT_INSTALLED_MESSAGE;
 use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
@@ -69,6 +70,7 @@ use crate::resolution::RangeFormattingSupport;
 use crate::utils::LogLevel;
 use crate::utils::OutputSink;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
 use crate::utils::Semaphore;
 
 use super::AtomicIdGenerator;
@@ -112,6 +114,7 @@ use self::messages::FormatFileMessageBody;
 use self::messages::FormatFileResult;
 use self::messages::FormattedMessage;
 use self::messages::InitializeMessage;
+use self::messages::InstallPluginsMessage;
 use self::messages::LogMessage;
 use self::messages::LogMessageLevel;
 use self::messages::MessageAction;
@@ -121,6 +124,8 @@ use self::messages::NotFormattedReason;
 use self::messages::OffsetRange;
 use self::messages::PluginInfo;
 use self::messages::ProgressMessage;
+use self::messages::RemotePlugin;
+use self::messages::RemotePluginKind;
 use self::messages::ShowMessageMessage;
 use self::messages::ShowMessageRequestMessage;
 use self::messages::ShowMessageRequestResponseMessage;
@@ -146,9 +151,9 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
   /// The error that was shown to the user for the plugin config diagnostics
   /// of each config file.
   plugin_config_errors: RefCell<HashMap<String, ShownPluginConfigError<TEnvironment>>>,
-  /// The config that each config file last resolved to, which is how a
-  /// change to a config file it extends is noticed.
-  resolved_configs: RefCell<HashMap<String, Rc<ResolvedConfig>>>,
+  /// What each config file last resolved to, which is how a change to a config
+  /// file it extends or to whether its plugins are installed is noticed.
+  resolved_configs: RefCell<HashMap<String, ResolvedConfigState>>,
   /// The scope whose config diagnostics were checked for each config file.
   checked_scopes: RefCell<HashMap<String, CheckedScope<TEnvironment>>>,
   /// The config diagnostics that were last sent for each config file uri.
@@ -160,6 +165,13 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
   pending_message_requests: RcIdStore<oneshot::Sender<Option<MessageAction>>>,
   /// Whether the user was notified this session about a file without a config file.
   has_notified_no_config: Cell<bool>,
+}
+
+/// What a config file resolved to.
+#[derive(Clone, PartialEq)]
+struct ResolvedConfigState {
+  config: Rc<ResolvedConfig>,
+  plugins_installed: bool,
 }
 
 /// The outcome of formatting a file.
@@ -234,7 +246,16 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   let service = Rc::new(WorkspaceEditorService {
     environment: environment.clone(),
     context: EditorContext::new(environment),
-    scope_container: PluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_path, args.remote_cache_mode()),
+    // IMPORTANT: Plugins are only downloaded when the editor asks for it, which
+    // is done when the user agreed to it, because opening a project isn't the
+    // same as choosing to download what its config file says.
+    scope_container: PluginsScopeContainer::new(
+      environment.clone(),
+      plugin_resolver.clone(),
+      config_path,
+      args.remote_cache_mode(),
+      /* install plugins */ false,
+    ),
     concurrency_limiter: Rc::new(new_format_concurrency_limiter(environment)),
     ensure_stable_format: EnsureStableFormat::for_editor(environment),
     config_schema_builder: ConfigJsonSchemaBuilder::new(environment.clone()),
@@ -368,6 +389,13 @@ pub async fn run_editor_service<TEnvironment: Environment>(
         service.scope_container.shutdown().await;
         Ok(EditorMessageBody::Success(message.id))
       }),
+      EditorMessageBody::InstallPlugins(data) => service.spawn_request(message.id, |service, _| async move {
+        let data: InstallPluginsMessage = serde_json::from_slice(&data).context("Error deserializing the install plugins message.")?;
+        let file_path = service.get_uri_file_path(&data.uri)?;
+        let allow_global_config = data.allow_global_config || service.get_document_settings(&file_path).allow_global_config;
+        service.install_plugins(&file_path, allow_global_config).await?;
+        Ok(EditorMessageBody::Success(message.id))
+      }),
       EditorMessageBody::CancelRequest(message_id) => {
         if let Some(token) = context.cancellation_tokens.get_cloned(message_id) {
           token.cancel();
@@ -488,33 +516,42 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       DocumentConfig::NotFound => {
         let reason = self.get_no_config_reason(allow_global_config);
         return Ok(ConfigInfoResponseMessage {
-          config_file: None,
-          plugins: Vec::new(),
-          includes: None,
-          excludes: None,
-          shebangs: None,
-          local_executable: None,
           reason: Some(reason),
           message: get_not_formatted_message(reason, false, allow_global_config),
+          ..Default::default()
         });
       }
       DocumentConfig::Failed(failure) => {
         return Ok(ConfigInfoResponseMessage {
           config_file: failure.config_file,
-          plugins: Vec::new(),
-          includes: None,
-          excludes: None,
-          shebangs: None,
-          local_executable: None,
           reason: Some(NotFormattedReason::ConfigError),
           message: Some(failure.message),
+          ..Default::default()
         });
       }
     };
     let config = scope.config.as_ref();
+    let reason = (!scope.uninstalled_plugins.is_empty()).then_some(NotFormattedReason::PluginsNotInstalled);
     Ok(ConfigInfoResponseMessage {
       config_file: get_config_file_info(&scope),
       plugins: get_plugin_infos(&scope).await?,
+      remote_plugins: config
+        .map(|config| {
+          config
+            .plugins
+            .iter()
+            .filter(|plugin| plugin.is_downloaded())
+            .map(|plugin| RemotePlugin {
+              source: plugin.to_full_string(),
+              kind: match plugin.plugin_kind() {
+                Some(PluginKind::Wasm) => RemotePluginKind::Wasm,
+                _ => RemotePluginKind::Process,
+              },
+              installed: self.scope_container.is_plugin_installed(plugin),
+            })
+            .collect()
+        })
+        .unwrap_or_default(),
       includes: config.and_then(|config| config.includes.clone()),
       excludes: config.and_then(|config| config.excludes.clone()),
       shebangs: config.and_then(|config| config.shebangs.clone()),
@@ -523,8 +560,8 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         PathSource::Local(source) if !config.is_global => find_local_executable(&self.environment, source.path.parent()?.as_ref()),
         _ => None,
       }),
-      reason: None,
-      message: None,
+      reason,
+      message: reason.and_then(|reason| get_not_formatted_message(reason, false, false)),
     })
   }
 
@@ -866,6 +903,21 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     }
   }
 
+  /// Downloads and sets up the plugins of the config file used for the file
+  /// that aren't installed.
+  async fn install_plugins(self: &Rc<Self>, file_path: &Path, allow_global_config: bool) -> Result<()> {
+    let Some(dir_path) = file_path.parent() else {
+      bail!("Cannot install plugins for non-file path: {}", file_path.display());
+    };
+    let Some(config_file) = self.scope_container.find_config_file(dir_path, allow_global_config)? else {
+      return Ok(());
+    };
+    self.scope_container.install_plugins(&config_file).await?;
+    // this tells the editor that the config file formats files now
+    self.resolve_scope(file_path, allow_global_config).await?;
+    Ok(())
+  }
+
   /// Resolves the plugins of the config file used for the file.
   async fn resolve_scope(self: &Rc<Self>, file_path: &Path, allow_global_config: bool) -> Result<DocumentConfig<TEnvironment>> {
     let Some(dir_path) = file_path.parent() else {
@@ -996,8 +1048,12 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let Some(config) = &scope.config else {
       return;
     };
-    let previous = self.resolved_configs.borrow_mut().insert(key, config.clone());
-    if previous.is_some_and(|previous| previous != *config)
+    let state = ResolvedConfigState {
+      config: config.clone(),
+      plugins_installed: scope.uninstalled_plugins.is_empty(),
+    };
+    let previous = self.resolved_configs.borrow_mut().insert(key, state.clone());
+    if previous.is_some_and(|previous| previous != state)
       && let Some(uri) = path_source_to_uri(&config_file.source)
     {
       let data = serde_json::to_vec(&ConfigChangedMessage { uri }).expect("message should serialize");
@@ -1047,6 +1103,9 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     notebook_path: Option<&Path>,
     file_bytes: Option<&[u8]>,
   ) -> Option<NotFormattedReason> {
+    if !scope.uninstalled_plugins.is_empty() {
+      return Some(NotFormattedReason::PluginsNotInstalled);
+    }
     if scope.plugins.is_empty() {
       return Some(NotFormattedReason::NoPlugins);
     }
@@ -1180,6 +1239,7 @@ fn get_not_formatted_message(reason: NotFormattedReason, is_notebook_cell: bool,
     // the message is the error
     NotFormattedReason::ConfigError => None,
     NotFormattedReason::RangeFormattingNotSupported => Some(RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string()),
+    NotFormattedReason::PluginsNotInstalled => Some(PLUGINS_NOT_INSTALLED_MESSAGE.to_string()),
     NotFormattedReason::Unchanged => None,
   }
 }
@@ -1273,6 +1333,7 @@ fn requires_initialize(body: &EditorMessageBody) -> bool {
     body,
     EditorMessageBody::UpdateSettings(_)
       | EditorMessageBody::Reset
+      | EditorMessageBody::InstallPlugins(_)
       | EditorMessageBody::FileInfo(_)
       | EditorMessageBody::ConfigInfo(_)
       | EditorMessageBody::ConfigSchema(_)
@@ -1437,6 +1498,7 @@ mod test {
   use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
   use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
   use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
+  use crate::commands::not_formatted_messages::PLUGINS_NOT_INSTALLED_MESSAGE;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -1472,6 +1534,7 @@ mod test {
   use super::messages::FormatFileResult;
   use super::messages::FormattedMessage;
   use super::messages::InitializeMessage;
+  use super::messages::InstallPluginsMessage;
   use super::messages::LogMessage;
   use super::messages::MessageAction;
   use super::messages::MessageKind;
@@ -1479,6 +1542,8 @@ mod test {
   use super::messages::NotFormattedReason;
   use super::messages::OffsetRange;
   use super::messages::ProgressMessage;
+  use super::messages::RemotePlugin;
+  use super::messages::RemotePluginKind;
   use super::messages::ShowMessageMessage;
   use super::messages::ShowMessageRequestMessage;
   use super::messages::ShowMessageRequestResponseMessage;
@@ -1501,6 +1566,8 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
+        // the plugins are installed when the editor asks for it
+        client.install_plugins("/a/file.txt").await.unwrap();
         assert_eq!(
           client.file_info(file_info("/a/file.txt")).await.unwrap(),
           FileInfoResponseMessage {
@@ -1939,6 +2006,8 @@ mod test {
 
     run_session(&environment, &["--config", "/custom.json"], |client| {
       async move {
+        // the plugins are installed when the editor asks for it
+        client.install_plugins("/file.txt").await.unwrap();
         assert_eq!(client.format("/a/file.txt", "testing", None).await.unwrap(), formatted("testing_specified"));
       }
       .boxed_local()
@@ -1960,6 +2029,8 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
+        // the plugins are installed when the editor asks for it
+        client.install_plugins("/a/file.txt").await.unwrap();
         let message = |reason, message: &str| NotFormattedMessage {
           reason,
           message: Some(message.to_string()),
@@ -2022,6 +2093,8 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
+        // the plugins are installed when the editor asks for it
+        client.install_plugins("/a/file.txt").await.unwrap();
         let schema = client.config_schema(&["/a/dprint.json"]).await.unwrap();
         // the plugin's schema is in the definitions with its references changed to point there
         // and the properties the cli handles for every plugin added, which its "additionalProperties"
@@ -2218,6 +2291,7 @@ mod test {
 
           // shown again after it resolved, which a file in any of its directories shows
           environment.write_file("/a/dprint.json", &config_text).unwrap();
+          client.install_plugins("/a/file.txt").await.unwrap();
           assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           environment.write_file("/a/dprint.json", "{").unwrap();
           assert_eq!(
@@ -2477,19 +2551,77 @@ mod test {
       move |client| {
         async move {
           // this waits on downloading the plugin until it's cancelled
-          let message = ConfigInfoMessage {
+          let message = InstallPluginsMessage {
             uri: uri("/dprint.json"),
             allow_global_config: false,
           };
-          let (message_id, receiver) = client.send_request(EditorMessageBody::ConfigInfo(serde_json::to_vec(&message).unwrap()));
+          let (message_id, receiver) = client.send_request(EditorMessageBody::InstallPlugins(serde_json::to_vec(&message).unwrap()));
           tokio::time::sleep(std::time::Duration::from_millis(50)).await;
           client.notify(EditorMessageBody::CancelRequest(message_id));
           environment.remove_unresponsive_remote_file(PLUGIN_URL);
-          assert_eq!(client.config_info(message).await.unwrap().plugins.len(), 1);
+          client.install_plugins("/dprint.json").await.unwrap();
+          assert_eq!(client.format("/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           // there's no response for a cancelled request
           tokio::time::sleep(std::time::Duration::from_millis(50)).await;
           client.pending.take(message_id);
           assert!(receiver.await.is_err());
+        }
+        .boxed_local()
+      }
+    });
+  }
+
+  #[test]
+  fn should_only_install_plugins_when_the_editor_asks() {
+    const PLUGIN_URL: &str = "https://plugins.dprint.dev/test-plugin.wasm";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "a" }"#);
+      })
+      .build(); // not initialized, so the plugin isn't installed
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          let info = client.file_info(file_info("/a/file.txt")).await.unwrap();
+          assert_eq!(info.reason, Some(NotFormattedReason::PluginsNotInstalled));
+          assert_eq!(info.message.as_deref(), Some(PLUGINS_NOT_INSTALLED_MESSAGE));
+          assert_eq!(
+            client.format("/a/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::PluginsNotInstalled)
+          );
+          let message = ConfigInfoMessage {
+            uri: uri("/a/dprint.json"),
+            allow_global_config: false,
+          };
+          let info = client.config_info(message.clone()).await.unwrap();
+          assert_eq!(info.reason, Some(NotFormattedReason::PluginsNotInstalled));
+          assert!(info.plugins.is_empty());
+          let remote_plugin = |installed| RemotePlugin {
+            source: PLUGIN_URL.to_string(),
+            kind: RemotePluginKind::Wasm,
+            installed,
+          };
+          assert_eq!(info.remote_plugins, vec![remote_plugin(false)]);
+          // nothing was downloaded
+          assert_eq!(environment.remote_file_request_count(PLUGIN_URL), 0);
+          assert!(client.take_progress().is_empty());
+
+          client.install_plugins("/a/file.txt").await.unwrap();
+          assert_eq!(environment.remote_file_request_count(PLUGIN_URL), 1);
+          // the editor is told that the config file formats files now
+          assert_eq!(client.take_config_changes(), vec![ConfigChangedMessage { uri: uri("/a/dprint.json") }]);
+          assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_a"));
+          let info = client.config_info(message).await.unwrap();
+          assert_eq!(info.reason, None);
+          assert_eq!(info.plugins.len(), 1);
+          assert_eq!(info.remote_plugins, vec![remote_plugin(true)]);
+          // installing again does nothing
+          client.install_plugins("/a/file.txt").await.unwrap();
+          assert_eq!(environment.remote_file_request_count(PLUGIN_URL), 1);
+          assert!(client.take_config_changes().is_empty());
         }
         .boxed_local()
       }
@@ -2700,6 +2832,8 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
+        // the plugins are installed when the editor asks for it
+        client.install_plugins("/project/file.txt").await.unwrap();
         client
           .update_settings(EditorSettings {
             workspace_folders: vec![workspace_folder("/project")],
@@ -2765,10 +2899,11 @@ mod test {
       .with_default_config(|c| {
         c.add_remote_wasm_plugin();
       })
-      .build(); // not initialized, so the plugin is compiled when it's used
+      .build(); // not initialized, so the plugin is compiled when it's installed
 
     run_session(&environment, &[], |client| {
       async move {
+        client.install_plugins("/file.txt").await.unwrap();
         assert_eq!(client.format("/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
         assert_eq!(
           client.take_progress(),
@@ -2882,6 +3017,8 @@ mod test {
       let environment = environment.clone();
       move |client| {
         async move {
+          // the plugins are installed when the editor asks for it
+          client.install_plugins("/a/file.txt").await.unwrap();
           assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           assert!(client.take_config_changes().is_empty());
@@ -3264,6 +3401,16 @@ mod test {
         settings,
       };
       self.request(EditorMessageBody::Initialize(serde_json::to_vec(&message)?)).await?;
+      Ok(())
+    }
+
+    /// Installs the plugins of the config file of the document.
+    pub async fn install_plugins(&self, file_path: &str) -> Result<()> {
+      let message = InstallPluginsMessage {
+        uri: uri(file_path),
+        allow_global_config: false,
+      };
+      self.request(EditorMessageBody::InstallPlugins(serde_json::to_vec(&message)?)).await?;
       Ok(())
     }
 

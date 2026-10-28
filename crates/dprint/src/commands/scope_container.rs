@@ -17,8 +17,10 @@ use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::Environment;
 use crate::plugins;
+use crate::plugins::PluginSourceReference;
 use crate::resolution::PluginsScope;
-use crate::resolution::resolve_plugins_scope;
+use crate::resolution::ResolvePluginsScopeOptions;
+use crate::resolution::resolve_plugins_scope_with_options;
 use crate::utils::AsyncMutex;
 use crate::utils::PathSource;
 
@@ -40,6 +42,9 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
   config_override: Option<PathBuf>,
   remote_cache_mode: RemoteCacheMode,
+  /// Whether plugins are downloaded when they're used, which the editor
+  /// service only does when the user asks for it (see `install_plugins`).
+  install_plugins: bool,
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
   plugins_generation: Cell<usize>,
@@ -51,6 +56,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
     config_override: Option<PathBuf>,
     remote_cache_mode: RemoteCacheMode,
+    install_plugins: bool,
   ) -> Self {
     Self {
       environment,
@@ -58,6 +64,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       plugins_scope_by_config: Default::default(),
       config_override,
       remote_cache_mode,
+      install_plugins,
       plugins_generation: Default::default(),
     }
   }
@@ -112,7 +119,9 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
-      if is_same_config && cached_scope.plugins_generation == self.plugins_generation.get() {
+      // a plugin may have been installed since
+      let is_installed = cached_scope.scope.uninstalled_plugins.is_empty();
+      if is_same_config && is_installed && cached_scope.plugins_generation == self.plugins_generation.get() {
         return Ok(cached_scope.scope.clone());
       }
       // forget the scope so that failing to resolve the new one
@@ -129,12 +138,29 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 
     // get this before resolving in case the plugins are shut down while resolving
     let plugins_generation = self.plugins_generation.get();
-    let new_scope = Rc::new(resolve_plugins_scope(Rc::new(config), &self.environment, &self.plugin_resolver).await?);
+    let options = ResolvePluginsScopeOptions {
+      install_plugins: self.install_plugins,
+    };
+    let new_scope = Rc::new(resolve_plugins_scope_with_options(Rc::new(config), &self.environment, &self.plugin_resolver, options).await?);
     let _ = cell.insert(CachedScope {
       scope: new_scope.clone(),
       plugins_generation,
     });
     Ok(new_scope)
+  }
+
+  /// Downloads and sets up the plugins of the config file that aren't
+  /// installed, which are used the next time it's resolved.
+  pub async fn install_plugins(&self, config_file: &ResolvedConfigPathWithText) -> Result<()> {
+    let config = self.resolve_config(config_file).await?;
+    let plugins = config.plugins.into_iter().filter(|plugin| !self.is_plugin_installed(plugin)).collect();
+    self.plugin_resolver.resolve_plugins(plugins).await?;
+    Ok(())
+  }
+
+  /// Whether the plugin can be used without downloading it.
+  pub fn is_plugin_installed(&self, plugin: &PluginSourceReference) -> bool {
+    self.plugin_resolver.is_installed(plugin)
   }
 
   /// Resolves the config of a config file, merging in the config file of an

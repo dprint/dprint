@@ -452,6 +452,8 @@ fn start_message_handler<TEnvironment: Environment>(
     plugin_resolver.clone(),
     config_override,
     remote_cache_mode,
+    // a language client has no way to ask for them to be installed
+    /* install plugins */ true,
   ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {

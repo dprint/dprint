@@ -33,6 +33,16 @@ impl PluginSourceReference {
     self.path_source.plugin_kind()
   }
 
+  /// Whether the plugin is downloaded to be used, which is a url or an npm
+  /// package with a version as opposed to a file (ex. in node_modules).
+  pub fn is_downloaded(&self) -> bool {
+    match &self.path_source {
+      PathSource::Remote(_) => true,
+      PathSource::Npm(npm_source) => npm_source.specifier.version.is_some(),
+      PathSource::Local(_) => false,
+    }
+  }
+
   pub fn without_checksum(&self) -> PluginSourceReference {
     PluginSourceReference {
       path_source: self.path_source.clone(),

@@ -149,6 +149,13 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     self.plugin_cache.resolve_remote_for_add(plugin_reference).await
   }
 
+  /// Whether the plugin can be used without downloading it (see
+  /// `PluginCache::is_installed`).
+  pub fn is_installed(&self, plugin_reference: &PluginSourceReference) -> bool {
+    let is_resolved = self.memory_cache.borrow().get(plugin_reference).is_some_and(|cell| cell.initialized());
+    is_resolved || self.plugin_cache.is_installed(plugin_reference)
+  }
+
   pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Rc<PluginWrapper>> {
     let cell = {
       let mut mem_cache = self.memory_cache.borrow_mut();

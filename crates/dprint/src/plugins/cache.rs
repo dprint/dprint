@@ -228,6 +228,20 @@ where
     Some(path_source.clone())
   }
 
+  /// Whether the plugin can be used without downloading it, which is when it's
+  /// in the cache or it isn't downloaded (ex. it's a file).
+  pub fn is_installed(&self, source_reference: &PluginSourceReference) -> bool {
+    if !source_reference.is_downloaded() {
+      return true;
+    }
+    let path_source = &source_reference.path_source;
+    let Ok(cache_key) = self.compute_cache_key(path_source) else {
+      return false;
+    };
+    let hash = entry_hash(&cache_key, &self.environment);
+    self.cached_item(path_source, &hash, &cache_key).is_some()
+  }
+
   pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
     match &source_reference.path_source {
       PathSource::Remote(_) | PathSource::Local(_) => self.get_plugin(source_reference).await,
