@@ -29,11 +29,9 @@ use crate::arg_parser::EditorServiceSchemaVersion;
 use crate::arg_parser::EditorServiceSubCommand;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
-use crate::resolution::PluginsScope;
 use crate::utils::Semaphore;
 
 use self::messages::EditorMessage;
-use self::messages::EditorPluginInfo;
 use self::messages::MessageBody;
 
 const CONFIG_SCHEMA_URL: &str = "https://dprint.dev/schemas/v0.json";
@@ -81,30 +79,6 @@ pub async fn run_editor_service<TEnvironment: Environment>(
     EditorServiceSchemaVersion::V5 => v5::run_editor_service(args, environment, plugin_resolver).await,
     EditorServiceSchemaVersion::V6 => v6::run_editor_service(args, environment, plugin_resolver).await,
   }
-}
-
-/// Gets the information about the plugins of the scope that an editor uses.
-async fn get_editor_plugin_infos<TEnvironment: Environment>(scope: &PluginsScope<TEnvironment>) -> Result<Vec<EditorPluginInfo>> {
-  let mut plugins = Vec::new();
-  for plugin in scope.plugins.values() {
-    let initialized_plugin = plugin.initialize().await?;
-    let file_matching = initialized_plugin.file_matching_info().await?;
-    plugins.push(EditorPluginInfo {
-      name: plugin.info().name.to_string(),
-      version: plugin.info().version.to_string(),
-      config_key: plugin.info().config_key.to_string(),
-      file_extensions: file_matching.file_extensions,
-      file_names: file_matching.file_names,
-      config_schema_url: if plugin.info().config_schema_url.trim().is_empty() {
-        None
-      } else {
-        Some(plugin.info().config_schema_url.trim().to_string())
-      },
-      help_url: plugin.info().help_url.trim().to_string(),
-      update_url: plugin.info().update_url.clone(),
-    });
-  }
-  Ok(plugins)
 }
 
 /// What's used to send messages of a schema version to the editor.

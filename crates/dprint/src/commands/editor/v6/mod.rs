@@ -70,7 +70,6 @@ use crate::utils::Semaphore;
 
 use super::AtomicIdGenerator;
 use super::EditorContext;
-use super::get_editor_plugin_infos;
 use super::messages::MessageBody;
 use super::new_format_concurrency_limiter;
 use super::send_error_response;
@@ -113,6 +112,7 @@ use self::messages::MessageAction;
 use self::messages::MessageKind;
 use self::messages::NotFormattedMessage;
 use self::messages::NotFormattedReason;
+use self::messages::PluginInfo;
 use self::messages::ProgressMessage;
 use self::messages::ShowMessageMessage;
 use self::messages::ShowMessageRequestMessage;
@@ -454,6 +454,9 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         return Ok(ConfigInfoResponseMessage {
           config_file: None,
           plugins: Vec::new(),
+          includes: None,
+          excludes: None,
+          shebangs: None,
           reason: Some(reason),
           message: get_not_formatted_message(reason, false, allow_global_config),
         });
@@ -462,14 +465,21 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         return Ok(ConfigInfoResponseMessage {
           config_file: failure.config_file,
           plugins: Vec::new(),
+          includes: None,
+          excludes: None,
+          shebangs: None,
           reason: Some(NotFormattedReason::ConfigError),
           message: Some(failure.message),
         });
       }
     };
+    let config = scope.config.as_ref();
     Ok(ConfigInfoResponseMessage {
       config_file: get_config_file_info(&scope),
-      plugins: get_editor_plugin_infos(&scope).await?,
+      plugins: get_plugin_infos(&scope).await?,
+      includes: config.and_then(|config| config.includes.clone()),
+      excludes: config.and_then(|config| config.excludes.clone()),
+      shebangs: config.and_then(|config| config.shebangs.clone()),
       reason: None,
       message: None,
     })
@@ -1059,6 +1069,30 @@ fn get_not_formatted_message(reason: NotFormattedReason, is_notebook_cell: bool,
   }
 }
 
+/// Gets the information about the plugins of the scope, which sets them up
+/// when they aren't yet (ex. downloads them).
+async fn get_plugin_infos<TEnvironment: Environment>(scope: &PluginsScope<TEnvironment>) -> Result<Vec<PluginInfo>> {
+  let mut plugins = Vec::new();
+  for plugin in scope.plugins.values() {
+    let info = plugin.info();
+    let file_matching = plugin.initialize().await?.file_matching_info().await?;
+    let config_schema_url = info.config_schema_url.trim();
+    plugins.push(PluginInfo {
+      name: info.name.to_string(),
+      version: info.version.to_string(),
+      config_key: info.config_key.to_string(),
+      file_extensions: file_matching.file_extensions,
+      file_names: file_matching.file_names,
+      associations: plugin.associations.clone(),
+      supports_range_formatting: info.supports_range_formatting,
+      config_schema_url: (!config_schema_url.is_empty()).then(|| config_schema_url.to_string()),
+      help_url: info.help_url.trim().to_string(),
+      update_url: info.update_url.clone(),
+    });
+  }
+  Ok(plugins)
+}
+
 fn get_config_file_info<TEnvironment: Environment>(scope: &PluginsScope<TEnvironment>) -> Option<ConfigFileInfo> {
   let config = scope.config.as_ref()?;
   Some(ConfigFileInfo {
@@ -1315,7 +1349,7 @@ mod test {
       })
       .with_local_config("/b/dprint.json", |c| {
         c.add_remote_wasm_plugin()
-          .add_config_section("test-plugin", r#"{ "ending": "b" }"#)
+          .add_config_section("test-plugin", r#"{ "ending": "b", "associations": ["**/*.other"] }"#)
           .add_excludes("excluded.txt");
       })
       .initialize()
@@ -1400,6 +1434,11 @@ mod test {
           vec!["test-plugin"]
         );
         assert_eq!(config_info.plugins[0].file_extensions, vec!["txt"]);
+        // what an editor needs to know which documents the config file may format
+        assert_eq!(config_info.plugins[0].associations, Some(vec!["**/*.other".to_string()]));
+        assert_eq!(config_info.plugins[0].supports_range_formatting, None);
+        assert_eq!(config_info.excludes, Some(vec!["excluded.txt".to_string()]));
+        assert_eq!(config_info.reason, None);
       }
       .boxed_local()
     });

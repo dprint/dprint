@@ -8,8 +8,8 @@ use std::io::Result;
 use deno_tower_lsp::lsp_types::Range;
 use deno_tower_lsp::lsp_types::Uri;
 use dprint_core::configuration::ConfigKeyMap;
+use indexmap::IndexMap;
 
-use super::super::messages::EditorPluginInfo;
 use super::super::messages::MessageBody;
 use super::super::messages::MessageBuilder;
 
@@ -334,7 +334,16 @@ pub struct ConfigInfoResponseMessage {
   /// The config file that's used for the file, which is `None` when there isn't one.
   pub config_file: Option<ConfigFileInfo>,
   /// The plugins of the config file.
-  pub plugins: Vec<EditorPluginInfo>,
+  pub plugins: Vec<PluginInfo>,
+  /// The `includes` of the config file, which are relative to its directory.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub includes: Option<Vec<String>>,
+  /// The `excludes` of the config file, which are relative to its directory.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub excludes: Option<Vec<String>>,
+  /// The file extension to format an extensionless file with by its shebang.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub shebangs: Option<IndexMap<String, String>>,
   /// Why the config file doesn't format anything (ex. it failed to resolve).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reason: Option<NotFormattedReason>,
@@ -342,6 +351,31 @@ pub struct ConfigInfoResponseMessage {
   /// anything.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub message: Option<String>,
+}
+
+/// A plugin of a config file.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInfo {
+  pub name: String,
+  pub version: String,
+  pub config_key: String,
+  /// The file extensions it formats, which are without the leading period.
+  pub file_extensions: Vec<String>,
+  /// The file names it formats regardless of their extension.
+  pub file_names: Vec<String>,
+  /// The `associations` of its configuration, which are the patterns of the
+  /// other files it formats.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub associations: Option<Vec<String>>,
+  /// Whether it formats a range, which is `None` when it doesn't say.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub supports_range_formatting: Option<bool>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub config_schema_url: Option<String>,
+  pub help_url: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub update_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

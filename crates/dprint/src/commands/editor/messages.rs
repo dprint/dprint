@@ -106,18 +106,3 @@ impl<'a> MessageBuilder<'a> {
       .sum::<usize>() as u32
   }
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EditorPluginInfo {
-  pub name: String,
-  pub version: String,
-  pub config_key: String,
-  pub file_extensions: Vec<String>,
-  pub file_names: Vec<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub config_schema_url: Option<String>,
-  pub help_url: String,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub update_url: Option<String>,
-}

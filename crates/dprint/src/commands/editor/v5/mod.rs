@@ -26,14 +26,13 @@ use crate::utils::Semaphore;
 
 use super::CONFIG_SCHEMA_URL;
 use super::EditorContext;
-use super::get_editor_plugin_infos;
-use super::messages::EditorPluginInfo;
 use super::new_format_concurrency_limiter;
 use super::send_error_response;
 use super::send_response_body;
 use super::start_reading_messages;
 
 use self::messages::EditorMessageBody;
+use self::messages::EditorPluginInfo;
 use self::messages::FormatEditorMessageBody;
 
 /// Outputs the information about the plugins of the config file for an editor
@@ -295,6 +294,30 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
     Ok(self.plugins_scope.as_ref().unwrap().config.clone().unwrap())
   }
+}
+
+/// Gets the information about the plugins of the scope that an editor uses.
+async fn get_editor_plugin_infos<TEnvironment: Environment>(scope: &PluginsScope<TEnvironment>) -> Result<Vec<EditorPluginInfo>> {
+  let mut plugins = Vec::new();
+  for plugin in scope.plugins.values() {
+    let initialized_plugin = plugin.initialize().await?;
+    let file_matching = initialized_plugin.file_matching_info().await?;
+    plugins.push(EditorPluginInfo {
+      name: plugin.info().name.to_string(),
+      version: plugin.info().version.to_string(),
+      config_key: plugin.info().config_key.to_string(),
+      file_extensions: file_matching.file_extensions,
+      file_names: file_matching.file_names,
+      config_schema_url: if plugin.info().config_schema_url.trim().is_empty() {
+        None
+      } else {
+        Some(plugin.info().config_schema_url.trim().to_string())
+      },
+      help_url: plugin.info().help_url.trim().to_string(),
+      update_url: plugin.info().update_url.clone(),
+    });
+  }
+  Ok(plugins)
 }
 
 fn handle_message(context: &EditorContext<EditorMessageBody>, original_message_id: u32, action: impl FnOnce() -> Result<EditorMessageBody>) {

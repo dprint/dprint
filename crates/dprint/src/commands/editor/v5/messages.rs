@@ -172,6 +172,21 @@ fn read_format_body<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>) -> R
   Ok((PathBuf::from(String::from_utf8_lossy(&file_path).to_string()), range, data, file_text))
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorPluginInfo {
+  pub name: String,
+  pub version: String,
+  pub config_key: String,
+  pub file_extensions: Vec<String>,
+  pub file_names: Vec<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub config_schema_url: Option<String>,
+  pub help_url: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub update_url: Option<String>,
+}
+
 fn add_format_body<'a>(builder: &mut MessageBuilder<'a>, file_path: &std::path::Path, range: &FormatRange, data: &'a [u8], file_bytes: &'a [u8]) {
   let path = file_path.to_string_lossy().to_string();
   builder.add_owned_bytes(path.into_bytes());

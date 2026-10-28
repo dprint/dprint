@@ -412,7 +412,9 @@ Response: None
 
 #### `11` - Configuration info (Client to Service)
 
-Gets the plugins of the configuration file that's used for a document (ex. for the JSON schema of a configuration file).
+Gets the plugins of the configuration file that's used for a document and which files they format (ex. to only be the formatter of the documents dprint may format).
+
+This downloads and sets up the plugins of the configuration file when they aren't yet, so send it once the editor finds a configuration file (ex. when a project is opened) so that the first format doesn't wait on that.
 
 Message body:
 
@@ -443,6 +445,12 @@ interface ConfigInfoResponseData {
   configFile: ConfigFileInfo | null;
   /** The plugins of the configuration file, which is empty when it doesn't format anything. */
   plugins: PluginInfo[];
+  /** The `includes` of the configuration file, which are relative to its directory. */
+  includes?: string[];
+  /** The `excludes` of the configuration file, which are relative to its directory. */
+  excludes?: string[];
+  /** The file extension (without the leading period) that an extensionless file is formatted as by its shebang (ex. `{ "#!/usr/bin/env node": "js" }`). */
+  shebangs?: Record<string, string>;
   /** Why the configuration file doesn't format anything (ex. `noConfigFile` or `configError`). */
   reason?: NotFormattedReason;
   /** The message to show the user about why the configuration file doesn't format anything. */
@@ -453,16 +461,26 @@ interface PluginInfo {
   name: string;
   version: string;
   configKey: string;
+  /** The file extensions it formats without the leading period (ex. "ts"). */
   fileExtensions: string[];
-  // these are exact file names the extension should format regardless of extension
+  /** The exact file names it formats regardless of their extension. */
   fileNames: string[];
-  // will be `undefined` when the plugin does not have a schema url
+  /**
+   * The `associations` of its configuration, which are patterns of other files it formats (or doesn't for a
+   * negated pattern) like in the configuration file, so they're relative to the configuration file's directory.
+   */
+  associations?: string[];
+  /** Whether it formats a range of a document, which isn't provided when it doesn't say (see the format file message). */
+  supportsRangeFormatting?: boolean;
+  /** Not provided when the plugin doesn't have a schema. */
   configSchemaUrl?: string;
   helpUrl: string;
-  // will be `undefined` when the plugin does not have an update url
+  /** Not provided when the plugin doesn't have an update url. */
   updateUrl?: string;
 }
 ```
+
+A document is only formatted when a plugin formats its file extension, file name, or one of its associations, or when it's an extensionless file whose shebang is in `shebangs`. Use these to only be the formatter of the documents dprint may format, and then the file info message for whether it formats one. The patterns of the `includes`, `excludes`, and `associations` are matched the way dprint matches them (ex. `node_modules` matches a directory with that name anywhere), so leave out what the editor can't match the same way.
 
 Response: None
 
