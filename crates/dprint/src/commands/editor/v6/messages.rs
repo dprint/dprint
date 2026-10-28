@@ -442,6 +442,8 @@ pub enum NotFormattedReason {
   /// The configuration of a plugin that formats the file has problems (see
   /// `diagnostics`).
   ConfigDiagnostics,
+  /// A plugin that formats the file doesn't support formatting a range.
+  RangeFormattingNotSupported,
   /// The file is already formatted.
   Unchanged,
 }

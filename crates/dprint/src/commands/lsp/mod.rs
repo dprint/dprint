@@ -81,6 +81,7 @@ use crate::commands::no_config::get_no_config_message;
 use crate::commands::no_config::is_no_config_notification_dismissed;
 use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
+use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
@@ -88,6 +89,7 @@ use crate::format::EnsureStableFormat;
 use crate::plugins::PluginConfigDiagnostic;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginConfigDiagnosticsError;
+use crate::resolution::RangeFormattingSupport;
 
 use self::client::ClientWrapper;
 use self::config_completion::ConfigCompletions;
@@ -240,6 +242,8 @@ enum NotFormattedReason {
   NotMatched,
   /// No plugin in the config file handles the file.
   NoPlugin,
+  /// A plugin that formats the file doesn't support formatting a range.
+  RangeFormattingNotSupported,
   /// The document is already formatted.
   Unchanged,
   /// Formatting failed, which is logged.
@@ -262,6 +266,7 @@ impl NotFormattedReason {
       )),
       NotFormattedReason::NotMatched => Some((MessageType::INFO, NOT_MATCHED_MESSAGE.to_string())),
       NotFormattedReason::NoPlugin => Some((MessageType::INFO, NO_PLUGIN_MESSAGE.to_string())),
+      NotFormattedReason::RangeFormattingNotSupported => Some((MessageType::INFO, RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string())),
       NotFormattedReason::Failed => Some((
         MessageType::WARNING,
         "dprint failed to format this document. See the language server's log for details.".to_string(),
@@ -335,11 +340,14 @@ async fn handle_format_request<TEnvironment: Environment>(
     .get_plugin_names_from_file_path_and_bytes(&request.file_path, request.file_text.as_bytes())
     .is_empty();
   let token = request.token.clone();
-  let range_format = RangeFormat::new(
-    &request.file_text,
-    request.range.clone(),
-    scope.supports_range_formatting(&request.file_path, request.file_text.as_bytes()),
-  );
+  let range_format = match request.range.clone() {
+    Some(range) => match scope.range_formatting_support(&request.file_path, request.file_text.as_bytes()) {
+      RangeFormattingSupport::Supported => RangeFormat::new(&request.file_text, Some(range), true),
+      RangeFormattingSupport::Unknown => RangeFormat::new(&request.file_text, Some(range), false),
+      RangeFormattingSupport::NotSupported => return Ok(FormatOutcome::NotFormatted(NotFormattedReason::RangeFormattingNotSupported)),
+    },
+    None => RangeFormat::new(&request.file_text, None, true),
+  };
   let is_notebook_cell = request.notebook_path.is_some();
   let Some(result) = scope
     .format_stable(
@@ -548,8 +556,13 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   async fn format_document(&self, uri: &Uri, range: Option<Range>, options: &FormattingOptions, token: CancellationToken) -> Option<Vec<TextEdit>> {
     let use_global_config = self.state.lock().settings.use_global_config || has_use_global_config_option(options);
     let outcome = self.format(uri, range, use_global_config, token).await?;
-    if matches!(outcome, FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile)) {
-      self.notify_no_config();
+    match outcome {
+      FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile) => self.notify_no_config(),
+      // only logged because a client may format a range without the user asking (ex. on paste)
+      FormatOutcome::NotFormatted(NotFormattedReason::RangeFormattingNotSupported) => {
+        self.client.log_info(RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string());
+      }
+      _ => {}
     }
     outcome.into_edits()
   }

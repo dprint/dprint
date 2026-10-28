@@ -350,6 +350,31 @@ impl InitializedPluginWithConfig {
   }
 }
 
+/// Whether the plugins that format a file format the range of a format
+/// request, which is only `Supported` when every one of them says it is and
+/// `NotSupported` when any of them says it isn't.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeFormattingSupport {
+  Supported,
+  NotSupported,
+  /// A plugin doesn't say, so it's given the range's whole lines.
+  Unknown,
+}
+
+impl RangeFormattingSupport {
+  fn from_plugins(plugin_support: impl Iterator<Item = Option<bool>>) -> Self {
+    let mut result = RangeFormattingSupport::Supported;
+    for supports in plugin_support {
+      match supports {
+        Some(true) => {}
+        Some(false) => return RangeFormattingSupport::NotSupported,
+        None => result = RangeFormattingSupport::Unknown,
+      }
+    }
+    result
+  }
+}
+
 pub struct PluginsScope<TEnvironment: Environment> {
   environment: TEnvironment,
   pub config: Option<Rc<ResolvedConfig>>,
@@ -395,13 +420,14 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   /// Gets whether the plugins that format the file format the range of a
-  /// format request rather than the whole text.
-  pub fn supports_range_formatting(&self, file_path: &Path, file_bytes: &[u8]) -> bool {
+  /// format request (see `PluginInfo::supports_range_formatting`).
+  pub fn range_formatting_support(&self, file_path: &Path, file_bytes: &[u8]) -> RangeFormattingSupport {
     let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path_and_bytes(file_path, file_bytes);
-    !plugin_names.is_empty()
-      && plugin_names
+    RangeFormattingSupport::from_plugins(
+      plugin_names
         .iter()
-        .all(|name| self.plugins.get(name).is_some_and(|plugin| plugin.info().supports_range_formatting))
+        .map(|name| self.plugins.get(name).and_then(|plugin| plugin.info().supports_range_formatting)),
+    )
   }
 
   /// The problems with the global configuration (ex. an unknown property).
@@ -1437,5 +1463,13 @@ mod test {
         serialized_resolved_config: String::new(),
       },
     )
+  }
+
+  #[test]
+  fn should_get_whether_the_plugins_format_a_range() {
+    let get = |plugin_support: &[Option<bool>]| RangeFormattingSupport::from_plugins(plugin_support.iter().copied());
+    assert_eq!(get(&[Some(true), Some(true)]), RangeFormattingSupport::Supported);
+    assert_eq!(get(&[Some(true), None]), RangeFormattingSupport::Unknown);
+    assert_eq!(get(&[None, Some(false), Some(true)]), RangeFormattingSupport::NotSupported);
   }
 }

@@ -227,7 +227,7 @@ interface OffsetRange {
 
 The formatted text keeps the line endings of the text that was sent. For a notebook cell, the trailing whitespace of the formatted text is trimmed like the jupyter plugin does (except after a range that ends before the end of the cell).
 
-A plugin that formats a range (`supportsRangeFormatting` in its plugin info) is given the range as it is and decides what to format around it (ex. the nodes it overlaps), so its edits may be outside the range. For the other plugins, the range is expanded to the whole lines it touches, the whole text is formatted and only the edits within those lines are provided.
+A plugin that says it formats a range (`supportsRangeFormatting` in its plugin info) is given the range as it is and decides what to format around it (ex. the nodes it overlaps), so its edits may be outside the range. A plugin that doesn't say is given the range expanded to the whole lines it touches and only the edits within those lines are provided. A plugin that says it doesn't format a range doesn't format the document (`rangeFormattingNotSupported`).
 
 When a document isn't formatted because there's no configuration file for it (`noConfigFile` or `globalConfigNotAllowed`), the editor service notifies the user once per session with a show message request (unless the user turned that off or dismissed it). Send `showNoConfigNotification: false` for a command the user ran that says why the document wasn't formatted itself.
 
@@ -364,6 +364,7 @@ interface ConfigFileInfo {
  * - `noPlugin` - No plugin in the configuration file handles the document.
  * - `noPlugins` - The configuration file has no plugins.
  * - `configDiagnostics` - The configuration of a plugin that formats the document has problems (only for a format).
+ * - `rangeFormattingNotSupported` - A plugin that formats the document doesn't support formatting a range (only for a format).
  * - `unchanged` - The document is already formatted (only for a format).
  *
  * Handle a reason you don't know about the same as `notMatched`.
@@ -375,6 +376,7 @@ type NotFormattedReason =
   | "noPlugin"
   | "noPlugins"
   | "configDiagnostics"
+  | "rangeFormattingNotSupported"
   | "unchanged";
 ```
 

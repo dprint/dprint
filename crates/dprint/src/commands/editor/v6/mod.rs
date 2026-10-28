@@ -47,6 +47,7 @@ use crate::commands::not_formatted_messages::NO_CELL_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
+use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::ResolvedConfig;
@@ -60,6 +61,7 @@ use crate::plugins::PluginResolver;
 use crate::resolution::GetPluginResult;
 use crate::resolution::PluginConfigDiagnosticsError;
 use crate::resolution::PluginsScope;
+use crate::resolution::RangeFormattingSupport;
 use crate::utils::LogLevel;
 use crate::utils::OutputSink;
 use crate::utils::PathSource;
@@ -480,7 +482,14 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let file_path = chosen_file.file_path;
     let file_text = String::from_utf8(body.file_bytes).context("The file text isn't valid UTF-8.")?;
     let range = message.range.and_then(|range| get_byte_range(&file_text, range.start, range.end));
-    let range_format = RangeFormat::new(&file_text, range, scope.supports_range_formatting(&file_path, file_text.as_bytes()));
+    let range_format = match range {
+      Some(range) => match scope.range_formatting_support(&file_path, file_text.as_bytes()) {
+        RangeFormattingSupport::Supported => RangeFormat::new(&file_text, Some(range), true),
+        RangeFormattingSupport::Unknown => RangeFormat::new(&file_text, Some(range), false),
+        RangeFormattingSupport::NotSupported => return not_formatted(NotFormattedReason::RangeFormattingNotSupported),
+      },
+      None => RangeFormat::new(&file_text, None, true),
+    };
 
     let _permit = self.concurrency_limiter.acquire().await;
     if token.is_cancelled() {
@@ -975,6 +984,7 @@ fn get_not_formatted_message(reason: NotFormattedReason, is_notebook_cell: bool,
     NotFormattedReason::NoPlugins => Some(NO_PLUGINS_MESSAGE.to_string()),
     // the message is created with the diagnostics instead
     NotFormattedReason::ConfigDiagnostics => None,
+    NotFormattedReason::RangeFormattingNotSupported => Some(RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string()),
     NotFormattedReason::Unchanged => None,
   }
 }
@@ -2078,29 +2088,32 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
-        // the whole text is formatted, where the plugin adds its ending to the end,
-        // but only the edits within the lines of the range are kept
+        // a plugin that doesn't say whether it formats a range is given the range's
+        // whole lines, which the test plugin puts its ending in place of, and only the
+        // edits within those lines are kept, which leaves out the ending it adds to
+        // the end of the text
+        let options = FormatFileOptions {
+          override_config: ConfigKeyMap::from([("ending".to_string(), "x".into())]),
+          ..Default::default()
+        };
         assert_eq!(
-          client.format_range("/file.txt", "a\nb", 2..3, None).await.unwrap(),
-          formatted("a\nb_formatted\n")
-        );
-        assert_eq!(
-          client.format_range("/file.txt", "a\nb", 0..1, None).await.unwrap(),
-          not_formatted(NotFormattedReason::Unchanged)
+          client.format_range("/file.txt", "a\nb\nc\n", 2..3, Some(options)).await.unwrap(),
+          formatted("a\n_x_c\n")
         );
         // a plugin that formats a range is given it as it is and what it changes is kept
         assert_eq!(
           client.format_range("/file.txt_ps", "a\nbc\nd", 3..4, None).await.unwrap(),
           formatted("a\nb_formatted_process_\nd_formatted_process")
         );
-        // a notebook cell's trailing whitespace is still trimmed
+        // a notebook cell's range is formatted the same way
         let cell_options = FormatFileOptions {
           notebook_path: Some(PathBuf::from("/dir/notebook.ipynb")),
+          override_config: ConfigKeyMap::from([("ending".to_string(), "x".into())]),
           ..Default::default()
         };
         assert_eq!(
-          client.format_range("/dir/code_block.txt", "a\nb", 2..3, Some(cell_options)).await.unwrap(),
-          formatted("a\nb_formatted")
+          client.format_range("/dir/code_block.txt", "a\nb_x", 0..1, Some(cell_options)).await.unwrap(),
+          formatted("_x_b_x")
         );
       }
       .boxed_local()
