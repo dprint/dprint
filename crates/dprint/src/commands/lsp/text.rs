@@ -7,6 +7,7 @@ use anyhow::Result;
 use anyhow::bail;
 use deno_tower_lsp::lsp_types as lsp;
 use deno_tower_lsp::lsp_types::TextEdit;
+use dprint_core::plugins::FormatRange;
 use similar::ChangeTag;
 use similar::TextDiff;
 use std::collections::HashMap;
@@ -227,12 +228,6 @@ fn detect_crlf(text: &str) -> Option<bool> {
   }
 }
 
-/// Compare two strings and return a vector of text edit records which are
-/// supported by the Language Server Protocol.
-pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
-  get_utf16_edits(a, b).into_iter().map(|edit| to_lsp_edit(edit, line_index)).collect()
-}
-
 /// An edit of a text where the offsets are UTF-16 code units of that text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Utf16TextEdit {
@@ -322,6 +317,49 @@ fn replace_whole_file(old_text: &str, new_text: &str) -> Utf16TextEdit {
     end: old_text.encode_utf16().count() as u32,
     new_text: new_text.to_string(),
   }
+}
+
+/// Expands the range to the whole lines it touches, including the last
+/// line's line break, which is `None` for the whole text. A range that ends
+/// at the start of a line (ex. after selecting whole lines) doesn't include
+/// that line.
+pub fn expand_to_lines(text: &str, range: std::ops::Range<usize>) -> FormatRange {
+  let start = text[..range.start].rfind('\n').map(|index| index + 1).unwrap_or(0);
+  let end = if range.end > start && text.as_bytes()[range.end - 1] == b'\n' {
+    range.end
+  } else {
+    text[range.end..].find('\n').map(|index| range.end + index + 1).unwrap_or(text.len())
+  };
+  if start == 0 && end == text.len() { None } else { Some(start..end) }
+}
+
+/// Gets the edits that change the text to the formatted text, which are only
+/// the ones within the range when there is one.
+///
+/// Many plugins don't format a range, so editors format the whole text and
+/// use this to only change the lines of the range.
+pub fn get_range_utf16_edits(text: &str, formatted_text: &str, range: &FormatRange) -> Vec<Utf16TextEdit> {
+  let edits = get_utf16_edits(text, formatted_text);
+  let Some(range) = range else {
+    return edits;
+  };
+  let start = text[..range.start].encode_utf16().count() as u32;
+  let end = start + text[range.clone()].encode_utf16().count() as u32;
+  // an insertion after the range's last line break is on the next line
+  let ends_with_line_break = text[range.clone()].ends_with('\n');
+  edits
+    .into_iter()
+    .filter(|edit| edit.start >= start && edit.end <= end && !(ends_with_line_break && edit.start == end))
+    .collect()
+}
+
+/// Gets the edits like `get_range_utf16_edits`, which are supported by the
+/// Language Server Protocol.
+pub fn get_range_edits(a: &str, b: &str, range: &FormatRange, line_index: &LineIndex) -> Vec<TextEdit> {
+  get_range_utf16_edits(a, b, range)
+    .into_iter()
+    .map(|edit| to_lsp_edit(edit, line_index))
+    .collect()
 }
 
 fn to_lsp_edit(edit: Utf16TextEdit, line_index: &LineIndex) -> TextEdit {
@@ -596,7 +634,7 @@ const C: char = \"メ メ\";
   fn test_get_edits() {
     let a = "abcdefg";
     let b = "a\nb\nchije\nfg\n";
-    let actual = get_edits(a, b, &LineIndex::new(a));
+    let actual = get_range_edits(a, b, &None, &LineIndex::new(a));
     assert_eq!(
       actual,
       vec![
@@ -678,14 +716,14 @@ const C: char = \"メ メ\";
     let a = "line1\nline2\nline3\n";
     let formatted = "line1\r\nline2\r\nline3\r\n".to_string();
     let new_text = normalize_to_source_line_endings(a, formatted);
-    assert_eq!(get_edits(a, &new_text, &LineIndex::new(a)), vec![]);
+    assert_eq!(get_range_edits(a, &new_text, &None, &LineIndex::new(a)), vec![]);
   }
 
   #[test]
   fn test_get_edits_mbc() {
     let a = "const bar = \"👍🇺🇸😃\";\nconsole.log('hello deno')\n";
     let b = "const bar = \"👍🇺🇸😃\";\nconsole.log(\"hello deno\");\n";
-    let actual = get_edits(a, b, &LineIndex::new(a));
+    let actual = get_range_edits(a, b, &None, &LineIndex::new(a));
     assert_eq!(
       actual,
       vec![
@@ -712,5 +750,20 @@ const C: char = \"メ メ\";
         },
       ]
     )
+  }
+
+  #[test]
+  fn should_only_keep_the_edits_within_the_range() {
+    let get = |text: &str, formatted_text: &str, range: std::ops::Range<usize>| {
+      get_range_utf16_edits(text, formatted_text, &Some(range))
+        .into_iter()
+        .map(|edit| (edit.start, edit.end, edit.new_text))
+        .collect::<Vec<_>>()
+    };
+    // the indent of the next line isn't within the range's lines
+    assert_eq!(get("a\nb", "a!\n  b", 0..2), vec![(1, 1, "!".to_string())]);
+    // but an insertion at the end of a range without a line break is
+    assert_eq!(get("a\nb", "a\nb!", 2..3), vec![(3, 3, "!".to_string())]);
+    assert_eq!(get("a\nb", "!a\nb", 2..3), Vec::new());
   }
 }

@@ -100,7 +100,8 @@ use self::notebook::get_notebook_document_sync_options;
 use self::notebook::trim_formatted_cell_text;
 use self::settings::LspSettings;
 use self::text::LineIndex;
-use self::text::get_edits;
+use self::text::expand_to_lines;
+use self::text::get_range_edits;
 use self::text::normalize_to_source_line_endings;
 use self::untitled::get_untitled_file_path;
 use self::untitled::get_untitled_registrations;
@@ -334,14 +335,16 @@ async fn handle_format_request<TEnvironment: Environment>(
     .get_plugin_names_from_file_path_and_bytes(&request.file_path, request.file_text.as_bytes())
     .is_empty();
   let token = request.token.clone();
-  // the range is given to the plugin, but is needed after for a notebook cell
-  let maybe_cell_range = request.notebook_path.as_ref().map(|_| request.range.clone());
+  // many plugins don't format a range, so the whole text is formatted and
+  // only the edits within the range's lines are kept
+  let range = request.range.clone().and_then(|range| expand_to_lines(&request.file_text, range));
+  let is_notebook_cell = request.notebook_path.is_some();
   let Some(result) = scope
     .format_stable(
       HostFormatRequest {
         file_path: request.file_path,
         file_bytes: request.file_text.as_bytes().to_vec(),
-        range: request.range,
+        range: None,
         override_config: Default::default(),
         token: request.token,
       },
@@ -362,18 +365,17 @@ async fn handle_format_request<TEnvironment: Environment>(
     // the editor owns the document's line endings, so match them rather than
     // imposing the plugin's configured newline kind (see #965)
     let new_text = normalize_to_source_line_endings(&request.file_text, new_text);
-    let new_text = match maybe_cell_range {
-      Some(range) => {
-        let new_text = trim_formatted_cell_text(&request.file_text, new_text, &range);
-        if new_text == *request.file_text {
-          return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
-        }
-        new_text
+    let new_text = if is_notebook_cell {
+      let new_text = trim_formatted_cell_text(&request.file_text, new_text, &range);
+      if new_text == *request.file_text {
+        return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
       }
-      None => new_text,
+      new_text
+    } else {
+      new_text
     };
     let line_index = request.maybe_line_index.unwrap_or_else(|| Arc::new(LineIndex::new(&request.file_text)));
-    Ok(FormatOutcome::Edits(get_edits(&request.file_text, &new_text, &line_index)))
+    Ok(FormatOutcome::Edits(get_range_edits(&request.file_text, &new_text, &range, &line_index)))
   })
   .await?
 }
@@ -1376,22 +1378,13 @@ mod test {
               CancellationToken::new(),
             )
             .await;
+          // the range is expanded to its whole lines, which is the whole text here
           assert_eq!(
             result.unwrap().unwrap(),
-            vec![
-              TextEdit {
-                range: Range::new(Position::new(0, 1), Position::new(0, 1)),
-                new_text: "_formatted_proc".to_string()
-              },
-              TextEdit {
-                range: Range::new(Position::new(0, 3), Position::new(0, 3)),
-                new_text: "s_s".to_string()
-              },
-              TextEdit {
-                range: Range::new(Position::new(0, 7), Position::new(0, 7)),
-                new_text: "_formatted_process".to_string()
-              },
-            ]
+            vec![TextEdit {
+              range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+              new_text: "_formatted_process".to_string()
+            },]
           );
 
           // cancellation via a drop
@@ -2197,7 +2190,7 @@ mod test {
             }])
           );
 
-          // range formatting before the end of the cell keeps the trailing whitespace
+          // the range is expanded to its whole lines, which is the whole cell here
           let result = backend
             .range_formatting(
               DocumentRangeFormattingParams {
@@ -2211,20 +2204,10 @@ mod test {
             .await;
           assert_eq!(
             result.unwrap(),
-            Some(vec![
-              TextEdit {
-                range: Range::new(Position::new(0, 1), Position::new(0, 1)),
-                new_text: "_formatt".to_string()
-              },
-              TextEdit {
-                range: Range::new(Position::new(0, 2), Position::new(0, 2)),
-                new_text: "d\n_".to_string()
-              },
-              TextEdit {
-                range: Range::new(Position::new(0, 6), Position::new(0, 6)),
-                new_text: "_formatted  ".to_string()
-              },
-            ])
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 6), Position::new(0, 6)),
+              new_text: "_formatted".to_string()
+            }])
           );
 
           // language without a plugin

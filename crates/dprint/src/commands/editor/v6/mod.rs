@@ -30,8 +30,8 @@ use crate::commands::lsp::config_completion::PluginSchemaUrl;
 use crate::commands::lsp::file_path_to_uri;
 use crate::commands::lsp::language::get_language_file_name;
 use crate::commands::lsp::notebook::trim_formatted_cell_text;
-use crate::commands::lsp::text::Utf16TextEdit;
-use crate::commands::lsp::text::get_utf16_edits;
+use crate::commands::lsp::text::expand_to_lines;
+use crate::commands::lsp::text::get_range_utf16_edits;
 use crate::commands::lsp::text::normalize_to_source_line_endings;
 use crate::commands::lsp::untitled::is_untitled_uri;
 use crate::commands::lsp::uri_to_file_path;
@@ -137,7 +137,7 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
   /// change to a config file it extends is noticed.
   resolved_configs: RefCell<HashMap<String, Rc<ResolvedConfig>>>,
   /// The scope whose config diagnostics were checked for each config file.
-  checked_scopes: RefCell<HashMap<String, Weak<PluginsScope<TEnvironment>>>>,
+  checked_scopes: RefCell<HashMap<String, CheckedScope<TEnvironment>>>,
   /// The config diagnostics that were last sent for each config file uri.
   sent_config_diagnostics: RefCell<HashMap<String, Vec<ConfigDiagnostic>>>,
   /// The editor, which is `None` until it initializes the editor service.
@@ -169,6 +169,13 @@ struct ChosenFile {
   file_path: PathBuf,
   /// Why it can't be formatted, which is `None` when it can.
   cant_format_reason: Option<NotFormattedReason>,
+}
+
+/// A scope whose config diagnostics were checked.
+struct CheckedScope<TEnvironment: Environment> {
+  scope: Weak<PluginsScope<TEnvironment>>,
+  /// The text of the config file, which is where the diagnostics are.
+  config_text: Rc<str>,
 }
 
 /// The error that was shown to the user for the plugin config diagnostics of
@@ -515,7 +522,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       } else {
         formatted_text
       };
-      Ok::<_, anyhow::Error>(get_range_edits(&file_text, &formatted_text, &range))
+      Ok::<_, anyhow::Error>(get_range_utf16_edits(&file_text, &formatted_text, &range))
     })
     .await??;
     if edits.is_empty() {
@@ -553,18 +560,29 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     if !was_shown {
       self.show_message(MessageKind::Error, message.clone());
     }
+    // the diagnostics are where they are in the config file's text
+    let config_text = self
+      .checked_scopes
+      .borrow()
+      .values()
+      .find(|checked| checked.scope.ptr_eq(&Rc::downgrade(scope)))
+      .map(|checked| checked.config_text.clone());
+    let plugin_diagnostics = diagnostics
+      .iter()
+      .map(|diagnostic| PluginSectionDiagnostic {
+        config_key: scope
+          .plugins
+          .values()
+          .find(|plugin| plugin.name() == diagnostic.plugin_name)
+          .map(|plugin| plugin.info().config_key.as_str())
+          .unwrap_or_default(),
+        diagnostic,
+      })
+      .collect::<Vec<_>>();
     FormatOutcome::NotFormatted(NotFormattedMessage {
       reason: NotFormattedReason::ConfigDiagnostics,
       message: Some(message),
-      diagnostics: diagnostics
-        .iter()
-        .map(|diagnostic| ConfigDiagnostic {
-          plugin_name: Some(diagnostic.plugin_name.clone()),
-          property_name: Some(diagnostic.diagnostic.property_name.clone()),
-          message: diagnostic.diagnostic.message.clone(),
-          range: None,
-        })
-        .collect(),
+      diagnostics: get_config_diagnostics(config_text.as_deref(), &[], &plugin_diagnostics),
     })
   }
 
@@ -707,11 +725,15 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   /// they're sent once that's done.
   fn check_config_diagnostics(self: &Rc<Self>, key: &str, config_file: &ResolvedConfigPathWithText, scope: &Rc<PluginsScope<TEnvironment>>) {
     let weak_scope = Rc::downgrade(scope);
-    let previous = self.checked_scopes.borrow_mut().insert(key.to_string(), weak_scope.clone());
-    if previous.is_some_and(|previous| previous.ptr_eq(&weak_scope)) {
+    let config_text: Rc<str> = config_file.content.as_str().into();
+    let checked_scope = CheckedScope {
+      scope: weak_scope.clone(),
+      config_text: config_text.clone(),
+    };
+    let previous = self.checked_scopes.borrow_mut().insert(key.to_string(), checked_scope);
+    if previous.is_some_and(|previous| previous.scope.ptr_eq(&weak_scope)) {
       return;
     }
-    let config_text = config_file.content.clone();
     self.send_config_diagnostics(
       &config_file.source,
       get_config_diagnostics(Some(&config_text), scope.global_config_diagnostics(), &[]),
@@ -736,7 +758,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         .checked_scopes
         .borrow()
         .get(&key)
-        .is_some_and(|checked| checked.ptr_eq(&Rc::downgrade(&scope)));
+        .is_some_and(|checked| checked.scope.ptr_eq(&Rc::downgrade(&scope)));
       if !is_current {
         return;
       }
@@ -1030,37 +1052,6 @@ fn requires_initialize(body: &EditorMessageBody) -> bool {
       | EditorMessageBody::ConfigSchema(_)
       | EditorMessageBody::FormatFile(_)
   )
-}
-
-/// Expands the range to the whole lines it touches, including the last
-/// line's line break, which is `None` for the whole text. A range that ends
-/// at the start of a line (ex. after selecting whole lines) doesn't include
-/// that line.
-fn expand_to_lines(text: &str, range: std::ops::Range<usize>) -> FormatRange {
-  let start = text[..range.start].rfind('\n').map(|index| index + 1).unwrap_or(0);
-  let end = if range.end > start && text.as_bytes()[range.end - 1] == b'\n' {
-    range.end
-  } else {
-    text[range.end..].find('\n').map(|index| range.end + index + 1).unwrap_or(text.len())
-  };
-  if start == 0 && end == text.len() { None } else { Some(start..end) }
-}
-
-/// Gets the edits that change the text to the formatted text, which are only
-/// the ones within the range when there is one.
-fn get_range_edits(text: &str, formatted_text: &str, range: &FormatRange) -> Vec<Utf16TextEdit> {
-  let edits = get_utf16_edits(text, formatted_text);
-  let Some(range) = range else {
-    return edits;
-  };
-  let start = text[..range.start].encode_utf16().count() as u32;
-  let end = start + text[range.clone()].encode_utf16().count() as u32;
-  // an insertion after the range's last line break is on the next line
-  let ends_with_line_break = text[range.clone()].ends_with('\n');
-  edits
-    .into_iter()
-    .filter(|edit| edit.start >= start && edit.end <= end && !(ends_with_line_break && edit.start == end))
-    .collect()
 }
 
 /// Converts the UTF-16 offsets of a range to format to bytes, which is `None`
@@ -2020,7 +2011,7 @@ mod test {
             diagnostics: vec![ConfigDiagnostic {
               plugin_name: Some("test-plugin".to_string()),
               property_name: Some("non-existent".to_string()),
-              range: None,
+              range: Some(Range::new(Position::new(1, 19), Position::new(1, 33))),
               message: "Unknown property in configuration".to_string(),
             }],
           };
@@ -2113,21 +2104,6 @@ mod test {
       }
       .boxed_local()
     });
-  }
-
-  #[test]
-  fn should_only_keep_the_edits_within_the_range() {
-    let get = |text: &str, formatted_text: &str, range: std::ops::Range<usize>| {
-      super::get_range_edits(text, formatted_text, &Some(range))
-        .into_iter()
-        .map(|edit| (edit.start, edit.end, edit.new_text))
-        .collect::<Vec<_>>()
-    };
-    // the indent of the next line isn't within the range's lines
-    assert_eq!(get("a\nb", "a!\n  b", 0..2), vec![(1, 1, "!".to_string())]);
-    // but an insertion at the end of a range without a line break is
-    assert_eq!(get("a\nb", "a\nb!", 2..3), vec![(3, 3, "!".to_string())]);
-    assert_eq!(get("a\nb", "!a\nb", 2..3), Vec::new());
   }
 
   #[test]

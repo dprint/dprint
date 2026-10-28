@@ -19,7 +19,7 @@ The server communicates over stdin and stdout, so this command is run by the edi
 ## Features
 
 - **Formatting** of a whole document (`textDocument/formatting`).
-- **Range formatting** (`textDocument/rangeFormatting`). The range is passed on to the plugin, so what's formatted is up to the plugin.
+- **Range formatting** (`textDocument/rangeFormatting`). The range is expanded to the whole lines it touches. Many plugins don't format a range, so the whole document is formatted and only the changes within those lines are made.
 - **Completions and hover information in dprint configuration files** (files named `dprint.json`, `dprint.jsonc`, `.dprint.json`, or `.dprint.jsonc`). This covers dprint's own properties and the configuration of the plugins listed in the saved file.
 - **Notebook cells** and **untitled documents**, in clients that support them (see below).
 - **Commands for formatting with the global configuration file** (see [Global Configuration](#global-configuration)).
