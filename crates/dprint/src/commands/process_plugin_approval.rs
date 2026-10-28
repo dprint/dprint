@@ -108,8 +108,8 @@ pub async fn allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>
 }
 
 /// Allows the editors to run the process plugins of the config file with its
-/// configuration, which is for when the user ran dprint with it (ex. `dprint
-/// fmt` or `dprint config install`) because that's the same as choosing to run
+/// configuration, which is for when the user ran dprint with it (`dprint fmt`,
+/// `dprint check`, or `dprint config install`) because that's the same as choosing to run
 /// them. The plugins need to be set up.
 pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   environment: &TEnvironment,

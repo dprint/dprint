@@ -119,7 +119,7 @@ Not selecting an action (ex. closing the message) doesn't run them either, and y
 
 Nothing is formatted with the configuration file until they're allowed, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The next format uses them once they're allowed. In a client that can't show the actions of a message, the message says that they're not allowed instead.
 
-Running dprint with the configuration file is the same as choosing to run its process plugins, so `dprint fmt` and `dprint config install` allow them too, which is the same as `Always Allow`. Run one of them in the directory of the configuration file to allow them in a client that can't ask or after denying them:
+Running dprint with the configuration file is the same as choosing to run its process plugins, so `dprint fmt`, `dprint check`, and `dprint config install` allow them too, which is the same as `Always Allow`. Run one of them in the directory of the configuration file to allow them in a client that can't ask or after denying them:
 
 ```sh
 dprint config install

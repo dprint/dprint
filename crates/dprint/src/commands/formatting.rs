@@ -207,6 +207,7 @@ pub async fn check<TEnvironment: Environment>(
   )
   .await?;
   scopes.ensure_valid_for_cli_args(args)?;
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
   let not_formatted_files_count = Arc::new(AtomicCounter::default());
   let list_different = cmd.list_different;
   let output_json = cmd.json;
@@ -423,12 +424,7 @@ pub async fn format<TEnvironment: Environment>(
   )
   .await?;
   scopes.ensure_valid_for_cli_args(args)?;
-  // running dprint with a config file is the same as choosing to run its process plugins
-  if args.plugins.is_empty() {
-    for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
-      allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
-    }
-  }
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
 
   let line_ranges = Rc::new(resolve_line_ranges_by_path(&cmd.line_ranges, &scopes, environment)?);
 
@@ -617,6 +613,23 @@ async fn format_line_ranges<TEnvironment: Environment>(
     }
   }
   Ok(formatted_bytes)
+}
+
+/// Allows the editors to run the process plugins of the config files because
+/// running dprint with a config file is the same as choosing to run them.
+async fn allow_process_plugins_of_scopes_in_editors<TEnvironment: Environment>(
+  args: &CliArgs,
+  scopes: &PluginsScopeAndPathsCollection<TEnvironment>,
+  environment: &TEnvironment,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+) {
+  // the plugins provided as arguments aren't the config file's
+  if !args.plugins.is_empty() {
+    return;
+  }
+  for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
+    allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
+  }
 }
 
 #[cfg(test)]
@@ -881,18 +894,20 @@ mod test {
   #[test]
   fn should_allow_the_process_plugins_of_the_config_file_in_editors() {
     // running dprint with a config file is the same as choosing to run its process plugins
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
-      .write_file("/file.txt_ps", "text")
-      .build();
-    assert!(crate::configuration::read_editor_state(&environment).process_plugin_decisions.is_empty());
+    for args in [vec!["fmt"], vec!["check"]] {
+      let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+        .write_file("/file.txt_ps", "text_formatted_process")
+        .build();
+      assert!(crate::configuration::read_editor_state(&environment).process_plugin_decisions.is_empty());
 
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    let decisions = crate::configuration::read_editor_state(&environment).process_plugin_decisions;
-    assert_eq!(decisions.len(), 1);
-    assert!(decisions[0].allowed);
-    assert_eq!(decisions[0].approval.config_file, "/dprint.json");
-    assert!(decisions[0].approval.plugin.starts_with("https://plugins.dprint.dev/test-process.json@"));
+      // the file is already formatted, so this passes for `dprint check`
+      run_test_cli(args, &environment).unwrap();
+      let decisions = crate::configuration::read_editor_state(&environment).process_plugin_decisions;
+      assert_eq!(decisions.len(), 1);
+      assert!(decisions[0].allowed);
+      assert_eq!(decisions[0].approval.config_file, "/dprint.json");
+      assert!(decisions[0].approval.plugin.starts_with("https://plugins.dprint.dev/test-process.json@"));
+    }
   }
 
   #[test]
