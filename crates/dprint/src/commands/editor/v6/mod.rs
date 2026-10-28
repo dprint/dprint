@@ -101,6 +101,7 @@ use self::config_diagnostics::PluginSectionDiagnostic;
 use self::config_diagnostics::get_config_diagnostics;
 use self::config_diagnostics::get_config_error_diagnostic;
 use self::local_executable::find_local_executable;
+use self::messages::AskToAllowProcessPluginsMessage;
 use self::messages::ClientInfo;
 use self::messages::ConfigChangedMessage;
 use self::messages::ConfigDiagnostic;
@@ -419,6 +420,18 @@ pub async fn run_editor_service<TEnvironment: Environment>(
         let file_path = service.get_uri_file_path(&data.uri)?;
         let allow_global_config = data.allow_global_config || service.get_document_settings(&file_path).allow_global_config;
         service.install_plugins(&file_path, allow_global_config).await?;
+        Ok(EditorMessageBody::Success(message.id))
+      }),
+      EditorMessageBody::AskToAllowProcessPlugins(data) => service.spawn_request(message.id, |service, _| async move {
+        let data: AskToAllowProcessPluginsMessage = serde_json::from_slice(&data).context("Error deserializing the ask to allow process plugins message.")?;
+        let file_path = service.get_uri_file_path(&data.uri)?;
+        let allow_global_config = data.allow_global_config || service.get_document_settings(&file_path).allow_global_config;
+        // the user asked for this, so it's asked even when it was before
+        if let DocumentConfig::Resolved(scope) = service.resolve_scope(&file_path, allow_global_config).await?
+          && let Some(unapproved) = &scope.unapproved_process_plugins
+        {
+          service.prompt_to_allow_process_plugins(unapproved, &file_path, allow_global_config).await;
+        }
         Ok(EditorMessageBody::Success(message.id))
       }),
       EditorMessageBody::CancelRequest(message_id) => {
@@ -884,25 +897,32 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     if permissions.is_process_plugin_denied(&unapproved.approval) {
       return;
     }
-    let message = unapproved.message(&permissions);
-    let approval = unapproved.approval.clone();
     let service = self.clone();
+    let unapproved = unapproved.clone();
     let file_path = file_path.to_path_buf();
     // don't wait on this because it only resolves once the user responds
     dprint_core::async_runtime::spawn(async move {
-      let action = service.show_message_request(MessageKind::Warning, message, &PROCESS_PLUGIN_ACTION_TITLES).await;
-      let title = action.as_ref().map(|action| action.title.as_str());
-      if let Err(err) = store_process_plugin_action(&service.environment, &service.session_permissions, approval.clone(), title).await {
-        let message = format!("Failed storing the decision for the process plugins: {:#}", err);
-        log_warn!(service.environment, "{}", message);
-        service.show_message(MessageKind::Warning, message);
-      }
-      // the editor can't see that the config file formats files now, which
-      // resolving it again notices
-      if service.session_permissions.read(&service.environment).is_process_plugin_allowed(&approval) {
-        let _ = service.resolve_scope(&file_path, allow_global_config).await;
-      }
+      service.prompt_to_allow_process_plugins(&unapproved, &file_path, allow_global_config).await;
     });
+  }
+
+  /// Asks the user whether to allow running the process plugins of a config
+  /// file and stores what they chose, which resolves once they respond.
+  async fn prompt_to_allow_process_plugins(self: &Rc<Self>, unapproved: &UnapprovedProcessPlugins, file_path: &Path, allow_global_config: bool) {
+    let message = unapproved.message(&self.session_permissions.read(&self.environment));
+    let approval = &unapproved.approval;
+    let action = self.show_message_request(MessageKind::Warning, message, &PROCESS_PLUGIN_ACTION_TITLES).await;
+    let title = action.as_ref().map(|action| action.title.as_str());
+    if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, approval.clone(), title).await {
+      let message = format!("Failed storing the decision for the process plugins: {:#}", err);
+      log_warn!(self.environment, "{}", message);
+      self.show_message(MessageKind::Warning, message);
+    }
+    // the editor can't see that the config file formats files now, which
+    // resolving it again notices
+    if self.session_permissions.read(&self.environment).is_process_plugin_allowed(approval) {
+      let _ = self.resolve_scope(file_path, allow_global_config).await;
+    }
   }
 
   /// Shows the message to the user.
@@ -1442,6 +1462,7 @@ fn requires_initialize(body: &EditorMessageBody) -> bool {
     EditorMessageBody::UpdateSettings(_)
       | EditorMessageBody::Reset
       | EditorMessageBody::InstallPlugins(_)
+      | EditorMessageBody::AskToAllowProcessPlugins(_)
       | EditorMessageBody::FileInfo(_)
       | EditorMessageBody::ConfigInfo(_)
       | EditorMessageBody::ConfigSchema(_)
@@ -1619,6 +1640,7 @@ mod test {
   use deno_tower_lsp::lsp_types::Uri;
 
   use super::super::test::disallow_process_plugins;
+  use super::messages::AskToAllowProcessPluginsMessage;
   use super::messages::ClientInfo;
   use super::messages::ConfigChangedMessage;
   use super::messages::ConfigDiagnostic;
@@ -2516,6 +2538,62 @@ mod test {
     });
     // what's logged goes to the editor instead
     assert!(environment.take_stderr_messages().is_empty());
+  }
+
+  #[test]
+  fn should_ask_to_allow_process_plugins_again_when_the_editor_asks() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_remote_process_plugin();
+      })
+      .initialize()
+      .build();
+    disallow_process_plugins(&environment);
+
+    run_session(&environment, &[], |client| {
+      async move {
+        // the user closes the message without choosing an action, which leaves it undecided
+        client.set_message_request_answer(None);
+        assert_eq!(
+          client.format("/a/file.txt_ps", "text", None).await.unwrap(),
+          not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
+        );
+        assert_eq!(client.wait_for_message_requests(1).await.len(), 1);
+        // a format only asks once per session
+        assert_eq!(
+          client.format("/a/file.txt_ps", "text", None).await.unwrap(),
+          not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(client.take_message_requests().is_empty());
+
+        // the editor asks again (ex. for a command), which responds once the user chose
+        client.set_message_request_answer(Some("Allow"));
+        let message = AskToAllowProcessPluginsMessage {
+          uri: uri("/a/dprint.json"),
+          allow_global_config: false,
+        };
+        let response = client
+          .request(EditorMessageBody::AskToAllowProcessPlugins(serde_json::to_vec(&message).unwrap()))
+          .await
+          .unwrap();
+        assert!(matches!(response, EditorMessageBody::Success(_)), "{response:?}");
+        assert_eq!(client.take_message_requests().len(), 1);
+        assert_eq!(client.take_config_changes(), vec![ConfigChangedMessage { uri: uri("/a/dprint.json") }]);
+        assert_eq!(
+          client.format("/a/file.txt_ps", "text", None).await.unwrap(),
+          formatted("text_formatted_process")
+        );
+        // there's nothing to ask about once they're allowed
+        client
+          .request(EditorMessageBody::AskToAllowProcessPlugins(serde_json::to_vec(&message).unwrap()))
+          .await
+          .unwrap();
+        assert!(client.take_message_requests().is_empty());
+      }
+      .boxed_local()
+    });
   }
 
   #[test]

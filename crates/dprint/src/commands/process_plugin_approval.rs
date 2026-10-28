@@ -12,7 +12,8 @@ pub const PROCESS_PLUGIN_ACTION_TITLES: [&str; 4] = [ALLOW_ACTION_TITLE, ALWAYS_
 
 /// Stores what the user decided about running the process plugins from the
 /// action they chose, which is only for the session unless they chose to always
-/// allow or deny them. Not choosing an action denies them for the session.
+/// allow or deny them. Not choosing an action (ex. closing the message) leaves
+/// it undecided, so they can be asked again.
 ///
 /// The decision is used for the session even when storing it fails.
 pub async fn store_process_plugin_action<TEnvironment: Environment>(
@@ -21,7 +22,12 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
   approval: ProcessPluginApproval,
   action_title: Option<&str>,
 ) -> Result<()> {
-  let allowed = matches!(action_title, Some(ALLOW_ACTION_TITLE | ALWAYS_ALLOW_ACTION_TITLE));
+  let allowed = match action_title {
+    Some(ALLOW_ACTION_TITLE | ALWAYS_ALLOW_ACTION_TITLE) => true,
+    Some(DENY_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE) => false,
+    // the editor responded with an action that wasn't offered
+    Some(_) | None => return Ok(()),
+  };
   let decision = ProcessPluginDecision::new(environment, approval, allowed);
   session_permissions.add_process_plugin_decision(decision.clone());
   if matches!(action_title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE)) {
@@ -42,6 +48,27 @@ mod test {
   use crate::configuration::get_editor_state_file_path;
   use crate::configuration::get_settings_file_path;
   use crate::environment::TestEnvironment;
+
+  #[test]
+  fn should_leave_undecided_without_an_action() {
+    let environment = TestEnvironment::new();
+    let approval = ProcessPluginApproval {
+      config_file: "/dprint.json".to_string(),
+      config_hash: "1".to_string(),
+    };
+    let session_permissions = SessionPermissions::default();
+
+    environment.clone().run_in_runtime(async move {
+      store_process_plugin_action(&environment, &session_permissions, approval.clone(), None)
+        .await
+        .unwrap();
+      assert!(!session_permissions.read(&environment).is_process_plugin_denied(&approval));
+      store_process_plugin_action(&environment, &session_permissions, approval.clone(), Some(DENY_ACTION_TITLE))
+        .await
+        .unwrap();
+      assert!(session_permissions.read(&environment).is_process_plugin_denied(&approval));
+    });
+  }
 
   #[test]
   fn should_use_decision_for_session_when_storing_it_fails() {

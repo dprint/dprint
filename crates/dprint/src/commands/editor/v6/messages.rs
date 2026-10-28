@@ -71,6 +71,9 @@ pub enum EditorMessageBody {
   /// Installs the plugins of the config file of a document as JSON (see
   /// `InstallPluginsMessage`).
   InstallPlugins(Vec<u8>),
+  /// Asks the user whether to allow running the process plugins of the
+  /// config file of a document as JSON (see `AskToAllowProcessPluginsMessage`).
+  AskToAllowProcessPlugins(Vec<u8>),
   #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
@@ -138,6 +141,7 @@ impl MessageBody for EditorMessageBody {
       21 => EditorMessageBody::ConfigChanged(reader.read_sized_bytes()?),
       22 => EditorMessageBody::Reset,
       23 => EditorMessageBody::InstallPlugins(reader.read_sized_bytes()?),
+      24 => EditorMessageBody::AskToAllowProcessPlugins(reader.read_sized_bytes()?),
       _ => {
         let data = reader.read_bytes(body_length as usize)?;
         EditorMessageBody::Unknown(kind, data)
@@ -162,7 +166,8 @@ impl MessageBody for EditorMessageBody {
       | EditorMessageBody::Progress(data)
       | EditorMessageBody::ConfigDiagnostics(data)
       | EditorMessageBody::ConfigChanged(data)
-      | EditorMessageBody::InstallPlugins(data) => {
+      | EditorMessageBody::InstallPlugins(data)
+      | EditorMessageBody::AskToAllowProcessPlugins(data) => {
         builder.add_bytes(data);
       }
       EditorMessageBody::Error(message_id, data)
@@ -224,6 +229,7 @@ impl MessageBody for EditorMessageBody {
       EditorMessageBody::ConfigChanged(_) => 21,
       EditorMessageBody::Reset => 22,
       EditorMessageBody::InstallPlugins(_) => 23,
+      EditorMessageBody::AskToAllowProcessPlugins(_) => 24,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
@@ -343,6 +349,18 @@ pub struct FileInfoPlugin {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigInfoMessage {
+  /// A document that the config file is used for (ex. the config file itself).
+  pub uri: Uri,
+  /// Whether to allow using the global config file when there's no config file in an
+  /// ancestor directory.
+  #[serde(default)]
+  pub allow_global_config: bool,
+}
+
+/// The data of an `AskToAllowProcessPlugins` message.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskToAllowProcessPluginsMessage {
   /// A document that the config file is used for (ex. the config file itself).
   pub uri: Uri,
   /// Whether to allow using the global config file when there's no config file in an

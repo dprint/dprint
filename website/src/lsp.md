@@ -112,8 +112,10 @@ When a file is formatted with a configuration file whose process plugins you hav
 
 - `Allow` runs them for the rest of the session.
 - `Always Allow` runs them from then on.
-- `Deny` doesn't run them for the rest of the session. Not selecting an action does the same.
+- `Deny` doesn't run them for the rest of the session.
 - `Always Deny` doesn't run them or ask about them again.
+
+Not selecting an action (ex. closing the message) doesn't run them either, and you're asked again in the next session.
 
 Nothing is formatted with the configuration file until they're allowed, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The next format uses them once they're allowed. In a client that can't show the actions of a message, the message says that they're not allowed instead. Allow them there, or after denying them, by running the following in the directory of the configuration file, which is the same as `Always Allow`:
 

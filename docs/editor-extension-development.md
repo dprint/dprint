@@ -592,6 +592,8 @@ Response: Show message request response once the user responds, which may be a l
 
 Among other things, this asks the user whether to allow running the process plugins of a configuration file. Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start them until the user chooses "Allow" or "Always Allow". Opening a project isn't the same as choosing to run dprint in it. Until then, nothing is formatted with the configuration file, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The requests that use it respond with the `processPluginsNotAllowed` reason. The user is only asked when a document is formatted because the editor makes the other requests without the user doing anything (ex. when a project is opened), so keep being the formatter of the documents of a configuration file with that reason. The user can also allow them by running `dprint config editor-approve` in the directory of the configuration file.
 
+The user is asked once per session for each configuration file. Not choosing an action (ex. closing the message) leaves it undecided, so send the ask to allow process plugins message to ask again when the user wants to (ex. for a command or a status bar item shown for a configuration file with the `processPluginsNotAllowed` reason).
+
 #### `15` - Show message request response (Client to Service)
 
 Message body:
@@ -758,3 +760,22 @@ interface InstallPluginsData {
 ```
 
 Response: Success response once they're installed (a configuration changed message is sent before it when the configuration file formats files now), an Error response (ex. a plugin failed to download), or no response once it's cancelled
+
+#### `24` - Ask to allow process plugins (Client to Service)
+
+Asks the user whether to allow running the process plugins of the configuration file that's used for a document (see the show message request), even when they were asked before or denied them for the session. It's not asked when they're already allowed.
+
+Message body:
+
+- u32 - Data byte length
+- JSON data:
+
+```ts
+interface AskToAllowProcessPluginsData {
+  /** A document the configuration file is used for, which may be the configuration file itself. */
+  uri: string;
+  allowGlobalConfig?: boolean;
+}
+```
+
+Response: Success response once the user responded, which may be a long time later, or an Error response. A configuration changed message is sent before it when they were allowed.
