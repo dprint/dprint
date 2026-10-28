@@ -18,6 +18,7 @@ use anyhow::bail;
 use deno_tower_lsp::lsp_types::Uri;
 use dprint_core::communication::RcIdStore;
 use dprint_core::communication::SingleThreadMessageWriter;
+use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
 use parking_lot::Mutex;
@@ -99,6 +100,8 @@ use self::messages::EditorSettings;
 use self::messages::FileInfoMessage;
 use self::messages::FileInfoResponseMessage;
 use self::messages::FormatEdit;
+use self::messages::FormatFailedMessage;
+use self::messages::FormatFailedReason;
 use self::messages::FormatFileMessage;
 use self::messages::FormatFileMessageBody;
 use self::messages::FormatFileResult;
@@ -156,6 +159,7 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
 enum FormatOutcome {
   Formatted(Vec<FormatEdit>),
   NotFormatted(NotFormattedMessage),
+  Failed(FormatFailedMessage),
 }
 
 /// The files a document may be formatted as.
@@ -322,6 +326,7 @@ pub async fn run_editor_service<TEnvironment: Environment>(
         let result = match service.format_file(body, &token).await? {
           FormatOutcome::Formatted(edits) => FormatFileResult::Formatted(serde_json::to_vec(&FormattedMessage { edits })?),
           FormatOutcome::NotFormatted(message) => FormatFileResult::NotFormatted(serde_json::to_vec(&message)?),
+          FormatOutcome::Failed(message) => FormatFileResult::Failed(serde_json::to_vec(&message)?),
         };
         Ok(EditorMessageBody::FormatFileResponse(message.id, result))
       }),
@@ -499,10 +504,20 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let formatted_text = match result {
       Ok(Some(formatted_text)) => formatted_text,
       Ok(None) => return not_formatted(NotFormattedReason::Unchanged),
-      Err(err) => match err.downcast_ref::<PluginConfigDiagnosticsError>() {
-        Some(err) => return Ok(self.get_plugin_config_diagnostics_outcome(&scope, &err.diagnostics)),
-        None => bail!("{}", dprint_core::plugins::error_to_string(&err)),
-      },
+      Err(err) => {
+        if let Some(err) = err.downcast_ref::<PluginConfigDiagnosticsError>() {
+          return Ok(self.get_plugin_config_diagnostics_outcome(&scope, &err.diagnostics));
+        }
+        let reason = if err.downcast_ref::<CriticalFormatError>().is_some() {
+          FormatFailedReason::PluginError
+        } else {
+          FormatFailedReason::FormatError
+        };
+        return Ok(FormatOutcome::Failed(FormatFailedMessage {
+          reason,
+          message: dprint_core::plugins::error_to_string(&err),
+        }));
+      }
     };
     // this may take a while for a large file, so don't hold up the other messages
     let edits = dprint_core::async_runtime::spawn_blocking(move || {
@@ -1206,6 +1221,8 @@ mod test {
   use super::messages::FileInfoMessage;
   use super::messages::FileInfoResponseMessage;
   use super::messages::FormatEdit;
+  use super::messages::FormatFailedMessage;
+  use super::messages::FormatFailedReason;
   use super::messages::FormatFileMessage;
   use super::messages::FormatFileMessageBody;
   use super::messages::FormatFileResult;
@@ -1294,7 +1311,14 @@ mod test {
           client.format("/c/file.txt", "testing", None).await.unwrap(),
           not_formatted(NotFormattedReason::NoConfigFile)
         );
-        assert_eq!(client.format("/a/file.txt", "should_error", None).await.unwrap_err().to_string(), "Did error.");
+        let err = client.format("/a/file.txt", "should_error", None).await.unwrap_err();
+        assert_eq!(err.to_string(), "Did error.");
+        assert_eq!(get_failed_reason(&err), FormatFailedReason::FormatError);
+        let err = client.format("/a/file.txt", "should_panic", None).await.unwrap_err();
+        assert!(err.to_string().contains("panicked"), "{err:#}");
+        assert_eq!(get_failed_reason(&err), FormatFailedReason::PluginError);
+        // the plugin is started again
+        assert_eq!(client.format("/a/file.txt", "testing", None).await.unwrap(), formatted("testing_a"));
 
         let config_info = client
           .config_info(ConfigInfoMessage {
@@ -2586,6 +2610,16 @@ mod test {
     }
   }
 
+  /// The error of a format that failed, which is the failure's message.
+  #[derive(Debug, thiserror::Error)]
+  #[error("{}", .0.message)]
+  struct FormatFailedError(FormatFailedMessage);
+
+  /// Gets why the format failed.
+  fn get_failed_reason(err: &anyhow::Error) -> FormatFailedReason {
+    err.downcast_ref::<FormatFailedError>().expect("should be a failed format").0.reason
+  }
+
   /// The options of formatting a document in the tests.
   #[derive(Debug, Default, Clone)]
   struct FormatFileOptions {
@@ -2871,6 +2905,7 @@ mod test {
       match self.request(body).await? {
         EditorMessageBody::FormatFileResponse(_, FormatFileResult::Formatted(data)) => Ok(Ok(serde_json::from_slice::<FormattedMessage>(&data)?.edits)),
         EditorMessageBody::FormatFileResponse(_, FormatFileResult::NotFormatted(data)) => Ok(Err(serde_json::from_slice(&data)?)),
+        EditorMessageBody::FormatFileResponse(_, FormatFileResult::Failed(data)) => Err(FormatFailedError(serde_json::from_slice(&data)?).into()),
         body => panic!("Unexpected response: {body:?}"),
       }
     }

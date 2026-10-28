@@ -235,7 +235,7 @@ When a document isn't formatted because there's no configuration file for it (`n
 
 When the configuration of a plugin that formats the document has problems (`configDiagnostics`), the editor service shows them to the user once until the configuration file changes because a format usually happens without the user doing anything (ex. on save).
 
-Response: Format file response, an Error response (ex. a formatting error or the configuration failed to resolve), or no response once it's cancelled
+Response: Format file response, an Error response when the request can't be handled (ex. the configuration failed to resolve), or no response once it's cancelled
 
 #### `7` - Format file response (Service to Client)
 
@@ -300,6 +300,28 @@ interface FormatEdit {
 ```
 
 Apply the edits only when the document is the same as the text that was sent. Applying them from the last one to the first keeps the offsets of the other ones correct.
+
+- `2` - Failed
+  - u32 - Data byte length
+  - JSON data:
+
+```ts
+interface FormatFailedData {
+  reason: FormatFailedReason;
+  /** What went wrong (ex. a syntax error and where it is). */
+  message: string;
+}
+
+/**
+ * - `formatError` - A plugin couldn't format the document, which is usually because it has a syntax error. Don't
+ *   notify the user about these (ex. log them instead) because a format usually happens without the user doing
+ *   anything (ex. on save) and the editor already shows syntax errors.
+ * - `pluginError` - A plugin failed (ex. it panicked or couldn't be set up), which the user may need to know about.
+ *
+ * Handle a reason you don't know about the same as `pluginError`.
+ */
+type FormatFailedReason = "formatError" | "pluginError";
+```
 
 Response: None
 

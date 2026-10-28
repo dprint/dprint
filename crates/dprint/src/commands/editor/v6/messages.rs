@@ -93,6 +93,7 @@ impl MessageBody for EditorMessageBody {
         let result = match response_kind {
           0 => FormatFileResult::NotFormatted(data),
           1 => FormatFileResult::Formatted(data),
+          2 => FormatFileResult::Failed(data),
           _ => {
             return Err(std::io::Error::new(
               ErrorKind::InvalidData,
@@ -177,6 +178,10 @@ impl MessageBody for EditorMessageBody {
             builder.add_number(1);
             builder.add_bytes(data);
           }
+          FormatFileResult::Failed(data) => {
+            builder.add_number(2);
+            builder.add_bytes(data);
+          }
         }
       }
       EditorMessageBody::Unknown(_, _) => unreachable!(), // should never be written
@@ -229,6 +234,8 @@ pub enum FormatFileResult {
   NotFormatted(Vec<u8>),
   /// The edits that format the file as JSON (see `FormattedMessage`).
   Formatted(Vec<u8>),
+  /// Why formatting the file failed as JSON (see `FormatFailedMessage`).
+  Failed(Vec<u8>),
 }
 
 /// The data of an `Initialize` message.
@@ -389,6 +396,25 @@ pub struct FormatEdit {
   pub start: u32,
   pub end: u32,
   pub new_text: String,
+}
+
+/// Why formatting the file of a `FormatFile` message failed.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatFailedMessage {
+  pub reason: FormatFailedReason,
+  pub message: String,
+}
+
+/// Why formatting a file failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FormatFailedReason {
+  /// A plugin couldn't format the file, which is usually because it has a
+  /// syntax error.
+  FormatError,
+  /// A plugin failed (ex. it panicked or couldn't be set up).
+  PluginError,
 }
 
 /// Why a `FormatFile` message didn't format the file.
