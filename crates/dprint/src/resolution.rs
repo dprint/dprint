@@ -68,6 +68,7 @@ use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
 use crate::plugins::output_plugin_config_diagnostics;
+use crate::utils::DownloadPolicy;
 use crate::utils::FastInsecureHasher;
 use crate::utils::GlobOutput;
 use crate::utils::OutsideBasePath;
@@ -382,8 +383,9 @@ pub struct PluginsScope<TEnvironment: Environment> {
   pub config: Option<Rc<ResolvedConfig>>,
   pub plugins: IndexMap<String, Rc<PluginWithConfig>>,
   pub plugin_name_maps: PluginNameResolutionMaps,
-  /// The plugins that need to be downloaded, which has the scope not have any
-  /// plugins for an editor that only downloads them when the user asks it to.
+  /// The plugins that need to be downloaded from where the download policy
+  /// doesn't allow without asking the user (ex. a domain that isn't trusted),
+  /// which has the scope not have any plugins.
   pub uninstalled_plugins: Vec<PluginSourceReference>,
   global_config_diagnostics: Vec<GlobalConfigDiagnostic>,
   cached_editor_file_matcher: RefCell<Option<FileMatcher<TEnvironment>>>,
@@ -1183,17 +1185,19 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
-  resolve_plugins_scope_with_options(config, environment, plugin_resolver, ResolvePluginsScopeOptions { install_plugins: true }).await
+  let options = ResolvePluginsScopeOptions {
+    download_policy: DownloadPolicy::All,
+  };
+  resolve_plugins_scope_with_options(config, environment, plugin_resolver, options).await
 }
 
 /// How to resolve the plugins of a config.
 pub struct ResolvePluginsScopeOptions {
-  /// Whether to download and set up the plugins that aren't installed. When
-  /// this is `false` (ex. for the editor service, which only downloads them
-  /// when the user asks it to) and a plugin isn't installed, none of the
-  /// plugins are resolved because formatting with only some of them would
-  /// format differently than the CLI.
-  pub install_plugins: bool,
+  /// What plugins may be downloaded. When a plugin that isn't installed may
+  /// not be downloaded (ex. an editor and a domain that isn't trusted), none
+  /// of the plugins are resolved because formatting with only some of them
+  /// would format differently than the CLI.
+  pub download_policy: DownloadPolicy,
 }
 
 /// Resolves the plugins of the config like `resolve_plugins_scope` with the
@@ -1204,16 +1208,12 @@ pub async fn resolve_plugins_scope_with_options<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   options: ResolvePluginsScopeOptions,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
-  let uninstalled_plugins = if options.install_plugins {
-    Vec::new()
-  } else {
-    config
-      .plugins
-      .iter()
-      .filter(|plugin| !plugin_resolver.is_installed(plugin))
-      .cloned()
-      .collect::<Vec<_>>()
-  };
+  let uninstalled_plugins = config
+    .plugins
+    .iter()
+    .filter(|plugin| plugin_resolver.needs_disallowed_download(plugin, &options.download_policy))
+    .cloned()
+    .collect::<Vec<_>>();
   let plugin_references = if uninstalled_plugins.is_empty() { config.plugins.clone() } else { Vec::new() };
 
   // resolve the plugins

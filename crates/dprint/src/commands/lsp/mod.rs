@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -90,6 +91,11 @@ use crate::plugins::PluginConfigDiagnostic;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginConfigDiagnosticsError;
 use crate::resolution::RangeFormattingSupport;
+use crate::utils::CANCEL_DOWNLOAD_ACTION_TITLE;
+use crate::utils::DOWNLOAD_ACTION_TITLE;
+use crate::utils::DownloadPolicy;
+use crate::utils::UntrustedDownloadError;
+use crate::utils::get_untrusted_download_message;
 
 use self::client::ClientWrapper;
 use self::config_completion::ConfigCompletions;
@@ -218,6 +224,9 @@ struct EditorFormatRequest {
 enum FormatOutcome {
   Edits(Vec<TextEdit>),
   NotFormatted(NotFormattedReason),
+  /// The config file needs what's on these domains that aren't trusted, which
+  /// is only downloaded once the user allows it.
+  DownloadRequired(Vec<String>),
 }
 
 impl FormatOutcome {
@@ -225,7 +234,7 @@ impl FormatOutcome {
   fn into_edits(self) -> Option<Vec<TextEdit>> {
     match self {
       FormatOutcome::Edits(edits) => Some(edits),
-      FormatOutcome::NotFormatted(_) => None,
+      FormatOutcome::NotFormatted(_) | FormatOutcome::DownloadRequired(_) => None,
     }
   }
 }
@@ -275,6 +284,11 @@ impl NotFormattedReason {
   }
 }
 
+struct InstallPluginsRequest {
+  pub file_path: PathBuf,
+  pub use_global_config: bool,
+}
+
 struct ConfigEditorRequest {
   pub file_path: PathBuf,
   pub file_text: Arc<String>,
@@ -286,6 +300,8 @@ struct ConfigEditorRequest {
 
 enum ChannelMessage {
   Format(EditorFormatRequest, oneshot::Sender<Result<FormatOutcome>>),
+  /// Downloads and sets up what the config file for the file path needs.
+  InstallPlugins(InstallPluginsRequest, oneshot::Sender<Result<()>>),
   Completion(ConfigEditorRequest, oneshot::Sender<Option<CompletionList>>),
   Hover(ConfigEditorRequest, oneshot::Sender<Option<Hover>>),
   Shutdown(oneshot::Sender<()>),
@@ -307,10 +323,22 @@ async fn handle_format_request<TEnvironment: Environment>(
   if request.token.is_cancelled() {
     return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Cancelled));
   }
-  let Some(scope) = scope_container.resolve_by_path(parent_dir, request.use_global_config).await? else {
+  let scope = match scope_container.resolve_by_path(parent_dir, request.use_global_config).await {
+    Ok(scope) => scope,
+    Err(err) => match UntrustedDownloadError::find(&err) {
+      Some(err) => return Ok(FormatOutcome::DownloadRequired(vec![err.url.clone()])),
+      None => return Err(err),
+    },
+  };
+  let Some(scope) = scope else {
     log_stderr_info!(environment, "Path did not have a dprint config file: {}", request.file_path.display());
     return Ok(FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile));
   };
+  if !scope.uninstalled_plugins.is_empty() {
+    return Ok(FormatOutcome::DownloadRequired(
+      scope.uninstalled_plugins.iter().map(|plugin| plugin.to_full_string()).collect(),
+    ));
+  }
   if request.token.is_cancelled() {
     return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Cancelled));
   }
@@ -452,8 +480,7 @@ fn start_message_handler<TEnvironment: Environment>(
     plugin_resolver.clone(),
     config_override,
     remote_cache_mode,
-    // a language client has no way to ask for them to be installed
-    /* install plugins */ true,
+    DownloadPolicy::for_editor(&environment),
   ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
@@ -487,6 +514,22 @@ fn start_message_handler<TEnvironment: Environment>(
             let result = config_completions
               .hover(&request.file_path, &request.file_text, request.position, request.use_global_config)
               .await;
+            let _ = sender.send(result);
+          });
+        }
+        ChannelMessage::InstallPlugins(request, sender) => {
+          let scope_container = scope_container.clone();
+          dprint_core::async_runtime::spawn(async move {
+            let result = async {
+              let Some(dir_path) = request.file_path.parent() else {
+                return Ok(());
+              };
+              match scope_container.find_config_file(dir_path, request.use_global_config)? {
+                Some(config_file) => scope_container.install_plugins(&config_file).await,
+                None => Ok(()),
+              }
+            }
+            .await;
             let _ = sender.send(result);
           });
         }
@@ -526,6 +569,9 @@ struct State<TEnvironment: Environment> {
   supports_document_changes: bool,
   /// Whether the user was notified this session about a file without a config file.
   has_notified_no_config: bool,
+  /// What the user was asked this session to download from domains that
+  /// aren't trusted.
+  asked_downloads: HashSet<Vec<String>>,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -548,6 +594,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         supports_message_actions: false,
         supports_document_changes: false,
         has_notified_no_config: false,
+        asked_downloads: HashSet::new(),
       }),
       environment,
     }
@@ -558,15 +605,65 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   async fn format_document(&self, uri: &Uri, range: Option<Range>, options: &FormattingOptions, token: CancellationToken) -> Option<Vec<TextEdit>> {
     let use_global_config = self.state.lock().settings.use_global_config || has_use_global_config_option(options);
     let outcome = self.format(uri, range, use_global_config, token).await?;
-    match outcome {
+    match &outcome {
       FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile) => self.notify_no_config(),
       // only logged because a client may format a range without the user asking (ex. on paste)
       FormatOutcome::NotFormatted(NotFormattedReason::RangeFormattingNotSupported) => {
         self.client.log_info(RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string());
       }
+      FormatOutcome::DownloadRequired(downloads) => self.ask_to_download(uri, use_global_config, downloads.clone()),
       _ => {}
     }
     outcome.into_edits()
+  }
+
+  /// Asks the user whether to download what the config file needs from
+  /// domains that aren't trusted, which is only done once per session for the
+  /// same downloads. A language client has no way to ask for them to be
+  /// downloaded, so this is done when formatting.
+  fn ask_to_download(&self, uri: &Uri, use_global_config: bool, downloads: Vec<String>) {
+    let supports_message_actions = {
+      let mut state = self.state.lock();
+      if !state.asked_downloads.insert(downloads.clone()) {
+        return;
+      }
+      state.supports_message_actions
+    };
+    let message = get_untrusted_download_message(&downloads);
+    if !supports_message_actions {
+      self.client.show_message(
+        MessageType::WARNING,
+        format!(
+          "{} The client can't ask whether to download them, so run `dprint config install` in the directory of the configuration file to do so.",
+          message
+        ),
+      );
+      return;
+    }
+    let Ok((file_path, _)) = self.resolve_format_paths(uri) else {
+      return;
+    };
+    let actions = [DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE]
+      .into_iter()
+      .map(new_message_action)
+      .collect();
+    let selection = self.client.show_message_request(MessageType::WARNING, message, actions);
+    let client = self.client.clone();
+    let sender = self.sender.clone();
+    // don't wait on this because it only resolves once the user responds
+    dprint_core::async_runtime::spawn(async move {
+      if !selection.await.is_some_and(|selection| selection.title == DOWNLOAD_ACTION_TITLE) {
+        return;
+      }
+      let (tx, rx) = oneshot::channel();
+      let request = InstallPluginsRequest { file_path, use_global_config };
+      if sender.send(ChannelMessage::InstallPlugins(request, tx)).is_err() {
+        return;
+      }
+      if let Ok(Err(err)) = rx.await {
+        client.log_error(format!("Failed downloading: {:#}", err));
+      }
+    });
   }
 
   /// Formats the document or a range of it using the global config file when
@@ -598,6 +695,10 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         }
       }
       FormatOutcome::NotFormatted(reason) => reason,
+      FormatOutcome::DownloadRequired(downloads) => {
+        self.ask_to_download(uri, true, downloads);
+        return;
+      }
     };
     if let Some((message_type, message)) = reason.message() {
       self.client.show_message(message_type, message);
@@ -1221,6 +1322,80 @@ mod test {
         .await;
       assert_eq!(result.unwrap(), $expected);
     };
+  }
+
+  #[test]
+  fn should_ask_to_download_from_domains_that_are_not_trusted_with_lsp() {
+    const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+      .with_default_config(|c| {
+        c.add_plugin(UNTRUSTED_PLUGIN_URL);
+      })
+      .build(); // not initialized, so the plugin isn't installed
+    environment.write_file("/file.txt", "text").unwrap();
+
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let (backend, recv_task, test_client) = setup_backend(environment.clone());
+        test_client.set_message_action_selection("Download");
+        let run_test_task = dprint_core::async_runtime::spawn({
+          let test_client = test_client.clone();
+          let environment = environment.clone();
+          async move {
+            initialize_backend(
+              &backend,
+              InitializeParams {
+                capabilities: message_actions_capabilities(),
+                ..Default::default()
+              },
+            )
+            .await;
+            let file_uri = Uri::from_str("file:///file.txt").unwrap();
+            did_open!(backend, file_uri, "text");
+            // nothing is downloaded until the user allows it
+            assert_format!(backend, file_uri, None);
+            assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
+            let shown = test_client.take_shown_messages();
+            assert_eq!(shown.len(), 1, "{shown:?}");
+            assert!(
+              shown[0]
+                .1
+                .starts_with("dprint needs to download https://example.com/test-plugin.wasm from domains that aren't trusted.")
+            );
+            assert_eq!(shown[0].2, vec!["Download", "Cancel"]);
+            // the user chose to download it
+            let mut result = None;
+            for _ in 0..100 {
+              tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+              result = backend
+                .formatting(
+                  DocumentFormattingParams {
+                    text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                    options: Default::default(),
+                    work_done_progress_params: Default::default(),
+                  },
+                  CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+              if result.is_some() {
+                break;
+              }
+            }
+            assert!(result.is_some());
+            assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 1);
+            // it's only asked once
+            assert!(test_client.take_shown_messages().is_empty());
+            backend.shutdown().await.unwrap();
+          }
+        });
+        try_join!(recv_task, run_test_task).unwrap();
+        test_client.take_messages();
+      }
+    });
+    environment.take_stderr_messages();
   }
 
   #[test]

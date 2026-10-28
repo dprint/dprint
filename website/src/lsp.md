@@ -48,6 +48,10 @@ Since an untitled document doesn't have a file path, it's formatted as a file na
 
 Documents with other schemes that aren't files on the file system are not formatted.
 
+## Downloads
+
+The server only downloads plugins and the configuration files that a configuration file extends from [trusted domains](/setup#trusted-domains) without asking. When formatting needs something from another domain, the server asks whether to download it with a message that has `Download` and `Cancel` actions, which is once per session. Nothing is formatted with the configuration file until then. In a client that can't show the actions of a message, run `dprint config install` in the directory of the configuration file to download them.
+
 ## Configuration File Resolution
 
 The server doesn't use a single configuration file for a workspace. On each request it resolves the configuration file for the file being formatted:

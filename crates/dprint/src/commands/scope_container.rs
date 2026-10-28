@@ -12,7 +12,7 @@ use crate::cache::RemoteCacheMode;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
-use crate::configuration::resolve_config_from_path_with_ancestors;
+use crate::configuration::resolve_config_from_path_with_ancestors_and_policy;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::Environment;
@@ -22,6 +22,7 @@ use crate::resolution::PluginsScope;
 use crate::resolution::ResolvePluginsScopeOptions;
 use crate::resolution::resolve_plugins_scope_with_options;
 use crate::utils::AsyncMutex;
+use crate::utils::DownloadPolicy;
 use crate::utils::PathSource;
 
 type ScopeCell<TEnvironment> = AsyncMutex<Option<CachedScope<TEnvironment>>>;
@@ -42,9 +43,9 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
   config_override: Option<PathBuf>,
   remote_cache_mode: RemoteCacheMode,
-  /// Whether plugins are downloaded when they're used, which the editor
-  /// service only does when the user asks for it (see `install_plugins`).
-  install_plugins: bool,
+  /// What's downloaded without asking the user, which is everything else
+  /// once they do (see `install_plugins`).
+  download_policy: DownloadPolicy,
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
   plugins_generation: Cell<usize>,
@@ -56,7 +57,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
     config_override: Option<PathBuf>,
     remote_cache_mode: RemoteCacheMode,
-    install_plugins: bool,
+    download_policy: DownloadPolicy,
   ) -> Self {
     Self {
       environment,
@@ -64,7 +65,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       plugins_scope_by_config: Default::default(),
       config_override,
       remote_cache_mode,
-      install_plugins,
+      download_policy,
       plugins_generation: Default::default(),
     }
   }
@@ -139,7 +140,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     // get this before resolving in case the plugins are shut down while resolving
     let plugins_generation = self.plugins_generation.get();
     let options = ResolvePluginsScopeOptions {
-      install_plugins: self.install_plugins,
+      download_policy: self.download_policy.clone(),
     };
     let new_scope = Rc::new(resolve_plugins_scope_with_options(Rc::new(config), &self.environment, &self.plugin_resolver, options).await?);
     let _ = cell.insert(CachedScope {
@@ -150,9 +151,10 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   }
 
   /// Downloads and sets up the plugins of the config file that aren't
-  /// installed, which are used the next time it's resolved.
+  /// installed along with what it extends, which is for when the user asked
+  /// for it, so they're used the next time it's resolved.
   pub async fn install_plugins(&self, config_file: &ResolvedConfigPathWithText) -> Result<()> {
-    let config = self.resolve_config(config_file).await?;
+    let config = self.resolve_config_with_policy(config_file, &DownloadPolicy::All).await?;
     let plugins = config.plugins.into_iter().filter(|plugin| !self.is_plugin_installed(plugin)).collect();
     self.plugin_resolver.resolve_plugins(plugins).await?;
     Ok(())
@@ -163,10 +165,23 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     self.plugin_resolver.is_installed(plugin)
   }
 
+  /// Gets whether the plugin is downloaded from where it may be downloaded
+  /// without asking the user (ex. a trusted domain).
+  pub fn is_plugin_download_allowed(&self, plugin: &PluginSourceReference) -> bool {
+    self
+      .plugin_resolver
+      .get_download_url(plugin)
+      .is_some_and(|url| self.download_policy.allows(&url))
+  }
+
   /// Resolves the config of a config file, merging in the config file of an
   /// ancestor directory when it specifies `"inherit": true`.
   async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText) -> Result<ResolvedConfig> {
-    Ok(resolve_config_from_path_with_ancestors(config_file, self.remote_cache_mode, &self.environment).await?)
+    self.resolve_config_with_policy(config_file, &self.download_policy).await
+  }
+
+  async fn resolve_config_with_policy(&self, config_file: &ResolvedConfigPathWithText, download_policy: &DownloadPolicy) -> Result<ResolvedConfig> {
+    Ok(resolve_config_from_path_with_ancestors_and_policy(config_file, self.remote_cache_mode, download_policy, &self.environment).await?)
   }
 }
 

@@ -7,12 +7,14 @@ use std::rc::Rc;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
+use url::Url;
 
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::NpmrcChain;
 use crate::plugins::ensure_npm_package_extracted;
 use crate::plugins::find_package_in_node_modules;
+use crate::plugins::is_npm_package_extracted;
 use crate::utils::NpmPathSource;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
@@ -142,6 +144,27 @@ impl NpmExtendsResolver {
         })
       }
     }
+  }
+
+  /// Gets the registry an npm specifier needs to be downloaded from, which is
+  /// `None` when it doesn't need to be (ex. it's in node_modules or the npm
+  /// cache).
+  pub fn get_download_url(&self, text: &str, base: &PathSource, environment: &impl Environment) -> Option<Url> {
+    let parsed = parse_npm_specifier(text).ok()?;
+    let version = parsed.specifier.version?;
+    let base_dir = match base {
+      PathSource::Local(local) => Some(local.path.clone()),
+      PathSource::Npm(npm) => npm.base_dir.clone(),
+      PathSource::Remote(_) => None,
+    };
+    let base_dir = base_dir.as_ref().map(|d| -> &Path { d.as_ref() });
+    let registry = self
+      .npmrc_chain(base_dir, environment)
+      .registry_for_package(&parsed.specifier.name, environment);
+    if is_npm_package_extracted(&parsed.specifier.name, &version, &registry, environment) {
+      return None;
+    }
+    Url::parse(&registry.url).ok()
   }
 
   /// Resolves a relative path in the `extends` property of a configuration file

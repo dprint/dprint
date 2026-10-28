@@ -77,6 +77,12 @@ pub async fn resolve_url_or_file_path_to_file_with_cache<TEnvironment: Environme
   }
 }
 
+/// Gets whether a response for the url is cached, even when it's stale.
+pub fn is_url_cached(url: &Url, environment: &impl Environment) -> bool {
+  let cache = HttpCache::new(environment.clone(), environment.get_cache_dir().join("remote"));
+  matches!(read_cached_chain(&cache, url, /* allow stale */ true), Ok(Some(_)))
+}
+
 /// Resolves the url using the cached response while it's fresh (see
 /// `SerializedCachedUrlMetadata::is_fresh_at`). Once it's stale or when
 /// reloading, the server is asked for a newer response, which it can answer

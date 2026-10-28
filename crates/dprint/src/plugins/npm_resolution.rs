@@ -962,6 +962,13 @@ fn is_absolute_reference(reference: &str) -> bool {
 /// (e.g. public npmjs.org vs a private registry) do not collide.
 ///
 /// A scoped package is in a directory for its scope (ex. `@scope/name@1.0.0`).
+/// Whether the package is extracted in the npm cache, which is when it doesn't
+/// need to be downloaded.
+pub fn is_npm_package_extracted(name: &str, version: &str, registry: &NpmRegistryResolution, environment: &impl Environment) -> bool {
+  let extract_dir = get_npm_extract_dir(&registry_dir_segment(&registry.url), name, version, environment);
+  read_npm_package_dir_checksum(&extract_dir, environment).is_some()
+}
+
 pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
   let mut dir = environment.get_cache_dir().join("npm").join(registry_segment);
   let (scope, name) = match package_name.split_once('/') {

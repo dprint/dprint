@@ -47,11 +47,11 @@ use crate::commands::no_config::NoConfigNotificationDismissal;
 use crate::commands::no_config::dismiss_no_config_notification;
 use crate::commands::no_config::get_no_config_message;
 use crate::commands::no_config::is_no_config_notification_dismissed;
+use crate::commands::not_formatted_messages::DOWNLOAD_REQUIRED_MESSAGE;
 use crate::commands::not_formatted_messages::NO_CELL_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
-use crate::commands::not_formatted_messages::PLUGINS_NOT_INSTALLED_MESSAGE;
 use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
@@ -67,11 +67,16 @@ use crate::resolution::GetPluginResult;
 use crate::resolution::PluginConfigDiagnosticsError;
 use crate::resolution::PluginsScope;
 use crate::resolution::RangeFormattingSupport;
+use crate::utils::CANCEL_DOWNLOAD_ACTION_TITLE;
+use crate::utils::DOWNLOAD_ACTION_TITLE;
+use crate::utils::DownloadPolicy;
 use crate::utils::LogLevel;
 use crate::utils::OutputSink;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::Semaphore;
+use crate::utils::UntrustedDownloadError;
+use crate::utils::get_untrusted_download_message;
 
 use super::AtomicIdGenerator;
 use super::EditorContext;
@@ -195,6 +200,9 @@ struct ConfigFailure {
   /// The config file, which is `None` when it failed to be found (ex. an
   /// ancestor directory couldn't be read).
   config_file: Option<ConfigFileInfo>,
+  /// Why it failed, which is `ConfigError` unless what it extends needs to be
+  /// downloaded (`DownloadRequired`).
+  reason: NotFormattedReason,
   message: String,
 }
 
@@ -246,15 +254,15 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   let service = Rc::new(WorkspaceEditorService {
     environment: environment.clone(),
     context: EditorContext::new(environment),
-    // IMPORTANT: Plugins are only downloaded when the editor asks for it, which
-    // is done when the user agreed to it, because opening a project isn't the
-    // same as choosing to download what its config file says.
+    // IMPORTANT: Only what's on the trusted domains is downloaded without the
+    // editor asking for it because opening a project isn't the same as choosing
+    // to download what its config file says (see `DownloadPolicy`).
     scope_container: PluginsScopeContainer::new(
       environment.clone(),
       plugin_resolver.clone(),
       config_path,
       args.remote_cache_mode(),
-      /* install plugins */ false,
+      DownloadPolicy::for_editor(environment),
     ),
     concurrency_limiter: Rc::new(new_format_concurrency_limiter(environment)),
     ensure_stable_format: EnsureStableFormat::for_editor(environment),
@@ -479,7 +487,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
           config_file: failure.config_file,
           can_format: false,
           plugins: Vec::new(),
-          reason: Some(NotFormattedReason::ConfigError),
+          reason: Some(failure.reason),
           message: Some(failure.message),
         });
       }
@@ -524,14 +532,14 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       DocumentConfig::Failed(failure) => {
         return Ok(ConfigInfoResponseMessage {
           config_file: failure.config_file,
-          reason: Some(NotFormattedReason::ConfigError),
+          reason: Some(failure.reason),
           message: Some(failure.message),
           ..Default::default()
         });
       }
     };
     let config = scope.config.as_ref();
-    let reason = (!scope.uninstalled_plugins.is_empty()).then_some(NotFormattedReason::PluginsNotInstalled);
+    let reason = (!scope.uninstalled_plugins.is_empty()).then_some(NotFormattedReason::DownloadRequired);
     Ok(ConfigInfoResponseMessage {
       config_file: get_config_file_info(&scope),
       plugins: get_plugin_infos(&scope).await?,
@@ -548,6 +556,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
                 _ => RemotePluginKind::Process,
               },
               installed: self.scope_container.is_plugin_installed(plugin),
+              trusted: self.scope_container.is_plugin_download_allowed(plugin),
             })
             .collect()
         })
@@ -610,7 +619,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       }
       DocumentConfig::Failed(failure) => {
         return Ok(FormatOutcome::NotFormatted(NotFormattedMessage {
-          reason: NotFormattedReason::ConfigError,
+          reason: failure.reason,
           message: Some(failure.message),
           diagnostics: Vec::new(),
         }));
@@ -912,10 +921,29 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let Some(config_file) = self.scope_container.find_config_file(dir_path, allow_global_config)? else {
       return Ok(());
     };
+    // what's on a domain that isn't trusted is only downloaded once the user allows it
+    let downloads = match self.resolve_scope(file_path, allow_global_config).await? {
+      DocumentConfig::Resolved(scope) => scope.uninstalled_plugins.iter().map(|plugin| plugin.to_full_string()).collect(),
+      DocumentConfig::Failed(failure) if failure.reason == NotFormattedReason::DownloadRequired => vec![failure.message],
+      DocumentConfig::Failed(_) | DocumentConfig::NotFound => Vec::new(),
+    };
+    if !downloads.is_empty() && !self.ask_to_download(&downloads).await {
+      return Ok(());
+    }
     self.scope_container.install_plugins(&config_file).await?;
     // this tells the editor that the config file formats files now
     self.resolve_scope(file_path, allow_global_config).await?;
     Ok(())
+  }
+
+  /// Asks the user whether to download what the config file needs from
+  /// domains that aren't trusted, which resolves to whether they allowed it.
+  async fn ask_to_download(&self, downloads: &[String]) -> bool {
+    let message = get_untrusted_download_message(downloads);
+    let action = self
+      .show_message_request(MessageKind::Warning, message, &[DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE])
+      .await;
+    action.is_some_and(|action| action.title == DOWNLOAD_ACTION_TITLE)
   }
 
   /// Resolves the plugins of the config file used for the file.
@@ -932,6 +960,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         self.show_config_find_error(dir_path, &err);
         return Ok(DocumentConfig::Failed(ConfigFailure {
           config_file: None,
+          reason: NotFormattedReason::ConfigError,
           message: format!("{:#}", err),
         }));
       }
@@ -940,29 +969,34 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       return Ok(DocumentConfig::NotFound);
     };
     let key = get_config_file_key(&config_file);
-    let failed = |err: &anyhow::Error| {
+    let failed = |reason: NotFormattedReason, message: String| {
       DocumentConfig::Failed(ConfigFailure {
         config_file: path_source_to_uri(&config_file.source).map(|uri| ConfigFileInfo {
           uri,
           is_global: config_file.is_global_config,
         }),
-        message: format!("{:#}", err),
+        reason,
+        message,
       })
     };
     let scope = match self.scope_container.resolve_config_file(&config_file).await {
       Ok(scope) => scope,
       Err(err) => {
+        // not an error because it resolves once the editor asks to download what it extends
+        if let Some(err) = UntrustedDownloadError::find(&err) {
+          return Ok(failed(NotFormattedReason::DownloadRequired, err.to_string()));
+        }
         self.show_config_error(key.clone(), &err);
         self.checked_scopes.borrow_mut().remove(&key);
         self.send_config_diagnostics(&config_file.source, vec![get_config_error_diagnostic(Some(&config_file.content), &err)]);
-        return Ok(failed(&err));
+        return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err)));
       }
     };
     self.check_config_diagnostics(&key, &config_file, &scope);
     if let Err(err) = scope.ensure_no_global_config_diagnostics() {
       let err = anyhow::Error::from(err);
       self.show_config_error(key, &err);
-      return Ok(failed(&err));
+      return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err)));
     }
     self.config_errors.borrow_mut().remove(&key);
     self.notify_if_config_changed(key, &config_file, &scope);
@@ -1104,7 +1138,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     file_bytes: Option<&[u8]>,
   ) -> Option<NotFormattedReason> {
     if !scope.uninstalled_plugins.is_empty() {
-      return Some(NotFormattedReason::PluginsNotInstalled);
+      return Some(NotFormattedReason::DownloadRequired);
     }
     if scope.plugins.is_empty() {
       return Some(NotFormattedReason::NoPlugins);
@@ -1239,7 +1273,7 @@ fn get_not_formatted_message(reason: NotFormattedReason, is_notebook_cell: bool,
     // the message is the error
     NotFormattedReason::ConfigError => None,
     NotFormattedReason::RangeFormattingNotSupported => Some(RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string()),
-    NotFormattedReason::PluginsNotInstalled => Some(PLUGINS_NOT_INSTALLED_MESSAGE.to_string()),
+    NotFormattedReason::DownloadRequired => Some(DOWNLOAD_REQUIRED_MESSAGE.to_string()),
     NotFormattedReason::Unchanged => None,
   }
 }
@@ -1494,11 +1528,11 @@ mod test {
   use crate::commands::no_config::NoConfigNotificationDismissal;
   use crate::commands::no_config::dismiss_no_config_notification;
   use crate::commands::no_config::is_no_config_notification_dismissed;
+  use crate::commands::not_formatted_messages::DOWNLOAD_REQUIRED_MESSAGE;
   use crate::commands::not_formatted_messages::NO_CELL_PLUGIN_MESSAGE;
   use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
   use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
   use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
-  use crate::commands::not_formatted_messages::PLUGINS_NOT_INSTALLED_MESSAGE;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -1566,8 +1600,6 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
-        // the plugins are installed when the editor asks for it
-        client.install_plugins("/a/file.txt").await.unwrap();
         assert_eq!(
           client.file_info(file_info("/a/file.txt")).await.unwrap(),
           FileInfoResponseMessage {
@@ -2006,8 +2038,6 @@ mod test {
 
     run_session(&environment, &["--config", "/custom.json"], |client| {
       async move {
-        // the plugins are installed when the editor asks for it
-        client.install_plugins("/file.txt").await.unwrap();
         assert_eq!(client.format("/a/file.txt", "testing", None).await.unwrap(), formatted("testing_specified"));
       }
       .boxed_local()
@@ -2029,8 +2059,6 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
-        // the plugins are installed when the editor asks for it
-        client.install_plugins("/a/file.txt").await.unwrap();
         let message = |reason, message: &str| NotFormattedMessage {
           reason,
           message: Some(message.to_string()),
@@ -2093,8 +2121,6 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
-        // the plugins are installed when the editor asks for it
-        client.install_plugins("/a/file.txt").await.unwrap();
         let schema = client.config_schema(&["/a/dprint.json"]).await.unwrap();
         // the plugin's schema is in the definitions with its references changed to point there
         // and the properties the cli handles for every plugin added, which its "additionalProperties"
@@ -2291,7 +2317,6 @@ mod test {
 
           // shown again after it resolved, which a file in any of its directories shows
           environment.write_file("/a/dprint.json", &config_text).unwrap();
-          client.install_plugins("/a/file.txt").await.unwrap();
           assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           environment.write_file("/a/dprint.json", "{").unwrap();
           assert_eq!(
@@ -2572,12 +2597,12 @@ mod test {
   }
 
   #[test]
-  fn should_only_install_plugins_when_the_editor_asks() {
-    const PLUGIN_URL: &str = "https://plugins.dprint.dev/test-plugin.wasm";
+  fn should_only_download_from_domains_that_are_not_trusted_when_the_editor_asks() {
+    const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
     let environment = TestEnvironmentBuilder::new()
-      .add_remote_wasm_plugin()
+      .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
       .with_local_config("/a/dprint.json", |c| {
-        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "a" }"#);
+        c.add_plugin(UNTRUSTED_PLUGIN_URL).add_config_section("test-plugin", r#"{ "ending": "a" }"#);
       })
       .build(); // not initialized, so the plugin isn't installed
 
@@ -2586,31 +2611,49 @@ mod test {
       move |client| {
         async move {
           let info = client.file_info(file_info("/a/file.txt")).await.unwrap();
-          assert_eq!(info.reason, Some(NotFormattedReason::PluginsNotInstalled));
-          assert_eq!(info.message.as_deref(), Some(PLUGINS_NOT_INSTALLED_MESSAGE));
+          assert_eq!(info.reason, Some(NotFormattedReason::DownloadRequired));
+          assert_eq!(info.message.as_deref(), Some(DOWNLOAD_REQUIRED_MESSAGE));
           assert_eq!(
             client.format("/a/file.txt", "text", None).await.unwrap(),
-            not_formatted(NotFormattedReason::PluginsNotInstalled)
+            not_formatted(NotFormattedReason::DownloadRequired)
           );
           let message = ConfigInfoMessage {
             uri: uri("/a/dprint.json"),
             allow_global_config: false,
           };
           let info = client.config_info(message.clone()).await.unwrap();
-          assert_eq!(info.reason, Some(NotFormattedReason::PluginsNotInstalled));
+          assert_eq!(info.reason, Some(NotFormattedReason::DownloadRequired));
           assert!(info.plugins.is_empty());
           let remote_plugin = |installed| RemotePlugin {
-            source: PLUGIN_URL.to_string(),
+            source: UNTRUSTED_PLUGIN_URL.to_string(),
             kind: RemotePluginKind::Wasm,
             installed,
+            trusted: false,
           };
           assert_eq!(info.remote_plugins, vec![remote_plugin(false)]);
           // nothing was downloaded
-          assert_eq!(environment.remote_file_request_count(PLUGIN_URL), 0);
+          assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
           assert!(client.take_progress().is_empty());
 
+          // installing asks first
+          client.set_message_request_answer(Some("Cancel"));
           client.install_plugins("/a/file.txt").await.unwrap();
-          assert_eq!(environment.remote_file_request_count(PLUGIN_URL), 1);
+          let requests = client.take_message_requests();
+          assert_eq!(requests.len(), 1);
+          assert!(
+            requests[0]
+              .message
+              .starts_with("dprint needs to download https://example.com/test-plugin.wasm from domains that aren't trusted."),
+            "{}",
+            requests[0].message
+          );
+          assert_eq!(requests[0].actions, vec![action("Download"), action("Cancel")]);
+          assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
+
+          client.set_message_request_answer(Some("Download"));
+          client.install_plugins("/a/file.txt").await.unwrap();
+          assert_eq!(client.take_message_requests().len(), 1);
+          assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 1);
           // the editor is told that the config file formats files now
           assert_eq!(client.take_config_changes(), vec![ConfigChangedMessage { uri: uri("/a/dprint.json") }]);
           assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_a"));
@@ -2618,10 +2661,104 @@ mod test {
           assert_eq!(info.reason, None);
           assert_eq!(info.plugins.len(), 1);
           assert_eq!(info.remote_plugins, vec![remote_plugin(true)]);
-          // installing again does nothing
+          // installing again doesn't ask or download anything
           client.install_plugins("/a/file.txt").await.unwrap();
+          assert!(client.take_message_requests().is_empty());
+          assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 1);
+        }
+        .boxed_local()
+      }
+    });
+  }
+
+  #[test]
+  fn should_download_from_trusted_domains_without_the_editor_asking() {
+    const PLUGIN_URL: &str = "https://plugins.dprint.dev/test-plugin.wasm";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .build(); // not initialized, so the plugin isn't installed
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           assert_eq!(environment.remote_file_request_count(PLUGIN_URL), 1);
-          assert!(client.take_config_changes().is_empty());
+          let info = client
+            .config_info(ConfigInfoMessage {
+              uri: uri("/a/dprint.json"),
+              allow_global_config: false,
+            })
+            .await
+            .unwrap();
+          assert_eq!(
+            info.remote_plugins,
+            vec![RemotePlugin {
+              source: PLUGIN_URL.to_string(),
+              kind: RemotePluginKind::Wasm,
+              installed: true,
+              trusted: true,
+            }]
+          );
+        }
+        .boxed_local()
+      }
+    });
+
+    // the environment variable replaces the trusted domains
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .build();
+    environment.set_env_var("DPRINT_TRUSTED_DOMAINS", Some("example.com"));
+    run_session(&environment, &[], |client| {
+      async move {
+        assert_eq!(
+          client.format("/a/file.txt", "text", None).await.unwrap(),
+          not_formatted(NotFormattedReason::DownloadRequired)
+        );
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_only_download_a_config_file_it_extends_from_a_domain_that_is_not_trusted_when_the_editor_asks() {
+    const UNTRUSTED_CONFIG_URL: &str = "https://example.com/dprint.json";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_config_section("extends", &format!("\"{}\"", UNTRUSTED_CONFIG_URL));
+      })
+      .build();
+    environment.add_remote_file(
+      UNTRUSTED_CONFIG_URL,
+      br#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"], "test-plugin": { "ending": "extended" } }"#,
+    );
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          let info = client.file_info(file_info("/a/file.txt")).await.unwrap();
+          assert_eq!(info.config_file, Some(local_config("/a/dprint.json")));
+          assert_eq!(info.reason, Some(NotFormattedReason::DownloadRequired));
+          assert!(info.message.unwrap().contains(UNTRUSTED_CONFIG_URL));
+          assert_eq!(environment.remote_file_request_count(UNTRUSTED_CONFIG_URL), 0);
+          // it's not an error that's shown
+          assert!(client.take_messages().is_empty());
+
+          client.set_message_request_answer(Some("Download"));
+          client.install_plugins("/a/file.txt").await.unwrap();
+          let requests = client.take_message_requests();
+          assert_eq!(requests.len(), 1);
+          assert!(requests[0].message.contains(UNTRUSTED_CONFIG_URL), "{}", requests[0].message);
+          assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_extended"));
         }
         .boxed_local()
       }
@@ -2844,8 +2981,6 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
-        // the plugins are installed when the editor asks for it
-        client.install_plugins("/project/file.txt").await.unwrap();
         client
           .update_settings(EditorSettings {
             workspace_folders: vec![workspace_folder("/project")],
@@ -2911,11 +3046,10 @@ mod test {
       .with_default_config(|c| {
         c.add_remote_wasm_plugin();
       })
-      .build(); // not initialized, so the plugin is compiled when it's installed
+      .build(); // not initialized, so the plugin is compiled when it's used
 
     run_session(&environment, &[], |client| {
       async move {
-        client.install_plugins("/file.txt").await.unwrap();
         assert_eq!(client.format("/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
         assert_eq!(
           client.take_progress(),
@@ -3029,8 +3163,6 @@ mod test {
       let environment = environment.clone();
       move |client| {
         async move {
-          // the plugins are installed when the editor asks for it
-          client.install_plugins("/a/file.txt").await.unwrap();
           assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
           assert!(client.take_config_changes().is_empty());

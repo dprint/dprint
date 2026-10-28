@@ -88,6 +88,12 @@ See [global configuration](/global-config)
 
 By default, dprint stores information in the current system user's cache directory (`~/.cache/dprint` on Linux, `~/Library/Caches/dprint` on Mac, and `%LOCALAPPDATA%/dprint` on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a `DPRINT_CACHE_DIR` environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.
 
+## Trusted Domains
+
+Opening a project in an editor isn't the same as choosing to download what its configuration file says, and a download can send information to the domain it's from (ex. that the project was opened and from where). To prevent that, editors only download plugins and the configuration files that a configuration file extends from these domains and their subdomains without asking you first: `registry.npmjs.org`, `plugins.dprint.dev`, `github.com`, and `githubusercontent.com`. The CLI downloads from any domain because you ran it.
+
+Specify a `DPRINT_TRUSTED_DOMAINS` environment variable with a comma-separated list of domains to use instead (ex. `DPRINT_TRUSTED_DOMAINS=registry.npmjs.org,plugins.dprint.dev,github.com,githubusercontent.com,npm.example.com` to also trust a private npm registry). An empty value trusts no domains.
+
 ## Proxy
 
 You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the `HTTPS_PROXY`/`https_proxy` and `HTTP_PROXY`/`http_proxy` environment variables. `http://`, `https://`, and `socks` proxies are supported.

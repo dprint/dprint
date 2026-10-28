@@ -62,9 +62,18 @@ Keep the process running for as long as the editor uses it. It finds the configu
 
 ### Installing plugins
 
-The editor service never downloads plugins on its own because opening a project isn't the same as choosing to download what its configuration file says. Until the plugins of a configuration file are installed, nothing is formatted with it and the requests that use it respond with the `pluginsNotInstalled` reason. A plugin is installed once it's in dprint's cache (ex. from running `dprint fmt` or `dprint config install`) or the editor sends the install plugins message. A plugin that's a file (ex. in `node_modules`) doesn't need to be installed.
+Opening a project isn't the same as choosing to download what its configuration file says, and a download sends a request to the domain it's from, which a configuration file could use to send information to a server of its choosing (ex. that the project was opened and from where). To prevent that data exfiltration, the editor service only downloads plugins and the configuration files that a configuration file extends from these trusted domains (and their subdomains) on its own:
 
-The configuration info message says which plugins are downloaded and whether they're installed (`remotePlugins`), so the editor can decide when to install them. For example, an editor that's only used in projects the user trusts may install the Wasm plugins when it finds a configuration file, and the process plugins when a document is formatted, while another editor may ask the user first.
+- `registry.npmjs.org`
+- `plugins.dprint.dev`
+- `github.com`
+- `githubusercontent.com`
+
+The `DPRINT_TRUSTED_DOMAINS` environment variable replaces these with a comma-separated list of domains (ex. to add a private npm registry, list it along with the default ones). An npm package is downloaded from the registry its `.npmrc` says, so that's the domain that needs to be trusted.
+
+Until what's on another domain is downloaded, nothing is formatted with the configuration file and the requests that use it respond with the `downloadRequired` reason. Send the install plugins message (ex. when a document is formatted with that reason), which asks the user whether to download it. What's in dprint's cache doesn't need to be downloaded (ex. from running `dprint fmt` or `dprint config install`), and neither does a plugin that's a file (ex. in `node_modules`).
+
+The configuration info message says which plugins are downloaded, whether they're installed, and whether they're on a trusted domain (`remotePlugins`).
 
 Installing may take a while, which the progress messages show. If the editor times out requests, don't time them out while there's progress or check that the editor service is still responding with the active message instead, and cancel a request that's timed out.
 
@@ -420,7 +429,7 @@ interface ConfigFileInfo {
  * - `noPlugin` - No plugin in the configuration file handles the document.
  * - `noPlugins` - The configuration file has no plugins.
  * - `configError` - The configuration file failed to resolve (ex. it has a syntax error), which the message says.
- * - `pluginsNotInstalled` - A plugin of the configuration file needs to be downloaded, so nothing is formatted with it until the editor installs the plugins (see "Installing plugins").
+ * - `downloadRequired` - A plugin of the configuration file or a configuration file it extends needs to be downloaded from a domain that isn't trusted, so nothing is formatted with it until the editor installs it and the user allows downloading it (see "Installing plugins").
  * - `configDiagnostics` - The configuration of a plugin that formats the document has problems (only for a format).
  * - `rangeFormattingNotSupported` - A plugin that formats the document doesn't support formatting a range (only for a format).
  * - `unchanged` - The document is already formatted (only for a format).
@@ -434,7 +443,7 @@ type NotFormattedReason =
   | "noPlugin"
   | "noPlugins"
   | "configError"
-  | "pluginsNotInstalled"
+  | "downloadRequired"
   | "configDiagnostics"
   | "rangeFormattingNotSupported"
   | "unchanged";
@@ -446,7 +455,7 @@ Response: None
 
 Gets the plugins of the configuration file that's used for a document and which files they format (ex. to only be the formatter of the documents dprint may format).
 
-This doesn't download plugins. The plugins are only provided once they're installed (see "Installing plugins").
+The plugins of the configuration file are downloaded and set up when they aren't yet, except for what's on a domain that isn't trusted, which needs the install plugins message (see "Installing plugins"). Send it once the editor finds a configuration file (ex. when a project is opened) so that the first format doesn't wait on that.
 
 Message body:
 
@@ -500,6 +509,8 @@ interface RemotePlugin {
   kind: "wasm" | "process";
   /** Whether it's downloaded and set up, which is when it can be used. */
   installed: boolean;
+  /** Whether it's on a trusted domain, which is when it's downloaded without the install plugins message. */
+  trusted: boolean;
 }
 
 interface LocalExecutable {
@@ -727,7 +738,7 @@ Response: Success response once the plugins were stopped
 
 #### `23` - Install plugins (Client to Service)
 
-Downloads and sets up the plugins of the configuration file that's used for a document that aren't installed (see "Installing plugins"), which the progress messages show.
+Downloads and sets up the plugins of the configuration file that's used for a document that aren't installed, along with the configuration files it extends (see "Installing plugins"), which the progress messages show. It first asks the user with a show message request whether to download what's on a domain that isn't trusted. What isn't allowed isn't downloaded.
 
 Message body:
 

@@ -406,6 +406,9 @@ pub struct RemotePlugin {
   pub kind: RemotePluginKind,
   /// Whether it's downloaded and set up.
   pub installed: bool,
+  /// Whether it's on a trusted domain, which is when it's downloaded without
+  /// the editor asking for it.
+  pub trusted: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -576,9 +579,10 @@ pub enum NotFormattedReason {
   /// The config file failed to resolve (ex. it has a syntax error), which
   /// the message says.
   ConfigError,
-  /// A plugin of the config file needs to be downloaded, which the editor
-  /// asks for with an `InstallPlugins` message.
-  PluginsNotInstalled,
+  /// The config file needs a plugin or a config file to extend that's
+  /// downloaded from a domain that isn't trusted, which is only downloaded
+  /// when the editor asks for it with an `InstallPlugins` message.
+  DownloadRequired,
   /// The configuration of a plugin that formats the file has problems (see
   /// `diagnostics`).
   ConfigDiagnostics,

@@ -18,6 +18,7 @@ use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
 use crate::utils::AsyncCell;
+use crate::utils::DownloadPolicy;
 use crate::utils::PathSource;
 
 pub struct PluginWrapper {
@@ -154,6 +155,17 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
   pub fn is_installed(&self, plugin_reference: &PluginSourceReference) -> bool {
     let is_resolved = self.memory_cache.borrow().get(plugin_reference).is_some_and(|cell| cell.initialized());
     is_resolved || self.plugin_cache.is_installed(plugin_reference)
+  }
+
+  /// Gets the url the plugin is downloaded from (see `PluginCache::get_download_url`).
+  pub fn get_download_url(&self, plugin_reference: &PluginSourceReference) -> Option<url::Url> {
+    self.plugin_cache.get_download_url(plugin_reference)
+  }
+
+  /// Gets whether the plugin needs to be downloaded from a url that the
+  /// policy doesn't allow downloading from without asking the user.
+  pub fn needs_disallowed_download(&self, plugin_reference: &PluginSourceReference, download_policy: &DownloadPolicy) -> bool {
+    !self.is_installed(plugin_reference) && self.get_download_url(plugin_reference).is_some_and(|url| !download_policy.allows(&url))
   }
 
   pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Rc<PluginWrapper>> {

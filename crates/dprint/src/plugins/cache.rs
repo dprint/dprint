@@ -34,6 +34,8 @@ use super::implementations::get_process_plugin_os_path;
 use super::implementations::parse_process_plugin_file;
 use super::implementations::setup_plugin;
 use super::npm_resolution;
+use url::Url;
+
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
@@ -240,6 +242,19 @@ where
     };
     let hash = entry_hash(&cache_key, &self.environment);
     self.cached_item(path_source, &hash, &cache_key).is_some()
+  }
+
+  /// Gets the url the plugin is downloaded from, which is the registry for an
+  /// npm package and `None` when it isn't downloaded (ex. it's a file).
+  pub fn get_download_url(&self, source_reference: &PluginSourceReference) -> Option<Url> {
+    match &source_reference.path_source {
+      PathSource::Remote(remote_source) => Some(remote_source.url.clone()),
+      PathSource::Npm(npm_source) if npm_source.specifier.version.is_some() => {
+        let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+        Url::parse(&self.resolve_registry_url(&npm_source.specifier.name, start_dir)).ok()
+      }
+      PathSource::Npm(_) | PathSource::Local(_) => None,
+    }
   }
 
   pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
