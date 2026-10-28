@@ -58,6 +58,10 @@ Specifying `--config <path>` uses that configuration file for every file instead
 
 The editor service checks every 5 seconds whether the provided process id still exists and if it doesn't it will exit.
 
+Keep the process running for as long as the editor uses it. It finds the configuration files itself and notices when they change, so there's no need to start it again when a configuration file is created, changed, or deleted, or when the workspace folders change (send the update settings message instead). Starting it again loses what the user chose for the session (ex. dismissing a notification). Send the reset message when the user asks for dprint to start again (ex. a restart command), and only start a new process when the dprint executable changed or the process exited.
+
+A request may take a while the first time it uses a configuration file because its plugins may need to be downloaded and set up, which the progress messages show. Send the configuration info message once the editor finds a configuration file so that happens before the first format. If the editor times out requests, don't time them out while there's progress or check that the editor service is still responding with the active message instead, and cancel a request that's timed out.
+
 ### Messages
 
 Messages are sent in the following format:
@@ -670,7 +674,7 @@ Response: None
 
 #### `21` - Configuration changed (Service to Client)
 
-What a configuration file formats may have changed in a way the editor can't see (ex. a configuration file that it extends changed). Send the file info and configuration info messages again for the documents that use it (ex. to update which documents the editor formats with dprint).
+What a configuration file formats may have changed in a way the editor can't see (ex. a configuration file that it extends changed). Send the file info, configuration info, and configuration schema messages again for the documents that use it (ex. to update which documents the editor formats with dprint and the schema of its plugins).
 
 Message body:
 
@@ -685,3 +689,11 @@ interface ConfigChangedData {
 ```
 
 Response: None
+
+#### `22` - Reset (Client to Service)
+
+Forgets the configuration files and stops the plugins, as if the editor service started again (ex. for a restart command, or after a plugin stopped responding or was changed). The plugins are set up again when they're next used. What the user chose for the session is kept. A request that's in progress may fail.
+
+Message body: None
+
+Response: Success response once the plugins were stopped

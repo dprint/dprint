@@ -64,6 +64,9 @@ pub enum EditorMessageBody {
   /// What a config file formats may have changed as JSON (see
   /// `ConfigChangedMessage`).
   ConfigChanged(Vec<u8>),
+  /// Forgets the config files and plugins, as if the editor service started
+  /// again.
+  Reset,
   #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
@@ -129,6 +132,7 @@ impl MessageBody for EditorMessageBody {
       19 => EditorMessageBody::Progress(reader.read_sized_bytes()?),
       20 => EditorMessageBody::ConfigDiagnostics(reader.read_sized_bytes()?),
       21 => EditorMessageBody::ConfigChanged(reader.read_sized_bytes()?),
+      22 => EditorMessageBody::Reset,
       _ => {
         let data = reader.read_bytes(body_length as usize)?;
         EditorMessageBody::Unknown(kind, data)
@@ -141,7 +145,7 @@ impl MessageBody for EditorMessageBody {
       EditorMessageBody::Success(message_id) | EditorMessageBody::CancelRequest(message_id) => {
         builder.add_number(*message_id);
       }
-      EditorMessageBody::Close | EditorMessageBody::IsAlive => {}
+      EditorMessageBody::Close | EditorMessageBody::IsAlive | EditorMessageBody::Reset => {}
       EditorMessageBody::Initialize(data)
       | EditorMessageBody::UpdateSettings(data)
       | EditorMessageBody::FileInfo(data)
@@ -212,6 +216,7 @@ impl MessageBody for EditorMessageBody {
       EditorMessageBody::Progress(_) => 19,
       EditorMessageBody::ConfigDiagnostics(_) => 20,
       EditorMessageBody::ConfigChanged(_) => 21,
+      EditorMessageBody::Reset => 22,
       EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }

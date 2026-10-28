@@ -359,6 +359,13 @@ pub async fn run_editor_service<TEnvironment: Environment>(
         };
         Ok(EditorMessageBody::FormatFileResponse(message.id, result))
       }),
+      EditorMessageBody::Reset => service.spawn_request(message.id, |service, _| async move {
+        // the plugins are set up again when they're next used, which is how
+        // a plugin that stopped responding or that changed is started again
+        log_debug!(service.environment, "Resetting the configuration files and plugins.");
+        service.scope_container.shutdown().await;
+        Ok(EditorMessageBody::Success(message.id))
+      }),
       EditorMessageBody::CancelRequest(message_id) => {
         if let Some(token) = context.cancellation_tokens.get_cloned(message_id) {
           token.cancel();
@@ -1256,6 +1263,7 @@ fn requires_initialize(body: &EditorMessageBody) -> bool {
   matches!(
     body,
     EditorMessageBody::UpdateSettings(_)
+      | EditorMessageBody::Reset
       | EditorMessageBody::FileInfo(_)
       | EditorMessageBody::ConfigInfo(_)
       | EditorMessageBody::ConfigSchema(_)
@@ -2505,6 +2513,37 @@ mod test {
         client.notify(EditorMessageBody::CancelRequest(message_id));
         // the format was cancelled, so the plugin can format another file
         assert_eq!(client.format("/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_start_the_plugins_again_after_a_reset() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_process_plugin();
+      })
+      .initialize()
+      .build();
+
+    run_session(&environment, &[], |client| {
+      async move {
+        // the plugin doesn't respond to this until the format is cancelled
+        let (_, receiver) = client.send_format("/file.txt_ps", "wait_cancellation");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        client.request(EditorMessageBody::Reset).await.unwrap();
+        // the plugin was stopped
+        match receiver.await.unwrap() {
+          EditorMessageBody::FormatFileResponse(_, FormatFileResult::Failed(data)) => {
+            let message = serde_json::from_slice::<FormatFailedMessage>(&data).unwrap();
+            assert_eq!(message.reason, FormatFailedReason::PluginError);
+          }
+          body => panic!("Unexpected response: {body:?}"),
+        }
+        // and is started again
+        assert_eq!(client.format("/file.txt_ps", "text", None).await.unwrap(), formatted("text_formatted_process"));
       }
       .boxed_local()
     });
