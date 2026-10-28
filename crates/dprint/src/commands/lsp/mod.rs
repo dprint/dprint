@@ -87,7 +87,6 @@ use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESS
 use crate::commands::process_plugin_approval::PROCESS_PLUGIN_ACTION_TITLES;
 use crate::commands::process_plugin_approval::store_process_plugin_action;
 use crate::commands::scope_container::PluginsScopeContainer;
-use crate::configuration::ProcessPluginApproval;
 use crate::configuration::SessionPermissions;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
@@ -617,7 +616,7 @@ struct State<TEnvironment: Environment> {
   /// aren't trusted.
   asked_downloads: HashSet<Vec<String>>,
   /// The process plugins the user was asked this session to allow running.
-  prompted_process_plugins: HashSet<ProcessPluginApproval>,
+  prompted_process_plugins: HashSet<UnapprovedProcessPlugins>,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -964,20 +963,20 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   fn ask_to_allow_process_plugins(&self, unapproved: UnapprovedProcessPlugins) {
     let supports_message_actions = {
       let mut state = self.state.lock();
-      if !state.prompted_process_plugins.insert(unapproved.approval.clone()) {
+      if !state.prompted_process_plugins.insert(unapproved.clone()) {
         return;
       }
       state.supports_message_actions
     };
     let permissions = self.session_permissions.read(&self.environment);
-    if permissions.is_process_plugin_denied(&unapproved.approval) {
+    if unapproved.is_denied(&permissions) {
       return;
     }
     let message = unapproved.message(&permissions);
     if !supports_message_actions {
       self.client.show_message(
         MessageType::WARNING,
-        format!("{} {}", message, get_cant_ask_message(&self.environment, &unapproved.approval)),
+        format!("{} {}", message, get_cant_ask_message(&self.environment, &unapproved.config_file)),
       );
       return;
     }
@@ -990,7 +989,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     dprint_core::async_runtime::spawn(async move {
       let selection = selection.await;
       let title = selection.as_ref().map(|selection| selection.title.as_str());
-      if let Err(err) = store_process_plugin_action(&environment, &session_permissions, unapproved.approval, title).await {
+      if let Err(err) = store_process_plugin_action(&environment, &session_permissions, &unapproved, title).await {
         let message = format!("Failed storing the decision for the process plugins: {:#}", err);
         log_warn!(environment, "{}", message);
         client.show_message(MessageType::WARNING, message);
@@ -3145,7 +3144,7 @@ mod test {
       let (shown, _) = run_session(&environment, message_actions_capabilities(), None, [false, false]).await;
       assert_asked(
         shown,
-        "because its configuration changed since its process plugins (https://plugins.dprint.dev/test-process.json@",
+        "because the configuration of its process plugins (https://plugins.dprint.dev/test-process.json@",
       );
     });
   }

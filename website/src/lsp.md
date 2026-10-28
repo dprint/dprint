@@ -117,15 +117,17 @@ When a file is formatted with a configuration file whose process plugins you hav
 
 Not selecting an action (ex. closing the message) doesn't run them either, and you're asked again in the next session.
 
-Nothing is formatted with the configuration file until they're allowed, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The next format uses them once they're allowed. In a client that can't show the actions of a message, the message says that they're not allowed instead. Allow them there, or after denying them, by running the following in the directory of the configuration file, which is the same as `Always Allow`:
+Nothing is formatted with the configuration file until they're allowed, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The next format uses them once they're allowed. In a client that can't show the actions of a message, the message says that they're not allowed instead.
+
+Running dprint with the configuration file is the same as choosing to run its process plugins, so `dprint fmt` and `dprint config install` allow them too, which is the same as `Always Allow`. Run one of them in the directory of the configuration file to allow them in a client that can't ask or after denying them:
 
 ```sh
-dprint config editor-approve
+dprint config install
 # or with the path of the configuration file
-dprint config editor-approve --config path/to/dprint.json
+dprint config install --config path/to/dprint.json
 ```
 
-The most recent decision is used, so this also allows them in a session where they were denied. What's decided on is the process plugins of that configuration file with its plugins and configuration, so when the configuration file changes (ex. the commands of dprint-plugin-exec), you're asked again. The same goes for the `plugin.json` file of an npm plugin without a version, which is resolved from `node_modules` (ex. when updating the package). The process plugins of the [global configuration file](/global-config) are always allowed. The `Always Allow` and `Always Deny` choices are stored in an `editor-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file has you asked again.
+The most recent decision is used, so this also allows them in a session where they were denied. What's decided on is each process plugin of that configuration file with its configuration, so when a plugin or its configuration changes (ex. the commands of dprint-plugin-exec), you're asked again. The same goes for the `plugin.json` file of an npm plugin without a version, which is resolved from `node_modules` (ex. when updating the package). The process plugins of the [global configuration file](/global-config) are always allowed. The `Always Allow` and `Always Deny` choices are stored in an `editor-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file has you asked again.
 
 This is deliberately not a [setting](#settings) because an editor's workspace settings can come from the project (ex. `.vscode/settings.json`), which would let a project allow its own process plugins. The CLI doesn't use this file because running `dprint fmt` is choosing to run dprint in that directory.
 

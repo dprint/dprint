@@ -10,6 +10,7 @@ use anyhow::Context;
 use anyhow::Result;
 
 use crate::cache::RemoteCacheMode;
+use crate::commands::process_plugin_approval::record_set_up_process_plugins;
 use crate::configuration::Permissions;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
@@ -27,6 +28,7 @@ use crate::resolution::resolve_plugins_scope_with_approval;
 use crate::utils::AsyncMutex;
 use crate::utils::DownloadPolicy;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
 
 type ScopeCell<TEnvironment> = AsyncMutex<Option<CachedScope<TEnvironment>>>;
 
@@ -158,12 +160,17 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     // the plugins when the user approved running its process plugins with their
     // configuration. The user opening a file (ex. in a cloned repository or in
     // node_modules) isn't the same as choosing to run dprint there.
-    let new_scope = Rc::new(
-      resolve_plugins_scope_with_approval(Rc::new(config), &self.environment, &self.plugin_resolver, options, |approval| {
-        permissions.is_process_plugin_allowed(approval)
-      })
-      .await?,
-    );
+    let config = Rc::new(config);
+    let new_scope = Rc::new(resolve_plugins_scope_with_approval(config.clone(), &self.environment, &self.plugin_resolver, options, &permissions).await?);
+    let permissions = if new_scope.plugins.is_empty() {
+      permissions
+    } else {
+      // the configuration of a process plugin that the user allowed setting up is known now
+      if let Err(err) = record_set_up_process_plugins(&self.environment, &self.session_permissions, &config, &self.plugin_resolver).await {
+        log_warn!(self.environment, "Failed storing the decision for the process plugins: {:#}", err);
+      }
+      self.session_permissions.read(&self.environment)
+    };
     let _ = cell.insert(CachedScope {
       scope: new_scope.clone(),
       plugins_generation,
@@ -174,10 +181,20 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 
   /// Downloads and sets up the plugins of the config file that aren't
   /// installed along with what it extends, which is for when the user asked
-  /// for it, so they're used the next time it's resolved.
+  /// for it, so they're used the next time it's resolved. A process plugin
+  /// is only set up when the user allowed it because that runs it.
   pub async fn install_plugins(&self, config_file: &ResolvedConfigPathWithText) -> Result<()> {
     let config = self.resolve_config_with_policy(config_file, &DownloadPolicy::All).await?;
-    let plugins = config.plugins.into_iter().filter(|plugin| !self.is_plugin_installed(plugin)).collect();
+    let config_file = config.source.display();
+    let permissions = self.session_permissions.read(&self.environment);
+    let plugins = config
+      .plugins
+      .into_iter()
+      .filter(|plugin| !self.is_plugin_installed(plugin))
+      .filter(|plugin| {
+        config.is_global || plugin.plugin_kind() == Some(PluginKind::Wasm) || permissions.may_set_up_process_plugin(&config_file, &plugin.to_full_string())
+      })
+      .collect();
     self.plugin_resolver.resolve_plugins(plugins).await?;
     Ok(())
   }

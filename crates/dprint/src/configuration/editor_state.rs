@@ -38,6 +38,21 @@ pub struct EditorState {
   pub process_plugin_decisions: Vec<ProcessPluginDecision>,
 }
 
+impl EditorState {
+  /// Remembers the decision for a process plugin of a config file, which
+  /// replaces the one for a previous configuration of it.
+  pub fn add_process_plugin_decision(&mut self, decision: ProcessPluginDecision) {
+    let decisions = &mut self.process_plugin_decisions;
+    // the decision for a previous configuration isn't needed anymore
+    decisions.retain(|existing| existing.approval.config_file != decision.approval.config_file || existing.approval.plugin != decision.approval.plugin);
+    decisions.push(decision);
+    if decisions.len() > MAX_PROCESS_PLUGIN_DECISIONS {
+      let excess = decisions.len() - MAX_PROCESS_PLUGIN_DECISIONS;
+      decisions.drain(..excess);
+    }
+  }
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct NoConfigNotificationState {
@@ -47,20 +62,22 @@ pub struct NoConfigNotificationState {
   pub dismissed_workspace_folders: BTreeSet<String>,
 }
 
-/// The process plugins of a config file with its configuration, which is what
-/// the user allows or denies running.
+/// A process plugin of a config file with its configuration, which is what the
+/// user allows or denies running.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessPluginApproval {
-  /// The config file that specifies the process plugins.
+  /// The config file that specifies the process plugin.
   pub config_file: String,
-  /// The SHA-256 checksum of the config file's resolved plugins and
-  /// configuration, so a change to it (ex. the commands of
-  /// dprint-plugin-exec) needs to be decided on again.
+  /// The plugin as the config file specifies it (ex. its url and checksum).
+  pub plugin: String,
+  /// The SHA-256 checksum of the plugin's configuration in the config file,
+  /// so a change to it (ex. the commands of dprint-plugin-exec) needs to be
+  /// decided on again.
   pub config_hash: String,
 }
 
-/// Whether the user allowed or denied running the process plugins of a config
+/// Whether the user allowed or denied running a process plugin of a config
 /// file with its configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,8 +86,8 @@ pub struct ProcessPluginDecision {
   pub approval: ProcessPluginApproval,
   pub allowed: bool,
   /// When the user decided, in milliseconds since the Unix epoch, so that the
-  /// most recent decision wins (ex. allowing them with `dprint config
-  /// editor-approve` after denying them for the session).
+  /// most recent decision wins (ex. allowing it by running `dprint fmt` after
+  /// denying it for the session).
   #[serde(default)]
   pub decided_at: u64,
 }
@@ -87,20 +104,44 @@ impl ProcessPluginDecision {
   }
 }
 
+/// The user allowing a process plugin of a config file to be set up for the
+/// session, which runs it, before its configuration is known. Once it's set
+/// up, it's allowed with its configuration (see `ProcessPluginApproval`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessPluginSetUpGrant {
+  pub config_file: String,
+  /// The plugin as the config file specifies it (ex. its url and checksum).
+  pub plugin: String,
+  /// Whether to remember the decision once the plugin is set up instead of
+  /// only using it for the session.
+  pub always: bool,
+}
+
 /// What the user allowed the editor integrations to do.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Permissions {
   /// Whether process plugins run without the user approving them.
   pub allow_process_plugins: Option<bool>,
   /// The decisions to always use followed by the ones for the session, where
-  /// the most recent one for a config file wins.
+  /// the most recent one for a plugin of a config file wins.
   pub process_plugin_decisions: Vec<ProcessPluginDecision>,
+  /// The process plugins the user allowed setting up for the session.
+  pub process_plugin_set_up_grants: Vec<ProcessPluginSetUpGrant>,
 }
 
 impl Permissions {
   pub fn is_process_plugin_allowed(&self, approval: &ProcessPluginApproval) -> bool {
-    // todo(dsherret): default to asking in a future version
-    self.allow_process_plugins.unwrap_or(true) || self.get_decision(approval) == Some(true)
+    !self.requires_process_plugin_approval() || self.get_decision(approval) == Some(true)
+  }
+
+  /// Gets whether the process plugin of the config file may be set up, which
+  /// runs it to get its information before its configuration is known.
+  pub fn may_set_up_process_plugin(&self, config_file: &str, plugin: &str) -> bool {
+    !self.requires_process_plugin_approval()
+      || self
+        .process_plugin_set_up_grants
+        .iter()
+        .any(|grant| grant.config_file == config_file && grant.plugin == plugin)
   }
 
   /// Gets whether the user denied running the process plugins, which means
@@ -109,13 +150,20 @@ impl Permissions {
     self.get_decision(approval) == Some(false)
   }
 
-  /// Gets whether the process plugins of the config file were allowed when it
+  /// Gets whether the process plugin of the config file was allowed when it
   /// had a different configuration.
   pub fn was_allowed_with_other_config(&self, approval: &ProcessPluginApproval) -> bool {
-    self
-      .process_plugin_decisions
-      .iter()
-      .any(|decision| decision.allowed && decision.approval.config_file == approval.config_file && decision.approval.config_hash != approval.config_hash)
+    self.process_plugin_decisions.iter().any(|decision| {
+      decision.allowed
+        && decision.approval.config_file == approval.config_file
+        && decision.approval.plugin == approval.plugin
+        && decision.approval.config_hash != approval.config_hash
+    })
+  }
+
+  fn requires_process_plugin_approval(&self) -> bool {
+    // todo(dsherret): default to asking in a future version
+    !self.allow_process_plugins.unwrap_or(true)
   }
 
   fn get_decision(&self, approval: &ProcessPluginApproval) -> Option<bool> {
@@ -135,6 +183,8 @@ impl Permissions {
 pub struct SessionPermissions {
   /// What the user decided about running process plugins for the session.
   process_plugin_decisions: Mutex<Vec<ProcessPluginDecision>>,
+  /// The process plugins the user allowed setting up for the session.
+  process_plugin_set_up_grants: Mutex<Vec<ProcessPluginSetUpGrant>>,
   /// The problems with the settings that were logged, which are only logged
   /// once because the settings are read for each request.
   logged_settings_problems: Mutex<HashSet<String>>,
@@ -175,12 +225,26 @@ impl SessionPermissions {
     Permissions {
       allow_process_plugins,
       process_plugin_decisions,
+      process_plugin_set_up_grants: self.process_plugin_set_up_grants.lock().clone(),
     }
   }
 
   /// Uses the decision for the rest of the session.
   pub fn add_process_plugin_decision(&self, decision: ProcessPluginDecision) {
     self.process_plugin_decisions.lock().push(decision);
+  }
+
+  /// Allows setting up the process plugin for the session.
+  pub fn add_process_plugin_set_up_grant(&self, grant: ProcessPluginSetUpGrant) {
+    self.process_plugin_set_up_grants.lock().push(grant);
+  }
+
+  /// Takes the grant for setting up the process plugin of the config file,
+  /// which isn't needed anymore once it's set up.
+  pub fn take_process_plugin_set_up_grant(&self, config_file: &str, plugin: &str) -> Option<ProcessPluginSetUpGrant> {
+    let mut grants = self.process_plugin_set_up_grants.lock();
+    let index = grants.iter().position(|grant| grant.config_file == config_file && grant.plugin == plugin)?;
+    Some(grants.remove(index))
   }
 
   fn log_settings_problem(&self, environment: &impl Environment, message: String) {
@@ -190,10 +254,10 @@ impl SessionPermissions {
   }
 }
 
-/// Remembers the user's decision for running the process plugins of a config
+/// Remembers the user's decision for running a process plugin of a config
 /// file, which replaces the one for a previous configuration of it.
 pub async fn store_process_plugin_decision(environment: &impl Environment, decision: ProcessPluginDecision) -> Result<()> {
-  update_editor_state(environment, |state| add_process_plugin_decision(state, decision)).await
+  update_editor_state(environment, |state| state.add_process_plugin_decision(decision)).await
 }
 
 /// Updates what the editor integrations remember.
@@ -239,17 +303,6 @@ pub(crate) fn get_editor_state_file_path(environment: &impl Environment) -> Path
   environment.get_cache_dir().join(STATE_FILE_NAME)
 }
 
-fn add_process_plugin_decision(state: &mut EditorState, decision: ProcessPluginDecision) {
-  let decisions = &mut state.process_plugin_decisions;
-  // the decision for a previous configuration isn't needed anymore
-  decisions.retain(|existing| existing.approval.config_file != decision.approval.config_file);
-  decisions.push(decision);
-  if decisions.len() > MAX_PROCESS_PLUGIN_DECISIONS {
-    let excess = decisions.len() - MAX_PROCESS_PLUGIN_DECISIONS;
-    decisions.drain(..excess);
-  }
-}
-
 #[cfg(test)]
 mod test {
   use pretty_assertions::assert_eq;
@@ -261,6 +314,7 @@ mod test {
   fn approval(config_file: &str, config_hash: &str) -> ProcessPluginApproval {
     ProcessPluginApproval {
       config_file: config_file.to_string(),
+      plugin: "https://plugins.dprint.dev/plugin.json@checksum".to_string(),
       config_hash: config_hash.to_string(),
     }
   }
@@ -305,7 +359,7 @@ mod test {
       decision("/b/dprint.json", "1", false),
       decision("/a/dprint.json", "2", true),
     ] {
-      update_editor_state_without_lock(&environment, |state| add_process_plugin_decision(state, decision)).unwrap();
+      update_editor_state_without_lock(&environment, |state| state.add_process_plugin_decision(decision)).unwrap();
     }
     assert_eq!(
       read_editor_state(&environment).process_plugin_decisions,
@@ -332,13 +386,10 @@ mod test {
     require_approval(&environment);
     let stored = |allowed, decided_at| {
       update_editor_state_without_lock(&environment, |state| {
-        add_process_plugin_decision(
-          state,
-          ProcessPluginDecision {
-            decided_at,
-            ..decision("/a/dprint.json", "1", allowed)
-          },
-        )
+        state.add_process_plugin_decision(ProcessPluginDecision {
+          decided_at,
+          ..decision("/a/dprint.json", "1", allowed)
+        })
       })
       .unwrap();
     };
@@ -347,11 +398,49 @@ mod test {
       ..decision("/a/dprint.json", "1", false)
     };
 
-    // ex. allowing them with `dprint config editor-approve` after denying them for the session
+    // ex. allowing it by running `dprint fmt` after denying it for the session
     stored(true, 3);
     assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
     stored(true, 1);
     assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_denied(&approval("/a/dprint.json", "1")));
+  }
+
+  #[test]
+  fn should_keep_a_decision_for_each_plugin_of_a_config_file() {
+    let mut state = EditorState::default();
+    let other_plugin = |config_hash: &str, allowed| {
+      let mut decision = decision("/a/dprint.json", config_hash, allowed);
+      decision.approval.plugin = "https://plugins.dprint.dev/other.json@checksum".to_string();
+      decision
+    };
+    state.add_process_plugin_decision(decision("/a/dprint.json", "1", true));
+    state.add_process_plugin_decision(other_plugin("1", true));
+    state.add_process_plugin_decision(other_plugin("2", false));
+    assert_eq!(
+      state.process_plugin_decisions,
+      vec![decision("/a/dprint.json", "1", true), other_plugin("2", false)]
+    );
+  }
+
+  #[test]
+  fn should_allow_setting_up_a_process_plugin_for_the_session() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let session_permissions = SessionPermissions::default();
+    let plugin = approval("/a/dprint.json", "1").plugin;
+    assert!(!session_permissions.read(&environment).may_set_up_process_plugin("/a/dprint.json", &plugin));
+    session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant {
+      config_file: "/a/dprint.json".to_string(),
+      plugin: plugin.clone(),
+      always: true,
+    });
+    let permissions = session_permissions.read(&environment);
+    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", &plugin));
+    assert!(!permissions.may_set_up_process_plugin("/b/dprint.json", &plugin));
+    // it's not allowed with any configuration
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    assert!(session_permissions.take_process_plugin_set_up_grant("/a/dprint.json", &plugin).unwrap().always);
+    assert!(!session_permissions.read(&environment).may_set_up_process_plugin("/a/dprint.json", &plugin));
   }
 
   #[test]
@@ -390,7 +479,7 @@ mod test {
   fn should_forget_the_oldest_decisions() {
     let mut state = EditorState::default();
     for i in 0..MAX_PROCESS_PLUGIN_DECISIONS + 2 {
-      add_process_plugin_decision(&mut state, decision(&format!("/{i}/dprint.json"), "1", true));
+      state.add_process_plugin_decision(decision(&format!("/{i}/dprint.json"), "1", true));
     }
     assert_eq!(state.process_plugin_decisions.len(), MAX_PROCESS_PLUGIN_DECISIONS);
     assert_eq!(state.process_plugin_decisions[0], decision("/2/dprint.json", "1", true));

@@ -16,7 +16,6 @@ mod messages;
 
 use crate::arg_parser::CliArgs;
 use crate::configuration::Permissions;
-use crate::configuration::ProcessPluginApproval;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::SessionPermissions;
 use crate::configuration::resolve_config_from_args;
@@ -63,14 +62,14 @@ pub async fn output_editor_info<TEnvironment: Environment>(
   // as the user choosing to run dprint there, so only provide the plugins when
   // the user allowed its process plugins.
   let permissions = SessionPermissions::default().read(environment);
-  let scope = get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, |approval| permissions.is_process_plugin_allowed(approval)).await?;
+  let scope = get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, &permissions).await?;
   scope.ensure_no_global_config_diagnostics()?;
   if let Some(unapproved) = &scope.unapproved_process_plugins {
     log_warn!(
       environment,
       "{} {}",
       unapproved.message(&permissions),
-      get_cant_ask_message(environment, &unapproved.approval)
+      get_cant_ask_message(environment, &unapproved.config_file)
     );
   }
   let plugins = get_editor_plugin_infos(&scope).await?;
@@ -111,7 +110,7 @@ struct EditorService<'a, TEnvironment: Environment> {
   permissions: Option<Permissions>,
   session_permissions: SessionPermissions,
   /// The process plugins that weren't allowed to run that the log said so about.
-  warned_process_plugins: HashSet<ProcessPluginApproval>,
+  warned_process_plugins: HashSet<UnapprovedProcessPlugins>,
   context: Rc<EditorContext<EditorMessageBody>>,
   /// Tokens of the format requests that are waiting to be handled.
   pending_format_tokens: RcIdStore<Arc<CancellationToken>>,
@@ -329,7 +328,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         ResolvePluginsScopeOptions {
           download_policy: DownloadPolicy::All,
         },
-        |approval| permissions.is_process_plugin_allowed(approval),
+        &permissions,
       )
       .await?;
       scope.ensure_no_global_config_diagnostics()?;
@@ -348,14 +347,14 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   /// configuration and not when the user denied them. Schema version 5 of
   /// the editor service can't ask the user whether to allow them.
   fn warn_unapproved_process_plugins(&mut self, unapproved: &UnapprovedProcessPlugins, permissions: &Permissions) {
-    if !self.warned_process_plugins.insert(unapproved.approval.clone()) || permissions.is_process_plugin_denied(&unapproved.approval) {
+    if !self.warned_process_plugins.insert(unapproved.clone()) || unapproved.is_denied(permissions) {
       return;
     }
     log_warn!(
       self.environment,
       "{} {}",
       unapproved.message(permissions),
-      get_cant_ask_message(self.environment, &unapproved.approval)
+      get_cant_ask_message(self.environment, &unapproved.config_file)
     );
   }
 }
@@ -754,7 +753,7 @@ mod test {
     );
     assert!(
       stderr_messages[0].contains(concat!(
-        "dprint only formats with it once you allow them by running `dprint config editor-approve --config \"/dprint.json\"` ",
+        "dprint only formats with it once you allow them by running `dprint config install --config \"/dprint.json\"` ",
         "or when \"editor.allowProcessPlugins\" isn't false in"
       )),
       "{stderr_messages:?}"
@@ -762,7 +761,7 @@ mod test {
   }
 
   #[test]
-  fn should_use_process_plugins_allowed_with_cli_for_editor_service() {
+  fn should_use_process_plugins_installed_with_cli_for_editor_service() {
     let file_path = PathBuf::from("/file.txt_ps");
     let environment = TestEnvironmentBuilder::new()
       .add_remote_process_plugin()
@@ -773,17 +772,8 @@ mod test {
       .build(); // not initialized, so the process plugin is only set up when it's allowed
     disallow_process_plugins(&environment);
 
-    run_test_cli(vec!["config", "editor-approve"], &environment).unwrap();
-    let stderr_messages = environment.take_stderr_messages();
-    assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
-    assert!(
-      stderr_messages[0].starts_with("Allowed the process plugins of /dprint.json (https://plugins.dprint.dev/test-process.json@"),
-      "{stderr_messages:?}"
-    );
-    assert!(
-      stderr_messages[0].ends_with(") to run in editors until its configuration changes."),
-      "{stderr_messages:?}"
-    );
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Installed test-process-plugin 0.1.0"]);
 
     run_editor_service_session(&environment, move |communicator| {
       async move {

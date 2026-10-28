@@ -233,15 +233,16 @@ where
   /// Whether the plugin can be used without downloading it, which is when it's
   /// in the cache or it isn't downloaded (ex. it's a file).
   pub fn is_installed(&self, source_reference: &PluginSourceReference) -> bool {
-    if !source_reference.is_downloaded() {
-      return true;
-    }
-    let path_source = &source_reference.path_source;
-    let Ok(cache_key) = self.compute_cache_key(path_source) else {
-      return false;
-    };
+    !source_reference.is_downloaded() || self.get_set_up_plugin_info(source_reference).is_some()
+  }
+
+  /// Gets the information of the plugin when it's set up in the cache, which
+  /// doesn't set it up (ex. a process plugin is run to get its information).
+  pub fn get_set_up_plugin_info(&self, source_reference: &PluginSourceReference) -> Option<PluginInfo> {
+    let path_source = self.cache_source_for_forget(&source_reference.path_source)?;
+    let cache_key = self.compute_cache_key(&path_source).ok()?;
     let hash = entry_hash(&cache_key, &self.environment);
-    self.cached_item(path_source, &hash, &cache_key).is_some()
+    self.cached_item(&path_source, &hash, &cache_key).map(|item| item.info)
   }
 
   /// Gets the url the plugin is downloaded from, which is the registry for an

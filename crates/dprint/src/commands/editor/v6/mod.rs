@@ -59,7 +59,6 @@ use crate::commands::process_plugin_approval::PROCESS_PLUGIN_ACTION_TITLES;
 use crate::commands::process_plugin_approval::store_process_plugin_action;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
-use crate::configuration::ProcessPluginApproval;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
@@ -101,7 +100,6 @@ use self::config_diagnostics::PluginSectionDiagnostic;
 use self::config_diagnostics::get_config_diagnostics;
 use self::config_diagnostics::get_config_error_diagnostic;
 use self::local_executable::find_local_executable;
-use self::messages::AskToAllowProcessPluginsMessage;
 use self::messages::ClientInfo;
 use self::messages::ConfigChangedMessage;
 use self::messages::ConfigDiagnostic;
@@ -182,7 +180,7 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
   /// What the user allowed for this session.
   session_permissions: Arc<SessionPermissions>,
   /// The process plugins the user was asked this session to allow running.
-  prompted_process_plugins: RefCell<HashSet<ProcessPluginApproval>>,
+  prompted_process_plugins: RefCell<HashSet<UnapprovedProcessPlugins>>,
 }
 
 /// What a config file resolved to.
@@ -422,18 +420,6 @@ pub async fn run_editor_service<TEnvironment: Environment>(
         service.install_plugins(&file_path, allow_global_config).await?;
         Ok(EditorMessageBody::Success(message.id))
       }),
-      EditorMessageBody::AskToAllowProcessPlugins(data) => service.spawn_request(message.id, |service, _| async move {
-        let data: AskToAllowProcessPluginsMessage = serde_json::from_slice(&data).context("Error deserializing the ask to allow process plugins message.")?;
-        let file_path = service.get_uri_file_path(&data.uri)?;
-        let allow_global_config = data.allow_global_config || service.get_document_settings(&file_path).allow_global_config;
-        // the user asked for this, so it's asked even when it was before
-        if let DocumentConfig::Resolved(scope) = service.resolve_scope(&file_path, allow_global_config).await?
-          && let Some(unapproved) = &scope.unapproved_process_plugins
-        {
-          service.prompt_to_allow_process_plugins(unapproved, &file_path, allow_global_config).await;
-        }
-        Ok(EditorMessageBody::Success(message.id))
-      }),
       EditorMessageBody::CancelRequest(message_id) => {
         if let Some(token) = context.cancellation_tokens.get_cloned(message_id) {
           token.cancel();
@@ -667,8 +653,11 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       }
     };
     // only asked when formatting because the editor makes the other requests
-    // without the user doing anything (ex. when a project is opened)
-    if let Some(unapproved) = &scope.unapproved_process_plugins {
+    // without the user doing anything (ex. when a project is opened), and the
+    // install plugins message asks when they aren't installed
+    if let Some(unapproved) = &scope.unapproved_process_plugins
+      && scope.uninstalled_plugins.is_empty()
+    {
       self.ask_to_allow_process_plugins(unapproved, &document_file.candidates[0], allow_global_config);
     }
     let chosen_file = self.choose_file(&scope, document_file, Some(&body.file_bytes));
@@ -890,11 +879,10 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   /// The file is one the config file is used for, which is resolved again
   /// once they're allowed so the editor is told it formats files now.
   fn ask_to_allow_process_plugins(self: &Rc<Self>, unapproved: &UnapprovedProcessPlugins, file_path: &Path, allow_global_config: bool) {
-    if !self.prompted_process_plugins.borrow_mut().insert(unapproved.approval.clone()) {
+    if !self.prompted_process_plugins.borrow_mut().insert(unapproved.clone()) {
       return;
     }
-    let permissions = self.session_permissions.read(&self.environment);
-    if permissions.is_process_plugin_denied(&unapproved.approval) {
+    if unapproved.is_denied(&self.session_permissions.read(&self.environment)) {
       return;
     }
     let service = self.clone();
@@ -902,27 +890,29 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let file_path = file_path.to_path_buf();
     // don't wait on this because it only resolves once the user responds
     dprint_core::async_runtime::spawn(async move {
-      service.prompt_to_allow_process_plugins(&unapproved, &file_path, allow_global_config).await;
+      if service.prompt_to_allow_process_plugins(&unapproved).await {
+        // the editor can't see that the config file formats files now, which
+        // resolving it again notices
+        let _ = service.resolve_scope(&file_path, allow_global_config).await;
+      }
     });
   }
 
   /// Asks the user whether to allow running the process plugins of a config
-  /// file and stores what they chose, which resolves once they respond.
-  async fn prompt_to_allow_process_plugins(self: &Rc<Self>, unapproved: &UnapprovedProcessPlugins, file_path: &Path, allow_global_config: bool) {
+  /// file and stores what they chose, which resolves once they respond to
+  /// whether they chose an action.
+  async fn prompt_to_allow_process_plugins(&self, unapproved: &UnapprovedProcessPlugins) -> bool {
     let message = unapproved.message(&self.session_permissions.read(&self.environment));
-    let approval = &unapproved.approval;
     let action = self.show_message_request(MessageKind::Warning, message, &PROCESS_PLUGIN_ACTION_TITLES).await;
-    let title = action.as_ref().map(|action| action.title.as_str());
-    if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, approval.clone(), title).await {
+    let Some(action) = action else {
+      return false;
+    };
+    if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, Some(&action.title)).await {
       let message = format!("Failed storing the decision for the process plugins: {:#}", err);
       log_warn!(self.environment, "{}", message);
       self.show_message(MessageKind::Warning, message);
     }
-    // the editor can't see that the config file formats files now, which
-    // resolving it again notices
-    if self.session_permissions.read(&self.environment).is_process_plugin_allowed(approval) {
-      let _ = self.resolve_scope(file_path, allow_global_config).await;
-    }
+    true
   }
 
   /// Shows the message to the user.
@@ -1002,7 +992,8 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   }
 
   /// Downloads and sets up the plugins of the config file used for the file
-  /// that aren't installed.
+  /// that aren't installed, which asks the user to allow the process plugins
+  /// that weren't.
   async fn install_plugins(self: &Rc<Self>, file_path: &Path, allow_global_config: bool) -> Result<()> {
     let Some(dir_path) = file_path.parent() else {
       bail!("Cannot install plugins for non-file path: {}", file_path.display());
@@ -1011,13 +1002,28 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       return Ok(());
     };
     // what's on a domain that isn't trusted is only downloaded once the user allows it
-    let downloads = match self.resolve_scope(file_path, allow_global_config).await? {
+    let mut document_config = self.resolve_scope(file_path, allow_global_config).await?;
+    let downloads = match &document_config {
       DocumentConfig::Resolved(scope) => scope.uninstalled_plugins.iter().map(|plugin| plugin.to_full_string()).collect(),
-      DocumentConfig::Failed(failure) if failure.reason == NotFormattedReason::DownloadRequired => vec![failure.message],
+      DocumentConfig::Failed(failure) if failure.reason == NotFormattedReason::DownloadRequired => vec![failure.message.clone()],
       DocumentConfig::Failed(_) | DocumentConfig::NotFound => Vec::new(),
     };
-    if !downloads.is_empty() && !self.ask_to_download(&downloads).await {
-      return Ok(());
+    if !downloads.is_empty() {
+      if !self.ask_to_download(&downloads).await {
+        return Ok(());
+      }
+      // this downloads the config files it extends, which may have process plugins to allow
+      self.scope_container.install_plugins(&config_file).await?;
+      document_config = self.resolve_scope(file_path, allow_global_config).await?;
+    }
+    // the user is asked to allow the process plugins first because setting them up runs them
+    if let DocumentConfig::Resolved(scope) = &document_config
+      && let Some(unapproved) = &scope.unapproved_process_plugins
+      && !unapproved.is_denied(&self.session_permissions.read(&self.environment))
+    {
+      // the editor asks for this when the user wants to format with the config
+      // file, so it's asked even when it was asked before this session
+      self.prompt_to_allow_process_plugins(unapproved).await;
     }
     self.scope_container.install_plugins(&config_file).await?;
     // this tells the editor that the config file formats files now
@@ -1462,7 +1468,6 @@ fn requires_initialize(body: &EditorMessageBody) -> bool {
     EditorMessageBody::UpdateSettings(_)
       | EditorMessageBody::Reset
       | EditorMessageBody::InstallPlugins(_)
-      | EditorMessageBody::AskToAllowProcessPlugins(_)
       | EditorMessageBody::FileInfo(_)
       | EditorMessageBody::ConfigInfo(_)
       | EditorMessageBody::ConfigSchema(_)
@@ -1628,7 +1633,6 @@ mod test {
   use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
   use crate::commands::not_formatted_messages::NO_PLUGINS_MESSAGE;
   use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
-  use crate::commands::not_formatted_messages::PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -1640,7 +1644,6 @@ mod test {
   use deno_tower_lsp::lsp_types::Uri;
 
   use super::super::test::disallow_process_plugins;
-  use super::messages::AskToAllowProcessPluginsMessage;
   use super::messages::ClientInfo;
   use super::messages::ConfigChangedMessage;
   use super::messages::ConfigDiagnostic;
@@ -2431,26 +2434,23 @@ mod test {
   }
 
   #[test]
-  fn should_ask_to_allow_process_plugins() {
+  fn should_ask_to_allow_process_plugins_when_installing() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .add_remote_process_plugin()
       .with_local_config("/a/dprint.json", |c| {
         c.add_remote_wasm_plugin().add_remote_process_plugin();
       })
-      .build(); // not initialized, so the process plugin is only set up when it's allowed
+      .build(); // not initialized, so the plugins aren't installed
     disallow_process_plugins(&environment);
 
     run_session(&environment, &[], {
       let environment = environment.clone();
       move |client| {
         async move {
-          // not allowed, which is only asked once per session
-          client.set_message_request_answer(Some("Deny"));
-          // nothing is formatted with the config file, not even with its wasm plugin
+          // none of the plugins are downloaded until the process plugin is allowed
           let info = client.file_info(file_info("/a/file.txt")).await.unwrap();
           assert_eq!(info.reason, Some(NotFormattedReason::ProcessPluginsNotAllowed));
-          assert_eq!(info.message.as_deref(), Some(PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE));
           let info = client
             .config_info(ConfigInfoMessage {
               uri: uri("/a/dprint.json"),
@@ -2458,18 +2458,17 @@ mod test {
             })
             .await
             .unwrap();
-          assert_eq!(info.config_file, Some(local_config("/a/dprint.json")));
-          assert!(info.plugins.is_empty());
           assert_eq!(info.reason, Some(NotFormattedReason::ProcessPluginsNotAllowed));
-          assert!(info.message.unwrap().contains(") weren't allowed to run."));
-          // only a format asks because the editor makes the other requests without the user doing anything
-          tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-          assert!(client.take_message_requests().is_empty());
           assert_eq!(
-            client.format("/a/file.txt_ps", "text", None).await.unwrap(),
-            not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
+            info.remote_plugins.iter().map(|plugin| (plugin.kind, plugin.installed)).collect::<Vec<_>>(),
+            vec![(RemotePluginKind::Wasm, false), (RemotePluginKind::Process, false)]
           );
-          let requests = client.wait_for_message_requests(1).await;
+          assert!(client.take_message_requests().is_empty());
+
+          // installing asks first because setting up a process plugin runs it
+          client.set_message_request_answer(Some("Deny"));
+          client.install_plugins("/a/file.txt").await.unwrap();
+          let requests = client.take_message_requests();
           assert_eq!(requests.len(), 1);
           assert_eq!(requests[0].kind, MessageKind::Warning);
           assert!(requests[0].message.contains(") weren't allowed to run."), "{}", requests[0].message);
@@ -2477,16 +2476,43 @@ mod test {
             requests[0].actions,
             vec![action("Allow"), action("Always Allow"), action("Deny"), action("Always Deny")]
           );
-          client.take_message_requests();
+          // only the wasm plugin was installed
+          let progress_titles = |client: &Client| {
+            client
+              .take_progress()
+              .into_iter()
+              .filter_map(|progress| match progress {
+                ProgressMessage::Begin { title, .. } => Some(title),
+                _ => None,
+              })
+              .collect::<Vec<_>>()
+          };
+          assert_eq!(progress_titles(&client), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
+          // a format asks again because the plugin isn't set up, so what was denied isn't known
           assert_eq!(
             client.format("/a/file.txt_ps", "text", None).await.unwrap(),
             not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
           );
-          assert!(client.take_message_requests().is_empty());
-          // the plugins aren't set up until they're allowed
-          assert!(client.take_progress().is_empty());
+          assert_eq!(client.wait_for_message_requests(1).await.len(), 1);
 
-          // asks again once the configuration changes, then uses the process plugin once allowed
+          // the editor asks to install them again, which asks again
+          client.set_message_request_answer(Some("Always Allow"));
+          client.install_plugins("/a/file.txt").await.unwrap();
+          assert_eq!(client.take_message_requests().len(), 1);
+          // it's remembered with its configuration once it's set up
+          let decisions = crate::configuration::read_editor_state(&environment).process_plugin_decisions;
+          assert_eq!(decisions.len(), 1);
+          assert!(decisions[0].allowed);
+          assert!(decisions[0].approval.plugin.starts_with("https://plugins.dprint.dev/test-process.json@"));
+          assert_eq!(progress_titles(&client), vec!["Extracting zip for test-process-plugin"]);
+          // the editor is told that the config file formats files now
+          assert_eq!(client.take_config_changes(), vec![ConfigChangedMessage { uri: uri("/a/dprint.json") }]);
+          assert_eq!(
+            client.format("/a/file.txt_ps", "text", None).await.unwrap(),
+            formatted("text_formatted_process")
+          );
+
+          // a format asks again once the plugin's configuration changes, which is only once per session
           environment
             .write_file(
               "/a/dprint.json",
@@ -2496,42 +2522,25 @@ mod test {
                 .replacen('{', r#"{ "testProcessPlugin": { "ending": "allowed" }, "#, 1),
             )
             .unwrap();
-          client.set_message_request_answer(Some("Allow"));
+          client.set_message_request_answer(None);
+          assert_eq!(
+            client.format("/a/file.txt_ps", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
+          );
+          let requests = client.wait_for_message_requests(1).await;
+          assert_eq!(requests.len(), 1);
+          assert!(requests[0].message.contains("changed since they were allowed."), "{}", requests[0].message);
           client.format("/a/file.txt_ps", "text", None).await.unwrap();
-          assert_eq!(client.wait_for_message_requests(1).await.len(), 1);
-          // the decision is stored after the response is received
-          let mut outcome = None;
-          for _ in 0..100 {
-            outcome = Some(client.format("/a/file.txt_ps", "text", None).await.unwrap());
-            if outcome == Some(formatted("text_allowed")) {
-              break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-          }
-          assert_eq!(outcome, Some(formatted("text_allowed")));
-          let titles = client
-            .take_progress()
-            .into_iter()
-            .filter_map(|progress| match progress {
-              ProgressMessage::Begin { title, .. } => Some(title),
-              _ => None,
-            })
-            .collect::<Vec<_>>();
-          assert_eq!(
-            titles,
-            vec![
-              "Compiling https://plugins.dprint.dev/test-plugin.wasm",
-              "Extracting zip for test-process-plugin"
-            ]
-          );
-          // the editor is told that the config file changed and that it formats files once allowed
-          assert_eq!(
-            client.take_config_changes(),
-            vec![
-              ConfigChangedMessage { uri: uri("/a/dprint.json") },
-              ConfigChangedMessage { uri: uri("/a/dprint.json") }
-            ]
-          );
+          tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+          assert!(client.take_message_requests().is_empty());
+          // not choosing an action leaves it undecided, so installing asks again
+          client.set_message_request_answer(Some("Allow"));
+          client.install_plugins("/a/file.txt").await.unwrap();
+          assert_eq!(client.take_message_requests().len(), 1);
+          assert_eq!(client.format("/a/file.txt_ps", "text", None).await.unwrap(), formatted("text_allowed"));
+          // there's nothing to ask about once they're allowed
+          client.install_plugins("/a/file.txt").await.unwrap();
+          assert!(client.take_message_requests().is_empty());
         }
         .boxed_local()
       }
@@ -2541,9 +2550,13 @@ mod test {
   }
 
   #[test]
-  fn should_ask_to_allow_process_plugins_again_when_the_editor_asks() {
+  fn should_allow_process_plugins_that_are_installed_when_a_format_asks() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_process_plugin()
+      // installs the process plugin, which doesn't allow it in editors
+      .with_default_config(|c| {
+        c.add_remote_process_plugin();
+      })
       .with_local_config("/a/dprint.json", |c| {
         c.add_remote_process_plugin();
       })
@@ -2553,51 +2566,30 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
-        // the user closes the message without choosing an action, which leaves it undecided
-        client.set_message_request_answer(None);
+        client.set_message_request_answer(Some("Allow"));
         assert_eq!(
           client.format("/a/file.txt_ps", "text", None).await.unwrap(),
           not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
         );
         assert_eq!(client.wait_for_message_requests(1).await.len(), 1);
-        // a format only asks once per session
-        assert_eq!(
-          client.format("/a/file.txt_ps", "text", None).await.unwrap(),
-          not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(client.take_message_requests().is_empty());
-
-        // the editor asks again (ex. for a command), which responds once the user chose
-        client.set_message_request_answer(Some("Allow"));
-        let message = AskToAllowProcessPluginsMessage {
-          uri: uri("/a/dprint.json"),
-          allow_global_config: false,
-        };
-        let response = client
-          .request(EditorMessageBody::AskToAllowProcessPlugins(serde_json::to_vec(&message).unwrap()))
-          .await
-          .unwrap();
-        assert!(matches!(response, EditorMessageBody::Success(_)), "{response:?}");
-        assert_eq!(client.take_message_requests().len(), 1);
+        // the decision is stored after the response is received
+        let mut outcome = None;
+        for _ in 0..100 {
+          outcome = Some(client.format("/a/file.txt_ps", "text", None).await.unwrap());
+          if outcome == Some(formatted("text_formatted_process")) {
+            break;
+          }
+          tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(outcome, Some(formatted("text_formatted_process")));
         assert_eq!(client.take_config_changes(), vec![ConfigChangedMessage { uri: uri("/a/dprint.json") }]);
-        assert_eq!(
-          client.format("/a/file.txt_ps", "text", None).await.unwrap(),
-          formatted("text_formatted_process")
-        );
-        // there's nothing to ask about once they're allowed
-        client
-          .request(EditorMessageBody::AskToAllowProcessPlugins(serde_json::to_vec(&message).unwrap()))
-          .await
-          .unwrap();
-        assert!(client.take_message_requests().is_empty());
       }
       .boxed_local()
     });
   }
 
   #[test]
-  fn should_say_when_process_plugins_were_allowed_outside_the_editor() {
+  fn should_say_when_process_plugins_were_allowed_by_running_dprint() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_process_plugin()
       .with_local_config("/a/dprint.json", |c| {
@@ -2613,10 +2605,20 @@ mod test {
         async move {
           let info = client.file_info(file_info("/a/file.txt_ps")).await.unwrap();
           assert_eq!(info.reason, Some(NotFormattedReason::ProcessPluginsNotAllowed));
-          // ex. `dprint config editor-approve`
-          let args = ["", "config", "editor-approve", "--config", "/a/dprint.json"].map(String::from).to_vec();
+          // what `dprint config install` or `dprint fmt` does in the directory of the config file
+          let args = ["", "config", "install", "--config", "/a/dprint.json"].map(String::from).to_vec();
           let args = crate::arg_parser::parse_args(args, crate::utils::TestStdInReader::default()).unwrap();
-          crate::commands::editor_approve(&args, &environment).await.unwrap();
+          let config = crate::configuration::resolve_config_from_args(&args, &environment).await.unwrap();
+          let plugin_resolver = Rc::new(crate::plugins::PluginResolver::new(
+            environment.clone(),
+            crate::plugins::PluginCache::new(environment.clone()),
+            Default::default(),
+          ));
+          plugin_resolver.resolve_plugins(config.plugins.clone()).await.unwrap();
+          crate::commands::process_plugin_approval::allow_process_plugins_in_editors(&environment, &config, &plugin_resolver)
+            .await
+            .unwrap();
+          plugin_resolver.clear_and_shutdown_initialized().await;
           let info = client.file_info(file_info("/a/file.txt_ps")).await.unwrap();
           assert!(info.can_format);
           assert_eq!(client.take_config_changes(), vec![ConfigChangedMessage { uri: uri("/a/dprint.json") }]);

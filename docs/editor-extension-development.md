@@ -590,9 +590,11 @@ interface MessageAction {
 
 Response: Show message request response once the user responds, which may be a long time later. An Error response is the same as the user not choosing an action.
 
-Among other things, this asks the user whether to allow running the process plugins of a configuration file. Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start them until the user chooses "Allow" or "Always Allow". Opening a project isn't the same as choosing to run dprint in it. Until then, nothing is formatted with the configuration file, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The requests that use it respond with the `processPluginsNotAllowed` reason. The user is only asked when a document is formatted because the editor makes the other requests without the user doing anything (ex. when a project is opened), so keep being the formatter of the documents of a configuration file with that reason. The user can also allow them by running `dprint config editor-approve` in the directory of the configuration file.
+Among other things, this asks the user whether to allow running the process plugins of a configuration file. Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start them until the user chooses "Allow" or "Always Allow". Opening a project isn't the same as choosing to run dprint in it. Until then, nothing is formatted with the configuration file, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The requests that use it respond with the `processPluginsNotAllowed` reason.
 
-The user is asked once per session for each configuration file. Not choosing an action (ex. closing the message) leaves it undecided, so send the ask to allow process plugins message to ask again when the user wants to (ex. for a command or a status bar item shown for a configuration file with the `processPluginsNotAllowed` reason).
+What's allowed is each process plugin with its configuration in the configuration file, so the user is asked again when either changes (ex. the commands of dprint-plugin-exec). Running dprint with the configuration file (`dprint fmt` or `dprint config install` in its directory) allows them too.
+
+The user is asked when the install plugins message installs a process plugin or when a document is formatted with a configuration file whose installed process plugins weren't allowed, which is once per session for each configuration file because a format usually happens without the user doing anything (ex. on save). Keep being the formatter of the documents of a configuration file with the `processPluginsNotAllowed` reason so that they're asked. Not choosing an action (ex. closing the message) leaves it undecided, so send the install plugins message to ask again when the user wants to (ex. for a command or a status bar item).
 
 #### `15` - Show message request response (Client to Service)
 
@@ -744,7 +746,7 @@ Response: Success response once the plugins were stopped
 
 #### `23` - Install plugins (Client to Service)
 
-Downloads and sets up the plugins of the configuration file that's used for a document that aren't installed, along with the configuration files it extends (see "Installing plugins"), which the progress messages show. It first asks the user with a show message request whether to download what's on a domain that isn't trusted. What isn't allowed isn't downloaded.
+Downloads and sets up the plugins of the configuration file that's used for a document that aren't installed, along with the configuration files it extends (see "Installing plugins"), which the progress messages show. It first asks the user with a show message request whether to download what's on a domain that isn't trusted, which isn't downloaded unless they allow it. Then it asks the user to allow the process plugins that weren't, even when they were asked before this session, unless they denied them. A process plugin that isn't allowed isn't installed because setting it up runs it.
 
 Message body:
 
@@ -760,22 +762,3 @@ interface InstallPluginsData {
 ```
 
 Response: Success response once they're installed (a configuration changed message is sent before it when the configuration file formats files now), an Error response (ex. a plugin failed to download), or no response once it's cancelled
-
-#### `24` - Ask to allow process plugins (Client to Service)
-
-Asks the user whether to allow running the process plugins of the configuration file that's used for a document (see the show message request), even when they were asked before or denied them for the session. It's not asked when they're already allowed.
-
-Message body:
-
-- u32 - Data byte length
-- JSON data:
-
-```ts
-interface AskToAllowProcessPluginsData {
-  /** A document the configuration file is used for, which may be the configuration file itself. */
-  uri: string;
-  allowGlobalConfig?: boolean;
-}
-```
-
-Response: Success response once the user responded, which may be a long time later, or an Error response. A configuration changed message is sent before it when they were allowed.

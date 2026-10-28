@@ -365,9 +365,6 @@ pub enum ConfigSubCommand {
   /// Download and set up the plugins in the configuration file.
   Install(InstallSubCommand),
   Edit,
-  /// Allow editors to format with the configuration file, which is needed when
-  /// it has process plugins.
-  EditorApprove,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -671,7 +668,6 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         is_global_config = matches.get_flag("global");
         ConfigSubCommand::Edit
       }
-      ("editor-approve", _) => ConfigSubCommand::EditorApprove,
       _ => unreachable!(),
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
@@ -1226,10 +1222,6 @@ EXAMPLES:
                 .num_args(0)
                 .required(false)
             )
-        )
-        .subcommand(
-          Command::new("editor-approve")
-            .about("Allows editors to run the process plugins of the configuration file, and so format with it, until its configuration changes.")
         )
     )
     .subcommand(

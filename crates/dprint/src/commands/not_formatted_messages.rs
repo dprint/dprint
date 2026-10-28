@@ -10,6 +10,6 @@ pub const RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE: &str =
   "dprint did not format the selection because a plugin that formats this document doesn't support formatting part of it.";
 pub const PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE: &str = concat!(
   "dprint did not format this document because the process plugins of the configuration file in use weren't allowed to run. ",
-  "Allow them when asked or by running `dprint config editor-approve` in the directory of the configuration file."
+  "Allow them when asked or by running `dprint fmt` or `dprint config install` in the directory of the configuration file."
 );
 pub const NO_CELL_PLUGIN_MESSAGE: &str = "dprint did not format this notebook cell. A cell is only formatted when the plugins in the configuration file in use handle both the notebook file (ex. the jupyter plugin) and the cell's language.";

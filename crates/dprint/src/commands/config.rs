@@ -20,6 +20,7 @@ use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::InstallSubCommand;
 use crate::arg_parser::OutputResolvedConfigSubCommand;
 use crate::cache::RemoteCacheMode;
+use crate::commands::process_plugin_approval::allow_process_plugins_in_editors_or_warn;
 use crate::configuration::GetInitConfigFileTextOptions;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
@@ -45,7 +46,6 @@ use crate::plugins::resolve_npm_latest_version;
 use crate::resolution::GetPluginResult;
 use crate::resolution::ResolvePluginsError;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
-use crate::resolution::get_process_plugins_to_approve;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::CachedDownloader;
@@ -332,29 +332,6 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
     bail!("Editor exited with code: {}", exit_code);
   }
 
-  Ok(())
-}
-
-/// Allows the process plugins of the config file to run in editors until its
-/// configuration changes, which is for editors that can't ask whether to and
-/// for allowing them after they were denied.
-pub async fn editor_approve(args: &CliArgs, environment: &impl Environment) -> Result<()> {
-  let config = resolve_config_from_args(args, environment).await?;
-  let Some(process_plugins) = get_process_plugins_to_approve(&config, environment) else {
-    if config.is_global {
-      log_stderr_info!(environment, "The process plugins of the global configuration file are always allowed.");
-    } else {
-      log_stderr_info!(environment, "{} has no process plugins.", config.source.display());
-    }
-    return Ok(());
-  };
-  store_process_plugin_decision(environment, ProcessPluginDecision::new(environment, process_plugins.approval.clone(), true)).await?;
-  log_stderr_info!(
-    environment,
-    "Allowed the process plugins of {} ({}) to run in editors until its configuration changes.",
-    process_plugins.approval.config_file,
-    process_plugins.plugins.join(", "),
-  );
   Ok(())
 }
 
@@ -1026,6 +1003,11 @@ pub async fn install_plugins<TEnvironment: Environment>(
       ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
     )
     .await?;
+    if args.plugins.is_empty() {
+      for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
+        allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
+      }
+    }
     scopes
       .iter()
       .flat_map(|scope| scope.scope.plugins.values())
@@ -1034,7 +1016,15 @@ pub async fn install_plugins<TEnvironment: Environment>(
   } else {
     // only resolve the plugins, as there's no need to start them up
     let config = resolve_config_from_args(args, environment).await?;
-    plugin_resolver.resolve_plugins(config.plugins).await.map_err(ResolvePluginsError::from)?
+    let plugins = plugin_resolver
+      .resolve_plugins(config.plugins.clone())
+      .await
+      .map_err(ResolvePluginsError::from)?;
+    // the plugins provided as arguments aren't the config file's
+    if args.plugins.is_empty() {
+      allow_process_plugins_in_editors_or_warn(environment, &config, plugin_resolver).await;
+    }
+    plugins
   };
 
   let mut seen_plugins = HashSet::new();
@@ -4435,53 +4425,59 @@ text",
   }
 
   #[test]
-  fn config_editor_approve_should_do_nothing_without_process_plugins() {
+  fn should_allow_process_plugins_in_editors_when_installing() {
     let environment = TestEnvironmentBuilder::new()
-      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
       .with_default_config(|config| {
-        config.add_remote_wasm_plugin();
+        config.add_remote_process_plugin();
       })
-      .build();
-
-    run_test_cli(vec!["config", "editor-approve"], &environment).unwrap();
-
-    assert_eq!(environment.take_stderr_messages(), vec!["/dprint.json has no process plugins."]);
-    assert!(!environment.path_exists(get_editor_state_file_path(&environment)));
-  }
-
-  #[test]
-  fn config_editor_approve_should_need_approving_again_when_node_modules_plugin_changes() {
-    // an npm plugin without a version is resolved from node_modules, which can
-    // change without the config file changing (ex. when updating the package)
-    let environment = TestEnvironmentBuilder::new()
-      .with_default_config(|config| {
-        config.add_plugin("npm:test-process/plugin.json");
-      })
-      .write_file("/node_modules/test-process/plugin.json", "1")
       .build();
     let get_approvals = || {
       crate::configuration::read_editor_state(&environment)
         .process_plugin_decisions
         .into_iter()
+        .filter(|decision| decision.allowed)
         .map(|decision| decision.approval)
         .collect::<Vec<_>>()
     };
 
-    run_test_cli(vec!["config", "editor-approve"], &environment).unwrap();
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Allowed the process plugins of /dprint.json (npm:test-process/plugin.json) to run in editors until its configuration changes."]
-    );
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
     let approvals = get_approvals();
     assert_eq!(approvals.len(), 1);
+    assert_eq!(approvals[0].config_file, "/dprint.json");
+    assert!(
+      approvals[0].plugin.starts_with("https://plugins.dprint.dev/test-process.json@"),
+      "{}",
+      approvals[0].plugin
+    );
 
-    environment.write_file("/node_modules/test-process/plugin.json", "2").unwrap();
-    run_test_cli(vec!["config", "editor-approve"], &environment).unwrap();
-    environment.take_stderr_messages();
+    // the plugin is allowed with its configuration
+    environment
+      .write_file(
+        "/dprint.json",
+        &environment
+          .read_file("/dprint.json")
+          .unwrap()
+          .replacen('{', r#"{ "testProcessPlugin": { "ending": "custom" }, "#, 1),
+      )
+      .unwrap();
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
     let new_approvals = get_approvals();
     assert_eq!(new_approvals.len(), 1);
-    assert_eq!(new_approvals[0].config_file, approvals[0].config_file);
+    assert_eq!(new_approvals[0].plugin, approvals[0].plugin);
     assert_ne!(new_approvals[0].config_hash, approvals[0].config_hash);
+
+    // the global configuration isn't part of it
+    environment
+      .write_file(
+        "/dprint.json",
+        &environment.read_file("/dprint.json").unwrap().replacen('{', r#"{ "lineWidth": 10, "#, 1),
+      )
+      .unwrap();
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
+    assert_eq!(get_approvals(), new_approvals);
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
   }
 
   fn test_plugin_resolver(environment: &TestEnvironment) -> std::rc::Rc<crate::plugins::PluginResolver<TestEnvironment>> {

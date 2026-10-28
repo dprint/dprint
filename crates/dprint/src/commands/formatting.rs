@@ -22,6 +22,7 @@ use crate::arg_parser::FmtSubCommand;
 use crate::arg_parser::LineRange;
 use crate::arg_parser::OutputFormatTimesSubCommand;
 use crate::arg_parser::StdInFmtSubCommand;
+use crate::commands::process_plugin_approval::allow_process_plugins_in_editors_or_warn;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -422,6 +423,12 @@ pub async fn format<TEnvironment: Environment>(
   )
   .await?;
   scopes.ensure_valid_for_cli_args(args)?;
+  // running dprint with a config file is the same as choosing to run its process plugins
+  if args.plugins.is_empty() {
+    for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
+      allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
+    }
+  }
 
   let line_ranges = Rc::new(resolve_line_ranges_by_path(&cmd.line_ranges, &scopes, environment)?);
 
@@ -869,6 +876,23 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2");
+  }
+
+  #[test]
+  fn should_allow_the_process_plugins_of_the_config_file_in_editors() {
+    // running dprint with a config file is the same as choosing to run its process plugins
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file("/file.txt_ps", "text")
+      .build();
+    assert!(crate::configuration::read_editor_state(&environment).process_plugin_decisions.is_empty());
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    let decisions = crate::configuration::read_editor_state(&environment).process_plugin_decisions;
+    assert_eq!(decisions.len(), 1);
+    assert!(decisions[0].allowed);
+    assert_eq!(decisions[0].approval.config_file, "/dprint.json");
+    assert!(decisions[0].approval.plugin.starts_with("https://plugins.dprint.dev/test-process.json@"));
   }
 
   #[test]

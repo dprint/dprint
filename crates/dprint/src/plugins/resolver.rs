@@ -153,8 +153,21 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
   /// Whether the plugin can be used without downloading it (see
   /// `PluginCache::is_installed`).
   pub fn is_installed(&self, plugin_reference: &PluginSourceReference) -> bool {
-    let is_resolved = self.memory_cache.borrow().get(plugin_reference).is_some_and(|cell| cell.initialized());
-    is_resolved || self.plugin_cache.is_installed(plugin_reference)
+    self.get_resolved_plugin_info(plugin_reference).is_some() || self.plugin_cache.is_installed(plugin_reference)
+  }
+
+  /// Gets the information of the plugin when it's set up, which doesn't set
+  /// it up (ex. a process plugin is run to get its information).
+  pub fn get_set_up_plugin_info(&self, plugin_reference: &PluginSourceReference) -> Option<PluginInfo> {
+    self
+      .get_resolved_plugin_info(plugin_reference)
+      .or_else(|| self.plugin_cache.get_set_up_plugin_info(plugin_reference))
+  }
+
+  fn get_resolved_plugin_info(&self, plugin_reference: &PluginSourceReference) -> Option<PluginInfo> {
+    let memory_cache = self.memory_cache.borrow();
+    let plugin = memory_cache.get(plugin_reference)?.get()?;
+    Some(plugin.info().clone())
   }
 
   /// Gets the url the plugin is downloaded from (see `PluginCache::get_download_url`).

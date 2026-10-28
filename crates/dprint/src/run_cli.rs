@@ -183,7 +183,6 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
         .await
       }
       ConfigSubCommand::Edit => commands::edit_config_file(args, environment).await,
-      ConfigSubCommand::EditorApprove => commands::editor_approve(args, environment).await,
     },
     SubCommand::Version => commands::output_version(environment),
     SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, plugin_resolver).await,
