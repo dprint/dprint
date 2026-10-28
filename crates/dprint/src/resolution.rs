@@ -1267,10 +1267,10 @@ impl UnapprovedProcessPlugins {
   /// Gets whether the user denied running each of the process plugins, which
   /// means they shouldn't be asked about them.
   pub fn is_denied(&self, permissions: &Permissions) -> bool {
-    self
-      .plugins
-      .iter()
-      .all(|plugin| plugin.approval.as_ref().is_some_and(|approval| permissions.is_process_plugin_denied(approval)))
+    self.plugins.iter().all(|plugin| match &plugin.approval {
+      Some(approval) => permissions.is_process_plugin_denied(approval),
+      None => permissions.is_process_plugin_denied(&ProcessPluginApproval::any_config(self.config_file.clone(), plugin.plugin.clone())),
+    })
   }
 
   /// Gets the message that says dprint isn't formatting with the config file
@@ -1507,7 +1507,7 @@ fn get_process_plugin_approval(
   ProcessPluginApproval {
     config_file: config.source.display(),
     plugin: plugin.to_full_string(),
-    config_hash: get_sha256_checksum(text.as_bytes()),
+    config_hash: Some(get_sha256_checksum(text.as_bytes())),
   }
 }
 

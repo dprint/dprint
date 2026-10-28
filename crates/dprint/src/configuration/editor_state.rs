@@ -74,7 +74,23 @@ pub struct ProcessPluginApproval {
   /// The SHA-256 checksum of the plugin's configuration in the config file,
   /// so a change to it (ex. the commands of dprint-plugin-exec) needs to be
   /// decided on again.
-  pub config_hash: String,
+  ///
+  /// It's `None` for the plugin with any configuration, which is only for
+  /// denying it because its configuration isn't known until it's set up.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub config_hash: Option<String>,
+}
+
+impl ProcessPluginApproval {
+  /// Creates what denying the process plugin of the config file with any
+  /// configuration is decided on.
+  pub fn any_config(config_file: String, plugin: String) -> Self {
+    Self {
+      config_file,
+      plugin,
+      config_hash: None,
+    }
+  }
 }
 
 /// Whether the user allowed or denied running a process plugin of a config
@@ -144,8 +160,9 @@ impl Permissions {
         .any(|grant| grant.config_file == config_file && grant.plugin == plugin)
   }
 
-  /// Gets whether the user denied running the process plugins, which means
-  /// they shouldn't be asked about them.
+  /// Gets whether the user denied running the process plugin, which means
+  /// they shouldn't be asked about it. Denying it with any configuration
+  /// denies it with each one.
   pub fn is_process_plugin_denied(&self, approval: &ProcessPluginApproval) -> bool {
     self.get_decision(approval) == Some(false)
   }
@@ -170,7 +187,12 @@ impl Permissions {
     self
       .process_plugin_decisions
       .iter()
-      .filter(|decision| decision.approval == *approval)
+      .filter(|decision| {
+        decision.approval.config_file == approval.config_file
+          && decision.approval.plugin == approval.plugin
+          // IMPORTANT: Only allow it with the configuration that was allowed.
+          && (decision.approval.config_hash == approval.config_hash || (decision.approval.config_hash.is_none() && !decision.allowed))
+      })
       // the last one wins a tie, which is the one for the session
       .max_by_key(|decision| decision.decided_at)
       .map(|decision| decision.allowed)
@@ -315,7 +337,7 @@ mod test {
     ProcessPluginApproval {
       config_file: config_file.to_string(),
       plugin: "https://plugins.dprint.dev/plugin.json@checksum".to_string(),
-      config_hash: config_hash.to_string(),
+      config_hash: Some(config_hash.to_string()),
     }
   }
 
@@ -403,6 +425,42 @@ mod test {
     assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
     stored(true, 1);
     assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_denied(&approval("/a/dprint.json", "1")));
+  }
+
+  #[test]
+  fn should_deny_a_process_plugin_with_any_config() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let any_config = |config_file: &str, allowed| ProcessPluginDecision {
+      approval: ProcessPluginApproval::any_config(config_file.to_string(), approval(config_file, "1").plugin),
+      allowed,
+      decided_at: 1,
+    };
+    update_editor_state_without_lock(&environment, |state| state.add_process_plugin_decision(any_config("/a/dprint.json", false))).unwrap();
+    // it's stored without a config hash
+    let text = environment.read_file(get_editor_state_file_path(&environment)).unwrap();
+    assert!(!text.contains("configHash"), "{}", text);
+    assert_eq!(
+      read_editor_state(&environment).process_plugin_decisions,
+      vec![any_config("/a/dprint.json", false)]
+    );
+
+    let permissions = read_permissions(&environment, &[any_config("/b/dprint.json", true)]);
+    let a_approval = ProcessPluginApproval::any_config("/a/dprint.json".to_string(), approval("/a/dprint.json", "1").plugin);
+    assert!(permissions.is_process_plugin_denied(&a_approval));
+    // it's denied with each configuration
+    assert!(permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    // IMPORTANT: allowing it with any configuration doesn't allow it
+    assert!(!permissions.is_process_plugin_allowed(&approval("/b/dprint.json", "1")));
+    // allowing it with its configuration afterwards wins (ex. running `dprint fmt`)
+    let allowed = ProcessPluginDecision {
+      decided_at: 2,
+      ..decision("/a/dprint.json", "1", true)
+    };
+    let permissions = read_permissions(&environment, &[allowed]);
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "2")));
   }
 
   #[test]

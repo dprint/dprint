@@ -72,10 +72,10 @@ use crate::resolution::GetPluginResult;
 use crate::resolution::PluginConfigDiagnosticsError;
 use crate::resolution::PluginsScope;
 use crate::resolution::RangeFormattingSupport;
+use crate::resolution::UnapprovedProcessPlugins;
 use crate::utils::CANCEL_DOWNLOAD_ACTION_TITLE;
 use crate::utils::DOWNLOAD_ACTION_TITLE;
 use crate::utils::DownloadPolicy;
-use crate::resolution::UnapprovedProcessPlugins;
 use crate::utils::LogLevel;
 use crate::utils::OutputSink;
 use crate::utils::PathSource;
@@ -2443,6 +2443,16 @@ mod test {
       })
       .build(); // not initialized, so the plugins aren't installed
     disallow_process_plugins(&environment);
+    fn progress_titles(client: &Client) -> Vec<String> {
+      client
+        .take_progress()
+        .into_iter()
+        .filter_map(|progress| match progress {
+          ProgressMessage::Begin { title, .. } => Some(title),
+          _ => None,
+        })
+        .collect()
+    }
 
     run_session(&environment, &[], {
       let environment = environment.clone();
@@ -2465,8 +2475,9 @@ mod test {
           );
           assert!(client.take_message_requests().is_empty());
 
-          // installing asks first because setting up a process plugin runs it
-          client.set_message_request_answer(Some("Deny"));
+          // installing asks first because setting up a process plugin runs it,
+          // where not choosing an action leaves it undecided
+          client.set_message_request_answer(None);
           client.install_plugins("/a/file.txt").await.unwrap();
           let requests = client.take_message_requests();
           assert_eq!(requests.len(), 1);
@@ -2477,23 +2488,12 @@ mod test {
             vec![action("Allow"), action("Always Allow"), action("Deny"), action("Always Deny")]
           );
           // only the wasm plugin was installed
-          let progress_titles = |client: &Client| {
-            client
-              .take_progress()
-              .into_iter()
-              .filter_map(|progress| match progress {
-                ProgressMessage::Begin { title, .. } => Some(title),
-                _ => None,
-              })
-              .collect::<Vec<_>>()
-          };
           assert_eq!(progress_titles(&client), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
-          // a format asks again because the plugin isn't set up, so what was denied isn't known
           assert_eq!(
             client.format("/a/file.txt_ps", "text", None).await.unwrap(),
             not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
           );
-          assert_eq!(client.wait_for_message_requests(1).await.len(), 1);
+          client.wait_for_message_requests(1).await;
 
           // the editor asks to install them again, which asks again
           client.set_message_request_answer(Some("Always Allow"));
@@ -2547,6 +2547,54 @@ mod test {
     });
     // what's logged goes to the editor instead
     assert!(environment.take_stderr_messages().is_empty());
+  }
+
+  #[test]
+  fn should_not_ask_again_after_denying_a_process_plugin_that_is_not_set_up() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_remote_process_plugin();
+      })
+      .build(); // not initialized, so the plugin isn't set up
+    disallow_process_plugins(&environment);
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          client.set_message_request_answer(Some("Always Deny"));
+          assert_eq!(
+            client.format("/a/file.txt_ps", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
+          );
+          assert_eq!(client.wait_for_message_requests(1).await.len(), 1);
+          // its configuration isn't known, so it's denied with any configuration
+          let mut decisions = Vec::new();
+          for _ in 0..100 {
+            decisions = crate::configuration::read_editor_state(&environment).process_plugin_decisions;
+            if !decisions.is_empty() {
+              break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+          }
+          assert_eq!(decisions.len(), 1);
+          assert!(!decisions[0].allowed);
+          assert_eq!(decisions[0].approval.config_hash, None);
+          // installing doesn't ask either and doesn't set it up
+          client.install_plugins("/a/file.txt").await.unwrap();
+          assert!(client.take_message_requests().is_empty());
+          assert!(client.take_progress().is_empty());
+          assert_eq!(
+            client.format("/a/file.txt_ps", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
+          );
+          tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+          assert!(client.take_message_requests().is_empty());
+        }
+        .boxed_local()
+      }
+    });
   }
 
   #[test]

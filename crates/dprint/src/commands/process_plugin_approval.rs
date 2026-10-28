@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use crate::configuration::ProcessPluginApproval;
 use crate::configuration::ProcessPluginDecision;
 use crate::configuration::ProcessPluginSetUpGrant;
 use crate::configuration::ResolvedConfig;
@@ -23,8 +24,8 @@ pub const PROCESS_PLUGIN_ACTION_TITLES: [&str; 4] = [ALLOW_ACTION_TITLE, ALWAYS_
 ///
 /// A plugin that isn't set up is only allowed to be set up because its
 /// configuration isn't known until then. It's allowed with its configuration
-/// once it's set up (see `record_set_up_process_plugins`), and denying it is
-/// only for the session.
+/// once it's set up (see `record_set_up_process_plugins`), and denying it
+/// denies it with any configuration.
 ///
 /// The decision is used for the session even when storing it fails.
 pub async fn store_process_plugin_action<TEnvironment: Environment>(
@@ -42,17 +43,19 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
   let always = matches!(action_title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE));
   let mut result = Ok(());
   for plugin in &unapproved.plugins {
-    let Some(approval) = &plugin.approval else {
-      if allowed {
+    let approval = match &plugin.approval {
+      Some(approval) => approval.clone(),
+      None if allowed => {
         session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant {
           config_file: unapproved.config_file.clone(),
           plugin: plugin.plugin.clone(),
           always,
         });
+        continue;
       }
-      continue;
+      None => ProcessPluginApproval::any_config(unapproved.config_file.clone(), plugin.plugin.clone()),
     };
-    let decision = ProcessPluginDecision::new(environment, approval.clone(), allowed);
+    let decision = ProcessPluginDecision::new(environment, approval, allowed);
     session_permissions.add_process_plugin_decision(decision.clone());
     if always && let Err(err) = store_process_plugin_decision(environment, decision).await {
       result = Err(err);
@@ -155,7 +158,6 @@ const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 #[cfg(test)]
 mod test {
   use super::*;
-  use crate::configuration::ProcessPluginApproval;
   use crate::configuration::get_editor_state_file_path;
   use crate::configuration::get_settings_file_path;
   use crate::environment::TestEnvironment;
@@ -167,7 +169,7 @@ mod test {
     ProcessPluginApproval {
       config_file: "/dprint.json".to_string(),
       plugin: PLUGIN.to_string(),
-      config_hash: "1".to_string(),
+      config_hash: Some("1".to_string()),
     }
   }
 
@@ -223,6 +225,33 @@ mod test {
       // its configuration isn't known yet, so nothing is stored
       assert!(!permissions.is_process_plugin_allowed(&approval()));
       assert!(read_editor_state(&environment).process_plugin_decisions.is_empty());
+    });
+  }
+
+  #[test]
+  fn should_deny_a_plugin_that_is_not_set_up_with_any_config() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let session_permissions = SessionPermissions::default();
+
+    environment.clone().run_in_runtime(async move {
+      let not_set_up = unapproved(None);
+      store_process_plugin_action(&environment, &session_permissions, &not_set_up, Some(DENY_ACTION_TITLE))
+        .await
+        .unwrap();
+      assert!(not_set_up.is_denied(&session_permissions.read(&environment)));
+      // denying it for the session isn't stored
+      assert!(read_editor_state(&environment).process_plugin_decisions.is_empty());
+      assert!(!not_set_up.is_denied(&SessionPermissions::default().read(&environment)));
+
+      store_process_plugin_action(&environment, &session_permissions, &not_set_up, Some(ALWAYS_DENY_ACTION_TITLE))
+        .await
+        .unwrap();
+      let permissions = SessionPermissions::default().read(&environment);
+      assert!(not_set_up.is_denied(&permissions));
+      // it stays denied once it's set up because what was denied is the plugin
+      assert!(unapproved(Some(approval())).is_denied(&permissions));
+      assert!(!permissions.may_set_up_process_plugin("/dprint.json", PLUGIN));
     });
   }
 
