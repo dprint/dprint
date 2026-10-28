@@ -590,7 +590,7 @@ interface MessageAction {
 
 Response: Show message request response once the user responds, which may be a long time later. An Error response is the same as the user not choosing an action.
 
-Among other things, this asks the user whether to allow running the process plugins of a configuration file. Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start them until the user chooses "Allow" or "Always Allow". Opening a project isn't the same as choosing to run dprint in it. Until then, nothing is formatted with the configuration file, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The requests that use it respond with the `processPluginsNotAllowed` reason. The user can also allow them by running `dprint config editor-approve` in the directory of the configuration file.
+Among other things, this asks the user whether to allow running the process plugins of a configuration file. Process plugins aren't sandboxed, so when the user requires approving them (`editor.allowProcessPlugins` is `false` in the `settings.json` file of the global configuration directory), the editor service doesn't set up or start them until the user chooses "Allow" or "Always Allow". Opening a project isn't the same as choosing to run dprint in it. Until then, nothing is formatted with the configuration file, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The requests that use it respond with the `processPluginsNotAllowed` reason. The user is only asked when a document is formatted because the editor makes the other requests without the user doing anything (ex. when a project is opened), so keep being the formatter of the documents of a configuration file with that reason. The user can also allow them by running `dprint config editor-approve` in the directory of the configuration file.
 
 #### `15` - Show message request response (Client to Service)
 
@@ -716,7 +716,7 @@ Response: None
 
 #### `21` - Configuration changed (Service to Client)
 
-What a configuration file formats may have changed in a way the editor can't see (ex. a configuration file that it extends changed, its plugins were installed, or the user allowed its process plugins). Send the file info, configuration info, and configuration schema messages again for the documents that use it (ex. to update which documents the editor formats with dprint and the schema of its plugins).
+What a configuration file formats may have changed in a way the editor can't see (ex. a configuration file that it extends changed, its plugins were installed, or its process plugins were allowed, including outside the editor). Send the file info, configuration info, and configuration schema messages again for the documents that use it (ex. to update which documents the editor formats with dprint and the schema of its plugins).
 
 Message body:
 

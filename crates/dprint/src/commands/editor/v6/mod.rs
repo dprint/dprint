@@ -164,7 +164,8 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
   /// of each config file.
   plugin_config_errors: RefCell<HashMap<String, ShownPluginConfigError<TEnvironment>>>,
   /// What each config file last resolved to, which is how a change to a config
-  /// file it extends or to whether its plugins are installed is noticed.
+  /// file it extends, to whether its plugins are installed, or to whether its
+  /// process plugins are allowed (ex. outside the editor) is noticed.
   resolved_configs: RefCell<HashMap<String, ResolvedConfigState>>,
   /// The scope whose config diagnostics were checked for each config file.
   checked_scopes: RefCell<HashMap<String, CheckedScope<TEnvironment>>>,
@@ -188,6 +189,7 @@ struct WorkspaceEditorService<TEnvironment: Environment> {
 struct ResolvedConfigState {
   config: Rc<ResolvedConfig>,
   plugins_installed: bool,
+  process_plugins_allowed: bool,
 }
 
 /// The outcome of formatting a file.
@@ -554,7 +556,18 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       }
     };
     let config = scope.config.as_ref();
-    let reason = (!scope.uninstalled_plugins.is_empty()).then_some(NotFormattedReason::DownloadRequired);
+    let unapproved_message = scope
+      .unapproved_process_plugins
+      .as_ref()
+      .map(|unapproved| unapproved.message(&self.session_permissions.read(&self.environment)));
+    let (reason, message) = if !scope.uninstalled_plugins.is_empty() {
+      let reason = NotFormattedReason::DownloadRequired;
+      (Some(reason), get_not_formatted_message(reason, false, false))
+    } else if unapproved_message.is_some() {
+      (Some(NotFormattedReason::ProcessPluginsNotAllowed), unapproved_message)
+    } else {
+      (None, None)
+    };
     Ok(ConfigInfoResponseMessage {
       config_file: get_config_file_info(&scope),
       plugins: get_plugin_infos(&scope).await?,
@@ -585,7 +598,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         _ => None,
       }),
       reason,
-      message: reason.and_then(|reason| get_not_formatted_message(reason, false, false)),
+      message,
     })
   }
 
@@ -640,6 +653,11 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         }));
       }
     };
+    // only asked when formatting because the editor makes the other requests
+    // without the user doing anything (ex. when a project is opened)
+    if let Some(unapproved) = &scope.unapproved_process_plugins {
+      self.ask_to_allow_process_plugins(unapproved, &document_file.candidates[0], allow_global_config);
+    }
     let chosen_file = self.choose_file(&scope, document_file, Some(&body.file_bytes));
     if let Some(reason) = chosen_file.cant_format_reason {
       return not_formatted(reason);
@@ -855,7 +873,10 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
   /// file, which is only done once per session for each configuration and not
   /// when the user denied them. Allowing them has the next request that uses
   /// the config file start them.
-  fn ask_to_allow_process_plugins(self: &Rc<Self>, unapproved: &UnapprovedProcessPlugins) {
+  ///
+  /// The file is one the config file is used for, which is resolved again
+  /// once they're allowed so the editor is told it formats files now.
+  fn ask_to_allow_process_plugins(self: &Rc<Self>, unapproved: &UnapprovedProcessPlugins, file_path: &Path, allow_global_config: bool) {
     if !self.prompted_process_plugins.borrow_mut().insert(unapproved.approval.clone()) {
       return;
     }
@@ -866,6 +887,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let message = unapproved.message(&permissions);
     let approval = unapproved.approval.clone();
     let service = self.clone();
+    let file_path = file_path.to_path_buf();
     // don't wait on this because it only resolves once the user responds
     dprint_core::async_runtime::spawn(async move {
       let action = service.show_message_request(MessageKind::Warning, message, &PROCESS_PLUGIN_ACTION_TITLES).await;
@@ -875,9 +897,10 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         log_warn!(service.environment, "{}", message);
         service.show_message(MessageKind::Warning, message);
       }
-      // the editor can't see that the config file formats files now
+      // the editor can't see that the config file formats files now, which
+      // resolving it again notices
       if service.session_permissions.read(&service.environment).is_process_plugin_allowed(&approval) {
-        service.send_config_changed(&approval.config_file);
+        let _ = service.resolve_scope(&file_path, allow_global_config).await;
       }
     });
   }
@@ -1046,9 +1069,6 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     }
     self.config_errors.borrow_mut().remove(&key);
     self.notify_if_config_changed(key, &config_file, &scope);
-    if let Some(unapproved) = &scope.unapproved_process_plugins {
-      self.ask_to_allow_process_plugins(unapproved);
-    }
     Ok(DocumentConfig::Resolved(scope))
   }
 
@@ -1134,27 +1154,15 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let state = ResolvedConfigState {
       config: config.clone(),
       plugins_installed: scope.uninstalled_plugins.is_empty(),
+      process_plugins_allowed: scope.unapproved_process_plugins.is_none(),
     };
     let previous = self.resolved_configs.borrow_mut().insert(key, state.clone());
     if previous.is_some_and(|previous| previous != state)
       && let Some(uri) = path_source_to_uri(&config_file.source)
     {
-      self.send_config_changed_uri(uri);
+      let data = serde_json::to_vec(&ConfigChangedMessage { uri }).expect("message should serialize");
+      send_response_body(&self.context, EditorMessageBody::ConfigChanged(data));
     }
-  }
-
-  /// Tells the editor that what the config file formats may have changed.
-  fn send_config_changed(&self, config_file: &str) {
-    // the config file is a path, or a url for a remote config file
-    let uri = file_path_to_uri(Path::new(config_file)).or_else(|| config_file.parse().ok());
-    if let Some(uri) = uri {
-      self.send_config_changed_uri(uri);
-    }
-  }
-
-  fn send_config_changed_uri(&self, uri: Uri) {
-    let data = serde_json::to_vec(&ConfigChangedMessage { uri }).expect("message should serialize");
-    send_response_body(&self.context, EditorMessageBody::ConfigChanged(data));
   }
 
   /// Shows the user the error resolving the config file, which is only done
@@ -2421,6 +2429,20 @@ mod test {
           let info = client.file_info(file_info("/a/file.txt")).await.unwrap();
           assert_eq!(info.reason, Some(NotFormattedReason::ProcessPluginsNotAllowed));
           assert_eq!(info.message.as_deref(), Some(PROCESS_PLUGINS_NOT_ALLOWED_MESSAGE));
+          let info = client
+            .config_info(ConfigInfoMessage {
+              uri: uri("/a/dprint.json"),
+              allow_global_config: false,
+            })
+            .await
+            .unwrap();
+          assert_eq!(info.config_file, Some(local_config("/a/dprint.json")));
+          assert!(info.plugins.is_empty());
+          assert_eq!(info.reason, Some(NotFormattedReason::ProcessPluginsNotAllowed));
+          assert!(info.message.unwrap().contains(") weren't allowed to run."));
+          // only a format asks because the editor makes the other requests without the user doing anything
+          tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+          assert!(client.take_message_requests().is_empty());
           assert_eq!(
             client.format("/a/file.txt_ps", "text", None).await.unwrap(),
             not_formatted(NotFormattedReason::ProcessPluginsNotAllowed)
@@ -2494,6 +2516,36 @@ mod test {
     });
     // what's logged goes to the editor instead
     assert!(environment.take_stderr_messages().is_empty());
+  }
+
+  #[test]
+  fn should_say_when_process_plugins_were_allowed_outside_the_editor() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_remote_process_plugin();
+      })
+      .initialize()
+      .build();
+    disallow_process_plugins(&environment);
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          let info = client.file_info(file_info("/a/file.txt_ps")).await.unwrap();
+          assert_eq!(info.reason, Some(NotFormattedReason::ProcessPluginsNotAllowed));
+          // ex. `dprint config editor-approve`
+          let args = ["", "config", "editor-approve", "--config", "/a/dprint.json"].map(String::from).to_vec();
+          let args = crate::arg_parser::parse_args(args, crate::utils::TestStdInReader::default()).unwrap();
+          crate::commands::editor_approve(&args, &environment).await.unwrap();
+          let info = client.file_info(file_info("/a/file.txt_ps")).await.unwrap();
+          assert!(info.can_format);
+          assert_eq!(client.take_config_changes(), vec![ConfigChangedMessage { uri: uri("/a/dprint.json") }]);
+        }
+        .boxed_local()
+      }
+    });
   }
 
   #[test]
