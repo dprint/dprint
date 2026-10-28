@@ -58,7 +58,7 @@ Specifying `--config <path>` uses that configuration file for every file instead
 
 The editor service checks every 5 seconds whether the provided process id still exists and if it doesn't it will exit.
 
-Keep the process running for as long as the editor uses it. It finds the configuration files itself and notices when they change, so there's no need to start it again when a configuration file is created, changed, or deleted, or when the workspace folders change (send the update settings message instead). Starting it again loses what the user chose for the session (ex. dismissing a notification). Send the reset message when the user asks for dprint to start again (ex. a restart command), and only start a new process when the dprint executable changed or the process exited.
+Keep the process running for as long as the editor uses it. It finds the configuration files itself and notices when they change, so there's no need to start it again when a configuration file is created, changed, or deleted, or when the workspace folders change (send the update settings message instead). Starting it again loses what the user chose for the session (ex. dismissing a notification), so only start a new process when the dprint executable changed, the process exited, or the user asked for dprint to start again (ex. a restart command). Send the reset message instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
 
 ### Installing plugins
 
@@ -730,7 +730,7 @@ Response: None
 
 #### `22` - Reset (Client to Service)
 
-Forgets the configuration files and stops the plugins, as if the editor service started again (ex. for a restart command, or after a plugin stopped responding or was changed). The plugins are set up again when they're next used. What the user chose for the session is kept. A request that's in progress may fail.
+Forgets the configuration files and stops the plugins, as if the editor service started again (ex. after a plugin stopped responding or was changed). The plugins are set up again when they're next used. Unlike starting a new process, what the user chose for the session is kept. A request that's in progress may fail.
 
 Message body: None
 
