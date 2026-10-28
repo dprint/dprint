@@ -258,7 +258,10 @@ pub async fn run_editor_service<TEnvironment: Environment>(
         }
       }
       EditorMessageBody::Close => {
+        service.scope_container.shutdown().await;
         send_response_body(context, EditorMessageBody::Success(message.id));
+        // the process exits once this returns
+        context.writer.flush().await;
         return Ok(());
       }
       EditorMessageBody::IsAlive => {

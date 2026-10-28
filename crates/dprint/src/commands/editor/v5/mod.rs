@@ -133,6 +133,8 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           EditorMessageBody::Error(_message_id, _data) => {}
           EditorMessageBody::Close => {
             handle_message(&context, message.id, || Ok(EditorMessageBody::Success(message.id)));
+            // the process exits once this returns
+            context.writer.flush().await;
             return;
           }
           EditorMessageBody::IsAlive => {
