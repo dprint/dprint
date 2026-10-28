@@ -306,6 +306,10 @@ pub struct FileInfoResponseMessage {
   /// The config file that's used for the file, which is `None` when there isn't one.
   pub config_file: Option<ConfigFileInfo>,
   pub can_format: bool,
+  /// The plugins that format the file in the order they do, which is empty
+  /// when it can't be formatted.
+  #[serde(default)]
+  pub plugins: Vec<FileInfoPlugin>,
   /// Why the file can't be formatted.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reason: Option<NotFormattedReason>,
@@ -313,6 +317,14 @@ pub struct FileInfoResponseMessage {
   /// (ex. for a command the user ran).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub message: Option<String>,
+}
+
+/// A plugin that formats a file.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileInfoPlugin {
+  pub name: String,
+  pub version: String,
 }
 
 /// The data of a `ConfigInfo` message.

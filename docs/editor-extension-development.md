@@ -371,10 +371,17 @@ interface FileInfoResponseData {
   /** The configuration file that's used for the document, which is `null` when there isn't one. */
   configFile: ConfigFileInfo | null;
   canFormat: boolean;
+  /** The plugins that format the document in the order they do (ex. to show which one formats it), which is empty when it can't be formatted. */
+  plugins: FileInfoPlugin[];
   /** Why the document can't be formatted. */
   reason?: NotFormattedReason;
   /** The message to show the user about why the document can't be formatted (ex. for a command the user ran). */
   message?: string;
+}
+
+interface FileInfoPlugin {
+  name: string;
+  version: string;
 }
 
 interface ConfigFileInfo {

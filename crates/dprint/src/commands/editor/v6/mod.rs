@@ -97,6 +97,7 @@ use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
 use self::messages::EditorSettings;
 use self::messages::FileInfoMessage;
+use self::messages::FileInfoPlugin;
 use self::messages::FileInfoResponseMessage;
 use self::messages::FormatEdit;
 use self::messages::FormatFailedMessage;
@@ -420,6 +421,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         return Ok(FileInfoResponseMessage {
           config_file: None,
           can_format: false,
+          plugins: Vec::new(),
           reason: Some(reason),
           message: get_not_formatted_message(reason, is_notebook_cell, allow_global_config),
         });
@@ -428,6 +430,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         return Ok(FileInfoResponseMessage {
           config_file: failure.config_file,
           can_format: false,
+          plugins: Vec::new(),
           reason: Some(NotFormattedReason::ConfigError),
           message: Some(failure.message),
         });
@@ -435,10 +438,23 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     };
     // the editor service only receives a uri, so an extensionless file's
     // shebang is resolved from the file on disk
-    let reason = self.choose_file(&scope, document_file, None).cant_format_reason;
+    let chosen_file = self.choose_file(&scope, document_file, None);
+    let reason = chosen_file.cant_format_reason;
+    let plugins = match reason {
+      Some(_) => Vec::new(),
+      None => get_plugin_names_for_file_on_disk(&scope.plugin_name_maps, &chosen_file.file_path, &self.environment)
+        .iter()
+        .filter_map(|name| scope.plugins.get(name))
+        .map(|plugin| FileInfoPlugin {
+          name: plugin.info().name.clone(),
+          version: plugin.info().version.clone(),
+        })
+        .collect(),
+    };
     Ok(FileInfoResponseMessage {
       config_file: get_config_file_info(&scope),
       can_format: reason.is_none(),
+      plugins,
       reason,
       message: reason.and_then(|reason| get_not_formatted_message(reason, is_notebook_cell, allow_global_config)),
     })
@@ -1320,6 +1336,7 @@ mod test {
   use super::messages::EditorMessageBody;
   use super::messages::EditorSettings;
   use super::messages::FileInfoMessage;
+  use super::messages::FileInfoPlugin;
   use super::messages::FileInfoResponseMessage;
   use super::messages::FormatEdit;
   use super::messages::FormatFailedMessage;
@@ -1362,6 +1379,7 @@ mod test {
           FileInfoResponseMessage {
             config_file: Some(local_config("/a/dprint.json")),
             can_format: true,
+            plugins: vec![test_plugin()],
             reason: None,
             message: None,
           }
@@ -1371,6 +1389,7 @@ mod test {
           FileInfoResponseMessage {
             config_file: Some(local_config("/b/dprint.json")),
             can_format: true,
+            plugins: vec![test_plugin()],
             reason: None,
             message: None,
           }
@@ -1380,6 +1399,7 @@ mod test {
           FileInfoResponseMessage {
             config_file: Some(local_config("/b/dprint.json")),
             can_format: false,
+            plugins: Vec::new(),
             reason: Some(NotFormattedReason::NotMatched),
             message: Some(NOT_MATCHED_MESSAGE.to_string()),
           }
@@ -1393,6 +1413,7 @@ mod test {
           FileInfoResponseMessage {
             config_file: None,
             can_format: false,
+            plugins: Vec::new(),
             reason: Some(NotFormattedReason::NoConfigFile),
             message: Some("No dprint configuration file found. Run \"dprint init\" in your project to create one.".to_string()),
           }
@@ -2732,6 +2753,14 @@ mod test {
 
   fn action(title: &str) -> MessageAction {
     MessageAction { title: title.to_string() }
+  }
+
+  /// The wasm test plugin that formats a file.
+  fn test_plugin() -> FileInfoPlugin {
+    FileInfoPlugin {
+      name: "test-plugin".to_string(),
+      version: "0.2.0".to_string(),
+    }
   }
 
   fn local_config(path: &str) -> ConfigFileInfo {
