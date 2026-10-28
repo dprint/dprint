@@ -2671,12 +2671,24 @@ mod test {
 
     run_session(&environment, &[], |client| {
       async move {
+        // the debug log says when the plugin is sent the text to format
+        client
+          .update_settings(EditorSettings {
+            verbose: Some(true),
+            ..Default::default()
+          })
+          .await
+          .unwrap();
         // the plugin doesn't respond to this until the format is cancelled
         let (_, receiver) = client.send_format("/file.txt_ps", "wait_cancellation");
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        client.wait_for_log("debug: Host formatting").await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         client.request(EditorMessageBody::Reset).await.unwrap();
         // the plugin was stopped
-        match receiver.await.unwrap() {
+        let response = tokio::time::timeout(std::time::Duration::from_secs(30), receiver)
+          .await
+          .expect("the format should stop once the plugin is stopped");
+        match response.unwrap() {
           EditorMessageBody::FormatFileResponse(_, FormatFileResult::Failed(data)) => {
             let message = serde_json::from_slice::<FormatFailedMessage>(&data).unwrap();
             assert_eq!(message.reason, FormatFailedReason::PluginError);
@@ -3354,6 +3366,22 @@ mod test {
         .into_iter()
         .map(|log| format!("{}: {}", serde_json::to_value(log.level).unwrap().as_str().unwrap(), log.message))
         .collect()
+    }
+
+    /// Waits for the service to have logged a message that starts with the
+    /// text, which is prefixed with its level (ex. "debug: ").
+    pub async fn wait_for_log(&self, text: &str) {
+      for _ in 0..1000 {
+        let has_log = self.shown.borrow().logs.iter().any(|log| {
+          let level = serde_json::to_value(log.level).unwrap();
+          format!("{}: {}", level.as_str().unwrap(), log.message).starts_with(text)
+        });
+        if has_log {
+          return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+      }
+      panic!("Timed out waiting for a log that starts with: {text}");
     }
 
     pub fn take_progress(&self) -> Vec<ProgressMessage> {
