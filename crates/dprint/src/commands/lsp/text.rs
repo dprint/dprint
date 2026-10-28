@@ -319,6 +319,40 @@ fn replace_whole_file(old_text: &str, new_text: &str) -> Utf16TextEdit {
   }
 }
 
+/// How to format the range of a text in an editor.
+pub struct RangeFormat {
+  /// The range to give the plugins, which is `None` for the whole text.
+  pub plugin_range: FormatRange,
+  /// The range of the edits to keep, which is `None` for all of them.
+  pub edits_range: FormatRange,
+}
+
+impl RangeFormat {
+  /// Gets how to format the range. Plugins that format a range are given it
+  /// as it is because they know what to format around it (ex. the nodes it
+  /// overlaps). The others are given the whole text and only the edits within
+  /// the range's lines are kept.
+  pub fn new(text: &str, range: FormatRange, plugins_support_range_formatting: bool) -> Self {
+    if plugins_support_range_formatting {
+      RangeFormat {
+        plugin_range: range,
+        edits_range: None,
+      }
+    } else {
+      RangeFormat {
+        plugin_range: None,
+        edits_range: range.and_then(|range| expand_to_lines(text, range)),
+      }
+    }
+  }
+
+  /// The range a notebook cell is formatted with, which decides whether the
+  /// cell's trailing whitespace is kept.
+  pub fn cell_range(&self) -> FormatRange {
+    self.plugin_range.clone().or_else(|| self.edits_range.clone())
+  }
+}
+
 /// Expands the range to the whole lines it touches, including the last
 /// line's line break, which is `None` for the whole text. A range that ends
 /// at the start of a line (ex. after selecting whole lines) doesn't include
@@ -765,5 +799,16 @@ const C: char = \"メ メ\";
     // but an insertion at the end of a range without a line break is
     assert_eq!(get("a\nb", "a\nb!", 2..3), vec![(3, 3, "!".to_string())]);
     assert_eq!(get("a\nb", "!a\nb", 2..3), Vec::new());
+  }
+
+  #[test]
+  fn should_only_expand_the_range_for_plugins_that_do_not_format_one() {
+    let range = RangeFormat::new("a\nbc\nd", Some(3..4), true);
+    assert_eq!((range.plugin_range, range.edits_range), (Some(3..4), None));
+    let range = RangeFormat::new("a\nbc\nd", Some(3..4), false);
+    assert_eq!((range.plugin_range.clone(), range.edits_range.clone()), (None, Some(2..5)));
+    assert_eq!(range.cell_range(), Some(2..5));
+    let range = RangeFormat::new("a\nbc\nd", None, false);
+    assert_eq!((range.plugin_range, range.edits_range), (None, None));
   }
 }

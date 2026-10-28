@@ -309,6 +309,7 @@ mod tests {
         help_url: String::new(),
         config_schema_url: String::new(),
         update_url: None,
+        supports_range_formatting: false,
       })
     };
     assert!(run("dprint-plugin-gofumpt", "0.0.1"));

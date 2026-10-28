@@ -30,7 +30,7 @@ use crate::commands::lsp::config_completion::PluginSchemaUrl;
 use crate::commands::lsp::file_path_to_uri;
 use crate::commands::lsp::language::get_language_file_name;
 use crate::commands::lsp::notebook::trim_formatted_cell_text;
-use crate::commands::lsp::text::expand_to_lines;
+use crate::commands::lsp::text::RangeFormat;
 use crate::commands::lsp::text::get_range_utf16_edits;
 use crate::commands::lsp::text::normalize_to_source_line_endings;
 use crate::commands::lsp::untitled::is_untitled_uri;
@@ -479,12 +479,8 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     }
     let file_path = chosen_file.file_path;
     let file_text = String::from_utf8(body.file_bytes).context("The file text isn't valid UTF-8.")?;
-    // many plugins don't format a range (ex. Wasm plugins of plugin schema version 3), so
-    // the whole text is formatted and only the edits within the range's lines are kept
-    let range = message
-      .range
-      .and_then(|range| get_byte_range(&file_text, range.start, range.end))
-      .and_then(|range| expand_to_lines(&file_text, range));
+    let range = message.range.and_then(|range| get_byte_range(&file_text, range.start, range.end));
+    let range_format = RangeFormat::new(&file_text, range, scope.supports_range_formatting(&file_path, file_text.as_bytes()));
 
     let _permit = self.concurrency_limiter.acquire().await;
     if token.is_cancelled() {
@@ -496,7 +492,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         HostFormatRequest {
           file_path,
           file_bytes: file_text.clone().into_bytes(),
-          range: None,
+          range: range_format.plugin_range.clone(),
           override_config: message.override_config,
           token: token.clone(),
         },
@@ -518,11 +514,11 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       // imposing the plugin's configured newline kind (see #965)
       let formatted_text = normalize_to_source_line_endings(&file_text, formatted_text);
       let formatted_text = if is_notebook_cell {
-        trim_formatted_cell_text(&file_text, formatted_text, &range)
+        trim_formatted_cell_text(&file_text, formatted_text, &range_format.cell_range())
       } else {
         formatted_text
       };
-      Ok::<_, anyhow::Error>(get_range_utf16_edits(&file_text, &formatted_text, &range))
+      Ok::<_, anyhow::Error>(get_range_utf16_edits(&file_text, &formatted_text, &range_format.edits_range))
     })
     .await??;
     if edits.is_empty() {
@@ -2091,6 +2087,11 @@ mod test {
         assert_eq!(
           client.format_range("/file.txt", "a\nb", 0..1, None).await.unwrap(),
           not_formatted(NotFormattedReason::Unchanged)
+        );
+        // a plugin that formats a range is given it as it is and what it changes is kept
+        assert_eq!(
+          client.format_range("/file.txt_ps", "a\nbc\nd", 3..4, None).await.unwrap(),
+          formatted("a\nb_formatted_process_\nd_formatted_process")
         );
         // a notebook cell's trailing whitespace is still trimmed
         let cell_options = FormatFileOptions {

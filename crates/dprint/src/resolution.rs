@@ -394,6 +394,16 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     if self.plugins.is_empty() { Err(NoPluginsFoundError) } else { Ok(()) }
   }
 
+  /// Gets whether the plugins that format the file format the range of a
+  /// format request rather than the whole text.
+  pub fn supports_range_formatting(&self, file_path: &Path, file_bytes: &[u8]) -> bool {
+    let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path_and_bytes(file_path, file_bytes);
+    !plugin_names.is_empty()
+      && plugin_names
+        .iter()
+        .all(|name| self.plugins.get(name).is_some_and(|plugin| plugin.info().supports_range_formatting))
+  }
+
   /// The problems with the global configuration (ex. an unknown property).
   pub fn global_config_diagnostics(&self) -> &[GlobalConfigDiagnostic] {
     &self.global_config_diagnostics

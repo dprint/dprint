@@ -67,6 +67,8 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
          // the schema url for your config file or "".to_string() if no config
          config_schema_url: format!("https://plugins.dprint.dev/{repo_name}/{}/schema.json", env!("CARGO_PKG_VERSION")),
          update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
+         // whether `format` formats the request's range instead of the whole text
+         supports_range_formatting: false,
        }
      }
 

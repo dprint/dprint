@@ -855,6 +855,7 @@ mod test {
         help_url: "help".to_string(),
         config_schema_url: "schema".to_string(),
         update_url: None,
+        supports_range_formatting: false,
       },
       executable_sub_path: None,
       npm_executable_sub_path: None,
