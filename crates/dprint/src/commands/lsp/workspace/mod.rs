@@ -275,6 +275,7 @@ enum ApprovalItem {
 }
 
 /// The config file that's used for a document.
+#[allow(clippy::large_enum_variant)]
 enum DocumentConfig<TEnvironment: Environment> {
   Resolved(Rc<PluginsScope<TEnvironment>>),
   /// There's no config file for the document.
