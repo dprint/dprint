@@ -28,11 +28,25 @@ pub const CONFIG_CHANGED_NOTIFICATION: &str = "dprint/configChanged";
 
 /// The capability that the client and server provide in the experimental
 /// capabilities, which is the version of the `dprint/*` methods they support.
+/// The server only sends what was added at or below the client's version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExperimentalCapability {
   #[serde(default = "default_capability_version")]
   pub version: u32,
+  /// Optional behavior that's opted into, where a feature that isn't known is
+  /// ignored. There aren't any yet.
+  #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+  pub features: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Default for ExperimentalCapability {
+  fn default() -> Self {
+    Self {
+      version: default_capability_version(),
+      features: Default::default(),
+    }
+  }
 }
 
 fn default_capability_version() -> u32 {
@@ -53,9 +67,30 @@ pub struct DocumentParams {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notebook_document: Option<DocumentIdentifier>,
   /// Whether to use the global config file when there's no config file in an
-  /// ancestor directory, which is in addition to the setting.
-  #[serde(default)]
-  pub use_global_config: bool,
+  /// ancestor directory, which is what the setting says when `None`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub global_config: Option<GlobalConfigUse>,
+}
+
+/// When the global config file is used for a document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GlobalConfigUse {
+  /// When there's no config file in an ancestor directory.
+  WhenNoConfigFile,
+  Never,
+}
+
+impl GlobalConfigUse {
+  /// Gets whether the global config file is used when there's no config file
+  /// in an ancestor directory, which is the setting when it's not provided.
+  pub fn resolve(value: Option<Self>, setting: bool) -> bool {
+    match value {
+      Some(GlobalConfigUse::WhenNoConfigFile) => true,
+      Some(GlobalConfigUse::Never) => false,
+      None => setting,
+    }
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,20 +146,33 @@ pub enum FormatResult {
   #[serde(rename_all = "camelCase")]
   Formatted { edits: Vec<TextEdit> },
   /// Why the document wasn't formatted.
-  #[serde(rename_all = "camelCase")]
-  NotFormatted {
-    reason: NotFormattedReason,
-    /// The message to show the user about why it wasn't formatted (ex. for a
-    /// command the user ran).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    /// What the user needs to approve to format it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    approval: Option<PendingApproval>,
-  },
+  NotFormatted(NotFormatted),
   /// Why formatting the document failed.
   #[serde(rename_all = "camelCase")]
   Failed { reason: FormatFailedReason, message: String },
+}
+
+/// Why a document isn't formatted, which is the same for each method.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotFormatted {
+  pub reason: NotFormattedReason,
+  /// The message to show the user about why it wasn't formatted (ex. for a
+  /// command the user ran).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub message: Option<String>,
+  /// What the user needs to approve to format it.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub approvals: Vec<PendingApproval>,
+}
+
+/// Whether a document or the documents of a config file are formatted.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FormatStatus {
+  #[default]
+  Ready,
+  NotFormatted(NotFormatted),
 }
 
 /// Why formatting a file failed.
@@ -161,7 +209,7 @@ pub enum NotFormattedReason {
   /// The config file failed to resolve.
   ConfigError,
   /// Something needs to be approved before the config file is used, which the
-  /// approval says (ex. its kind is `download` or `processPlugins`).
+  /// approvals say.
   ApprovalRequired,
 }
 
@@ -177,18 +225,46 @@ pub struct PendingApproval {
   /// The config file that needs it, which is what the user approves for.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file: Option<Uri>,
-  /// The urls or paths to download for `download`, or the process plugins to
-  /// run for `processPlugins`.
-  pub items: Vec<String>,
-  /// The configuration of the process plugins that are set up by their config
-  /// key, which is what they run with (ex. the commands of dprint-plugin-exec).
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub configuration: Option<serde_json::Map<String, serde_json::Value>>,
+  /// What's downloaded for `download` or run for `processPlugins`.
+  pub items: Vec<ApprovalItem>,
+  /// The decisions the user can make in the order to show them.
+  pub decisions: Vec<ApprovalDecision>,
   /// Whether the user denied it, which means they shouldn't be asked unless
   /// they ask for it (ex. a command).
   pub denied: bool,
   /// The message to show the user when asking.
   pub message: String,
+}
+
+/// Something that's downloaded or run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalItem {
+  /// The url, path, or npm specifier (ex. of a plugin with its checksum).
+  pub specifier: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub kind: Option<ApprovalItemKind>,
+  /// The name of a plugin that was set up before.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub name: Option<String>,
+  /// The version of a plugin that was set up before.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub version: Option<String>,
+  /// The config key of a plugin that was set up before.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub config_key: Option<String>,
+  /// The configuration a process plugin that was set up before runs with
+  /// (ex. the commands of dprint-plugin-exec).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub configuration: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalItemKind {
+  Plugin,
+  /// A config file that a config file extends.
+  Config,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,7 +285,7 @@ pub struct ApproveParams {
 }
 
 /// What the user decided, which is only remembered for the session unless it's
-/// `alwaysAllow` or `alwaysDeny`. A download is only allowed for the session.
+/// `alwaysAllow` or `alwaysDeny`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ApprovalDecision {
@@ -229,11 +305,11 @@ impl ApprovalDecision {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApproveResult {
-  /// What needs to be approved now, which is `None` only when nothing does.
-  /// It's what was denied when the decision was to deny it, and otherwise it's
-  /// what else needs to be approved (ex. a config file that a downloaded one
-  /// extends or a process plugin the user denied before).
-  pub approval: Option<PendingApproval>,
+  /// What needs to be approved now for the config file, which is empty only
+  /// when nothing does. It has what was denied when the decision was to deny
+  /// it, and otherwise what else needs to be approved (ex. a config file that a
+  /// downloaded one extends or a process plugin the user denied before).
+  pub approvals: Vec<PendingApproval>,
 }
 
 /// The result of `dprint/fileInfo`.
@@ -242,16 +318,10 @@ pub struct ApproveResult {
 pub struct FileInfoResult {
   /// The config file that's used for the file, which is `None` when there isn't one.
   pub config_file: Option<ConfigFileInfo>,
-  pub can_format: bool,
   /// The plugins that format the file in the order they do, which is empty
-  /// when it can't be formatted.
+  /// when it isn't formatted.
   pub plugins: Vec<FileInfoPlugin>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub reason: Option<NotFormattedReason>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub message: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub approval: Option<PendingApproval>,
+  pub status: FormatStatus,
 }
 
 /// A plugin that formats a file.
@@ -269,9 +339,9 @@ pub struct ConfigParams {
   /// The config file or a document that it's used for.
   pub uri: Uri,
   /// Whether to use the global config file when there's no config file in an
-  /// ancestor directory, which is in addition to the setting.
-  #[serde(default)]
-  pub use_global_config: bool,
+  /// ancestor directory, which is what the setting says when `None`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub global_config: Option<GlobalConfigUse>,
 }
 
 /// The result of `dprint/configInfo`.
@@ -286,12 +356,7 @@ pub struct ConfigInfoResult {
   /// extensions and names of its plugins (ex. with `associations` or
   /// `shebangs`), which `dprint/fileInfo` says.
   pub formats_other_files: bool,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub reason: Option<NotFormattedReason>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub message: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub approval: Option<PendingApproval>,
+  pub status: FormatStatus,
 }
 
 /// A plugin of a config file.
@@ -316,8 +381,19 @@ pub struct ConfigFileInfo {
   /// it's the global config file. It's `None` for a remote config file.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub dir_uri: Option<Uri>,
-  /// Whether it's the global config file.
-  pub is_global: bool,
+  pub kind: ConfigFileKind,
+}
+
+/// How a config file was chosen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConfigFileKind {
+  /// It's in an ancestor directory of the file.
+  Local,
+  /// It's the global config file.
+  Global,
+  /// It's the one the server was started with (`dprint lsp --config <path>`).
+  Override,
 }
 
 /// The result of `dprint/configSchema`.
@@ -327,6 +403,11 @@ pub struct ConfigSchemaResult {
   /// The JSON schema of the config file with the schemas of its plugins.
   pub schema: serde_json::Value,
 }
+
+/// The params of `dprint/reset`, which don't have anything yet.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetParams {}
 
 /// The params of the `dprint/configChanged` notification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -344,35 +425,81 @@ mod test {
 
   #[test]
   fn should_serialize_a_format_result_that_needs_approval() {
-    let result = FormatResult::NotFormatted {
+    let result = FormatResult::NotFormatted(NotFormatted {
       reason: NotFormattedReason::ApprovalRequired,
       message: Some("message".to_string()),
-      approval: Some(PendingApproval {
+      approvals: vec![PendingApproval {
         id: "1".to_string(),
         kind: ApprovalKind::ProcessPlugins,
         config_file: Some("file:///dprint.json".parse().unwrap()),
-        items: vec!["https://plugins.dprint.dev/exec.json@checksum".to_string()],
-        configuration: Some(json!({ "exec": { "commands": [] } }).as_object().unwrap().clone()),
+        items: vec![ApprovalItem {
+          specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
+          kind: Some(ApprovalItemKind::Plugin),
+          name: Some("dprint-plugin-exec".to_string()),
+          version: Some("0.5.0".to_string()),
+          config_key: Some("exec".to_string()),
+          configuration: Some(json!({ "commands": [] })),
+        }],
+        decisions: vec![ApprovalDecision::Allow, ApprovalDecision::Deny],
         denied: false,
         message: "message".to_string(),
-      }),
-    };
+      }],
+    });
     assert_eq!(
       serde_json::to_value(&result).unwrap(),
       json!({
         "kind": "notFormatted",
         "reason": "approvalRequired",
         "message": "message",
-        "approval": {
+        "approvals": [{
           "id": "1",
           "kind": "processPlugins",
           "configFile": "file:///dprint.json",
-          "items": ["https://plugins.dprint.dev/exec.json@checksum"],
-          "configuration": { "exec": { "commands": [] } },
+          "items": [{
+            "specifier": "https://plugins.dprint.dev/exec.json@checksum",
+            "kind": "plugin",
+            "name": "dprint-plugin-exec",
+            "version": "0.5.0",
+            "configKey": "exec",
+            "configuration": { "commands": [] },
+          }],
+          "decisions": ["allow", "deny"],
           "denied": false,
           "message": "message",
-        },
+        }],
       })
+    );
+  }
+
+  #[test]
+  fn should_serialize_the_status_of_a_config_file() {
+    let result = ConfigInfoResult {
+      config_file: Some(ConfigFileInfo {
+        uri: "file:///a/.config/dprint.json".parse().unwrap(),
+        dir_uri: Some("file:///a".parse().unwrap()),
+        kind: ConfigFileKind::Local,
+      }),
+      plugins: None,
+      formats_other_files: false,
+      status: FormatStatus::NotFormatted(NotFormatted {
+        reason: NotFormattedReason::ConfigError,
+        message: Some("message".to_string()),
+        approvals: Vec::new(),
+      }),
+    };
+    assert_eq!(
+      serde_json::to_value(&result).unwrap(),
+      json!({
+        "configFile": { "uri": "file:///a/.config/dprint.json", "dirUri": "file:///a", "kind": "local" },
+        "plugins": null,
+        "formatsOtherFiles": false,
+        "status": { "kind": "notFormatted", "reason": "configError", "message": "message" },
+      })
+    );
+    assert_eq!(serde_json::to_value(FormatStatus::Ready).unwrap(), json!({ "kind": "ready" }));
+    assert_eq!(
+      serde_json::to_value(ApproveResult { approvals: Vec::new() }).unwrap(),
+      json!({ "approvals": [] })
     );
   }
 
@@ -388,20 +515,36 @@ mod test {
     let params = serde_json::from_value::<FormatParams>(json!({
       "textDocument": { "uri": "untitled:Untitled-1" },
       "language": { "id": "typescript" },
-      "useGlobalConfig": true,
+      "globalConfig": "whenNoConfigFile",
       "text": "text",
       "ranges": [{ "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 1 } }],
       "overrideConfig": { "indentWidth": 4 },
     }))
     .unwrap();
     assert_eq!(params.document.text_document.uri.as_str(), "untitled:Untitled-1");
-    assert!(params.document.use_global_config);
+    assert_eq!(params.document.global_config, Some(GlobalConfigUse::WhenNoConfigFile));
     assert_eq!(params.ranges.unwrap().len(), 1);
     assert_eq!(params.override_config.len(), 1);
-    assert!(
-      !serde_json::from_value::<ConfigParams>(json!({ "uri": "file:///dprint.json" }))
+    assert_eq!(
+      serde_json::from_value::<ConfigParams>(json!({ "uri": "file:///dprint.json" }))
         .unwrap()
-        .use_global_config
+        .global_config,
+      None
     );
+    assert_eq!(
+      serde_json::from_value::<ConfigParams>(json!({ "uri": "file:///dprint.json", "globalConfig": "never" }))
+        .unwrap()
+        .global_config,
+      Some(GlobalConfigUse::Never)
+    );
+    assert_eq!(serde_json::from_value::<Option<ResetParams>>(json!({})).unwrap(), Some(ResetParams {}));
+  }
+
+  #[test]
+  fn should_resolve_when_the_global_config_file_is_used() {
+    assert!(GlobalConfigUse::resolve(None, true));
+    assert!(!GlobalConfigUse::resolve(None, false));
+    assert!(GlobalConfigUse::resolve(Some(GlobalConfigUse::WhenNoConfigFile), false));
+    assert!(!GlobalConfigUse::resolve(Some(GlobalConfigUse::Never), true));
   }
 }

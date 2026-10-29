@@ -106,7 +106,7 @@ use self::workspace::ConfigFileChange;
 use self::workspace::DocumentInfo;
 use self::workspace::FormatOutcome;
 use self::workspace::FormatRequest;
-use self::workspace::UnsupportedDocumentError;
+use self::workspace::InvalidParamsError;
 use self::workspace::Workspace;
 use self::workspace::WorkspaceSettings;
 use self::workspace::messages::APPROVE_METHOD;
@@ -127,9 +127,12 @@ use self::workspace::messages::FORMAT_METHOD;
 use self::workspace::messages::FileInfoResult;
 use self::workspace::messages::FormatParams;
 use self::workspace::messages::FormatResult;
+use self::workspace::messages::GlobalConfigUse;
+use self::workspace::messages::NotFormatted;
 use self::workspace::messages::NotFormattedReason;
 use self::workspace::messages::OVERRIDE_CONFIG_KEYS;
 use self::workspace::messages::RESET_METHOD;
+use self::workspace::messages::ResetParams;
 
 mod client;
 pub(super) mod config_completion;
@@ -453,7 +456,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     match outcome {
       FormatOutcome::Formatted(edits) if edits.is_empty() => None,
       FormatOutcome::Formatted(edits) => Some(to_lsp_edits(edits, &line_index)),
-      FormatOutcome::NotFormatted { reason, message, .. } => {
+      FormatOutcome::NotFormatted(NotFormatted { reason, message, .. }) => {
         match (reason, message) {
           // only logged because a client may format a range without the user asking (ex. on paste)
           (NotFormattedReason::RangeFormattingNotSupported, Some(message)) => self.client.log_info(message),
@@ -494,7 +497,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
           }
         }
       }
-      Some((_, FormatOutcome::NotFormatted { message, .. })) => message.map(|message| (MessageType::INFO, message)),
+      Some((_, FormatOutcome::NotFormatted(NotFormatted { message, .. }))) => message.map(|message| (MessageType::INFO, message)),
       Some((_, FormatOutcome::Failed { message, .. })) => {
         self.log_format_failure(uri, &message);
         None
@@ -538,7 +541,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       text: text.to_string(),
       ranges,
       override_config: Default::default(),
-      use_global_config,
+      // the setting is used otherwise
+      global_config: use_global_config.then_some(GlobalConfigUse::WhenNoConfigFile),
       notify_no_config,
     };
     match self.format_request(request, token).await {
@@ -664,7 +668,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       }),
       text: params.text,
       override_config: params.override_config,
-      use_global_config: params.document.use_global_config,
+      global_config: params.document.global_config,
       notify_no_config: false,
     };
     let outcome = self.format_request(request, token).await.map_err(to_lsp_error)?;
@@ -672,16 +676,16 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       FormatOutcome::Formatted(edits) => FormatResult::Formatted {
         edits: to_lsp_edits(edits, &line_index),
       },
-      FormatOutcome::NotFormatted { reason, message, approval } => FormatResult::NotFormatted { reason, message, approval },
+      FormatOutcome::NotFormatted(not_formatted) => FormatResult::NotFormatted(not_formatted),
       FormatOutcome::Failed { reason, message } => FormatResult::Failed { reason, message },
     })
   }
 
   async fn dprint_file_info(&self, params: DocumentParams, _token: CancellationToken) -> LspResult<FileInfoResult> {
     let document = get_document_info(&params);
-    let use_global_config = params.use_global_config;
+    let global_config = params.global_config;
     self
-      .run(move |workspace| async move { workspace.file_info(&document, use_global_config).await }.boxed_local())
+      .run(move |workspace| async move { workspace.file_info(&document, global_config).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
       .map_err(to_lsp_error)
@@ -689,7 +693,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
 
   async fn dprint_config_info(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigInfoResult> {
     self
-      .run(move |workspace| async move { workspace.config_info(&params.uri, params.use_global_config).await }.boxed_local())
+      .run(move |workspace| async move { workspace.config_info(&params.uri, params.global_config).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
       .map_err(to_lsp_error)
@@ -697,22 +701,23 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
 
   async fn dprint_config_schema(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigSchemaResult> {
     let schema = self
-      .run(move |workspace| async move { workspace.config_schema(&params.uri, params.use_global_config).await }.boxed_local())
+      .run(move |workspace| async move { workspace.config_schema(&params.uri, params.global_config).await }.boxed_local())
       .await
       .ok_or_else(new_server_stopped_error)?;
     Ok(ConfigSchemaResult { schema })
   }
 
   async fn dprint_approve(&self, params: ApproveParams, _token: CancellationToken) -> LspResult<ApproveResult> {
-    let approval = self
+    let approvals = self
       .run(move |workspace| async move { workspace.approve(&params.id, params.decision).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
       .map_err(to_lsp_error)?;
-    Ok(ApproveResult { approval })
+    Ok(ApproveResult { approvals })
   }
 
-  async fn dprint_reset(&self, _token: CancellationToken) -> LspResult<()> {
+  /// Takes optional params so that they can be added later, which are `{}` for now.
+  async fn dprint_reset(&self, _params: Option<ResetParams>, _token: CancellationToken) -> LspResult<()> {
     self.run(|workspace| async move { workspace.reset().await }.boxed_local()).await;
     Ok(())
   }
@@ -740,9 +745,17 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       .experimental
       .as_ref()
       .and_then(|experimental| experimental.get(EXPERIMENTAL_CAPABILITY_NAME))
-      .and_then(|capability| serde_json::from_value::<ExperimentalCapability>(capability.clone()).ok());
+      .filter(|capability| capability.is_object())
+      .map(|capability| {
+        serde_json::from_value::<ExperimentalCapability>(capability.clone()).unwrap_or_else(|err| {
+          // it's still an editor extension, which supports the first version
+          log_warn!(self.environment, "Failed reading the dprint capability of the editor extension: {:#}", err);
+          ExperimentalCapability::default()
+        })
+      });
     if let Some(capability) = &extension_capability {
-      // a newer client only uses what this version supports
+      // A newer client only uses what this version supports, and the server
+      // only sends what was added at or below the client's version.
       log_debug!(
         self.environment,
         "The editor extension supports version {} of the dprint methods and the server supports version {}.",
@@ -794,6 +807,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let experimental = serde_json::json!({
       EXPERIMENTAL_CAPABILITY_NAME: ExperimentalCapability {
         version: EXPERIMENTAL_CAPABILITY_VERSION,
+        features: Default::default(),
       },
     });
     let workspace = Some(WorkspaceServerCapabilities {
@@ -1204,7 +1218,7 @@ fn get_document_info(params: &DocumentParams) -> DocumentInfo {
 
 /// Gets the error response of a `dprint/*` method.
 fn to_lsp_error(err: anyhow::Error) -> LspError {
-  let code = if err.downcast_ref::<UnsupportedDocumentError>().is_some() {
+  let code = if err.downcast_ref::<InvalidParamsError>().is_some() {
     ErrorCode::InvalidParams
   } else if err.downcast_ref::<ApprovalChangedError>().is_some() {
     // what needs to be approved changed, which the client gets again

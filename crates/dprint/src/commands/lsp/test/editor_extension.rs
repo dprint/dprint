@@ -9,11 +9,16 @@ use serde_json::json;
 
 use super::*;
 use crate::commands::lsp::workspace::messages::ApprovalDecision;
+use crate::commands::lsp::workspace::messages::ApprovalItemKind;
 use crate::commands::lsp::workspace::messages::ApprovalKind;
 use crate::commands::lsp::workspace::messages::ConfigFileInfo;
+use crate::commands::lsp::workspace::messages::ConfigFileKind;
 use crate::commands::lsp::workspace::messages::DocumentIdentifier;
 use crate::commands::lsp::workspace::messages::FileInfoPlugin;
 use crate::commands::lsp::workspace::messages::FormatFailedReason;
+use crate::commands::lsp::workspace::messages::FormatStatus;
+use crate::commands::lsp::workspace::messages::GlobalConfigUse;
+use crate::commands::lsp::workspace::messages::NotFormatted;
 use crate::commands::lsp::workspace::messages::PendingApproval;
 use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
@@ -124,15 +129,15 @@ fn should_send_and_receive_the_dprint_methods_as_json() {
         .request(3, "dprint/fileInfo", json!({ "textDocument": { "uri": "file:///file.txt" } }))
         .await["result"],
       json!({
-        "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///", "isGlobal": false },
-        "canFormat": true,
+        "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///", "kind": "local" },
         "plugins": [{ "name": "test-plugin", "version": "0.2.0" }],
+        "status": { "kind": "ready" },
       })
     );
     assert_eq!(
       connection.request(4, "dprint/configInfo", json!({ "uri": "file:///dprint.json" })).await["result"],
       json!({
-        "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///", "isGlobal": false },
+        "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///", "kind": "local" },
         "plugins": [{
           "name": "test-plugin",
           "version": "0.2.0",
@@ -141,6 +146,7 @@ fn should_send_and_receive_the_dprint_methods_as_json() {
           "fileNames": [],
         }],
         "formatsOtherFiles": false,
+        "status": { "kind": "ready" },
       })
     );
     assert_eq!(
@@ -243,34 +249,28 @@ fn should_format_files_with_the_config_file_of_each() {
         client.file_info("/a/file.txt").await,
         FileInfoResult {
           config_file: Some(local_config("/a/dprint.json")),
-          can_format: true,
           plugins: vec![test_plugin()],
-          reason: None,
-          message: None,
-          approval: None,
+          status: FormatStatus::Ready,
         }
       );
       assert_eq!(
         client.file_info("/b/excluded.txt").await,
         FileInfoResult {
           config_file: Some(local_config("/b/dprint.json")),
-          can_format: false,
           plugins: Vec::new(),
-          reason: Some(NotFormattedReason::NotMatched),
-          message: Some(NOT_MATCHED_MESSAGE.to_string()),
-          approval: None,
+          status: not_formatted_status(NotFormattedReason::NotMatched, Some(NOT_MATCHED_MESSAGE)),
         }
       );
-      assert_eq!(client.file_info("/a/file.other").await.reason, Some(NotFormattedReason::NoPlugin));
+      assert_eq!(client.file_info("/a/file.other").await.status.reason(), Some(NotFormattedReason::NoPlugin));
       assert_eq!(
         client.file_info("/c/file.txt").await,
         FileInfoResult {
           config_file: None,
-          can_format: false,
           plugins: Vec::new(),
-          reason: Some(NotFormattedReason::NoConfigFile),
-          message: Some("No dprint configuration file found. Run \"dprint init\" in your project to create one.".to_string()),
-          approval: None,
+          status: not_formatted_status(
+            NotFormattedReason::NoConfigFile,
+            Some("No dprint configuration file found. Run \"dprint init\" in your project to create one."),
+          ),
         }
       );
 
@@ -309,7 +309,7 @@ fn should_format_files_with_the_config_file_of_each() {
       // the associations format other files, which the file info says
       assert!(config_info.formats_other_files);
       assert!(!client.config_info("/a/dprint.json").await.formats_other_files);
-      assert_eq!(config_info.reason, None);
+      assert_eq!(config_info.status, FormatStatus::Ready);
     }
     .boxed_local()
   });
@@ -347,27 +347,27 @@ fn should_use_the_global_config_file_when_asked() {
   run_session(&environment, |client| {
     async move {
       let result = client.format("/file.txt", "text").await;
-      let FormatResult::NotFormatted { reason, message, .. } = result else {
+      let FormatResult::NotFormatted(NotFormatted { reason, message, .. }) = result else {
         panic!("expected it to not be formatted");
       };
       assert_eq!(reason, NotFormattedReason::GlobalConfigNotAllowed);
       assert!(message.unwrap().contains("enable the \"useGlobalConfig\" setting of the dprint extension"));
       let mut params = client.format_params("/file.txt", "text");
-      params.document.use_global_config = true;
+      params.document.global_config = Some(GlobalConfigUse::WhenNoConfigFile);
       assert_eq!(client.format_with(params).await, formatted("text", "text_formatted"));
       let info = client
         .backend
         .dprint_file_info(
           DocumentParams {
-            use_global_config: true,
+            global_config: Some(GlobalConfigUse::WhenNoConfigFile),
             ..document_params("/file.txt")
           },
           CancellationToken::new(),
         )
         .await
         .unwrap();
-      assert!(info.can_format);
-      assert!(info.config_file.unwrap().is_global);
+      assert_eq!(info.status, FormatStatus::Ready);
+      assert_eq!(info.config_file.unwrap().kind, ConfigFileKind::Global);
       // the setting
       client
         .backend
@@ -376,6 +376,13 @@ fn should_use_the_global_config_file_when_asked() {
         })
         .await;
       assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+      // a document can not use it regardless of the setting
+      let mut params = client.format_params("/file.txt", "text");
+      params.document.global_config = Some(GlobalConfigUse::Never);
+      assert_eq!(
+        client.format_with(params).await.not_formatted_reason(),
+        Some(NotFormattedReason::GlobalConfigNotAllowed)
+      );
     }
     .boxed_local()
   });
@@ -490,7 +497,7 @@ fn should_format_notebook_cells_and_untitled_documents_by_their_language() {
       let mut params = client.format_params("vscode-notebook-cell:/notebook.ipynb#W0", "text");
       params.document.language = Some(language);
       params.document.notebook_document = Some(DocumentIdentifier { uri: uri("/notebook.ipynb") });
-      let FormatResult::NotFormatted { reason, .. } = client.format_with(params).await else {
+      let FormatResult::NotFormatted(NotFormatted { reason, .. }) = client.format_with(params).await else {
         panic!("expected it to not be formatted");
       };
       assert_eq!(reason, NotFormattedReason::NoPlugin);
@@ -646,10 +653,10 @@ fn should_provide_the_plugins_known_before_when_a_config_file_has_an_error() {
         // a typo doesn't change what the editor formats with it
         environment.write_file("/dprint.json", "{").unwrap();
         let config_info = client.config_info("/dprint.json").await;
-        assert_eq!(config_info.reason, Some(NotFormattedReason::ConfigError));
+        assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ConfigError));
         assert_eq!(config_info.plugins, plugins);
         // the editor extension shows the error, which the server doesn't
-        assert!(config_info.message.is_some());
+        assert!(config_info.status.message().is_some());
         assert!(client.test_client.take_shown_messages().is_empty());
       }
       .boxed_local()
@@ -672,10 +679,10 @@ fn should_provide_the_plugins_known_before_in_another_session_when_they_need_to_
   disallow_process_plugins(&environment);
   run_session(&environment, |client| {
     async move {
-      let approval = client.config_info("/dprint.json").await.approval.unwrap();
-      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+      let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
       let config_info = client.config_info("/dprint.json").await;
-      assert_eq!(config_info.reason, None);
+      assert_eq!(config_info.status, FormatStatus::Ready);
       assert_eq!(config_info.plugins.unwrap().len(), 2);
     }
     .boxed_local()
@@ -684,7 +691,7 @@ fn should_provide_the_plugins_known_before_in_another_session_when_they_need_to_
   run_session(&environment, |client| {
     async move {
       let config_info = client.config_info("/dprint.json").await;
-      assert_eq!(config_info.reason, Some(NotFormattedReason::ApprovalRequired));
+      assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ApprovalRequired));
       let plugins = config_info.plugins.unwrap();
       assert_eq!(plugins.len(), 2);
       assert_eq!(plugins[1].config_key, "testProcessPlugin");
@@ -711,11 +718,16 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
       async move {
         // the plugins aren't known, so the editor doesn't format with it until it's approved
         let config_info = client.config_info("/dprint.json").await;
-        assert_eq!(config_info.reason, Some(NotFormattedReason::ApprovalRequired));
+        assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ApprovalRequired));
         assert_eq!(config_info.plugins, None);
-        let approval = config_info.approval.unwrap();
+        let approvals = config_info.status.approvals();
+        assert_eq!(approvals.len(), 1);
+        let approval = approvals[0].clone();
         assert_eq!(approval.kind, ApprovalKind::Download);
-        assert_eq!(approval.items, vec![UNTRUSTED_PLUGIN_URL.to_string()]);
+        assert_eq!(specifiers(&approval), vec![UNTRUSTED_PLUGIN_URL]);
+        assert_eq!(approval.items[0].kind, Some(ApprovalItemKind::Plugin));
+        // a download is only allowed for the session
+        assert_eq!(approval.decisions, vec![ApprovalDecision::Allow, ApprovalDecision::Deny]);
         assert!(!approval.denied);
         assert!(
           approval
@@ -724,29 +736,43 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         );
         assert_eq!(
           client.format("/file.txt", "text").await,
-          FormatResult::NotFormatted {
+          FormatResult::NotFormatted(NotFormatted {
             reason: NotFormattedReason::ApprovalRequired,
             message: Some(approval.message.clone()),
-            approval: Some(approval.clone()),
-          }
+            approvals: vec![approval.clone()],
+          })
         );
         assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
         // the server doesn't ask the user itself
         assert!(client.test_client.take_shown_messages().is_empty());
 
+        // a decision it doesn't have
+        let err = client
+          .backend
+          .dprint_approve(
+            ApproveParams {
+              id: approval.id.clone(),
+              decision: ApprovalDecision::AlwaysAllow,
+            },
+            CancellationToken::new(),
+          )
+          .await
+          .unwrap_err();
+        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
+
         // denying it returns the approval that's still needed
-        let denied = client.approve(&approval.id, ApprovalDecision::Deny).await.unwrap();
-        assert!(denied.denied);
-        assert!(client.config_info("/dprint.json").await.approval.unwrap().denied);
+        let denied = client.approve(&approval.id, ApprovalDecision::Deny).await;
+        assert!(denied[0].denied);
+        assert!(client.config_info("/dprint.json").await.status.approvals()[0].denied);
         assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
 
         // the user can still allow it (ex. with a command)
-        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
         assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 1);
         // the editor is told the config file formats files now
         assert_eq!(client.take_config_changes(), vec![uri("/dprint.json")]);
         assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
-        assert_eq!(client.config_info("/dprint.json").await.approval, None);
+        assert_eq!(client.config_info("/dprint.json").await.status, FormatStatus::Ready);
 
         // an approval that isn't pending anymore says what's needed changed
         let err = client
@@ -784,16 +810,14 @@ fn should_approve_what_an_allowed_config_file_extends() {
   environment.add_remote_file(UNTRUSTED_BASE_CONFIG_URL, br#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"] }"#);
   run_session(&environment, |client| {
     async move {
-      let FormatResult::NotFormatted { approval, .. } = client.format("/file.txt", "text").await else {
-        panic!("expected it to not be formatted");
-      };
-      let approval = approval.unwrap();
-      assert_eq!(approval.items, vec![UNTRUSTED_CONFIG_URL.to_string()]);
+      let approval = client.format("/file.txt", "text").await.approvals()[0].clone();
+      assert_eq!(specifiers(&approval), vec![UNTRUSTED_CONFIG_URL]);
+      assert_eq!(approval.items[0].kind, Some(ApprovalItemKind::Config));
       // allowing it only allows what was shown, so what it extends needs to be approved too
-      let approval = client.approve(&approval.id, ApprovalDecision::Allow).await.unwrap();
+      let approval = client.approve(&approval.id, ApprovalDecision::Allow).await[0].clone();
       assert_eq!(approval.kind, ApprovalKind::Download);
-      assert_eq!(approval.items, vec![UNTRUSTED_BASE_CONFIG_URL.to_string()]);
-      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+      assert_eq!(specifiers(&approval), vec![UNTRUSTED_BASE_CONFIG_URL]);
+      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
       assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_extended"));
     }
     .boxed_local()
@@ -815,34 +839,30 @@ fn should_approve_running_process_plugins() {
     move |client| {
       async move {
         let file_info = client.file_info("/a/file.txt").await;
-        assert_eq!(file_info.reason, Some(NotFormattedReason::ApprovalRequired));
-        let approval = file_info.approval.unwrap();
+        assert_eq!(file_info.status.reason(), Some(NotFormattedReason::ApprovalRequired));
+        let approval = file_info.status.approvals()[0].clone();
         assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
         assert_eq!(approval.config_file, Some(uri("/a/dprint.json")));
-        // its configuration isn't known until it's set up
-        assert_eq!(approval.configuration, None);
+        assert_eq!(approval.decisions.len(), 4);
         assert_eq!(approval.items.len(), 1);
-        assert!(approval.items[0].starts_with("https://plugins.dprint.dev/test-process.json@"));
+        assert!(approval.items[0].specifier.starts_with("https://plugins.dprint.dev/test-process.json@"));
+        // what it is and its configuration isn't known until it's set up
+        assert_eq!(approval.items[0].config_key, None);
+        assert_eq!(approval.items[0].configuration, None);
         assert!(approval.message.contains(") weren't allowed to run."), "{}", approval.message);
         // none of the plugins are set up until then
         assert_eq!(client.config_info("/a/dprint.json").await.plugins, None);
 
         // denying it is remembered for the session, which a format says
-        assert!(client.approve(&approval.id, ApprovalDecision::Deny).await.unwrap().denied);
-        let FormatResult::NotFormatted {
-          reason,
-          approval: Some(denied),
-          ..
-        } = client.format("/a/file.txt_ps", "text").await
-        else {
-          panic!("expected it to not be formatted");
-        };
-        assert_eq!(reason, NotFormattedReason::ApprovalRequired);
+        assert!(client.approve(&approval.id, ApprovalDecision::Deny).await[0].denied);
+        let result = client.format("/a/file.txt_ps", "text").await;
+        assert_eq!(result.not_formatted_reason(), Some(NotFormattedReason::ApprovalRequired));
+        let denied = result.approvals()[0].clone();
         assert!(denied.denied);
         assert!(client.test_client.take_shown_messages().is_empty());
 
         // allowing it sets it up, and it's remembered with its configuration
-        assert_eq!(client.approve(&denied.id, ApprovalDecision::AlwaysAllow).await, None);
+        assert_eq!(client.approve(&denied.id, ApprovalDecision::AlwaysAllow).await, Vec::new());
         let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
         assert_eq!(decisions.len(), 1);
         assert!(decisions[0].allowed);
@@ -859,16 +879,14 @@ fn should_approve_running_process_plugins() {
               .replacen('{', r#"{ "testProcessPlugin": { "ending": "allowed" }, "#, 1),
           )
           .unwrap();
-        let FormatResult::NotFormatted { approval: Some(approval), .. } = client.format("/a/file.txt_ps", "text").await else {
-          panic!("expected it to not be formatted");
-        };
+        let approval = client.format("/a/file.txt_ps", "text").await.approvals()[0].clone();
         assert!(approval.message.contains("changed since they were allowed."), "{}", approval.message);
-        // it's set up, so what it runs with is known
-        assert_eq!(
-          approval.configuration,
-          Some(serde_json::json!({ "testProcessPlugin": { "ending": "allowed" } }).as_object().unwrap().clone())
-        );
-        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+        // it's set up, so what it is and what it runs with is known
+        let item = &approval.items[0];
+        assert_eq!(item.name.as_deref(), Some("test-process-plugin"));
+        assert_eq!(item.config_key.as_deref(), Some("testProcessPlugin"));
+        assert_eq!(item.configuration, Some(json!({ "ending": "allowed" })));
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
         assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_allowed"));
       }
       .boxed_local()
@@ -890,22 +908,22 @@ fn should_return_what_needs_to_be_approved_next_when_approving() {
   run_session(&environment, {
     move |client| {
       async move {
-        let approval = client.config_info("/a/dprint.json").await.approval.unwrap();
-        assert_eq!(approval.kind, ApprovalKind::Download);
-        assert_eq!(approval.config_file, Some(uri("/a/dprint.json")));
+        // both are known, so they can be asked about together
+        let approvals = client.config_info("/a/dprint.json").await.status.approvals().to_vec();
+        assert_eq!(
+          approvals.iter().map(|approval| approval.kind).collect::<Vec<_>>(),
+          vec![ApprovalKind::Download, ApprovalKind::ProcessPlugins]
+        );
+        assert_eq!(approvals[0].config_file, Some(uri("/a/dprint.json")));
 
-        // allowing the download has the process plugin need to be approved
-        let approval = client.approve(&approval.id, ApprovalDecision::Allow).await.unwrap();
-        assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
-        assert!(!approval.denied);
+        // allowing the download leaves the process plugin to be approved
+        let remaining = client.approve(&approvals[0].id, ApprovalDecision::Allow).await;
+        assert_eq!(remaining, vec![approvals[1].clone()]);
 
         // the download that was approved isn't pending anymore
-        let FormatResult::NotFormatted { approval: Some(pending), .. } = client.format("/a/file.txt_ps", "text").await else {
-          panic!("expected it to not be formatted");
-        };
-        assert_eq!(pending, approval);
+        assert_eq!(client.format("/a/file.txt_ps", "text").await.approvals(), remaining.as_slice());
 
-        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+        assert_eq!(client.approve(&approvals[1].id, ApprovalDecision::Allow).await, Vec::new());
         assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_formatted_process"));
       }
       .boxed_local()
@@ -933,7 +951,7 @@ fn should_provide_the_config_schema_of_a_config_file() {
         .dprint_config_schema(
           ConfigParams {
             uri: uri("/dprint.json"),
-            use_global_config: false,
+            global_config: None,
           },
           CancellationToken::new(),
         )
@@ -968,7 +986,7 @@ fn should_not_download_a_plugin_schema_from_a_domain_that_is_not_trusted() {
           .dprint_config_schema(
             ConfigParams {
               uri: uri("/dprint.json"),
-              use_global_config: false,
+              global_config: None,
             },
             CancellationToken::new(),
           )
@@ -995,7 +1013,7 @@ fn should_start_the_plugins_again_after_a_reset() {
   run_session(&environment, |client| {
     async move {
       assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
-      client.backend.dprint_reset(CancellationToken::new()).await.unwrap();
+      client.backend.dprint_reset(Some(ResetParams {}), CancellationToken::new()).await.unwrap();
       assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
     }
     .boxed_local()
@@ -1073,7 +1091,7 @@ impl Client {
       .dprint_config_info(
         ConfigParams {
           uri: uri(path_or_uri),
-          use_global_config: false,
+          global_config: None,
         },
         CancellationToken::new(),
       )
@@ -1081,13 +1099,13 @@ impl Client {
       .unwrap()
   }
 
-  async fn approve(&self, id: &str, decision: ApprovalDecision) -> Option<PendingApproval> {
+  async fn approve(&self, id: &str, decision: ApprovalDecision) -> Vec<PendingApproval> {
     self
       .backend
       .dprint_approve(ApproveParams { id: id.to_string(), decision }, CancellationToken::new())
       .await
       .unwrap()
-      .approval
+      .approvals
   }
 
   fn take_config_changes(&self) -> Vec<Uri> {
@@ -1167,7 +1185,7 @@ fn document_params(path_or_uri: &str) -> DocumentParams {
     text_document: DocumentIdentifier { uri: uri(path_or_uri) },
     language: None,
     notebook_document: None,
-    use_global_config: false,
+    global_config: None,
   }
 }
 
@@ -1179,10 +1197,74 @@ fn formatted(text: &str, formatted_text: &str) -> FormatResult {
 }
 
 fn not_formatted(reason: NotFormattedReason, message: Option<&str>) -> FormatResult {
-  FormatResult::NotFormatted {
+  FormatResult::NotFormatted(NotFormatted {
     reason,
     message: message.map(|message| message.to_string()),
-    approval: None,
+    approvals: Vec::new(),
+  })
+}
+
+fn not_formatted_status(reason: NotFormattedReason, message: Option<&str>) -> FormatStatus {
+  FormatStatus::NotFormatted(NotFormatted {
+    reason,
+    message: message.map(|message| message.to_string()),
+    approvals: Vec::new(),
+  })
+}
+
+fn specifiers(approval: &PendingApproval) -> Vec<&str> {
+  approval.items.iter().map(|item| item.specifier.as_str()).collect()
+}
+
+/// Gets what a status says for the assertions.
+trait StatusExt {
+  fn reason(&self) -> Option<NotFormattedReason>;
+  fn message(&self) -> Option<&str>;
+  fn approvals(&self) -> &[PendingApproval];
+}
+
+impl StatusExt for FormatStatus {
+  fn reason(&self) -> Option<NotFormattedReason> {
+    match self {
+      FormatStatus::NotFormatted(not_formatted) => Some(not_formatted.reason),
+      FormatStatus::Ready => None,
+    }
+  }
+
+  fn message(&self) -> Option<&str> {
+    match self {
+      FormatStatus::NotFormatted(not_formatted) => not_formatted.message.as_deref(),
+      FormatStatus::Ready => None,
+    }
+  }
+
+  fn approvals(&self) -> &[PendingApproval] {
+    match self {
+      FormatStatus::NotFormatted(not_formatted) => &not_formatted.approvals,
+      FormatStatus::Ready => &[],
+    }
+  }
+}
+
+/// Gets what a format result says for the assertions.
+trait FormatResultExt {
+  fn not_formatted_reason(&self) -> Option<NotFormattedReason>;
+  fn approvals(&self) -> &[PendingApproval];
+}
+
+impl FormatResultExt for FormatResult {
+  fn not_formatted_reason(&self) -> Option<NotFormattedReason> {
+    match self {
+      FormatResult::NotFormatted(not_formatted) => Some(not_formatted.reason),
+      _ => None,
+    }
+  }
+
+  fn approvals(&self) -> &[PendingApproval] {
+    match self {
+      FormatResult::NotFormatted(not_formatted) => &not_formatted.approvals,
+      _ => &[],
+    }
   }
 }
 
@@ -1199,7 +1281,7 @@ fn local_config(path: &str) -> ConfigFileInfo {
   ConfigFileInfo {
     uri: uri(path),
     dir_uri: Some(uri(if dir_path.is_empty() { "/" } else { dir_path })),
-    is_global: false,
+    kind: ConfigFileKind::Local,
   }
 }
 
