@@ -334,3 +334,74 @@ pub struct ConfigSchemaResult {
 pub struct ConfigChangedParams {
   pub uri: Uri,
 }
+
+#[cfg(test)]
+mod test {
+  use pretty_assertions::assert_eq;
+  use serde_json::json;
+
+  use super::*;
+
+  #[test]
+  fn should_serialize_a_format_result_that_needs_approval() {
+    let result = FormatResult::NotFormatted {
+      reason: NotFormattedReason::ApprovalRequired,
+      message: Some("message".to_string()),
+      approval: Some(PendingApproval {
+        id: "1".to_string(),
+        kind: ApprovalKind::ProcessPlugins,
+        config_file: Some("file:///dprint.json".parse().unwrap()),
+        items: vec!["https://plugins.dprint.dev/exec.json@checksum".to_string()],
+        configuration: Some(json!({ "exec": { "commands": [] } }).as_object().unwrap().clone()),
+        denied: false,
+        message: "message".to_string(),
+      }),
+    };
+    assert_eq!(
+      serde_json::to_value(&result).unwrap(),
+      json!({
+        "kind": "notFormatted",
+        "reason": "approvalRequired",
+        "message": "message",
+        "approval": {
+          "id": "1",
+          "kind": "processPlugins",
+          "configFile": "file:///dprint.json",
+          "items": ["https://plugins.dprint.dev/exec.json@checksum"],
+          "configuration": { "exec": { "commands": [] } },
+          "denied": false,
+          "message": "message",
+        },
+      })
+    );
+  }
+
+  #[test]
+  fn should_deserialize_the_params_of_the_methods() {
+    assert_eq!(
+      serde_json::from_value::<ApproveParams>(json!({ "id": "1", "decision": "alwaysDeny" })).unwrap(),
+      ApproveParams {
+        id: "1".to_string(),
+        decision: ApprovalDecision::AlwaysDeny,
+      }
+    );
+    let params = serde_json::from_value::<FormatParams>(json!({
+      "textDocument": { "uri": "untitled:Untitled-1" },
+      "language": { "id": "typescript" },
+      "useGlobalConfig": true,
+      "text": "text",
+      "ranges": [{ "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 1 } }],
+      "overrideConfig": { "indentWidth": 4 },
+    }))
+    .unwrap();
+    assert_eq!(params.document.text_document.uri.as_str(), "untitled:Untitled-1");
+    assert!(params.document.use_global_config);
+    assert_eq!(params.ranges.unwrap().len(), 1);
+    assert_eq!(params.override_config.len(), 1);
+    assert!(
+      !serde_json::from_value::<ConfigParams>(json!({ "uri": "file:///dprint.json" }))
+        .unwrap()
+        .use_global_config
+    );
+  }
+}

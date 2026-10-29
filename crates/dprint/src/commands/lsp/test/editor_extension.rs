@@ -72,6 +72,157 @@ fn should_say_it_supports_the_dprint_methods() {
 }
 
 #[test]
+fn should_send_and_receive_the_dprint_methods_as_json() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  environment.clone().run_in_runtime(async move {
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, Default::default()));
+    let (tx, rx) = mpsc::unbounded_channel();
+    let recv_task = start_message_handler(&environment, &plugin_resolver, None, RemoteCacheMode::Use, Default::default(), rx);
+    let (service, socket, pending) = with_dprint_methods(LspService::build(|client| {
+      Backend::new(ClientWrapper::new(Arc::new(client)), environment.clone(), tx)
+    }))
+    .finish();
+    let (client_writer, server_reader) = tokio::io::duplex(64 * 1024);
+    let (server_writer, client_reader) = tokio::io::duplex(64 * 1024);
+    let server_task = dprint_core::async_runtime::spawn(Server::new(server_reader, server_writer, socket, pending).serve(service));
+    let mut connection = JsonRpcConnection {
+      reader: tokio::io::BufReader::new(client_reader),
+      writer: client_writer,
+    };
+
+    let response = connection
+      .request(1, "initialize", json!({ "capabilities": { "experimental": { "dprint": { "version": 1 } } } }))
+      .await;
+    assert_eq!(response["result"]["capabilities"]["experimental"], json!({ "dprint": { "version": 1 } }));
+    connection.notify("initialized", json!({})).await;
+
+    assert_eq!(
+      connection
+        .request(2, "dprint/format", json!({ "textDocument": { "uri": "file:///file.txt" }, "text": "text" }))
+        .await,
+      json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "kind": "formatted",
+          "edits": [{
+            "range": { "start": { "line": 0, "character": 4 }, "end": { "line": 0, "character": 4 } },
+            "newText": "_formatted",
+          }],
+        },
+      })
+    );
+    assert_eq!(
+      connection
+        .request(3, "dprint/fileInfo", json!({ "textDocument": { "uri": "file:///file.txt" } }))
+        .await["result"],
+      json!({
+        "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///", "isGlobal": false },
+        "canFormat": true,
+        "plugins": [{ "name": "test-plugin", "version": "0.2.0" }],
+      })
+    );
+    assert_eq!(
+      connection.request(4, "dprint/configInfo", json!({ "uri": "file:///dprint.json" })).await["result"],
+      json!({
+        "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///", "isGlobal": false },
+        "plugins": [{
+          "name": "test-plugin",
+          "version": "0.2.0",
+          "configKey": "test-plugin",
+          "fileExtensions": ["txt"],
+          "fileNames": [],
+        }],
+        "formatsOtherFiles": false,
+      })
+    );
+    assert_eq!(
+      connection.request(5, "dprint/approve", json!({ "id": "unknown", "decision": "allow" })).await["error"]["code"],
+      json!(-32801)
+    );
+    assert_eq!(
+      connection
+        .request(
+          6,
+          "dprint/format",
+          json!({ "textDocument": { "uri": "file:///file.txt" }, "text": "text", "overrideConfig": { "lineWidth": 80 } })
+        )
+        .await["error"]["code"],
+      json!(-32602)
+    );
+
+    assert_eq!(connection.request(7, "shutdown", json!(null)).await["result"], json!(null));
+    connection.notify("exit", json!(null)).await;
+    drop(connection);
+    let (_, shutdown_received) = try_join!(server_task, recv_task).unwrap();
+    assert!(shutdown_received);
+  });
+}
+
+/// The client side of a connection to the language server, which sends and
+/// receives the JSON-RPC messages as an editor does.
+struct JsonRpcConnection {
+  reader: tokio::io::BufReader<tokio::io::DuplexStream>,
+  writer: tokio::io::DuplexStream,
+}
+
+impl JsonRpcConnection {
+  /// Sends the request and gets its response, which ignores the messages the
+  /// server sends before it (ex. what's logged). A request without params has
+  /// `null` for them.
+  async fn request(&mut self, id: u32, method: &str, params: serde_json::Value) -> serde_json::Value {
+    self.send(json!({ "jsonrpc": "2.0", "id": id, "method": method }), params).await;
+    loop {
+      let message = self.receive().await;
+      if message.get("method").is_none() && message["id"] == json!(id) {
+        return message;
+      }
+    }
+  }
+
+  async fn notify(&mut self, method: &str, params: serde_json::Value) {
+    self.send(json!({ "jsonrpc": "2.0", "method": method }), params).await;
+  }
+
+  async fn send(&mut self, mut message: serde_json::Value, params: serde_json::Value) {
+    use tokio::io::AsyncWriteExt;
+    if !params.is_null() {
+      message["params"] = params;
+    }
+    let body = message.to_string();
+    let text = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
+    self.writer.write_all(text.as_bytes()).await.unwrap();
+  }
+
+  async fn receive(&mut self) -> serde_json::Value {
+    use tokio::io::AsyncBufReadExt;
+    use tokio::io::AsyncReadExt;
+    let mut content_length = 0;
+    loop {
+      let mut line = String::new();
+      self.reader.read_line(&mut line).await.unwrap();
+      let line = line.trim_end();
+      if line.is_empty() {
+        break;
+      }
+      if let Some(value) = line.strip_prefix("Content-Length: ") {
+        content_length = value.parse().unwrap();
+      }
+    }
+    let mut body = vec![0; content_length];
+    self.reader.read_exact(&mut body).await.unwrap();
+    serde_json::from_slice(&body).unwrap()
+  }
+}
+
+#[test]
 fn should_format_files_with_the_config_file_of_each() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
