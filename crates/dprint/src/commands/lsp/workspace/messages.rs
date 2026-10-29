@@ -90,6 +90,7 @@ pub struct FormatParams {
 /// The result of `dprint/format`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[allow(clippy::large_enum_variant)]
 pub enum FormatResult {
   /// The edits of the text that was sent, which don't overlap and are in
   /// order. It's empty when the text is already formatted.

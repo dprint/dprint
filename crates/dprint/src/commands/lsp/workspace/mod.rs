@@ -182,6 +182,7 @@ pub struct FormatRequest {
 
 /// The outcome of formatting a document.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum FormatOutcome {
   /// The edits of the text, which are empty when it's already formatted.
   Formatted(Vec<Utf16TextEdit>),
@@ -1405,15 +1406,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
     match uri_to_file_path(uri) {
       Some(file_path) => Ok(file_path),
-      None => {
-        return Err(
-          UnsupportedDocumentError(format!(
-            "Cannot format document that is not a file, an untitled document or a notebook cell: {}",
-            uri.as_str()
-          ))
-          .into(),
-        );
-      }
+      None => Err(
+        UnsupportedDocumentError(format!(
+          "Cannot format document that is not a file, an untitled document or a notebook cell: {}",
+          uri.as_str()
+        ))
+        .into(),
+      ),
     }
   }
 
@@ -1423,15 +1422,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let workspace_folder = self.settings.borrow().workspace_folders.first().cloned();
     match workspace_folder.or_else(|| self.environment.get_home_dir().map(|dir| dir.into_path_buf())) {
       Some(dir_path) => Ok(dir_path),
-      None => {
-        return Err(
-          UnsupportedDocumentError(format!(
-            "Cannot format untitled document without a workspace folder or home directory: {}",
-            uri.as_str()
-          ))
-          .into(),
-        );
-      }
+      None => Err(
+        UnsupportedDocumentError(format!(
+          "Cannot format untitled document without a workspace folder or home directory: {}",
+          uri.as_str()
+        ))
+        .into(),
+      ),
     }
   }
 
