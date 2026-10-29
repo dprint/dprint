@@ -302,7 +302,13 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
         let path = if rest.is_empty() {
           home_dir
         } else {
-          environment.canonicalize(home_dir.join(rest))?
+          // a path that's absolute (ex. a UNC path) replaces the home directory
+          let path = home_dir.join(rest);
+          // IMPORTANT: Check this before canonicalizing because that reads it.
+          environment
+            .download_policy()
+            .ensure_allows_path(&path, base.maybe_local_path().map(|path| path.as_ref()))?;
+          environment.canonicalize(path)?
         };
         return Ok(PathSource::new_local(path));
       }
@@ -957,5 +963,26 @@ mod tests {
         assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing(expected));
       }
     });
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_not_read_from_another_machine_without_it_being_allowed() {
+    let environment = TestEnvironment::new();
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/project"));
+    for specifier in [
+      r"\\server\share\plugin.wasm",
+      r"\\.\UNC\server\share\plugin.wasm",
+      r"\\?\GLOBALROOT\Device\Mup\server\share\plugin.wasm",
+      "file://server/share/plugin.wasm",
+      // an absolute path replaces the home directory
+      r"~/\\server\share\plugin.wasm",
+    ] {
+      let Err(err) = resolve_url_or_file_path_to_path_source(specifier, &base, &environment) else {
+        panic!("expected an error for {}", specifier);
+      };
+      assert!(crate::utils::UntrustedDownloadError::find(&err).is_some(), "{}: {:#}", specifier, err);
+    }
   }
 }

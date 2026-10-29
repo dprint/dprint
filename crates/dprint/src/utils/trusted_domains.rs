@@ -190,16 +190,33 @@ impl TrustedDomains {
   }
 }
 
-/// Gets the server and share of a path on another machine (ex. a UNC path on
-/// Windows), lowercased because they're case insensitive.
-fn get_network_share(path: &Path) -> Option<(String, String)> {
+/// Gets where a path that may be on another machine is (ex. the server and
+/// share of a UNC path), lowercased because it's case insensitive.
+///
+/// IMPORTANT: On Windows, only a path on a drive is known to be local. A UNC
+/// path isn't, and neither is any other kind of prefix because some of them
+/// also reach another machine (ex. `\\.\UNC\server\share` or
+/// `\\?\GLOBALROOT\Device\Mup\server\share`). On macOS, a path in `/net` is on
+/// another machine because the automounter mounts it.
+fn get_network_share(path: &Path) -> Option<String> {
   match path.components().next()? {
     Component::Prefix(prefix) => match prefix.kind() {
-      Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
-        Some((server.to_string_lossy().to_lowercase(), share.to_string_lossy().to_lowercase()))
-      }
-      _ => None,
+      Prefix::Disk(_) | Prefix::VerbatimDisk(_) => None,
+      Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => Some(format!(
+        "{}\\{}",
+        server.to_string_lossy().to_lowercase(),
+        share.to_string_lossy().to_lowercase()
+      )),
+      // the share isn't known, so this is the whole path, which the file it's relative to never matches
+      _ => Some(path.to_string_lossy().to_lowercase()),
     },
+    Component::RootDir if cfg!(target_os = "macos") => {
+      let mut components = path.components().skip(1);
+      match (components.next(), components.next()) {
+        (Some(Component::Normal(net)), Some(Component::Normal(host))) if net == "net" => Some(format!("/net/{}", host.to_string_lossy().to_lowercase())),
+        _ => None,
+      }
+    }
     _ => None,
   }
 }
@@ -246,6 +263,14 @@ mod test {
       .unwrap_err();
     assert_eq!(err.url, r"\\server\share\plugin.wasm");
     assert!(policy.ensure_allows_path(Path::new(r"\\?\UNC\server\share\plugin.wasm"), None).is_err());
+    // other ways of reaching another machine
+    assert!(policy.ensure_allows_path(Path::new(r"\\.\UNC\server\share\plugin.wasm"), None).is_err());
+    assert!(
+      policy
+        .ensure_allows_path(Path::new(r"\\?\GLOBALROOT\Device\Mup\server\share\plugin.wasm"), Some(Path::new(r"C:\project")))
+        .is_err()
+    );
+    assert!(policy.ensure_allows_path(Path::new(r"\\?\C:\project\plugin.wasm"), None).is_ok());
     // a config file on the share may use what's on it
     assert!(
       policy
