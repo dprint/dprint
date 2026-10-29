@@ -453,7 +453,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
       async move {
         // the plugins aren't known, so the editor doesn't format with it until it's approved
         let config_info = client.config_info("/dprint.json").await;
-        assert_eq!(config_info.reason, Some(NotFormattedReason::DownloadRequired));
+        assert_eq!(config_info.reason, Some(NotFormattedReason::ApprovalRequired));
         assert_eq!(config_info.plugins, None);
         let approval = config_info.approval.unwrap();
         assert_eq!(approval.kind, ApprovalKind::Download);
@@ -467,7 +467,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(
           client.format("/file.txt", "text").await,
           FormatResult::NotFormatted {
-            reason: NotFormattedReason::DownloadRequired,
+            reason: NotFormattedReason::ApprovalRequired,
             message: Some(approval.message.clone()),
             approval: Some(approval.clone()),
           }
@@ -476,8 +476,9 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         // the server doesn't ask the user itself
         assert!(client.test_client.take_shown_messages().is_empty());
 
-        // denying it
-        assert_eq!(client.approve(&approval.id, ApprovalDecision::Deny).await, None);
+        // denying it returns the approval that's still needed
+        let denied = client.approve(&approval.id, ApprovalDecision::Deny).await.unwrap();
+        assert!(denied.denied);
         assert!(client.config_info("/dprint.json").await.approval.unwrap().denied);
         assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
 
@@ -489,20 +490,19 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
         assert_eq!(client.config_info("/dprint.json").await.approval, None);
 
-        // an approval that isn't pending
-        assert!(
-          client
-            .backend
-            .dprint_approve(
-              ApproveParams {
-                id: "unknown".to_string(),
-                decision: ApprovalDecision::Allow,
-              },
-              CancellationToken::new(),
-            )
-            .await
-            .is_err()
-        );
+        // an approval that isn't pending anymore says what's needed changed
+        let err = client
+          .backend
+          .dprint_approve(
+            ApproveParams {
+              id: "unknown".to_string(),
+              decision: ApprovalDecision::Allow,
+            },
+            CancellationToken::new(),
+          )
+          .await
+          .unwrap_err();
+        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ContentModified);
       }
       .boxed_local()
     }
@@ -557,9 +557,12 @@ fn should_approve_running_process_plugins() {
     move |client| {
       async move {
         let file_info = client.file_info("/a/file.txt").await;
-        assert_eq!(file_info.reason, Some(NotFormattedReason::ProcessPluginsNotAllowed));
+        assert_eq!(file_info.reason, Some(NotFormattedReason::ApprovalRequired));
         let approval = file_info.approval.unwrap();
         assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
+        assert_eq!(approval.config_file, Some(uri("/a/dprint.json")));
+        // its configuration isn't known until it's set up
+        assert_eq!(approval.configuration, None);
         assert_eq!(approval.items.len(), 1);
         assert!(approval.items[0].starts_with("https://plugins.dprint.dev/test-process.json@"));
         assert!(approval.message.contains(") weren't allowed to run."), "{}", approval.message);
@@ -567,7 +570,7 @@ fn should_approve_running_process_plugins() {
         assert_eq!(client.config_info("/a/dprint.json").await.plugins, None);
 
         // denying it is remembered for the session, which a format says
-        assert_eq!(client.approve(&approval.id, ApprovalDecision::Deny).await, None);
+        assert!(client.approve(&approval.id, ApprovalDecision::Deny).await.unwrap().denied);
         let FormatResult::NotFormatted {
           reason,
           approval: Some(denied),
@@ -576,7 +579,7 @@ fn should_approve_running_process_plugins() {
         else {
           panic!("expected it to not be formatted");
         };
-        assert_eq!(reason, NotFormattedReason::ProcessPluginsNotAllowed);
+        assert_eq!(reason, NotFormattedReason::ApprovalRequired);
         assert!(denied.denied);
         assert!(client.test_client.take_shown_messages().is_empty());
 
@@ -602,8 +605,50 @@ fn should_approve_running_process_plugins() {
           panic!("expected it to not be formatted");
         };
         assert!(approval.message.contains("changed since they were allowed."), "{}", approval.message);
+        // it's set up, so what it runs with is known
+        assert_eq!(
+          approval.configuration,
+          Some(serde_json::json!({ "testProcessPlugin": { "ending": "allowed" } }).as_object().unwrap().clone())
+        );
         assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
         assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_allowed"));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_return_what_needs_to_be_approved_next_when_approving() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL).add_remote_process_plugin();
+    })
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, {
+    move |client| {
+      async move {
+        let approval = client.config_info("/a/dprint.json").await.approval.unwrap();
+        assert_eq!(approval.kind, ApprovalKind::Download);
+        assert_eq!(approval.config_file, Some(uri("/a/dprint.json")));
+
+        // allowing the download has the process plugin need to be approved
+        let approval = client.approve(&approval.id, ApprovalDecision::Allow).await.unwrap();
+        assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
+        assert!(!approval.denied);
+
+        // the download that was approved isn't pending anymore
+        let FormatResult::NotFormatted { approval: Some(pending), .. } = client.format("/a/file.txt_ps", "text").await else {
+          panic!("expected it to not be formatted");
+        };
+        assert_eq!(pending, approval);
+
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+        assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_formatted_process"));
       }
       .boxed_local()
     }

@@ -145,12 +145,9 @@ pub enum NotFormattedReason {
   ConfigDiagnostics,
   /// The config file failed to resolve.
   ConfigError,
-  /// Something the config file needs has to be downloaded from where the
-  /// user needs to allow it (see the approval).
-  DownloadRequired,
-  /// The process plugins of the config file need to be allowed to run (see
-  /// the approval).
-  ProcessPluginsNotAllowed,
+  /// Something needs to be approved before the config file is used, which the
+  /// approval says (ex. its kind is `download` or `processPlugins`).
+  ApprovalRequired,
 }
 
 /// Something the user needs to approve before a config file is used, which a
@@ -162,9 +159,16 @@ pub struct PendingApproval {
   /// configuration of a process plugin).
   pub id: String,
   pub kind: ApprovalKind,
+  /// The config file that needs it, which is what the user approves for.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub config_file: Option<Uri>,
   /// The urls or paths to download for `download`, or the process plugins to
   /// run for `processPlugins`.
   pub items: Vec<String>,
+  /// The configuration of the process plugins that are set up by their config
+  /// key, which is what they run with (ex. the commands of dprint-plugin-exec).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub configuration: Option<serde_json::Map<String, serde_json::Value>>,
   /// Whether the user denied it, which means they shouldn't be asked unless
   /// they ask for it (ex. a command).
   pub denied: bool,
@@ -210,8 +214,10 @@ impl ApprovalDecision {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApproveResult {
-  /// What else needs to be approved now (ex. a config file that a downloaded
-  /// one extends), which is `None` when the config file is ready.
+  /// What needs to be approved now, which is `None` only when nothing does.
+  /// It's what was denied when the decision was to deny it, and otherwise it's
+  /// what else needs to be approved (ex. a config file that a downloaded one
+  /// extends or a process plugin the user denied before).
   pub approval: Option<PendingApproval>,
 }
 

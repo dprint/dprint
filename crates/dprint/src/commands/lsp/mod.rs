@@ -100,11 +100,13 @@ use self::text::LineIndex;
 use self::text::to_lsp_edits;
 use self::untitled::get_untitled_registrations;
 use self::untitled::is_untitled_uri;
+use self::workspace::ApprovalChangedError;
 use self::workspace::ClientKind;
 use self::workspace::ConfigFileChange;
 use self::workspace::DocumentInfo;
 use self::workspace::FormatOutcome;
 use self::workspace::FormatRequest;
+use self::workspace::UnsupportedDocumentError;
 use self::workspace::Workspace;
 use self::workspace::WorkspaceSettings;
 use self::workspace::messages::APPROVE_METHOD;
@@ -657,7 +659,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       use_global_config: params.document.use_global_config,
       notify_no_config: false,
     };
-    let outcome = self.format_request(request, token).await.map_err(new_internal_error)?;
+    let outcome = self.format_request(request, token).await.map_err(to_lsp_error)?;
     Ok(match outcome {
       FormatOutcome::Formatted(edits) => FormatResult::Formatted {
         edits: to_lsp_edits(edits, &line_index),
@@ -674,7 +676,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       .run(move |workspace| async move { workspace.file_info(&document, use_global_config).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(new_internal_error)
+      .map_err(to_lsp_error)
   }
 
   async fn dprint_config_info(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigInfoResult> {
@@ -682,14 +684,14 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       .run(move |workspace| async move { workspace.config_info(&params.uri, params.use_global_config).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(new_internal_error)
+      .map_err(to_lsp_error)
   }
 
   async fn dprint_config_schema(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigSchemaResult> {
     let schema = self
       .run(move |workspace| async move { workspace.config_schema(&params.uri, params.use_global_config).await }.boxed_local())
       .await
-      .unwrap_or_default();
+      .ok_or_else(new_server_stopped_error)?;
     Ok(ConfigSchemaResult { schema })
   }
 
@@ -698,7 +700,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       .run(move |workspace| async move { workspace.approve(&params.id, params.decision).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(new_internal_error)?;
+      .map_err(to_lsp_error)?;
     Ok(ApproveResult { approval })
   }
 
@@ -1181,12 +1183,25 @@ fn get_document_info(params: &DocumentParams) -> DocumentInfo {
   }
 }
 
-fn new_internal_error(err: anyhow::Error) -> LspError {
+/// Gets the error response of a `dprint/*` method.
+fn to_lsp_error(err: anyhow::Error) -> LspError {
+  let code = if err.downcast_ref::<UnsupportedDocumentError>().is_some() {
+    ErrorCode::InvalidParams
+  } else if err.downcast_ref::<ApprovalChangedError>().is_some() {
+    // what needs to be approved changed, which the client gets again
+    ErrorCode::ContentModified
+  } else {
+    ErrorCode::InternalError
+  };
   LspError {
-    code: ErrorCode::InternalError,
+    code,
     message: format!("{:#}", err).into(),
     data: None,
   }
+}
+
+fn new_server_stopped_error() -> LspError {
+  to_lsp_error(anyhow::anyhow!("The language server stopped."))
 }
 
 fn has_use_global_config_option(options: &FormattingOptions) -> bool {
