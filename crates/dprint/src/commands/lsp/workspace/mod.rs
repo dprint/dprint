@@ -426,13 +426,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     };
     match change {
       ConfigFileChange::Changed if self.was_resolved(file_path) => {
-        let Some(dir_path) = file_path.parent() else {
+        let Some(dir_path) = get_config_file_dir(file_path) else {
           return;
-        };
-        // a config file in a `.config` directory is used for the directory it's in
-        let dir_path = match dir_path.file_name() {
-          Some(name) if name == DOT_CONFIG_DIR_NAME => dir_path.parent().unwrap_or(dir_path),
-          _ => dir_path,
         };
         // a file path in the directory has the config file be found for it, and
         // an editor extension is told when what it resolves to changed
@@ -1150,6 +1145,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       DocumentConfig::Failed(ConfigFailure {
         config_file: path_source_to_uri(&config_file.source).map(|uri| ConfigFileInfo {
           uri,
+          dir_uri: get_config_dir_uri(&config_file.source, config_file.is_global_config, config_file.base_path.as_ref()),
           is_global: config_file.is_global_config,
         }),
         reason,
@@ -1535,7 +1531,30 @@ fn get_config_file_info<TEnvironment: Environment>(scope: &PluginsScope<TEnviron
   let config = scope.config.as_ref()?;
   Some(ConfigFileInfo {
     uri: path_source_to_uri(&config.source)?,
+    dir_uri: get_config_dir_uri(&config.source, config.is_global, config.base_path.as_ref()),
     is_global: config.is_global,
+  })
+}
+
+/// Gets the directory whose files the config file formats.
+fn get_config_dir_uri(source: &PathSource, is_global: bool, base_path: &Path) -> Option<Uri> {
+  if is_global {
+    // the global config file is used for each root directory (ex. drive)
+    return file_path_to_uri(base_path);
+  }
+  match source {
+    PathSource::Local(local) => file_path_to_uri(get_config_file_dir(local.path.as_ref())?),
+    PathSource::Remote(_) | PathSource::Npm(_) => None,
+  }
+}
+
+/// Gets the directory a local config file is used for, which is the
+/// directory it's in unless that's a `.config` directory.
+fn get_config_file_dir(file_path: &Path) -> Option<&Path> {
+  let dir_path = file_path.parent()?;
+  Some(match dir_path.file_name() {
+    Some(name) if name == DOT_CONFIG_DIR_NAME => dir_path.parent().unwrap_or(dir_path),
+    _ => dir_path,
   })
 }
 

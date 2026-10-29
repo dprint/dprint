@@ -231,6 +231,25 @@ fn should_use_the_global_config_file_when_asked() {
 }
 
 #[test]
+fn should_provide_the_directory_a_config_file_is_for() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/.config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      let config_file = client.config_info("/a/file.txt").await.config_file.unwrap();
+      assert_eq!(config_file, local_config("/a/.config/dprint.json"));
+      assert_eq!(config_file.dir_uri, Some(uri("/a")));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_only_override_the_indentation_config() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
@@ -1025,8 +1044,11 @@ fn test_plugin() -> FileInfoPlugin {
 }
 
 fn local_config(path: &str) -> ConfigFileInfo {
+  let dir_path = path.rsplit_once('/').unwrap().0;
+  let dir_path = dir_path.strip_suffix("/.config").unwrap_or(dir_path);
   ConfigFileInfo {
     uri: uri(path),
+    dir_uri: Some(uri(if dir_path.is_empty() { "/" } else { dir_path })),
     is_global: false,
   }
 }

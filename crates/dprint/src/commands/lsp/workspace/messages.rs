@@ -311,6 +311,11 @@ pub struct PluginInfo {
 #[serde(rename_all = "camelCase")]
 pub struct ConfigFileInfo {
   pub uri: Uri,
+  /// The directory whose files it formats, which is the directory it's in
+  /// unless that's a `.config` directory, and the directory it's used for when
+  /// it's the global config file. It's `None` for a remote config file.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub dir_uri: Option<Uri>,
   /// Whether it's the global config file.
   pub is_global: bool,
 }
