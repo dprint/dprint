@@ -2,6 +2,8 @@
 
 use deno_tower_lsp::lsp_types::FileChangeType;
 use deno_tower_lsp::lsp_types::FileEvent;
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::ConfigKeyValue;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -223,6 +225,34 @@ fn should_use_the_global_config_file_when_asked() {
         })
         .await;
       assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_only_override_the_indentation_config() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      let mut params = client.format_params("/file.txt", "text");
+      params.override_config = ConfigKeyMap::from([
+        ("indentWidth".to_string(), ConfigKeyValue::from_i32(4)),
+        ("useTabs".to_string(), ConfigKeyValue::from_bool(true)),
+      ]);
+      assert_eq!(client.format_with(params).await, formatted("text", "text_formatted"));
+
+      // other config could have a plugin do something that wasn't approved
+      let mut params = client.format_params("/file.txt", "text");
+      params.override_config = ConfigKeyMap::from([("ending".to_string(), ConfigKeyValue::from_str("other"))]);
+      let err = client.backend.dprint_format(params, CancellationToken::new()).await.unwrap_err();
+      assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
     }
     .boxed_local()
   });

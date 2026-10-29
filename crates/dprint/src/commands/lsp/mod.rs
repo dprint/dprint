@@ -128,6 +128,7 @@ use self::workspace::messages::FileInfoResult;
 use self::workspace::messages::FormatParams;
 use self::workspace::messages::FormatResult;
 use self::workspace::messages::NotFormattedReason;
+use self::workspace::messages::OVERRIDE_CONFIG_KEYS;
 use self::workspace::messages::RESET_METHOD;
 
 mod client;
@@ -645,6 +646,13 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   }
 
   async fn dprint_format(&self, params: FormatParams, token: CancellationToken) -> LspResult<FormatResult> {
+    if let Some(key) = params.override_config.keys().find(|key| !OVERRIDE_CONFIG_KEYS.contains(&key.as_str())) {
+      return Err(LspError {
+        code: ErrorCode::InvalidParams,
+        message: format!("Cannot override \"{}\". Only {} can be overridden.", key, OVERRIDE_CONFIG_KEYS.join(" and ")).into(),
+        data: None,
+      });
+    }
     let line_index = LineIndex::new(&params.text);
     let request = FormatRequest {
       document: get_document_info(&params.document),

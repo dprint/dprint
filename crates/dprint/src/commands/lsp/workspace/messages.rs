@@ -90,10 +90,16 @@ pub struct FormatParams {
   /// The ranges of the text to format, which is the whole text when `None`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub ranges: Option<Vec<Range>>,
-  /// The plugin config to use instead of what's in the config file.
+  /// The config to use instead of what's in the config file, which is only
+  /// the editor's settings for the document (see `OVERRIDE_CONFIG_KEYS`).
   #[serde(default, skip_serializing_if = "ConfigKeyMap::is_empty")]
   pub override_config: ConfigKeyMap,
 }
+
+/// The keys `overrideConfig` may have, which are the editor's settings for
+/// how a document is indented. Other config could have a plugin do something
+/// else (ex. run a different command), which the user didn't approve.
+pub const OVERRIDE_CONFIG_KEYS: [&str; 2] = ["indentWidth", "useTabs"];
 
 /// The result of `dprint/format`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
