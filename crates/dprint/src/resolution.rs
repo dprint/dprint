@@ -1240,6 +1240,15 @@ impl UnapprovedProcessPlugins {
     })
   }
 
+  /// Gets whether the user chose to always deny running each of the process
+  /// plugins.
+  pub fn is_always_denied(&self, permissions: &Permissions) -> bool {
+    self.plugins.iter().all(|plugin| match &plugin.approval {
+      Some(approval) => permissions.is_process_plugin_always_denied(approval),
+      None => permissions.is_process_plugin_always_denied(&ProcessPluginApproval::any_config(self.config_file.clone(), plugin.plugin.clone())),
+    })
+  }
+
   /// Gets the message that says dprint isn't formatting with the config file
   /// because its process plugins weren't allowed.
   pub fn message(&self, permissions: &Permissions) -> String {
@@ -1619,6 +1628,7 @@ mod test {
         config_map: Default::default(),
         trusted_config_map: Default::default(),
         extended_only_plugin_config_keys: Default::default(),
+        local_dependencies: Default::default(),
         base_path: base_path.clone(),
         anchored_patterns_base_path: None,
         source: PathSource::new_local(base_path.join_panic_relative("dprint.json")),

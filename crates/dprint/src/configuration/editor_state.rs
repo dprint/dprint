@@ -166,6 +166,8 @@ pub struct Permissions {
   pub process_plugin_decisions: Vec<ProcessPluginDecision>,
   /// The process plugins the user allowed setting up for the session.
   pub process_plugin_set_up_grants: Vec<ProcessPluginSetUpGrant>,
+  /// How many of `process_plugin_decisions` are the ones to always use.
+  pub stored_process_plugin_decision_count: usize,
 }
 
 impl Permissions {
@@ -200,6 +202,15 @@ impl Permissions {
     self.get_decision(approval) == Some(false)
   }
 
+  /// Gets whether the user chose to always deny running the process plugin
+  /// (ex. "Always Deny") as opposed to only for the session.
+  pub fn is_process_plugin_always_denied(&self, approval: &ProcessPluginApproval) -> bool {
+    let stored_decisions = &self.process_plugin_decisions[..self.stored_process_plugin_decision_count.min(self.process_plugin_decisions.len())];
+    self
+      .get_winning_decision(approval)
+      .is_some_and(|decision| !decision.allowed && stored_decisions.contains(decision))
+  }
+
   /// Gets whether the process plugin of the config file was allowed when it
   /// had a different configuration.
   pub fn was_allowed_with_other_config(&self, approval: &ProcessPluginApproval) -> bool {
@@ -218,6 +229,10 @@ impl Permissions {
   }
 
   fn get_decision(&self, approval: &ProcessPluginApproval) -> Option<bool> {
+    self.get_winning_decision(approval).map(|decision| decision.allowed)
+  }
+
+  fn get_winning_decision(&self, approval: &ProcessPluginApproval) -> Option<&ProcessPluginDecision> {
     self
       .process_plugin_decisions
       .iter()
@@ -229,7 +244,6 @@ impl Permissions {
       })
       // the last one wins a tie, which is the one for the session
       .max_by_key(|decision| decision.decided_at)
-      .map(|decision| decision.allowed)
   }
 }
 
@@ -284,9 +298,11 @@ impl SessionPermissions {
     } else {
       Vec::new()
     };
+    let stored_process_plugin_decision_count = process_plugin_decisions.len();
     process_plugin_decisions.extend(self.process_plugin_decisions.lock().iter().cloned());
     Permissions {
       allow_process_plugins,
+      stored_process_plugin_decision_count,
       process_plugin_decisions,
       process_plugin_set_up_grants: self.process_plugin_set_up_grants.lock().clone(),
     }

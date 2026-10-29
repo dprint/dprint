@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use anyhow::Result;
@@ -87,6 +88,10 @@ pub struct ResolvedConfig {
   /// a matching plugin because a shared config may configure more plugins than
   /// the ones being used.
   pub extended_only_plugin_config_keys: HashSet<String>,
+  /// The local files besides the config file that it was resolved from (ex.
+  /// a config file it extends or inherits from), so a change to one changes
+  /// what it resolves to.
+  pub local_dependencies: Vec<PathBuf>,
 }
 
 impl ResolvedConfig {
@@ -187,6 +192,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           config_map: ConfigMap::new(),
           trusted_config_map: ConfigMap::new(),
           extended_only_plugin_config_keys: HashSet::new(),
+          local_dependencies: Vec::new(),
           base_path: environment.cwd().clone(),
           anchored_patterns_base_path: None,
           source: PathSource::new_local(environment.cwd().join_panic_relative("dprint.json")),
@@ -364,6 +370,7 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     config_map,
     trusted_config_map,
     extended_only_plugin_config_keys: HashSet::new(),
+    local_dependencies: Vec::new(),
     includes,
     excludes,
     plugins,
@@ -437,6 +444,12 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
 
   merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
   merge_config_map_into(&mut config.trusted_config_map, parent.trusted_config_map.clone())?;
+
+  // what the ancestor was resolved from changes this one too
+  if let Some(path) = parent.source.maybe_local_path() {
+    config.local_dependencies.push(path.as_ref().to_path_buf());
+  }
+  config.local_dependencies.extend(parent.local_dependencies.iter().cloned());
 
   Ok(config)
 }
@@ -539,6 +552,9 @@ fn resolve_extends<TEnvironment: Environment>(
     for (specifier, extended_file) in extends.iter().zip(resolved_files) {
       let ExtendedConfigFile { file, pinning } = extended_file?;
       let resolved_file = file.into_text()?;
+      if let Some(path) = resolved_file.source.maybe_local_path() {
+        resolved_config.local_dependencies.push(path.as_ref().to_path_buf());
+      }
       if context.ancestors.contains(&resolved_file.source) {
         bail!(
           "Circular extends detected: {} -> {}",
@@ -2187,6 +2203,7 @@ mod tests {
           .collect(),
         trusted_config_map: Default::default(),
         extended_only_plugin_config_keys: extended_only_plugin_config_keys.iter().map(|key| key.to_string()).collect(),
+        local_dependencies: Vec::new(),
       }
     }
 
@@ -3516,6 +3533,7 @@ mod tests {
       ]),
       trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
+      local_dependencies: Vec::new(),
     };
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
@@ -3540,6 +3558,7 @@ mod tests {
       )]),
       trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
+      local_dependencies: Vec::new(),
     };
 
     let result = inherit_config(child, &parent).unwrap();
@@ -3693,6 +3712,7 @@ mod tests {
       )]),
       trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
+      local_dependencies: Vec::new(),
     };
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
@@ -3716,6 +3736,7 @@ mod tests {
       )]),
       trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
+      local_dependencies: Vec::new(),
     };
 
     let err = inherit_config(child, &parent).err().unwrap();

@@ -49,6 +49,7 @@ use deno_tower_lsp::lsp_types::NumberOrString;
 use deno_tower_lsp::lsp_types::OneOf;
 use deno_tower_lsp::lsp_types::OptionalVersionedTextDocumentIdentifier;
 use deno_tower_lsp::lsp_types::Position;
+use deno_tower_lsp::lsp_types::PositionEncodingKind;
 use deno_tower_lsp::lsp_types::Range;
 use deno_tower_lsp::lsp_types::Registration;
 use deno_tower_lsp::lsp_types::ServerCapabilities;
@@ -107,9 +108,12 @@ use self::workspace::DocumentInfo;
 use self::workspace::FormatOutcome;
 use self::workspace::FormatRequest;
 use self::workspace::InvalidParamsError;
+use self::workspace::UnsupportedDocumentError;
+use self::workspace::WatchedFileChange;
 use self::workspace::Workspace;
 use self::workspace::WorkspaceSettings;
 use self::workspace::messages::APPROVE_METHOD;
+use self::workspace::messages::ApprovalChangedErrorData;
 use self::workspace::messages::ApproveParams;
 use self::workspace::messages::ApproveResult;
 use self::workspace::messages::CONFIG_INFO_METHOD;
@@ -124,6 +128,7 @@ use self::workspace::messages::EXPERIMENTAL_CAPABILITY_VERSION;
 use self::workspace::messages::ExperimentalCapability;
 use self::workspace::messages::FILE_INFO_METHOD;
 use self::workspace::messages::FORMAT_METHOD;
+use self::workspace::messages::FileInfoParams;
 use self::workspace::messages::FileInfoResult;
 use self::workspace::messages::FormatParams;
 use self::workspace::messages::FormatResult;
@@ -131,6 +136,9 @@ use self::workspace::messages::GlobalConfigUse;
 use self::workspace::messages::NotFormatted;
 use self::workspace::messages::NotFormattedReason;
 use self::workspace::messages::OVERRIDE_CONFIG_KEYS;
+use self::workspace::messages::PENDING_APPROVALS_METHOD;
+use self::workspace::messages::PendingApprovalsParams;
+use self::workspace::messages::PendingApprovalsResult;
 use self::workspace::messages::RESET_METHOD;
 use self::workspace::messages::ResetParams;
 
@@ -271,6 +279,7 @@ fn with_dprint_methods<TEnvironment: Environment>(
     .custom_method(CONFIG_SCHEMA_METHOD, Backend::dprint_config_schema)
     .custom_method(APPROVE_METHOD, Backend::dprint_approve)
     .custom_method(RESET_METHOD, Backend::dprint_reset)
+    .custom_method(PENDING_APPROVALS_METHOD, Backend::dprint_pending_approvals)
 }
 
 /// Starts the task that handles the messages sent by the `Backend`, which
@@ -380,6 +389,8 @@ struct State<TEnvironment: Environment> {
   client_kind: ClientKind,
   /// Whether the client supports the versioned document edits of a `WorkspaceEdit`.
   supports_document_changes: bool,
+  /// Where an editor extension's progress is sent.
+  output_sink: Option<Arc<LspOutputSink>>,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -404,9 +415,21 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
           supports_message_actions: false,
         },
         supports_document_changes: false,
+        output_sink: None,
       }),
       environment,
     }
+  }
+
+  /// Reports the progress of what's done while the request is handled on the
+  /// token the client provided, which is done until the result is dropped.
+  fn track_request_progress(&self, token: Option<NumberOrString>) -> RequestProgress {
+    let sink = token.as_ref().and_then(|_| self.state.lock().output_sink.clone());
+    let progress = RequestProgress { sink, token };
+    if let (Some(sink), Some(token)) = (&progress.sink, &progress.token) {
+      sink.start_request(token.clone());
+    }
+    progress
   }
 
   /// Runs the task with the `Workspace` on the message handler's task, which
@@ -462,6 +485,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
           (NotFormattedReason::RangeFormattingNotSupported, Some(message)) => self.client.log_info(message),
           // the problems are only shown once, so tell the client each time
           (NotFormattedReason::ConfigDiagnostics | NotFormattedReason::ConfigError, Some(message)) => self.log_format_failure(uri, &message),
+          (NotFormattedReason::UnsupportedDocument | NotFormattedReason::LanguageRequired, Some(message)) => self.log_format_failure(uri, &message),
           _ => {}
         }
         None
@@ -650,6 +674,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   }
 
   async fn dprint_format(&self, params: FormatParams, token: CancellationToken) -> LspResult<FormatResult> {
+    let _progress = self.track_request_progress(params.document.work_done_token.clone());
     if let Some(key) = params.override_config.keys().find(|key| !OVERRIDE_CONFIG_KEYS.contains(&key.as_str())) {
       return Err(LspError {
         code: ErrorCode::InvalidParams,
@@ -677,21 +702,24 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         edits: to_lsp_edits(edits, &line_index),
       },
       FormatOutcome::NotFormatted(not_formatted) => FormatResult::NotFormatted(not_formatted),
-      FormatOutcome::Failed { reason, message } => FormatResult::Failed { reason, message },
+      FormatOutcome::Failed { reason, message, plugin } => FormatResult::Failed { reason, message, plugin },
     })
   }
 
-  async fn dprint_file_info(&self, params: DocumentParams, _token: CancellationToken) -> LspResult<FileInfoResult> {
-    let document = get_document_info(&params);
-    let global_config = params.global_config;
+  async fn dprint_file_info(&self, params: FileInfoParams, _token: CancellationToken) -> LspResult<FileInfoResult> {
+    let _progress = self.track_request_progress(params.document.work_done_token.clone());
+    let document = get_document_info(&params.document);
+    let global_config = params.document.global_config;
+    let text = params.text;
     self
-      .run(move |workspace| async move { workspace.file_info(&document, global_config).await }.boxed_local())
+      .run(move |workspace| async move { workspace.file_info(&document, text.as_deref(), global_config).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
       .map_err(to_lsp_error)
   }
 
   async fn dprint_config_info(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigInfoResult> {
+    let _progress = self.track_request_progress(params.work_done_token.clone());
     self
       .run(move |workspace| async move { workspace.config_info(&params.uri, params.global_config).await }.boxed_local())
       .await
@@ -700,14 +728,16 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   }
 
   async fn dprint_config_schema(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigSchemaResult> {
-    let schema = self
+    let _progress = self.track_request_progress(params.work_done_token.clone());
+    let (schema, complete) = self
       .run(move |workspace| async move { workspace.config_schema(&params.uri, params.global_config).await }.boxed_local())
       .await
       .ok_or_else(new_server_stopped_error)?;
-    Ok(ConfigSchemaResult { schema })
+    Ok(ConfigSchemaResult { schema, complete })
   }
 
   async fn dprint_approve(&self, params: ApproveParams, _token: CancellationToken) -> LspResult<ApproveResult> {
+    let _progress = self.track_request_progress(params.work_done_token.clone());
     let approvals = self
       .run(move |workspace| async move { workspace.approve(&params.id, params.decision).await }.boxed_local())
       .await
@@ -720,6 +750,15 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   async fn dprint_reset(&self, _params: Option<ResetParams>, _token: CancellationToken) -> LspResult<()> {
     self.run(|workspace| async move { workspace.reset().await }.boxed_local()).await;
     Ok(())
+  }
+
+  /// Takes optional params so that they can be added later, which are `{}` for now.
+  async fn dprint_pending_approvals(&self, _params: Option<PendingApprovalsParams>, _token: CancellationToken) -> LspResult<PendingApprovalsResult> {
+    let approvals = self
+      .run(|workspace| async move { workspace.pending_approvals() }.boxed_local())
+      .await
+      .ok_or_else(new_server_stopped_error)?;
+    Ok(PendingApprovalsResult { approvals })
   }
 
   /// This is used in the test code to ensure there are no pending requests.
@@ -774,7 +813,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     {
       let mut state = self.state.lock();
       if let Some(options) = &params.initialization_options {
-        state.settings.update(options);
+        state.settings.update(options, &self.environment);
       }
       state.client_kind = client_kind;
       state.supports_document_changes = supports_document_changes(&params.capabilities);
@@ -791,10 +830,9 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     }
     if is_editor_extension {
       // what's logged and the progress go to the editor instead of stderr
-      self.environment.set_output_sink(Arc::new(LspOutputSink::new(
-        self.client.clone(),
-        supports_work_done_progress(&params.capabilities),
-      )));
+      let output_sink = Arc::new(LspOutputSink::new(self.client.clone(), supports_work_done_progress(&params.capabilities)));
+      self.state.lock().output_sink = Some(output_sink.clone());
+      self.environment.set_output_sink(output_sink);
     }
     self
       .run(move |workspace| {
@@ -823,6 +861,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       ServerCapabilities {
         workspace,
         experimental: Some(experimental),
+        position_encoding: Some(PositionEncodingKind::UTF16),
         ..ServerCapabilities::default()
       }
     } else {
@@ -837,6 +876,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           will_save_wait_until: None,
         })),
         notebook_document_sync: Some(OneOf::Left(get_notebook_document_sync_options())),
+        position_encoding: Some(PositionEncodingKind::UTF16),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_range_formatting_provider: Some(OneOf::Left(true)),
         completion_provider: config_file_capabilities.completion_provider,
@@ -877,7 +917,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
-    self.state.lock().settings.update(&params.settings);
+    self.state.lock().settings.update(&params.settings, &self.environment);
     self.update_workspace_settings().await;
   }
 
@@ -885,19 +925,19 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let changes = params
       .changes
       .iter()
-      .filter(|change| is_config_uri(&change.uri))
       .filter_map(|change| {
         let file_path = uri_to_file_path(&change.uri)?;
         // a config file in node_modules is only used when it's extended
-        if file_path.components().any(|component| component.as_os_str() == "node_modules") {
-          return None;
-        }
-        let change = match change.typ {
-          FileChangeType::CREATED => ConfigFileChange::Created,
-          FileChangeType::DELETED => ConfigFileChange::Deleted,
-          _ => ConfigFileChange::Changed,
-        };
-        Some((file_path, change))
+        let is_in_node_modules = file_path.components().any(|component| component.as_os_str() == "node_modules");
+        Some(WatchedFileChange {
+          is_config_file: is_config_uri(&change.uri) && !is_in_node_modules,
+          change: match change.typ {
+            FileChangeType::CREATED => ConfigFileChange::Created,
+            FileChangeType::DELETED => ConfigFileChange::Deleted,
+            _ => ConfigFileChange::Changed,
+          },
+          file_path,
+        })
       })
       .collect::<Vec<_>>();
     if changes.is_empty() {
@@ -1063,22 +1103,62 @@ struct LspOutputSink {
   /// The last percentage sent for each progress, which is `None` when it's
   /// not known.
   percentages: Mutex<HashMap<usize, Option<u32>>>,
-  supports_progress: bool,
 }
 
 enum OutputEvent {
   Log(MessageType, String),
   Progress(usize, WorkDoneProgress),
+  /// A request with a progress token started, which the progress is also
+  /// reported on until it finishes.
+  RequestStarted(NumberOrString),
+  RequestFinished(NumberOrString),
+}
+
+/// Reports the progress of what's done while a request is handled until it's
+/// dropped (see `Backend::track_request_progress`).
+struct RequestProgress {
+  sink: Option<Arc<LspOutputSink>>,
+  token: Option<NumberOrString>,
+}
+
+impl Drop for RequestProgress {
+  fn drop(&mut self) {
+    if let (Some(sink), Some(token)) = (&self.sink, self.token.take()) {
+      let _ = sink.sender.send(OutputEvent::RequestFinished(token));
+    }
+  }
 }
 
 impl LspOutputSink {
   fn new(client: ClientWrapper, supports_progress: bool) -> Self {
     let (sender, mut receiver) = mpsc::unbounded_channel::<OutputEvent>();
     dprint_core::async_runtime::spawn(async move {
+      // the requests with a progress token and whether their progress was begun
+      let mut requests: Vec<(NumberOrString, bool)> = Vec::new();
       while let Some(event) = receiver.recv().await {
         match event {
           OutputEvent::Log(message_type, message) => client.send_log(message_type, message).await,
           OutputEvent::Progress(id, progress) => {
+            // what's done is for the requests that are being handled (ex. a
+            // download that a format waits on)
+            for (token, is_begun) in &mut requests {
+              let request_progress = match (&progress, *is_begun) {
+                (WorkDoneProgress::Begin(begin), false) => WorkDoneProgress::Begin(begin.clone()),
+                (WorkDoneProgress::Begin(begin), true) => WorkDoneProgress::Report(WorkDoneProgressReport {
+                  cancellable: Some(false),
+                  message: Some(begin.title.clone()),
+                  percentage: begin.percentage,
+                }),
+                (WorkDoneProgress::Report(report), true) => WorkDoneProgress::Report(report.clone()),
+                // the request's progress ends when it's handled
+                (WorkDoneProgress::Report(_), false) | (WorkDoneProgress::End(_), _) => continue,
+              };
+              *is_begun = true;
+              client.send_progress(token.clone(), request_progress).await;
+            }
+            if !supports_progress {
+              continue;
+            }
             let token = NumberOrString::String(format!("dprint/{}", id));
             // the client creates the progress before it's begun
             if matches!(progress, WorkDoneProgress::Begin(_)) && !client.create_work_done_progress(token.clone()).await {
@@ -1086,20 +1166,32 @@ impl LspOutputSink {
             }
             client.send_progress(token, progress).await;
           }
+          OutputEvent::RequestStarted(token) => requests.push((token, false)),
+          OutputEvent::RequestFinished(token) => {
+            if let Some(index) = requests.iter().position(|(request_token, _)| *request_token == token) {
+              let (token, is_begun) = requests.remove(index);
+              if is_begun {
+                client.send_progress(token, WorkDoneProgress::End(WorkDoneProgressEnd { message: None })).await;
+              }
+            }
+          }
         }
       }
     });
     Self {
       sender,
       percentages: Default::default(),
-      supports_progress,
     }
   }
 
+  /// Sends the progress, which also goes to the progress tokens of the
+  /// requests when the client doesn't support the server's own.
   fn send_progress(&self, id: usize, progress: WorkDoneProgress) {
-    if self.supports_progress {
-      let _ = self.sender.send(OutputEvent::Progress(id, progress));
-    }
+    let _ = self.sender.send(OutputEvent::Progress(id, progress));
+  }
+
+  fn start_request(&self, token: NumberOrString) {
+    let _ = self.sender.send(OutputEvent::RequestStarted(token));
   }
 }
 
@@ -1218,10 +1310,15 @@ fn get_document_info(params: &DocumentParams) -> DocumentInfo {
 
 /// Gets the error response of a `dprint/*` method.
 fn to_lsp_error(err: anyhow::Error) -> LspError {
-  let code = if err.downcast_ref::<InvalidParamsError>().is_some() {
+  let mut data = None;
+  let code = if err.downcast_ref::<InvalidParamsError>().is_some() || err.downcast_ref::<UnsupportedDocumentError>().is_some() {
     ErrorCode::InvalidParams
-  } else if err.downcast_ref::<ApprovalChangedError>().is_some() {
-    // what needs to be approved changed, which the client gets again
+  } else if let Some(err) = err.downcast_ref::<ApprovalChangedError>() {
+    // what needs to be approved changed, which is provided when it's known
+    data = err
+      .approvals
+      .clone()
+      .and_then(|approvals| serde_json::to_value(ApprovalChangedErrorData { approvals }).ok());
     ErrorCode::ContentModified
   } else {
     ErrorCode::InternalError
@@ -1229,7 +1326,7 @@ fn to_lsp_error(err: anyhow::Error) -> LspError {
   LspError {
     code,
     message: format!("{:#}", err).into(),
-    data: None,
+    data,
   }
 }
 
@@ -4510,7 +4607,7 @@ mod test {
       self.published_diagnostics.lock().push((uri, diagnostics));
     }
 
-    fn send_config_changed(&self, uri: Uri) {
+    fn send_config_changed(&self, uri: Uri, _reason: workspace::messages::ConfigChangeReason) {
       self.config_changes.lock().push(uri);
     }
 

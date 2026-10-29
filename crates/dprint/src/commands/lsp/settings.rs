@@ -33,20 +33,30 @@ impl LspSettings {
 
   /// Updates the settings with the ones in the provided value, which may have
   /// them at the top level or within a `dprint` property. The settings that
-  /// aren't in the value are left as-is.
-  pub fn update(&mut self, value: &Value) {
+  /// aren't in the value are left as-is and a `null` one is set back to its
+  /// default.
+  pub fn update(&mut self, value: &Value, environment: &impl Environment) {
     let value = value.get("dprint").filter(|value| value.is_object()).unwrap_or(value);
-    if let Some(use_global_config) = value.get("useGlobalConfig").and_then(|value| value.as_bool()) {
-      self.use_global_config = use_global_config;
+    let defaults = Self::from_environment(environment);
+    match value.get("useGlobalConfig") {
+      Some(Value::Bool(use_global_config)) => self.use_global_config = *use_global_config,
+      Some(Value::Null) => self.use_global_config = defaults.use_global_config,
+      _ => {}
     }
-    if let Some(show_no_config_notification) = value.get("showNoConfigNotification").and_then(|value| value.as_bool()) {
-      self.show_no_config_notification = show_no_config_notification;
+    match value.get("showNoConfigNotification") {
+      Some(Value::Bool(show_no_config_notification)) => self.show_no_config_notification = *show_no_config_notification,
+      Some(Value::Null) => self.show_no_config_notification = defaults.show_no_config_notification,
+      _ => {}
     }
-    if let Some(ensure_stable_format) = value.get("ensureStableFormat").and_then(|value| value.as_bool()) {
-      self.ensure_stable_format = Some(ensure_stable_format);
+    match value.get("ensureStableFormat") {
+      Some(Value::Bool(ensure_stable_format)) => self.ensure_stable_format = Some(*ensure_stable_format),
+      Some(Value::Null) => self.ensure_stable_format = defaults.ensure_stable_format,
+      _ => {}
     }
-    if let Some(verbose) = value.get("verbose").and_then(|value| value.as_bool()) {
-      self.verbose = Some(verbose);
+    match value.get("verbose") {
+      Some(Value::Bool(verbose)) => self.verbose = Some(*verbose),
+      Some(Value::Null) => self.verbose = defaults.verbose,
+      _ => {}
     }
   }
 }
@@ -89,6 +99,7 @@ mod test {
 
   #[test]
   fn updates_settings() {
+    let environment = TestEnvironment::new();
     let mut settings = LspSettings {
       use_global_config: false,
       show_no_config_notification: true,
@@ -97,7 +108,7 @@ mod test {
     };
 
     // top level
-    settings.update(&json!({ "useGlobalConfig": true }));
+    settings.update(&json!({ "useGlobalConfig": true }), &environment);
     assert_eq!(
       settings,
       LspSettings {
@@ -109,7 +120,10 @@ mod test {
     );
 
     // within a `dprint` property
-    settings.update(&json!({ "dprint": { "useGlobalConfig": false, "showNoConfigNotification": false } }));
+    settings.update(
+      &json!({ "dprint": { "useGlobalConfig": false, "showNoConfigNotification": false } }),
+      &environment,
+    );
     assert_eq!(
       settings,
       LspSettings {
@@ -122,7 +136,7 @@ mod test {
 
     // ignores what's missing or not a boolean
     for value in [json!(null), json!({}), json!({ "dprint": null }), json!({ "useGlobalConfig": "true" })] {
-      settings.update(&value);
+      settings.update(&value, &environment);
       assert_eq!(
         settings,
         LspSettings {
@@ -133,5 +147,17 @@ mod test {
         }
       );
     }
+  }
+
+  #[test]
+  fn resets_settings_to_their_defaults_with_null() {
+    let environment = TestEnvironment::new();
+    environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some("1"));
+    let mut settings = LspSettings::from_environment(&environment);
+    settings.update(&json!({ "useGlobalConfig": false, "ensureStableFormat": true, "verbose": true }), &environment);
+    assert!(!settings.use_global_config);
+    settings.update(&json!({ "useGlobalConfig": null, "ensureStableFormat": null, "verbose": null }), &environment);
+    assert_eq!(settings, LspSettings::from_environment(&environment));
+    assert!(settings.use_global_config);
   }
 }

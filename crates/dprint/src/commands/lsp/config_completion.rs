@@ -45,6 +45,9 @@ const CONFIG_JSON_SCHEMA_DOWNLOAD_WAIT: Duration = Duration::from_secs(30);
 /// How long after a plugin config schema failed to download or parse until
 /// it's downloaded again.
 const SCHEMA_RETRY_INTERVAL: Duration = Duration::from_secs(60);
+/// How long to wait for a schema that's being downloaded before giving up on
+/// telling the editor that it was.
+const SCHEMA_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// Provides completions and hover information for dprint configuration files.
 ///
@@ -228,11 +231,30 @@ impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
   /// The schemas of the plugins are put in the schema instead of being
   /// referenced by url because an editor may only download schemas from the
   /// domains the user trusts.
-  pub async fn build(&self, plugins: &[PluginSchemaUrl]) -> Value {
-    let mut schema = self.base_schema.clone();
-    let plugin_config_schema = schema.get("additionalProperties").cloned();
+  pub async fn build(&self, plugins: &[PluginSchemaUrl]) -> BuiltConfigSchema {
     let urls = plugins.iter().map(|plugin| plugin.url.as_str()).collect::<Vec<_>>();
     let plugin_schemas = self.plugin_schemas.get_all(&urls).await;
+    // a plugin without a schema url doesn't have a schema to leave out
+    let is_complete = urls.iter().zip(&plugin_schemas).all(|(url, schema)| url.trim().is_empty() || schema.is_some());
+    BuiltConfigSchema {
+      schema: self.build_schema(plugins, plugin_schemas),
+      is_complete,
+      is_downloading: self.plugin_schemas.is_any_downloading(&urls),
+    }
+  }
+
+  /// Waits for the schemas at the urls that are being downloaded, which is
+  /// for at most the time it takes a download to time out.
+  pub async fn wait_for_downloads(&self, urls: &[&str]) {
+    let deadline = tokio::time::Instant::now() + SCHEMA_DOWNLOAD_TIMEOUT;
+    while self.plugin_schemas.is_any_downloading(urls) && tokio::time::Instant::now() < deadline {
+      tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+  }
+
+  fn build_schema(&self, plugins: &[PluginSchemaUrl], plugin_schemas: Vec<Option<Rc<Value>>>) -> Value {
+    let mut schema = self.base_schema.clone();
+    let plugin_config_schema = schema.get("additionalProperties").cloned();
     let Value::Object(root) = &mut schema else {
       return schema;
     };
@@ -269,6 +291,15 @@ impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
     root.insert("definitions".to_string(), Value::Object(definitions));
     schema
   }
+}
+
+/// The schema of a config file.
+pub struct BuiltConfigSchema {
+  pub schema: Value,
+  /// Whether it has the schema of each plugin that has one.
+  pub is_complete: bool,
+  /// Whether the schema of a plugin is still being downloaded.
+  pub is_downloading: bool,
 }
 
 /// Adds the properties of the base schema's plugin section to the plugin's
