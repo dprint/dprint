@@ -12,8 +12,10 @@ use serde::Serialize;
 /// The name of the experimental capability that a client provides to use the
 /// `dprint/*` methods and that the server provides when it supports them.
 pub const EXPERIMENTAL_CAPABILITY_NAME: &str = "dprint";
-/// The version of the `dprint/*` methods, which changes when they change in a
-/// way that a client needs to know about.
+/// The version of the `dprint/*` methods, which is increased when something is
+/// added to them that a client needs to know about. A server supports the
+/// versions before it, so a client checks that the server's is at least the one
+/// it needs. A change that breaks a client uses a new capability name instead.
 pub const EXPERIMENTAL_CAPABILITY_VERSION: u32 = 1;
 
 pub const FORMAT_METHOD: &str = "dprint/format";
@@ -24,11 +26,17 @@ pub const APPROVE_METHOD: &str = "dprint/approve";
 pub const RESET_METHOD: &str = "dprint/reset";
 pub const CONFIG_CHANGED_NOTIFICATION: &str = "dprint/configChanged";
 
-/// The capability that the server provides in the experimental capabilities.
+/// The capability that the client and server provide in the experimental
+/// capabilities, which is the version of the `dprint/*` methods they support.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExperimentalCapability {
+  #[serde(default = "default_capability_version")]
   pub version: u32,
+}
+
+fn default_capability_version() -> u32 {
+  1
 }
 
 /// What identifies a document, which is formatted as a file.

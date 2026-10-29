@@ -727,11 +727,22 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if let Some(parent_id) = params.process_id {
       start_parent_process_checker_task(parent_id);
     }
-    let is_editor_extension = params
+    let extension_capability = params
       .capabilities
       .experimental
       .as_ref()
-      .is_some_and(|experimental| experimental.get(EXPERIMENTAL_CAPABILITY_NAME).is_some());
+      .and_then(|experimental| experimental.get(EXPERIMENTAL_CAPABILITY_NAME))
+      .and_then(|capability| serde_json::from_value::<ExperimentalCapability>(capability.clone()).ok());
+    if let Some(capability) = &extension_capability {
+      // a newer client only uses what this version supports
+      log_debug!(
+        self.environment,
+        "The editor extension supports version {} of the dprint methods and the server supports version {}.",
+        capability.version,
+        EXPERIMENTAL_CAPABILITY_VERSION
+      );
+    }
+    let is_editor_extension = extension_capability.is_some();
     let client_kind = if is_editor_extension {
       ClientKind::EditorExtension
     } else {

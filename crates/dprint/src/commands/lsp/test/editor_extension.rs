@@ -47,6 +47,26 @@ fn should_say_it_supports_the_dprint_methods() {
     test_client.take_messages();
     assert!(test_client.take_registered_methods().is_empty());
   });
+
+  // a capability that isn't an object isn't an editor extension's
+  let environment = TestEnvironmentBuilder::new().build();
+  environment.clone().run_in_runtime(async move {
+    let (backend, recv_task, test_client) = setup_backend(environment.clone());
+    let run_test_task = dprint_core::async_runtime::spawn(async move {
+      let params = InitializeParams {
+        capabilities: ClientCapabilities {
+          experimental: Some(json!({ "dprint": null })),
+          ..Default::default()
+        },
+        ..Default::default()
+      };
+      let result = initialize_backend(&backend, params).await;
+      assert!(result.capabilities.text_document_sync.is_some());
+      backend.shutdown().await.unwrap();
+    });
+    try_join!(recv_task, run_test_task).unwrap();
+    test_client.take_messages();
+  });
 }
 
 #[test]
@@ -928,7 +948,7 @@ fn run_session(environment: &TestEnvironment, action: impl FnOnce(Client) -> Loc
 fn editor_extension_params() -> InitializeParams {
   InitializeParams {
     capabilities: ClientCapabilities {
-      experimental: Some(json!({ "dprint": {} })),
+      experimental: Some(json!({ "dprint": { "version": 1 } })),
       window: Some(WindowClientCapabilities {
         work_done_progress: Some(true),
         ..Default::default()
