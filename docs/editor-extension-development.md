@@ -48,7 +48,7 @@ The settings are in the `initializationOptions` of the `initialize` request and 
 - `ensureStableFormat` (boolean) - Whether to format again until the text doesn't change, which defaults to what the `DPRINT_EDITOR_STABLE_FORMAT` environment variable says.
 - `verbose` (boolean) - Whether to log debug messages.
 
-IMPORTANT: Only provide `useGlobalConfig` from the user's settings and not from settings in the project (ex. `.vscode/settings.json`). The process plugins of the global configuration file run without being approved because it's the user's own.
+The process plugins of the global configuration file run without being approved because it's the user's own, so consider that a project's settings (ex. `.vscode/settings.json`) can turn on `useGlobalConfig` for its folder.
 
 ## Documents
 
