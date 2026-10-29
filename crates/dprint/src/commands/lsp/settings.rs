@@ -12,6 +12,12 @@ pub struct LspSettings {
   /// Whether to notify the first time in a session that a file isn't
   /// formatted because no config file was found for it.
   pub show_no_config_notification: bool,
+  /// Whether to format again to ensure a stable format, which is what the
+  /// `DPRINT_EDITOR_STABLE_FORMAT` environment variable says when `None`.
+  pub ensure_stable_format: Option<bool>,
+  /// Whether to log debug messages, which is the log level dprint was started
+  /// with when `None`.
+  pub verbose: Option<bool>,
 }
 
 impl LspSettings {
@@ -20,6 +26,8 @@ impl LspSettings {
     Self {
       use_global_config: use_global_config_env_var(environment),
       show_no_config_notification: true,
+      ensure_stable_format: None,
+      verbose: None,
     }
   }
 
@@ -33,6 +41,12 @@ impl LspSettings {
     }
     if let Some(show_no_config_notification) = value.get("showNoConfigNotification").and_then(|value| value.as_bool()) {
       self.show_no_config_notification = show_no_config_notification;
+    }
+    if let Some(ensure_stable_format) = value.get("ensureStableFormat").and_then(|value| value.as_bool()) {
+      self.ensure_stable_format = Some(ensure_stable_format);
+    }
+    if let Some(verbose) = value.get("verbose").and_then(|value| value.as_bool()) {
+      self.verbose = Some(verbose);
     }
   }
 }
@@ -78,6 +92,8 @@ mod test {
     let mut settings = LspSettings {
       use_global_config: false,
       show_no_config_notification: true,
+      ensure_stable_format: None,
+      verbose: None,
     };
 
     // top level
@@ -87,6 +103,8 @@ mod test {
       LspSettings {
         use_global_config: true,
         show_no_config_notification: true,
+        ensure_stable_format: None,
+        verbose: None,
       }
     );
 
@@ -97,6 +115,8 @@ mod test {
       LspSettings {
         use_global_config: false,
         show_no_config_notification: false,
+        ensure_stable_format: None,
+        verbose: None,
       }
     );
 
@@ -108,6 +128,8 @@ mod test {
         LspSettings {
           use_global_config: false,
           show_no_config_notification: false,
+          ensure_stable_format: None,
+          verbose: None,
         }
       );
     }

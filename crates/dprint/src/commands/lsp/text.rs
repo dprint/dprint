@@ -127,6 +127,14 @@ impl LineIndex {
     std::cmp::min(TextSize::from(line_start.saturating_add(col)), line_end)
   }
 
+  /// Returns a u16 offset based on a u16 position, which is clamped like `offset`.
+  pub fn offset_utf16(&self, position: lsp::Position) -> u32 {
+    let offset = self.offset(position);
+    let line = partition_point(&self.utf8_offsets, |&it| it <= offset) - 1;
+    let col = offset - self.utf8_offsets[line];
+    u32::from(self.utf16_offsets[line]) + self.utf8_to_utf16_col(line as u32, col)
+  }
+
   /// Returns a u16 position based on a u16 offset.
   pub fn position_utf16(&self, offset: TextSize) -> lsp::Position {
     let line = partition_point(&self.utf16_offsets, |&it| it <= offset) - 1;
@@ -432,13 +440,10 @@ pub fn map_utf16_range(range: std::ops::Range<u32>, edits: &[Utf16TextEdit]) -> 
   start..end
 }
 
-/// Gets the edits like `get_range_utf16_edits`, which are supported by the
-/// Language Server Protocol.
-pub fn get_range_edits(a: &str, b: &str, range: &FormatRange, line_index: &LineIndex) -> Vec<TextEdit> {
-  get_range_utf16_edits(a, b, range)
-    .into_iter()
-    .map(|edit| to_lsp_edit(edit, line_index))
-    .collect()
+/// Converts the edits of UTF-16 offsets to the edits of positions, which are
+/// supported by the Language Server Protocol.
+pub fn to_lsp_edits(edits: Vec<Utf16TextEdit>, line_index: &LineIndex) -> Vec<TextEdit> {
+  edits.into_iter().map(|edit| to_lsp_edit(edit, line_index)).collect()
 }
 
 fn to_lsp_edit(edit: Utf16TextEdit, line_index: &LineIndex) -> TextEdit {
@@ -713,7 +718,7 @@ const C: char = \"メ メ\";
   fn test_get_edits() {
     let a = "abcdefg";
     let b = "a\nb\nchije\nfg\n";
-    let actual = get_range_edits(a, b, &None, &LineIndex::new(a));
+    let actual = to_lsp_edits(get_range_utf16_edits(a, b, &None), &LineIndex::new(a));
     assert_eq!(
       actual,
       vec![
@@ -795,14 +800,14 @@ const C: char = \"メ メ\";
     let a = "line1\nline2\nline3\n";
     let formatted = "line1\r\nline2\r\nline3\r\n".to_string();
     let new_text = normalize_to_source_line_endings(a, formatted);
-    assert_eq!(get_range_edits(a, &new_text, &None, &LineIndex::new(a)), vec![]);
+    assert_eq!(to_lsp_edits(get_range_utf16_edits(a, &new_text, &None), &LineIndex::new(a)), vec![]);
   }
 
   #[test]
   fn test_get_edits_mbc() {
     let a = "const bar = \"👍🇺🇸😃\";\nconsole.log('hello deno')\n";
     let b = "const bar = \"👍🇺🇸😃\";\nconsole.log(\"hello deno\");\n";
-    let actual = get_range_edits(a, b, &None, &LineIndex::new(a));
+    let actual = to_lsp_edits(get_range_utf16_edits(a, b, &None), &LineIndex::new(a));
     assert_eq!(
       actual,
       vec![

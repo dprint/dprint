@@ -1,8 +1,6 @@
-//! The editor service, which an editor extension starts to format files.
-//!
-//! Each schema version is in its own module and only shares what's in this
-//! module and `messages`, so that removing an old schema version is mostly
-//! removing its module.
+//! The editor service, which an editor extension starts to format files with
+//! the config file the editor found. Formatting the files of a whole
+//! workspace is done by the language server instead (see `commands::lsp`).
 
 use anyhow::Result;
 use dprint_core::communication::MessageReader;
@@ -20,12 +18,10 @@ use dprint_core::plugins::process::start_parent_process_checker_task;
 
 mod messages;
 mod v5;
-mod v6;
 
 pub use v5::output_editor_info;
 
 use crate::arg_parser::CliArgs;
-use crate::arg_parser::EditorServiceSchemaVersion;
 use crate::arg_parser::EditorServiceSubCommand;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
@@ -36,36 +32,6 @@ use self::messages::MessageBody;
 
 const CONFIG_SCHEMA_URL: &str = "https://dprint.dev/schemas/v0.json";
 
-/// Outputs what the editor service supports (`dprint editor-service --info`),
-/// which an editor uses to choose the schema version to start it with. This
-/// doesn't need a config file.
-///
-/// An older version of dprint doesn't have the `--info` flag, so it fails. An
-/// editor that also supports schema version 5 can then use `dprint editor-info`.
-pub fn output_editor_service_info(environment: &impl Environment) -> Result<()> {
-  #[derive(serde::Serialize)]
-  #[serde(rename_all = "camelCase")]
-  struct EditorServiceInfo {
-    cli_version: String,
-    editor_service_schema_versions: Vec<u32>,
-    config_schema_url: &'static str,
-    /// What the editor service supports in addition to its schema version.
-    capabilities: EditorServiceCapabilities,
-  }
-
-  #[derive(serde::Serialize)]
-  #[serde(rename_all = "camelCase")]
-  struct EditorServiceCapabilities {}
-
-  environment.log_machine_readable(&serde_json::to_vec(&EditorServiceInfo {
-    cli_version: environment.cli_version(),
-    editor_service_schema_versions: EditorServiceSchemaVersion::ALL.iter().map(|version| version.as_u32()).collect(),
-    config_schema_url: CONFIG_SCHEMA_URL,
-    capabilities: EditorServiceCapabilities {},
-  })?);
-  Ok(())
-}
-
 pub async fn run_editor_service<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
@@ -75,10 +41,7 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   // poll for the existence of the parent process and terminate this process when that process no longer exists
   start_parent_process_checker_task(editor_service_cmd.parent_pid);
 
-  match editor_service_cmd.schema_version {
-    EditorServiceSchemaVersion::V5 => v5::run_editor_service(args, environment, plugin_resolver).await,
-    EditorServiceSchemaVersion::V6 => v6::run_editor_service(args, environment, plugin_resolver).await,
-  }
+  v5::run_editor_service(args, environment, plugin_resolver).await
 }
 
 /// What's used to send messages of a schema version to the editor.
@@ -175,13 +138,10 @@ mod test {
   use dprint_core::communication::MessageReader;
   use dprint_core::communication::MessageWriter;
   use dprint_core::communication::SingleThreadMessageWriter;
-  use pretty_assertions::assert_eq;
 
   use crate::configuration::get_settings_file_path;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
-  use crate::environment::TestEnvironmentBuilder;
-  use crate::test_helpers::run_test_cli;
 
   use super::EditorContext;
   use super::messages::MessageBody;
@@ -206,28 +166,6 @@ mod test {
     fn error(_message_id: u32, _data: Vec<u8>) -> Self {
       TestMessageBody
     }
-  }
-
-  #[test]
-  fn should_output_editor_service_info_without_config_file() {
-    let environment = TestEnvironmentBuilder::new().build();
-    run_test_cli(vec!["editor-service", "--info"], &environment).unwrap();
-    assert_eq!(
-      environment.take_stdout_messages(),
-      vec![format!(
-        r#"{{"cliVersion":"{}","editorServiceSchemaVersions":[5,6],"configSchemaUrl":"https://dprint.dev/schemas/v0.json","capabilities":{{}}}}"#,
-        environment.cli_version()
-      )]
-    );
-    assert!(environment.take_stderr_messages().is_empty());
-  }
-
-  #[test]
-  fn should_not_start_schema_version_that_does_not_exist() {
-    let environment = TestEnvironment::new();
-    let err = run_test_cli(vec!["editor-service", "--parent-pid", "1", "--schema-version", "7"], &environment).unwrap_err();
-    err.assert_exit_code(10);
-    assert!(err.to_string().contains("[possible values: 5, 6]"), "{err:#}");
   }
 
   #[test]

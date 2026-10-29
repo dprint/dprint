@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use crate::commands::lsp::workspace::messages::ApprovalDecision;
 use crate::configuration::ProcessPluginApproval;
 use crate::configuration::ProcessPluginDecision;
 use crate::configuration::ProcessPluginSetUpGrant;
@@ -148,6 +149,29 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
     }
   })
   .await
+}
+
+/// Gets the title of the action of a decision, which is what
+/// `store_process_plugin_action` stores.
+pub fn get_process_plugin_action_title(decision: ApprovalDecision) -> &'static str {
+  match decision {
+    ApprovalDecision::Allow => ALLOW_ACTION_TITLE,
+    ApprovalDecision::AlwaysAllow => ALWAYS_ALLOW_ACTION_TITLE,
+    ApprovalDecision::Deny => DENY_ACTION_TITLE,
+    ApprovalDecision::AlwaysDeny => ALWAYS_DENY_ACTION_TITLE,
+  }
+}
+
+/// Gets the decision of the action the user chose, which is `None` for an
+/// action that wasn't offered.
+pub fn get_process_plugin_decision(action_title: &str) -> Option<ApprovalDecision> {
+  match action_title {
+    ALLOW_ACTION_TITLE => Some(ApprovalDecision::Allow),
+    ALWAYS_ALLOW_ACTION_TITLE => Some(ApprovalDecision::AlwaysAllow),
+    DENY_ACTION_TITLE => Some(ApprovalDecision::Deny),
+    ALWAYS_DENY_ACTION_TITLE => Some(ApprovalDecision::AlwaysDeny),
+    _ => None,
+  }
 }
 
 const ALLOW_ACTION_TITLE: &str = "Allow";

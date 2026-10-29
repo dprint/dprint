@@ -1,5 +1,7 @@
 //! Finds where the problems of a config file are in its text.
 
+use deno_tower_lsp::lsp_types::Diagnostic;
+use deno_tower_lsp::lsp_types::DiagnosticSeverity;
 use deno_tower_lsp::lsp_types::Range;
 use jsonc_parser::ast::Object;
 use jsonc_parser::ast::ObjectProp;
@@ -11,7 +13,28 @@ use crate::commands::lsp::text::LineIndex;
 use crate::configuration::GlobalConfigDiagnostic;
 use crate::plugins::PluginConfigDiagnostic;
 
-use super::messages::ConfigDiagnostic;
+/// A problem with a config file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigDiagnostic {
+  pub message: String,
+  /// Where the problem is in the config file, which is `None` when that's
+  /// not known (ex. it's in a config file that it extends).
+  pub range: Option<Range>,
+}
+
+impl ConfigDiagnostic {
+  /// Gets the diagnostic to publish, which is at the start of the config file
+  /// when where it is isn't known.
+  pub fn into_lsp_diagnostic(self) -> Diagnostic {
+    Diagnostic {
+      range: self.range.unwrap_or_default(),
+      severity: Some(DiagnosticSeverity::ERROR),
+      source: Some("dprint".to_string()),
+      message: self.message,
+      ..Default::default()
+    }
+  }
+}
 
 /// A problem with the configuration of a plugin along with the key of the
 /// plugin's section in the config file.
@@ -37,8 +60,6 @@ pub fn get_config_diagnostics(
     let prop = root.and_then(|root| root.get(&diagnostic.property_name));
     diagnostics.push(ConfigDiagnostic {
       message: diagnostic.message.clone(),
-      plugin_name: None,
-      property_name: Some(diagnostic.property_name.clone()),
       range: prop.and_then(|prop| text.range(prop_name_range(prop))),
     });
   }
@@ -48,8 +69,6 @@ pub fn get_config_diagnostics(
     let prop = section.and_then(|section| find_plugin_property(section, property_name));
     diagnostics.push(ConfigDiagnostic {
       message: item.diagnostic.diagnostic.message.clone(),
-      plugin_name: Some(item.diagnostic.plugin_name.clone()),
-      property_name: Some(property_name.clone()),
       // the plugin's section when the property isn't found (ex. it's in an extended config file)
       range: prop.or(section).and_then(|prop| text.range(prop_name_range(prop))),
     });
@@ -66,8 +85,6 @@ pub fn get_config_error_diagnostic(config_text: Option<&str>, err: &anyhow::Erro
   });
   ConfigDiagnostic {
     message: format!("{:#}", err),
-    plugin_name: None,
-    property_name: None,
     range: parse_error_range,
   }
 }
@@ -204,21 +221,13 @@ mod test {
       &plugin_section_diagnostics,
     );
     assert_eq!(
-      diagnostics.into_iter().map(|d| (d.plugin_name, d.property_name, d.range)).collect::<Vec<_>>(),
+      diagnostics.into_iter().map(|d| (d.message, d.range)).collect::<Vec<_>>(),
       vec![
-        (None, Some("unknown".to_string()), range((1, 2), (1, 11))),
-        (
-          Some("dprint-plugin-typescript".to_string()),
-          Some("lineWidth".to_string()),
-          range((3, 4), (3, 15))
-        ),
-        (
-          Some("dprint-plugin-typescript".to_string()),
-          Some("badOverride".to_string()),
-          range((4, 37), (4, 50))
-        ),
-        (Some("dprint-plugin-json".to_string()), Some("extended".to_string()), range((7, 2), (7, 8))),
-        (Some("dprint-plugin-markdown".to_string()), Some("other".to_string()), None),
+        ("Unknown property in configuration".to_string(), range((1, 2), (1, 11))),
+        ("Expected a number".to_string(), range((3, 4), (3, 15))),
+        ("Unknown property in configuration".to_string(), range((4, 37), (4, 50))),
+        ("Unknown property in configuration".to_string(), range((7, 2), (7, 8))),
+        ("Unknown property in configuration".to_string(), None),
       ]
     );
   }

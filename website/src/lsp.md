@@ -24,7 +24,9 @@ The server communicates over stdin and stdout, so this command is run by the edi
 - **Notebook cells** and **untitled documents**, in clients that support them (see below).
 - **Commands for formatting with the global configuration file** (see [Global Configuration](#global-configuration)).
 
-The server only formats. It doesn't provide diagnostics or code actions.
+The server also publishes the problems with dprint configuration files (ex. an unknown property) as diagnostics. It doesn't provide code actions.
+
+An editor extension can use the server's `dprint/*` methods instead of the text document methods, which are only sent a document's text when formatting it (see [developing an editor extension](https://github.com/dprint/dprint/blob/main/docs/editor-extension-development.md)).
 
 ### Configuration file completions and hover
 
@@ -50,7 +52,7 @@ Documents with other schemes that aren't files on the file system are not format
 
 ## Downloads
 
-The server only downloads plugins and the configuration files that a configuration file extends from [trusted domains](/setup#trusted-domains) without asking. When formatting needs something from another domain, the server asks whether to download it with a message that has `Download` and `Cancel` actions, which is once per session. Nothing is formatted with the configuration file until then. In a client that can't show the actions of a message, run `dprint config install` in the directory of the configuration file to download them.
+The server only downloads plugins and the configuration files that a configuration file extends from [trusted domains](/setup#trusted-domains) without asking. This includes each redirect, and reading a file on another machine (ex. a UNC path on Windows) is asked about like a download. When formatting needs something from another domain, the server asks whether to download it with a message that has `Download` and `Cancel` actions, which is once per session for the same download. Allowing it only allows what the message says, so you may be asked about something else it leads to (ex. a configuration file that the downloaded one extends). Nothing is formatted with the configuration file until then. In a client that can't show the actions of a message, run `dprint config install` in the directory of the configuration file to download them.
 
 ## Configuration File Resolution
 
@@ -137,6 +139,8 @@ The server reads the following settings from the `initializationOptions` of the 
 
 - `useGlobalConfig` (default: `false`) - Format the files that don't have a configuration file in an ancestor directory with the [global configuration file](#global-configuration).
 - `showNoConfigNotification` (default: `true`) - Show the [no configuration file notification](#no-configuration-file-notification).
+- `ensureStableFormat` - Format again until the text doesn't change, which is for a plugin that formats a file differently each time. It defaults to what the `DPRINT_EDITOR_STABLE_FORMAT` environment variable says.
+- `verbose` (default: `false`) - Log debug messages.
 
 For example, in Neovim (as with the snippets in [Editor Setup](#editor-setup), these were written from each editor's documentation and have not been tested in those editors):
 

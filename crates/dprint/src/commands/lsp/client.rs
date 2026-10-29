@@ -3,12 +3,25 @@ use std::sync::Arc;
 use anyhow::Result;
 use anyhow::bail;
 use deno_tower_lsp::Client;
+use deno_tower_lsp::lsp_types::Diagnostic;
 use deno_tower_lsp::lsp_types::MessageActionItem;
 use deno_tower_lsp::lsp_types::MessageType;
+use deno_tower_lsp::lsp_types::NumberOrString;
+use deno_tower_lsp::lsp_types::ProgressParams;
+use deno_tower_lsp::lsp_types::ProgressParamsValue;
 use deno_tower_lsp::lsp_types::Registration;
+use deno_tower_lsp::lsp_types::Uri;
+use deno_tower_lsp::lsp_types::WorkDoneProgress;
+use deno_tower_lsp::lsp_types::WorkDoneProgressCreateParams;
 use deno_tower_lsp::lsp_types::WorkspaceEdit;
+use deno_tower_lsp::lsp_types::notification::Notification;
+use deno_tower_lsp::lsp_types::notification::Progress;
+use deno_tower_lsp::lsp_types::request::WorkDoneProgressCreate;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
+
+use super::workspace::messages::CONFIG_CHANGED_NOTIFICATION;
+use super::workspace::messages::ConfigChangedParams;
 
 pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   fn log(&self, message_type: MessageType, message: String);
@@ -22,6 +35,23 @@ pub trait ClientTrait: std::fmt::Debug + Send + Sync {
     actions: Vec<MessageActionItem>,
   ) -> LocalBoxFuture<'static, Option<MessageActionItem>>;
   fn apply_edit(&self, edit: WorkspaceEdit) -> LocalBoxFuture<'static, Result<()>>;
+  fn publish_diagnostics(&self, uri: Uri, diagnostics: Vec<Diagnostic>);
+  /// Sends the `dprint/configChanged` notification.
+  fn send_config_changed(&self, uri: Uri);
+  /// Logs the message, which resolves once it's sent so that the messages
+  /// are sent in order.
+  fn send_log(&self, message_type: MessageType, message: String) -> LocalBoxFuture<'static, ()>;
+  /// Asks the client to create the progress, which resolves to whether it did.
+  fn create_work_done_progress(&self, token: NumberOrString) -> LocalBoxFuture<'static, bool>;
+  fn send_progress(&self, token: NumberOrString, progress: WorkDoneProgress) -> LocalBoxFuture<'static, ()>;
+}
+
+/// The `dprint/configChanged` notification.
+enum ConfigChangedNotification {}
+
+impl Notification for ConfigChangedNotification {
+  type Params = ConfigChangedParams;
+  const METHOD: &'static str = CONFIG_CHANGED_NOTIFICATION;
 }
 
 impl ClientTrait for Client {
@@ -80,6 +110,49 @@ impl ClientTrait for Client {
     }
     .boxed_local()
   }
+
+  fn publish_diagnostics(&self, uri: Uri, diagnostics: Vec<Diagnostic>) {
+    let client = self.clone();
+    dprint_core::async_runtime::spawn(async move {
+      client.publish_diagnostics(uri, diagnostics, None).await;
+    });
+  }
+
+  fn send_config_changed(&self, uri: Uri) {
+    let client = self.clone();
+    dprint_core::async_runtime::spawn(async move {
+      client.send_notification::<ConfigChangedNotification>(ConfigChangedParams { uri }).await;
+    });
+  }
+
+  fn send_log(&self, message_type: MessageType, message: String) -> LocalBoxFuture<'static, ()> {
+    let client = self.clone();
+    async move { client.log_message(message_type, message).await }.boxed_local()
+  }
+
+  fn create_work_done_progress(&self, token: NumberOrString) -> LocalBoxFuture<'static, bool> {
+    let client = self.clone();
+    async move {
+      client
+        .send_request::<WorkDoneProgressCreate>(WorkDoneProgressCreateParams { token })
+        .await
+        .is_ok()
+    }
+    .boxed_local()
+  }
+
+  fn send_progress(&self, token: NumberOrString, progress: WorkDoneProgress) -> LocalBoxFuture<'static, ()> {
+    let client = self.clone();
+    async move {
+      client
+        .send_notification::<Progress>(ProgressParams {
+          token,
+          value: ProgressParamsValue::WorkDone(progress),
+        })
+        .await
+    }
+    .boxed_local()
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +194,26 @@ impl ClientWrapper {
 
   pub fn apply_edit(&self, edit: WorkspaceEdit) -> LocalBoxFuture<'static, Result<()>> {
     self.0.apply_edit(edit)
+  }
+
+  pub fn publish_diagnostics(&self, uri: Uri, diagnostics: Vec<Diagnostic>) {
+    self.0.publish_diagnostics(uri, diagnostics)
+  }
+
+  pub fn send_config_changed(&self, uri: Uri) {
+    self.0.send_config_changed(uri)
+  }
+
+  pub fn send_log(&self, message_type: MessageType, message: String) -> LocalBoxFuture<'static, ()> {
+    self.0.send_log(message_type, message)
+  }
+
+  pub fn create_work_done_progress(&self, token: NumberOrString) -> LocalBoxFuture<'static, bool> {
+    self.0.create_work_done_progress(token)
+  }
+
+  pub fn send_progress(&self, token: NumberOrString, progress: WorkDoneProgress) -> LocalBoxFuture<'static, ()> {
+    self.0.send_progress(token, progress)
   }
 
   fn log(&self, message_type: MessageType, message: String) {

@@ -109,7 +109,6 @@ impl CliArgs {
       self.sub_command,
       SubCommand::StdInFmt(..)
         | SubCommand::EditorInfo
-        | SubCommand::EditorServiceInfo
         | SubCommand::OutputResolvedConfig(..)
         | SubCommand::IncrementalState
         | SubCommand::Completions(..)
@@ -163,8 +162,6 @@ pub enum SubCommand {
   License,
   Help(String),
   EditorInfo,
-  /// Outputs what the editor service supports (`editor-service --info`).
-  EditorServiceInfo,
   EditorService(EditorServiceSubCommand),
   Lsp,
   StdInFmt(StdInFmtSubCommand),
@@ -210,7 +207,6 @@ impl SubCommand {
       | SubCommand::Help(_)
       | SubCommand::Lsp
       | SubCommand::EditorInfo
-      | SubCommand::EditorServiceInfo
       | SubCommand::EditorService(_)
       | SubCommand::Completions(_)
       | SubCommand::Upgrade => None,
@@ -393,43 +389,6 @@ pub struct OutputFormatTimesSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct EditorServiceSubCommand {
   pub parent_pid: u32,
-  pub schema_version: EditorServiceSchemaVersion,
-}
-
-/// A schema version of the editor service, which decides the messages it
-/// sends and receives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EditorServiceSchemaVersion {
-  /// Formats the files the editor resolved the config file of.
-  V5,
-  /// Formats the files of a whole workspace.
-  V6,
-}
-
-impl EditorServiceSchemaVersion {
-  /// The schema versions, where the first is the one that's used when
-  /// `--schema-version` isn't specified.
-  pub const ALL: [Self; 2] = [Self::V5, Self::V6];
-
-  pub fn as_u32(self) -> u32 {
-    match self {
-      Self::V5 => 5,
-      Self::V6 => 6,
-    }
-  }
-}
-
-impl clap::ValueEnum for EditorServiceSchemaVersion {
-  fn value_variants<'a>() -> &'a [Self] {
-    &Self::ALL
-  }
-
-  fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-    Some(clap::builder::PossibleValue::new(match self {
-      Self::V5 => "5",
-      Self::V6 => "6",
-    }))
-  }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -685,10 +644,8 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("version", _) => SubCommand::Version,
     ("license", _) => SubCommand::License,
     ("editor-info", _) => SubCommand::EditorInfo,
-    ("editor-service", matches) if matches.get_flag("info") => SubCommand::EditorServiceInfo,
     ("editor-service", matches) => SubCommand::EditorService(EditorServiceSubCommand {
       parent_pid: matches.get_one::<String>("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
-      schema_version: *matches.get_one::<EditorServiceSchemaVersion>("schema-version").unwrap(),
     }),
     ("lsp", _) => SubCommand::Lsp,
     ("completions", matches) => SubCommand::Completions(matches.get_one::<clap_complete::Shell>("shell").unwrap().to_owned()),
@@ -1286,20 +1243,7 @@ EXAMPLES:
     app = app.subcommand(Command::new("editor-info").hide(true)).subcommand(
       Command::new("editor-service")
         .hide(true)
-        .arg(
-          Arg::new("info")
-            .long("info")
-            .action(clap::ArgAction::SetTrue)
-            .conflicts_with_all(["parent-pid", "schema-version", "config"]),
-        )
-        .arg(Arg::new("parent-pid").long("parent-pid").required_unless_present("info").num_args(1))
-        .arg(
-          Arg::new("schema-version")
-            .long("schema-version")
-            .num_args(1)
-            .value_parser(clap::value_parser!(EditorServiceSchemaVersion))
-            .default_value("5"),
-        ),
+        .arg(Arg::new("parent-pid").long("parent-pid").required(true).num_args(1)),
     );
   }
 
@@ -2274,26 +2218,6 @@ mod test {
     // it doesn't initialize anything
     assert!(test_args(vec!["init", "--preferences", "--yes"]).is_err());
     assert!(test_args(vec!["init", "--preferences", "--global"]).is_err());
-  }
-
-  #[test]
-  fn editor_service_info_arg() {
-    assert!(matches!(
-      test_args(vec!["editor-service", "--info"]).unwrap().sub_command,
-      SubCommand::EditorServiceInfo
-    ));
-    assert!(matches!(
-      test_args(vec!["editor-service", "--parent-pid", "1"]).unwrap().sub_command,
-      SubCommand::EditorService(EditorServiceSubCommand {
-        parent_pid: 1,
-        schema_version: EditorServiceSchemaVersion::V5
-      })
-    ));
-    // it doesn't start the editor service
-    assert!(test_args(vec!["editor-service", "--info", "--parent-pid", "1"]).is_err());
-    assert!(test_args(vec!["editor-service", "--info", "--schema-version", "6"]).is_err());
-    assert!(test_args(vec!["editor-service", "--info", "--config", "dprint.json"]).is_err());
-    assert!(test_args(vec!["editor-service"]).is_err());
   }
 
   fn test_args(args: Vec<&str>) -> Result<CliArgs, ParseArgsError> {

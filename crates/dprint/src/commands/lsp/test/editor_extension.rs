@@ -1,0 +1,813 @@
+//! Tests of an editor extension using the `dprint/*` methods.
+
+use pretty_assertions::assert_eq;
+use serde_json::json;
+
+use super::*;
+use crate::commands::lsp::workspace::messages::ApprovalDecision;
+use crate::commands::lsp::workspace::messages::ApprovalKind;
+use crate::commands::lsp::workspace::messages::ConfigFileInfo;
+use crate::commands::lsp::workspace::messages::DocumentIdentifier;
+use crate::commands::lsp::workspace::messages::FileInfoPlugin;
+use crate::commands::lsp::workspace::messages::FormatFailedReason;
+use crate::commands::lsp::workspace::messages::PendingApproval;
+use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
+use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
+
+#[test]
+fn should_say_it_supports_the_dprint_methods() {
+  let environment = TestEnvironmentBuilder::new().build();
+  environment.clone().run_in_runtime(async move {
+    let (backend, recv_task, test_client) = setup_backend(environment.clone());
+    let run_test_task = dprint_core::async_runtime::spawn(async move {
+      // a language client is told too, so it can tell it's an older dprint when it isn't
+      let result = initialize_backend(&backend, Default::default()).await;
+      assert_eq!(result.capabilities.experimental, Some(json!({ "dprint": { "version": 1 } })));
+      assert!(result.capabilities.text_document_sync.is_some());
+      backend.shutdown().await.unwrap();
+    });
+    try_join!(recv_task, run_test_task).unwrap();
+    test_client.take_messages();
+  });
+
+  let environment = TestEnvironmentBuilder::new().build();
+  environment.clone().run_in_runtime(async move {
+    let (backend, recv_task, test_client) = setup_backend(environment.clone());
+    let run_test_task = dprint_core::async_runtime::spawn(async move {
+      let result = initialize_backend(&backend, editor_extension_params()).await;
+      assert_eq!(result.capabilities.experimental, Some(json!({ "dprint": { "version": 1 } })));
+      // the text is sent when formatting, so the documents aren't synced
+      assert_eq!(result.capabilities.text_document_sync, None);
+      assert_eq!(result.capabilities.document_formatting_provider, None);
+      backend.shutdown().await.unwrap();
+    });
+    try_join!(recv_task, run_test_task).unwrap();
+    test_client.take_messages();
+    assert!(test_client.take_registered_methods().is_empty());
+  });
+}
+
+#[test]
+fn should_format_files_with_the_config_file_of_each() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "a" }"#);
+    })
+    .with_local_config("/b/dprint.json", |c| {
+      c.add_remote_wasm_plugin()
+        .add_config_section("test-plugin", r#"{ "ending": "b", "associations": ["**/*.other"] }"#)
+        .add_excludes("excluded.txt");
+    })
+    .initialize()
+    .build();
+
+  run_session(&environment, |client| {
+    async move {
+      assert_eq!(
+        client.file_info("/a/file.txt").await,
+        FileInfoResult {
+          config_file: Some(local_config("/a/dprint.json")),
+          can_format: true,
+          plugins: vec![test_plugin()],
+          reason: None,
+          message: None,
+          approval: None,
+        }
+      );
+      assert_eq!(
+        client.file_info("/b/excluded.txt").await,
+        FileInfoResult {
+          config_file: Some(local_config("/b/dprint.json")),
+          can_format: false,
+          plugins: Vec::new(),
+          reason: Some(NotFormattedReason::NotMatched),
+          message: Some(NOT_MATCHED_MESSAGE.to_string()),
+          approval: None,
+        }
+      );
+      assert_eq!(client.file_info("/a/file.other").await.reason, Some(NotFormattedReason::NoPlugin));
+      assert_eq!(
+        client.file_info("/c/file.txt").await,
+        FileInfoResult {
+          config_file: None,
+          can_format: false,
+          plugins: Vec::new(),
+          reason: Some(NotFormattedReason::NoConfigFile),
+          message: Some("No dprint configuration file found. Run \"dprint init\" in your project to create one.".to_string()),
+          approval: None,
+        }
+      );
+
+      assert_eq!(client.format("/a/file.txt", "testing").await, formatted("testing", "testing_a"));
+      assert_eq!(client.format("/b/file.txt", "testing").await, formatted("testing", "testing_b"));
+      // already formatted
+      assert_eq!(client.format("/a/file.txt", "testing_a").await, FormatResult::Formatted { edits: Vec::new() });
+      assert_eq!(
+        client.format("/b/excluded.txt", "testing").await,
+        not_formatted(NotFormattedReason::NotMatched, Some(NOT_MATCHED_MESSAGE))
+      );
+      assert_eq!(
+        client.format("/a/file.other", "testing").await,
+        not_formatted(NotFormattedReason::NoPlugin, Some(NO_PLUGIN_MESSAGE))
+      );
+      assert_eq!(
+        client.format("/a/file.txt", "should_error").await,
+        FormatResult::Failed {
+          reason: FormatFailedReason::FormatError,
+          message: "Did error.".to_string(),
+        }
+      );
+      let FormatResult::Failed { reason, message } = client.format("/a/file.txt", "should_panic").await else {
+        panic!("expected it to fail");
+      };
+      assert_eq!(reason, FormatFailedReason::PluginError);
+      assert!(message.contains("panicked"), "{}", message);
+      // the plugin is started again
+      assert_eq!(client.format("/a/file.txt", "testing").await, formatted("testing", "testing_a"));
+
+      let config_info = client.config_info("/b/dprint.json").await;
+      assert_eq!(config_info.config_file, Some(local_config("/b/dprint.json")));
+      let plugins = config_info.plugins.unwrap();
+      assert_eq!(plugins.iter().map(|plugin| plugin.name.as_str()).collect::<Vec<_>>(), vec!["test-plugin"]);
+      assert_eq!(plugins[0].file_extensions, vec!["txt"]);
+      // the associations format other files, which the file info says
+      assert!(config_info.formats_other_files);
+      assert!(!client.config_info("/a/dprint.json").await.formats_other_files);
+      assert_eq!(config_info.reason, None);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_not_notify_an_editor_extension_about_a_file_without_a_config_file() {
+  let environment = TestEnvironmentBuilder::new().build();
+  ensure_global_config_dir(&environment);
+  run_session(&environment, |client| {
+    async move {
+      assert_eq!(
+        client.format("/file.txt", "text").await,
+        not_formatted(
+          NotFormattedReason::NoConfigFile,
+          Some("No dprint configuration file found. Run \"dprint init\" in your project to create one."),
+        )
+      );
+      // the editor extension notifies the user itself
+      assert!(client.test_client.take_shown_messages().is_empty());
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_use_the_global_config_file_when_asked() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_global_config(|c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      let result = client.format("/file.txt", "text").await;
+      let FormatResult::NotFormatted { reason, message, .. } = result else {
+        panic!("expected it to not be formatted");
+      };
+      assert_eq!(reason, NotFormattedReason::GlobalConfigNotAllowed);
+      assert!(message.unwrap().contains("enable the \"useGlobalConfig\" setting of the dprint extension"));
+      let mut params = client.format_params("/file.txt", "text");
+      params.document.use_global_config = true;
+      assert_eq!(client.format_with(params).await, formatted("text", "text_formatted"));
+      let info = client
+        .backend
+        .dprint_file_info(
+          DocumentParams {
+            use_global_config: true,
+            ..document_params("/file.txt")
+          },
+          CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+      assert!(info.can_format);
+      assert!(info.config_file.unwrap().is_global);
+      // the setting
+      client
+        .backend
+        .did_change_configuration(DidChangeConfigurationParams {
+          settings: json!({ "useGlobalConfig": true }),
+        })
+        .await;
+      assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_format_ranges_with_utf16_positions() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      // the positions after the emoji are in utf-16 code units
+      let text = "\u{1F995}text";
+      assert_eq!(
+        client.format("/file.txt", text).await,
+        FormatResult::Formatted {
+          edits: vec![TextEdit {
+            range: Range::new(Position::new(0, 6), Position::new(0, 6)),
+            new_text: "_formatted".to_string(),
+          }],
+        }
+      );
+      let mut params = client.format_params("/file.txt", "a\nb\nc\n");
+      params.ranges = Some(vec![
+        Range::new(Position::new(0, 0), Position::new(0, 1)),
+        Range::new(Position::new(2, 0), Position::new(2, 1)),
+      ]);
+      let FormatResult::Formatted { edits } = client.format_with(params).await else {
+        panic!("expected it to be formatted");
+      };
+      assert!(!edits.is_empty());
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_format_notebook_cells_and_untitled_documents_by_their_language() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      let language = DocumentLanguage {
+        id: "plaintext".to_string(),
+        file_extensions: vec![".txt".to_string()],
+        file_names: Vec::new(),
+      };
+      let mut params = client.format_params("untitled:Untitled-1", "text");
+      params.document.language = Some(language.clone());
+      assert_eq!(client.format_with(params).await, formatted("text", "text_formatted"));
+      // the language is needed to know what to format it as
+      let params = client.format_params("untitled:Untitled-1", "text");
+      assert!(client.backend.dprint_format(params, CancellationToken::new()).await.is_err());
+      // a notebook cell is only formatted when the notebook would be, which no plugin formats
+      let mut params = client.format_params("vscode-notebook-cell:/notebook.ipynb#W0", "text");
+      params.document.language = Some(language);
+      params.document.notebook_document = Some(DocumentIdentifier { uri: uri("/notebook.ipynb") });
+      let FormatResult::NotFormatted { reason, .. } = client.format_with(params).await else {
+        panic!("expected it to not be formatted");
+      };
+      assert_eq!(reason, NotFormattedReason::NoPlugin);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_send_what_is_logged_and_the_progress_to_an_editor_extension() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build(); // not initialized, so the plugin is compiled
+  run_session(&environment, |client| {
+    async move {
+      assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+      let progress = client.test_client.progress.lock().drain(..).map(|(_, progress)| progress).collect::<Vec<_>>();
+      let titles = progress
+        .iter()
+        .filter_map(|progress| match progress {
+          WorkDoneProgress::Begin(begin) => Some(begin.title.clone()),
+          _ => None,
+        })
+        .collect::<Vec<_>>();
+      assert_eq!(titles, vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
+      assert!(matches!(progress.last(), Some(WorkDoneProgress::End(_))));
+    }
+    .boxed_local()
+  });
+  // it went to the editor instead
+  assert!(environment.take_stderr_messages().is_empty());
+}
+
+#[test]
+fn should_publish_the_diagnostics_of_config_files() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+    })
+    .initialize()
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.config_info("/dprint.json").await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].0, uri("/dprint.json"));
+        assert_eq!(diagnostics[0].1.len(), 1);
+        assert_eq!(diagnostics[0].1[0].message, "Unknown property in configuration");
+        // where the property is
+        assert_eq!(diagnostics[0].1[0].range, Range::new(Position::new(1, 2), Position::new(1, 19)));
+
+        // they're cleared once fixed
+        environment
+          .write_file("/dprint.json", r#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"] }"#)
+          .unwrap();
+        client.config_info("/dprint.json").await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics, vec![(uri("/dprint.json"), Vec::new())]);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_provide_the_plugins_known_before_when_a_config_file_has_an_error() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let plugins = client.config_info("/dprint.json").await.plugins;
+        assert_eq!(plugins.as_ref().map(|plugins| plugins.len()), Some(1));
+        // a typo doesn't change what the editor formats with it
+        environment.write_file("/dprint.json", "{").unwrap();
+        let config_info = client.config_info("/dprint.json").await;
+        assert_eq!(config_info.reason, Some(NotFormattedReason::ConfigError));
+        assert_eq!(config_info.plugins, plugins);
+        // the error is shown once
+        assert_eq!(client.test_client.take_shown_messages().len(), 1);
+        client.config_info("/dprint.json").await;
+        assert!(client.test_client.take_shown_messages().is_empty());
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_approve_downloading_from_domains_that_are_not_trusted() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // the plugins aren't known, so the editor doesn't format with it until it's approved
+        let config_info = client.config_info("/dprint.json").await;
+        assert_eq!(config_info.reason, Some(NotFormattedReason::DownloadRequired));
+        assert_eq!(config_info.plugins, None);
+        let approval = config_info.approval.unwrap();
+        assert_eq!(approval.kind, ApprovalKind::Download);
+        assert_eq!(approval.items, vec![UNTRUSTED_PLUGIN_URL.to_string()]);
+        assert!(!approval.denied);
+        assert!(
+          approval
+            .message
+            .starts_with("dprint needs to download https://example.com/test-plugin.wasm from domains that aren't trusted.")
+        );
+        assert_eq!(
+          client.format("/file.txt", "text").await,
+          FormatResult::NotFormatted {
+            reason: NotFormattedReason::DownloadRequired,
+            message: Some(approval.message.clone()),
+            approval: Some(approval.clone()),
+          }
+        );
+        assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
+        // the server doesn't ask the user itself
+        assert!(client.test_client.take_shown_messages().is_empty());
+
+        // denying it
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Deny).await, None);
+        assert!(client.config_info("/dprint.json").await.approval.unwrap().denied);
+        assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
+
+        // the user can still allow it (ex. with a command)
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+        assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 1);
+        // the editor is told the config file formats files now
+        assert_eq!(client.take_config_changes(), vec![uri("/dprint.json")]);
+        assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+        assert_eq!(client.config_info("/dprint.json").await.approval, None);
+
+        // an approval that isn't pending
+        assert!(
+          client
+            .backend
+            .dprint_approve(
+              ApproveParams {
+                id: "unknown".to_string(),
+                decision: ApprovalDecision::Allow,
+              },
+              CancellationToken::new(),
+            )
+            .await
+            .is_err()
+        );
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_approve_what_an_allowed_config_file_extends() {
+  const UNTRUSTED_CONFIG_URL: &str = "https://example.com/dprint.json";
+  const UNTRUSTED_BASE_CONFIG_URL: &str = "https://other.example.com/base.json";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_config_section("extends", &format!("\"{}\"", UNTRUSTED_CONFIG_URL));
+    })
+    .build();
+  environment.add_remote_file(
+    UNTRUSTED_CONFIG_URL,
+    br#"{ "extends": "https://other.example.com/base.json", "test-plugin": { "ending": "extended" } }"#,
+  );
+  environment.add_remote_file(UNTRUSTED_BASE_CONFIG_URL, br#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"] }"#);
+  run_session(&environment, |client| {
+    async move {
+      let FormatResult::NotFormatted { approval, .. } = client.format("/file.txt", "text").await else {
+        panic!("expected it to not be formatted");
+      };
+      let approval = approval.unwrap();
+      assert_eq!(approval.items, vec![UNTRUSTED_CONFIG_URL.to_string()]);
+      // allowing it only allows what was shown, so what it extends needs to be approved too
+      let approval = client.approve(&approval.id, ApprovalDecision::Allow).await.unwrap();
+      assert_eq!(approval.kind, ApprovalKind::Download);
+      assert_eq!(approval.items, vec![UNTRUSTED_BASE_CONFIG_URL.to_string()]);
+      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+      assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_extended"));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_approve_running_process_plugins() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build(); // not initialized, so the plugins aren't set up
+  disallow_process_plugins(&environment);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let file_info = client.file_info("/a/file.txt").await;
+        assert_eq!(file_info.reason, Some(NotFormattedReason::ProcessPluginsNotAllowed));
+        let approval = file_info.approval.unwrap();
+        assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
+        assert_eq!(approval.items.len(), 1);
+        assert!(approval.items[0].starts_with("https://plugins.dprint.dev/test-process.json@"));
+        assert!(approval.message.contains(") weren't allowed to run."), "{}", approval.message);
+        // none of the plugins are set up until then
+        assert_eq!(client.config_info("/a/dprint.json").await.plugins, None);
+
+        // denying it is remembered for the session, which a format says
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Deny).await, None);
+        let FormatResult::NotFormatted {
+          reason,
+          approval: Some(denied),
+          ..
+        } = client.format("/a/file.txt_ps", "text").await
+        else {
+          panic!("expected it to not be formatted");
+        };
+        assert_eq!(reason, NotFormattedReason::ProcessPluginsNotAllowed);
+        assert!(denied.denied);
+        assert!(client.test_client.take_shown_messages().is_empty());
+
+        // allowing it sets it up, and it's remembered with its configuration
+        assert_eq!(client.approve(&denied.id, ApprovalDecision::AlwaysAllow).await, None);
+        let decisions = crate::configuration::read_editor_state(&environment).process_plugin_decisions;
+        assert_eq!(decisions.len(), 1);
+        assert!(decisions[0].allowed);
+        assert_eq!(client.take_config_changes(), vec![uri("/a/dprint.json")]);
+        assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_formatted_process"));
+
+        // it needs to be approved again once its configuration changes
+        environment
+          .write_file(
+            "/a/dprint.json",
+            &environment
+              .read_file("/a/dprint.json")
+              .unwrap()
+              .replacen('{', r#"{ "testProcessPlugin": { "ending": "allowed" }, "#, 1),
+          )
+          .unwrap();
+        let FormatResult::NotFormatted { approval: Some(approval), .. } = client.format("/a/file.txt_ps", "text").await else {
+          panic!("expected it to not be formatted");
+        };
+        assert!(approval.message.contains("changed since they were allowed."), "{}", approval.message);
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+        assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_allowed"));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_provide_the_config_schema_of_a_config_file() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  environment.add_remote_file(
+    "https://plugins.dprint.dev/test/schema.json",
+    br#"{ "type": "object", "properties": { "ending": { "type": "string" } } }"#,
+  );
+  run_session(&environment, |client| {
+    async move {
+      let schema = client
+        .backend
+        .dprint_config_schema(
+          ConfigParams {
+            uri: uri("/dprint.json"),
+            use_global_config: false,
+          },
+          CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .schema;
+      assert_eq!(schema["properties"]["test-plugin"]["$ref"], json!("#/definitions/plugin-test-plugin"));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_not_download_a_plugin_schema_from_a_domain_that_is_not_trusted() {
+  const UNTRUSTED_SCHEMA_URL: &str = "https://example.com/schema.json";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  // the plugin's schema url could be anywhere, which this redirect stands in for
+  environment.add_remote_file_redirect("https://plugins.dprint.dev/test/schema.json", UNTRUSTED_SCHEMA_URL);
+  environment.add_remote_file(UNTRUSTED_SCHEMA_URL, br#"{ "type": "object" }"#);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let schema = client
+          .backend
+          .dprint_config_schema(
+            ConfigParams {
+              uri: uri("/dprint.json"),
+              use_global_config: false,
+            },
+            CancellationToken::new(),
+          )
+          .await
+          .unwrap()
+          .schema;
+        assert!(schema["definitions"].get("plugin-test-plugin").is_none(), "{:#}", schema);
+        assert_eq!(environment.remote_file_request_count(UNTRUSTED_SCHEMA_URL), 0);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_start_the_plugins_again_after_a_reset() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+      client.backend.dprint_reset(CancellationToken::new()).await.unwrap();
+      assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_ensure_a_stable_format_with_the_setting() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      // the test plugin formats this text differently each time, which is only formatted once by default
+      let unstable = "unstable_fmt_true";
+      assert_eq!(client.format("/file.txt", unstable).await, formatted(unstable, "unstable_fmt_false_formatted"));
+      client
+        .backend
+        .did_change_configuration(DidChangeConfigurationParams {
+          settings: json!({ "ensureStableFormat": true }),
+        })
+        .await;
+      assert_eq!(
+        client.format("/file.txt", unstable).await,
+        FormatResult::Failed {
+          reason: FormatFailedReason::FormatError,
+          message: "Formatting not stable. Bailed after 5 tries. This indicates a bug in the plugin where it formats the file differently each time."
+            .to_string(),
+        }
+      );
+    }
+    .boxed_local()
+  });
+}
+
+/// An editor extension using the `dprint/*` methods.
+struct Client {
+  backend: Rc<Backend<TestEnvironment>>,
+  test_client: Arc<TestClient>,
+}
+
+impl Client {
+  fn format_params(&self, path_or_uri: &str, text: &str) -> FormatParams {
+    FormatParams {
+      document: document_params(path_or_uri),
+      text: text.to_string(),
+      ranges: None,
+      override_config: Default::default(),
+    }
+  }
+
+  async fn format(&self, path_or_uri: &str, text: &str) -> FormatResult {
+    self.format_with(self.format_params(path_or_uri, text)).await
+  }
+
+  async fn format_with(&self, params: FormatParams) -> FormatResult {
+    self.backend.dprint_format(params, CancellationToken::new()).await.unwrap()
+  }
+
+  async fn file_info(&self, path_or_uri: &str) -> FileInfoResult {
+    self
+      .backend
+      .dprint_file_info(document_params(path_or_uri), CancellationToken::new())
+      .await
+      .unwrap()
+  }
+
+  async fn config_info(&self, path_or_uri: &str) -> ConfigInfoResult {
+    self
+      .backend
+      .dprint_config_info(
+        ConfigParams {
+          uri: uri(path_or_uri),
+          use_global_config: false,
+        },
+        CancellationToken::new(),
+      )
+      .await
+      .unwrap()
+  }
+
+  async fn approve(&self, id: &str, decision: ApprovalDecision) -> Option<PendingApproval> {
+    self
+      .backend
+      .dprint_approve(ApproveParams { id: id.to_string(), decision }, CancellationToken::new())
+      .await
+      .unwrap()
+      .approval
+  }
+
+  fn take_config_changes(&self) -> Vec<Uri> {
+    self.test_client.config_changes.lock().drain(..).collect()
+  }
+}
+
+/// Runs a session of an editor extension, which is initialized with a
+/// workspace folder at the root directory.
+fn run_session(environment: &TestEnvironment, action: impl FnOnce(Client) -> LocalBoxFuture<'static, ()> + 'static) {
+  environment.clone().run_in_runtime(async move {
+    let (backend, recv_task, test_client) = setup_backend(environment.clone());
+    let backend = Rc::new(backend);
+    let run_test_task = dprint_core::async_runtime::spawn({
+      let test_client = test_client.clone();
+      async move {
+        initialize_backend(&backend, editor_extension_params()).await;
+        action(Client {
+          backend: backend.clone(),
+          test_client,
+        })
+        .await;
+        backend.shutdown().await.unwrap();
+      }
+    });
+    try_join!(recv_task, run_test_task).unwrap();
+    // what's logged is sent to the editor
+    test_client.take_messages();
+  });
+}
+
+fn editor_extension_params() -> InitializeParams {
+  InitializeParams {
+    capabilities: ClientCapabilities {
+      experimental: Some(json!({ "dprint": {} })),
+      window: Some(WindowClientCapabilities {
+        work_done_progress: Some(true),
+        ..Default::default()
+      }),
+      ..Default::default()
+    },
+    workspace_folders: Some(vec![WorkspaceFolder {
+      uri: uri("/"),
+      name: "root".to_string(),
+    }]),
+    ..Default::default()
+  }
+}
+
+fn document_params(path_or_uri: &str) -> DocumentParams {
+  DocumentParams {
+    text_document: DocumentIdentifier { uri: uri(path_or_uri) },
+    language: None,
+    notebook_document: None,
+    use_global_config: false,
+  }
+}
+
+fn formatted(text: &str, formatted_text: &str) -> FormatResult {
+  let line_index = LineIndex::new(text);
+  FormatResult::Formatted {
+    edits: to_lsp_edits(crate::commands::lsp::text::get_utf16_edits(text, formatted_text), &line_index),
+  }
+}
+
+fn not_formatted(reason: NotFormattedReason, message: Option<&str>) -> FormatResult {
+  FormatResult::NotFormatted {
+    reason,
+    message: message.map(|message| message.to_string()),
+    approval: None,
+  }
+}
+
+fn test_plugin() -> FileInfoPlugin {
+  FileInfoPlugin {
+    name: "test-plugin".to_string(),
+    version: "0.2.0".to_string(),
+  }
+}
+
+fn local_config(path: &str) -> ConfigFileInfo {
+  ConfigFileInfo {
+    uri: uri(path),
+    is_global: false,
+  }
+}
+
+fn uri(path_or_uri: &str) -> Uri {
+  if path_or_uri.starts_with('/') {
+    Uri::from_str(&format!("file://{}", path_or_uri)).unwrap()
+  } else {
+    Uri::from_str(path_or_uri).unwrap()
+  }
+}

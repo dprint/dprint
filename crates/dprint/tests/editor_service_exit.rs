@@ -17,29 +17,14 @@ const SUCCESS_RESPONSE_KIND: u32 = 0;
 const CLOSE_KIND: u32 = 2;
 
 #[test]
-fn exits_after_close_with_schema_version_5() {
-  assert_exits_after_close("5");
-}
-
-#[test]
-fn exits_after_close_with_schema_version_6() {
-  assert_exits_after_close("6");
-}
-
-fn assert_exits_after_close(schema_version: &str) {
+fn exits_after_close() {
   let temp_dir = tempfile::tempdir().unwrap();
   let cwd = temp_dir.path().join("cwd");
   let cache_dir = temp_dir.path().join("cache");
   std::fs::create_dir_all(&cwd).unwrap();
   std::fs::create_dir_all(&cache_dir).unwrap();
   let mut child = Command::new(env!("CARGO_BIN_EXE_dprint"))
-    .args([
-      "editor-service",
-      "--parent-pid",
-      &std::process::id().to_string(),
-      "--schema-version",
-      schema_version,
-    ])
+    .args(["editor-service", "--parent-pid", &std::process::id().to_string()])
     .current_dir(&cwd)
     .env("DPRINT_CACHE_DIR", &cache_dir)
     .stdin(Stdio::piped())
