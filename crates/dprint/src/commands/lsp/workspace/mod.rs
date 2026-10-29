@@ -542,18 +542,23 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     };
     let config = scope.config.as_ref();
     let reason = (!scope.untrusted_downloads.is_empty() || scope.unapproved_process_plugins.is_some()).then_some(NotFormattedReason::ApprovalRequired);
-    let config_key = config.map(|config| get_config_key(config));
-    let plugins = if reason.is_some() {
-      config_key.and_then(|key| self.last_plugin_infos.borrow().get(&key).cloned())
-    } else {
-      let plugins = get_plugin_infos(&scope).await?;
-      if let Some(key) = config_key {
-        self.last_plugin_infos.borrow_mut().insert(key, plugins.clone());
+    let plugins = match config {
+      // the plugins can't be used until they're approved, so this is what they formatted before
+      Some(config) if reason.is_some() => self.get_last_plugin_infos(config),
+      Some(config) => {
+        let plugins = get_plugin_infos(&scope).await?;
+        self.store_plugin_infos(config, &scope, &plugins).await;
+        Some(plugins)
       }
-      Some(plugins)
+      None => None,
     };
     let formats_other_files = config.is_some_and(|config| {
-      config.shebangs.as_ref().is_some_and(|shebangs| !shebangs.is_empty()) || scope.plugins.values().any(|plugin| plugin.associations.is_some())
+      config.shebangs.as_ref().is_some_and(|shebangs| !shebangs.is_empty())
+        // a plugin that isn't resolved has its associations in the config file
+        || config
+          .config_map
+          .values()
+          .any(|value| matches!(value, ConfigMapValue::PluginConfig(plugin_config) if plugin_config.associations.is_some()))
     });
     Ok(ConfigInfoResult {
       config_file: get_config_file_info(&scope),
@@ -563,6 +568,48 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       message: reason.and_then(|reason| self.get_reason_message(&scope, reason, false, use_global_config)),
       approval: self.get_scope_approval(&scope, &file_path, use_global_config),
     })
+  }
+
+  /// Gets the plugins of the config file from what they matched the last time
+  /// it was resolved, which is `None` when that isn't known for each of them.
+  fn get_last_plugin_infos(&self, config: &ResolvedConfig) -> Option<Vec<PluginInfo>> {
+    if let Some(plugins) = self.last_plugin_infos.borrow().get(&get_config_key(config)) {
+      return Some(plugins.clone());
+    }
+    // a plugin's information is in the plugin cache, which is kept across sessions
+    config
+      .plugins
+      .iter()
+      .map(|plugin| {
+        let info = self.scope_container.get_set_up_plugin_info(plugin)?;
+        let file_matching = self.scope_container.get_last_file_matching_info(plugin)?;
+        Some(PluginInfo {
+          name: info.name,
+          version: info.version,
+          config_key: info.config_key,
+          file_extensions: file_matching.file_extensions,
+          file_names: file_matching.file_names,
+        })
+      })
+      .collect()
+  }
+
+  /// Remembers the plugins of the config file for when they can't be resolved
+  /// (ex. the config file has an error or the user needs to approve them).
+  async fn store_plugin_infos(&self, config: &ResolvedConfig, scope: &PluginsScope<TEnvironment>, plugins: &[PluginInfo]) {
+    self.last_plugin_infos.borrow_mut().insert(get_config_key(config), plugins.to_vec());
+    for plugin in config.plugins.iter() {
+      let Some(plugin_with_config) = self
+        .scope_container
+        .get_set_up_plugin_info(plugin)
+        .and_then(|info| scope.plugins.values().find(|resolved| resolved.info().name == info.name))
+      else {
+        continue;
+      };
+      if let Err(err) = self.scope_container.store_file_matching_info(plugin, &plugin_with_config.file_matching).await {
+        log_debug!(self.environment, "Failed storing the files {} matches: {:#}", plugin.display(), err);
+      }
+    }
   }
 
   pub async fn config_schema(self: &Rc<Self>, uri: &Uri, use_global_config: bool) -> serde_json::Value {

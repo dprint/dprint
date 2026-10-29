@@ -3,6 +3,7 @@ use anyhow::Result;
 use anyhow::bail;
 use dprint_core::async_runtime::future;
 use dprint_core::communication::IdGenerator;
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::PluginInfo;
 use std::cell::RefCell;
@@ -179,6 +180,18 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     self
       .get_resolved_plugin_info(plugin_reference)
       .or_else(|| self.plugin_cache.get_set_up_plugin_info(plugin_reference))
+  }
+
+  /// Gets the files the plugin matched the last time an editor resolved a
+  /// config file with it, which doesn't set it up.
+  pub fn get_last_file_matching_info(&self, plugin_reference: &PluginSourceReference) -> Option<FileMatchingInfo> {
+    self.plugin_cache.get_last_file_matching_info(plugin_reference)
+  }
+
+  /// Remembers the files the plugin matched when an editor resolved a config
+  /// file with it.
+  pub async fn store_file_matching_info(&self, plugin_reference: &PluginSourceReference, file_matching: &FileMatchingInfo) -> Result<()> {
+    self.plugin_cache.store_file_matching_info(plugin_reference, file_matching).await
   }
 
   fn get_resolved_plugin_info(&self, plugin_reference: &PluginSourceReference) -> Option<PluginInfo> {

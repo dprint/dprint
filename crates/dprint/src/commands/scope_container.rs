@@ -186,6 +186,21 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     self.plugin_resolver.get_set_up_plugin_info(plugin)
   }
 
+  /// Gets the files a plugin matched the last time a config file was resolved
+  /// with it, which doesn't set it up.
+  pub fn get_last_file_matching_info(&self, plugin: &crate::plugins::PluginSourceReference) -> Option<dprint_core::plugins::FileMatchingInfo> {
+    self.plugin_resolver.get_last_file_matching_info(plugin)
+  }
+
+  /// Remembers the files a plugin matched when a config file was resolved with it.
+  pub async fn store_file_matching_info(
+    &self,
+    plugin: &crate::plugins::PluginSourceReference,
+    file_matching: &dprint_core::plugins::FileMatchingInfo,
+  ) -> Result<()> {
+    self.plugin_resolver.store_file_matching_info(plugin, file_matching).await
+  }
+
   /// Resolves the config of a config file, merging in the config file of an
   /// ancestor directory when it specifies `"inherit": true`.
   async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText) -> Result<ResolvedConfig> {

@@ -439,6 +439,45 @@ fn should_provide_the_plugins_known_before_when_a_config_file_has_an_error() {
 }
 
 #[test]
+fn should_provide_the_plugins_known_before_in_another_session_when_they_need_to_be_approved() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin()
+        .add_remote_process_plugin()
+        .add_config_section("testProcessPlugin", r#"{ "associations": ["**/*.other"] }"#);
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, |client| {
+    async move {
+      let approval = client.config_info("/dprint.json").await.approval.unwrap();
+      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, None);
+      let config_info = client.config_info("/dprint.json").await;
+      assert_eq!(config_info.reason, None);
+      assert_eq!(config_info.plugins.unwrap().len(), 2);
+    }
+    .boxed_local()
+  });
+  // they were only allowed for the session, so a new session needs them approved
+  run_session(&environment, |client| {
+    async move {
+      let config_info = client.config_info("/dprint.json").await;
+      assert_eq!(config_info.reason, Some(NotFormattedReason::ApprovalRequired));
+      let plugins = config_info.plugins.unwrap();
+      assert_eq!(plugins.len(), 2);
+      assert_eq!(plugins[1].config_key, "testProcessPlugin");
+      assert_eq!(plugins[1].file_extensions, vec!["txt_ps".to_string()]);
+      // the associations are known without the plugins
+      assert!(config_info.formats_other_files);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_approve_downloading_from_domains_that_are_not_trusted() {
   const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
   let environment = TestEnvironmentBuilder::new()

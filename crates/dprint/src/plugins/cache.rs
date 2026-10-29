@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::PluginInfo;
 use sys_traits::FsMetadata;
 use sys_traits::FsMetadataValue;
@@ -243,6 +244,35 @@ where
     let cache_key = self.compute_cache_key(&path_source).ok()?;
     let hash = entry_hash(&cache_key, &self.environment);
     self.cached_item(&path_source, &hash, &cache_key).map(|item| item.info)
+  }
+
+  /// Gets the files the plugin matched the last time an editor resolved a
+  /// config file with it when it's set up in the cache.
+  pub fn get_last_file_matching_info(&self, source_reference: &PluginSourceReference) -> Option<FileMatchingInfo> {
+    let path_source = self.cache_source_for_forget(&source_reference.path_source)?;
+    let cache_key = self.compute_cache_key(&path_source).ok()?;
+    let hash = entry_hash(&cache_key, &self.environment);
+    self.cached_meta(&path_source, &hash, &cache_key)?.file_matching
+  }
+
+  /// Remembers the files the plugin matched when an editor resolved a config
+  /// file with it (see `get_last_file_matching_info`).
+  pub async fn store_file_matching_info(&self, source_reference: &PluginSourceReference, file_matching: &FileMatchingInfo) -> Result<()> {
+    let Some(path_source) = self.cache_source_for_forget(&source_reference.path_source) else {
+      return Ok(());
+    };
+    // lock so that this doesn't write over what setting it up stores
+    let _setup_guard = self.fs_locks.lock(&path_source).await;
+    let cache_key = self.compute_cache_key(&path_source)?;
+    let hash = entry_hash(&cache_key, &self.environment);
+    let Some(mut meta) = self.cached_meta(&path_source, &hash, &cache_key) else {
+      return Ok(());
+    };
+    if meta.file_matching.as_ref() == Some(file_matching) {
+      return Ok(());
+    }
+    meta.file_matching = Some(file_matching.clone());
+    write_meta(&hash, &meta, &self.environment)
   }
 
   /// Gets the url the plugin is downloaded from, which is the registry for an
@@ -660,6 +690,7 @@ where
       npm_executable_sub_path,
       npm_executable_checksum,
       local_stamps,
+      file_matching: None,
     };
     write_meta(hash, &meta, &self.environment)?;
     self.set_up_hashes.lock().insert(hash.to_string());
@@ -676,6 +707,20 @@ where
   /// (collision guard) and, for local sources, that the stamped source files
   /// are unchanged. Returns `None` on any miss.
   fn cached_item(&self, source: &PathSource, hash: &str, cache_key: &str) -> Option<PluginCacheItem> {
+    let meta = self.cached_meta(source, hash, cache_key)?;
+    let file_path = meta.artifact_file_path(hash, &self.environment);
+    Some(PluginCacheItem {
+      file_path,
+      info: meta.info,
+      plugin_kind: meta.plugin_kind,
+      // a hit may be for an entry set up earlier in this process (ex. by
+      // `dprint add` warming the cache)
+      was_set_up: self.set_up_hashes.lock().contains(hash),
+    })
+  }
+
+  /// Reads the cached entry's sidecar like `cached_item`.
+  fn cached_meta(&self, source: &PathSource, hash: &str, cache_key: &str) -> Option<PluginCacheMeta> {
     let meta = read_meta(hash, &self.environment)?;
     if meta.source != cache_key {
       // different source hashed to the same filename — treat as a miss and let
@@ -690,15 +735,7 @@ where
       // when setting the plugin up, so set the plugin up again
       return None;
     }
-    let file_path = meta.artifact_file_path(hash, &self.environment);
-    Some(PluginCacheItem {
-      file_path,
-      info: meta.info,
-      plugin_kind: meta.plugin_kind,
-      // a hit may be for an entry set up earlier in this process (ex. by
-      // `dprint add` warming the cache)
-      was_set_up: self.set_up_hashes.lock().contains(hash),
-    })
+    Some(meta)
   }
 
   /// Whether every stamped local source file still matches (size + mtime). A
@@ -891,6 +928,7 @@ mod test {
       npm_executable_sub_path: None,
       npm_executable_checksum: None,
       local_stamps: None,
+      file_matching: None,
     }
   }
 
