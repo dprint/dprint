@@ -12,7 +12,7 @@ Run `dprint lsp` in the workspace folder and send the `initialize` request with 
 {
   "processId": 1234,
   "capabilities": {
-    "experimental": { "dprint": {} },
+    "experimental": { "dprint": { "version": 1 } },
     "window": { "workDoneProgress": true }
   },
   "workspaceFolders": [{ "uri": "file:///home/user/project", "name": "project" }],
@@ -26,18 +26,30 @@ The server supports the `dprint/*` methods when the `capabilities` of its result
 { "experimental": { "dprint": { "version": 1 } } }
 ```
 
-When they don't (ex. an older version of dprint), shut the server down and fall back to [schema version 5](./editor-extension-development-schema-5.md). The version changes when the methods change in a way an editor extension needs to know about.
+When they don't (ex. an older version of dprint), shut the server down and fall back to [schema version 5](./editor-extension-development-schema-5.md).
 
 One server formats the files of a whole workspace. For each file, the server finds the configuration file in an ancestor directory, or uses the global configuration file when that's allowed. The configuration is read again for each request, so an edited configuration file is used for the next request without restarting the server. Specifying `dprint lsp --config <path>` uses that configuration file for every file instead.
 
 With the `dprint` capability, the server doesn't sync documents, register the text document methods, or provide completions for configuration files (the configuration schema method provides what's needed for that).
+
+### Compatibility
+
+The client and the server each send the version of the `dprint/*` methods they support:
+
+- The version is increased when something is added that an editor extension needs to know about (ex. a method, or a field it should handle). A server supports the versions before its own, so check that the server's version is at least the one the editor extension needs, and don't use what was added after the server's version.
+- A change that would break an editor extension uses a new capability name instead of `dprint`, so the editor extension treats a server without `dprint` like an older version of dprint.
+- Fields may be added to results and values to the string unions (ex. reasons and kinds) without increasing the version, so ignore fields that aren't known and handle values that aren't known like the methods below say.
+
+### Finding the executable
+
+Use the `dprint` executable the user configured, or otherwise the one on the path. An editor extension may also use the one a project installed with npm (ex. `node_modules/@dprint/<platform package>/dprint` found from the workspace folder and its ancestors) so that the project's version of dprint is used. That executable is from the repository, so running it is the same as running code from the repository. Only do this in an editor that has workspace trust (ex. VS Code's Restricted Mode) once the user trusts the workspace.
 
 ### Lifecycle
 
 - The server exits when the process of the `processId` of the `initialize` request exits, when the `exit` notification is received, or when its stdin is closed.
 - Send `shutdown` and then `exit` to stop it, which stops the plugins.
 - Keep the server running for as long as the editor uses it. It reads a configuration file again for each request that uses it, so there's no need to start it again when one is created, changed, or deleted, or when the workspace folders change (send `workspace/didChangeWorkspaceFolders`).
-- The server doesn't watch the file system. Send `workspace/didChangeWatchedFiles` when a configuration file (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, or one of them in a `.config` directory) is created, changed, or deleted, which has the server resolve it again to publish its diagnostics and send `dprint/configChanged`. The server doesn't register to be told about them for an editor extension.
+- The server doesn't watch the file system. Send `workspace/didChangeWatchedFiles` when a configuration file (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, or one of them in a `.config` directory) is created, changed, or deleted. The server resolves a configuration file that it resolved before again to publish its diagnostics, and sends `dprint/configChanged` when what a configuration file formats may have changed. It doesn't resolve one that wasn't used yet because that would download and set up its plugins without the user doing anything. A configuration file in `node_modules` is ignored, so leave those out of the file watcher. The server doesn't register to be told about them for an editor extension.
 - Starting it again forgets what the user decided for the session (ex. denying a download), which is what a restart command is for. Use `dprint/reset` instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
 - A notification that changes the server's state (ex. `workspace/didChangeConfiguration`) applies to the requests sent after it.
 
@@ -89,10 +101,11 @@ An editor usually needs to know which documents an extension formats before form
 
 - A document whose file extension or file name is one of a plugin's may be formatted with it. Use `dprint/fileInfo` to know for sure (ex. the configuration file's `includes` and `excludes`).
 - When `formatsOtherFiles` is `true`, the configuration file formats other documents too (ex. with a plugin's `associations` or `shebangs`), which only `dprint/fileInfo` says.
-- When `plugins` is `null`, they aren't known (ex. a download or process plugin needs to be approved and they weren't set up before). Don't claim the documents of the configuration file, so the editor's other formatters are still used, and show what needs to be approved instead (see "Approving").
+- When something needs to be approved, `plugins` are what they formatted the last time they were set up, which is remembered across sessions, so claim those documents and ask when the user formats one (see "Approving").
+- When `plugins` is `null`, they aren't known (ex. a plugin that needs to be downloaded). Don't claim the documents of the configuration file, so the editor's other formatters are still used, and show what needs to be approved instead.
 - When the configuration file has an error, `plugins` are the ones it had before, so a typo doesn't change what the editor formats with it.
 
-Get them again when the server sends `dprint/configChanged`, which is for a change the editor can't see (ex. a configuration file it extends changed, or what needed to be approved was approved outside the editor), and when the editor sees a configuration file change.
+Get them again only when the server sends `dprint/configChanged`, which it sends whenever what a configuration file formats may have changed: when one the editor said was created, changed, or deleted, when resolving it for a request has a different result (ex. a configuration file it extends changed), and when what needed to be approved was approved.
 
 ## Approving
 
@@ -101,15 +114,19 @@ Opening a project isn't the same as choosing to run what its configuration file 
 - **Downloads** - A download sends a request to the domain it's from, which a configuration file could use to send information to a server of its choosing (ex. that the project was opened and from where). To limit that, the server only downloads plugins and the configuration files that a configuration file extends from these trusted domains (and their subdomains) without the user approving it: `registry.npmjs.org`, `plugins.dprint.dev`, `github.com`, `githubusercontent.com`, and the ones the user added to the `editor.trustedDomains` setting in dprint's settings file. This includes each redirect, and reading a file on another machine (ex. a UNC path on Windows) is approved like a download. What's in dprint's cache doesn't need to be downloaded (ex. from running `dprint fmt` or `dprint config install`), and neither does a plugin that's a file (ex. in `node_modules`).
 - **Process plugins** - They aren't sandboxed, so running them needs to be approved for the configuration file with each plugin's configuration, unless the user set `editor.allowProcessPlugins` to `true` in dprint's settings file (see [the language server docs](../website/src/lsp.md)). Running dprint with the configuration file (`dprint fmt`, `dprint check`, or `dprint config install`) approves them because the user ran it.
 
-Nothing is formatted with the configuration file until then, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The results of `dprint/format`, `dprint/fileInfo`, and `dprint/configInfo` have what needs to be approved:
+Nothing is formatted with the configuration file until then, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The results of `dprint/format`, `dprint/fileInfo`, and `dprint/configInfo` then have the `approvalRequired` reason and what needs to be approved:
 
 ```ts
 interface PendingApproval {
   /** Identifies exactly what's approved, which changes when it does (ex. the configuration of a process plugin). */
   id: string;
-  kind: "download" | "processPlugins";
+  kind: "download" | "processPlugins" | (string & {});
+  /** The configuration file that needs it, which is what the user approves for. */
+  configFile?: string;
   /** The urls or paths to download, or the process plugins to run. */
   items: string[];
+  /** The configuration of the process plugins that were set up before by their config key, which is what they run with (ex. the commands of dprint-plugin-exec). */
+  configuration?: { [configKey: string]: unknown };
   /** Whether the user denied it, which means they shouldn't be asked unless they ask for it (ex. a command). */
   denied: boolean;
   /** The message to show the user when asking. */
@@ -117,11 +134,17 @@ interface PendingApproval {
 }
 ```
 
-Ask the user when they want to format with the configuration file (ex. a format on save or a command), and not when a project is opened, because the editor makes requests without the user doing anything. Then send what they decided with `dprint/approve`. A download can be allowed or denied, which is only for the session, and process plugins can also be always allowed or denied. Approving a download only allows what was shown, so the result may have something else to approve (ex. a configuration file that the downloaded one extends). Format the document again once nothing else needs to be approved.
+Ask whenever a result has an `approval`, which is the same for a kind that isn't known. Ask when the user wants to format with the configuration file (ex. a format on save or a command), and not when a project is opened, because the editor makes requests without the user doing anything. Show the configuration file and what will run (`configuration`) so the user knows what they're approving. Also show that the configuration file needs approval somewhere that doesn't interrupt the user (ex. a status bar item that asks when it's clicked), because a denied approval isn't asked about again and the editor may not format a document with it.
+
+Then send what they decided with `dprint/approve`. A download can be allowed or denied, which is only for the session, and process plugins can also be always allowed or denied. The result is what needs to be approved now, so ask about that until it's `null` (ex. a configuration file that a downloaded one extends or the process plugins of a downloaded configuration file), and then format the document again.
 
 ## Methods
 
-The server responds with an error to a request that can't be handled (ex. a document that isn't a file), which has its message.
+The server responds with an error to a request that can't be handled, which has its message and one of these codes:
+
+- `-32602` (InvalidParams) - The params can't be handled (ex. a document that isn't a file or an `overrideConfig` property that can't be overridden).
+- `-32801` (ContentModified) - What `dprint/approve` was sent for isn't pending anymore because what needs to be approved changed (ex. the configuration file changed). Get what's pending again (ex. format again) and ask about that.
+- `-32603` (InternalError) - Anything else (ex. the server stopped).
 
 ### `dprint/format` (request)
 
@@ -133,8 +156,11 @@ interface FormatParams extends DocumentParams {
   text: string;
   /** The ranges to format, which is the whole text when not provided. */
   ranges?: Range[];
-  /** The plugin configuration to use instead of what's in the configuration file. */
-  overrideConfig?: { [key: string]: unknown };
+  /**
+   * The editor's indentation settings for the document, which are used instead of what's in the configuration file.
+   * Other configuration can't be overridden because it could have a plugin do something the user didn't approve.
+   */
+  overrideConfig?: { indentWidth?: number; useTabs?: boolean };
 }
 
 type FormatResult =
@@ -160,10 +186,8 @@ type NotFormattedReason =
   | "configDiagnostics"
   /** The config file failed to resolve, which the server shows the user once until it resolves. */
   | "configError"
-  /** Something the config file needs has to be approved for download (see the approval). */
-  | "downloadRequired"
-  /** The process plugins of the config file need to be approved (see the approval). */
-  | "processPluginsNotAllowed"
+  /** Something needs to be approved before the config file is used, which the approval has (see "Approving"). */
+  | "approvalRequired"
   | (string & {});
 ```
 
@@ -188,6 +212,11 @@ interface FileInfoResult {
 
 interface ConfigFileInfo {
   uri: string;
+  /**
+   * The directory whose files it formats, which is the directory it's in unless that's a `.config` directory,
+   * and the directory it's used for when it's the global configuration file. It's missing for a remote one.
+   */
+  dirUri?: string;
   isGlobal: boolean;
 }
 ```
@@ -250,12 +279,15 @@ interface ApproveParams {
 }
 
 interface ApproveResult {
-  /** What else needs to be approved now, which is null when the configuration file is ready. */
+  /**
+   * What needs to be approved now, which is `null` only when the configuration file is ready.
+   * It's what was denied when the decision was to deny it, and otherwise it may be something else that needs to be approved.
+   */
   approval: PendingApproval | null;
 }
 ```
 
-Allowing it downloads and sets up what was allowed. It fails when nothing is pending with the id, which is when what needs to be approved changed (ex. the configuration file changed).
+The decision is used once the server receives it, even when the request is cancelled. Allowing it downloads and sets up what was allowed, and then the configuration file is resolved again for the result. It fails with `-32801` when nothing is pending with the id.
 
 ### `dprint/reset` (request)
 

@@ -127,7 +127,7 @@ dprint config install
 dprint config install --config path/to/dprint.json
 ```
 
-The most recent decision is used, so this also allows them in a session where they were denied. What's decided on is each process plugin of that configuration file with its configuration, so when a plugin or its configuration changes (ex. the commands of dprint-plugin-exec), you're asked again. The same goes for the `plugin.json` file of an npm plugin without a version, which is resolved from `node_modules` (ex. when updating the package). Denying a process plugin denies it with any configuration, so changing its configuration doesn't ask you again. The process plugins of the [global configuration file](/global-config) are always allowed. The `Always Allow` and `Always Deny` choices are stored in an `editor-approvals.json` file next to the [settings file](/global-config#settings-file). Deleting that file has you asked again.
+The most recent decision is used, so this also allows them in a session where they were denied. What's allowed is each process plugin of that configuration file with its configuration, so when a plugin or its configuration changes after you allowed it (ex. the commands of dprint-plugin-exec), you're asked again. The same goes for the `plugin.json` file of an npm plugin without a version, which is resolved from `node_modules` (ex. when updating the package). Denying a process plugin denies it with any configuration, so changing its configuration doesn't ask you again. The process plugins of the [global configuration file](/global-config) are always allowed. The `Always Allow` and `Always Deny` choices are stored in an `editor-approvals.json` file next to the [settings file](/global-config#settings-file). Deleting that file has you asked again.
 
 This is deliberately not a [setting](#settings) because an editor's workspace settings can come from the project (ex. `.vscode/settings.json`), which would let a project allow its own process plugins. The CLI doesn't use this file because running `dprint fmt` is choosing to run dprint in that directory.
 
@@ -171,7 +171,12 @@ The formatting options an editor sends with a format request (`tabSize`, `insert
 
 ## Troubleshooting
 
-The server doesn't respond to a format request with an error or show a popup about it, because a file that can't be formatted (ex. one with a syntax error) would then interrupt you each time you format on save. A request that fails or does nothing gets a response without edits, and the reason is logged instead. The only popups (`window/showMessage` and `window/showMessageRequest`) are the once per session [no configuration file notification](#no-configuration-file-notification) and the result of a [command](#global-configuration) you explicitly ran.
+The server doesn't respond to a format request with an error or show a popup about it, because a file that can't be formatted (ex. one with a syntax error) would then interrupt you each time you format on save. A request that fails or does nothing gets a response without edits, and the reason is logged instead. The only popups (`window/showMessage` and `window/showMessageRequest`) are:
+
+- The once per session [no configuration file notification](#no-configuration-file-notification).
+- Asking whether to allow [process plugins](#process-plugins) or a download from a domain that isn't trusted, which only happens when you format a file.
+- An error in a configuration file, which is shown once until it changes.
+- The result of a [command](#global-configuration) you explicitly ran.
 
 The following is logged to the client with `window/logMessage`, which most editors show in a language server log or output panel:
 
