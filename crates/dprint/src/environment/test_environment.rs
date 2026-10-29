@@ -58,6 +58,7 @@ use super::FilePermissions;
 use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
+use crate::utils::DownloadPolicy;
 use crate::utils::LogLevel;
 use crate::utils::OutputSink;
 use crate::utils::ProgressBars;
@@ -145,6 +146,7 @@ impl Write for TestPipeWriter {
 #[derive(Clone)]
 pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
+  download_policy: Arc<Mutex<DownloadPolicy>>,
   /// Where to log and show progress instead of stderr.
   output_sink: Arc<Mutex<Option<Arc<dyn OutputSink>>>>,
   progress_bars: ProgressBarsCell,
@@ -205,6 +207,7 @@ impl TestEnvironment {
   pub fn new() -> TestEnvironment {
     let env = TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
+      download_policy: Default::default(),
       output_sink: Default::default(),
       progress_bars: Default::default(),
       sys: Default::default(),
@@ -608,6 +611,7 @@ impl SystemTimeNow for TestEnvironment {
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
   async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
+    self.download_policy.lock().ensure_allows(url)?;
     self.remote_file_auth.lock().insert(url.to_string(), options.auth.map(|s| s.to_string()));
     self.remote_file_proxies.lock().insert(url.to_string(), format!("{:?}", options.proxy));
     self.remote_file_options.lock().insert(url.to_string(), format!("{:?}", options));
@@ -852,6 +856,14 @@ impl Environment for TestEnvironment {
   fn set_output_sink(&self, sink: Arc<dyn OutputSink>) {
     *self.output_sink.lock() = Some(sink.clone());
     self.progress_bars.set(Some(Arc::new(ProgressBars::with_sink(sink))));
+  }
+
+  fn download_policy(&self) -> DownloadPolicy {
+    self.download_policy.lock().clone()
+  }
+
+  fn set_download_policy(&self, policy: DownloadPolicy) {
+    *self.download_policy.lock() = policy;
   }
 
   fn log_machine_readable(&self, text: &[u8]) {

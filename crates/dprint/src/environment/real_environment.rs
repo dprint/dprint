@@ -43,6 +43,7 @@ use super::FilePermissions;
 use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
+use crate::utils::DownloadPolicy;
 use crate::utils::FastInsecureHasher;
 use crate::utils::LogLevel;
 use crate::utils::Logger;
@@ -81,6 +82,7 @@ pub struct RealEnvironment {
   url_downloader: Arc<RealUrlDownloader>,
   logger: Arc<Logger>,
   system: Arc<Mutex<System>>,
+  download_policy: Arc<Mutex<DownloadPolicy>>,
 }
 
 impl RealEnvironment {
@@ -103,6 +105,7 @@ impl RealEnvironment {
       logger,
       progress_bars,
       system: Default::default(),
+      download_policy: Default::default(),
     };
 
     // ensure the cache directory is created
@@ -259,6 +262,7 @@ impl SystemTimeNow for RealEnvironment {
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
   async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
+    self.download_policy.lock().ensure_allows(url)?;
     log_debug!(self, "Downloading url: {}", url);
 
     self.url_downloader.download(url, options).await
@@ -555,6 +559,14 @@ impl Environment for RealEnvironment {
   fn set_output_sink(&self, sink: Arc<dyn OutputSink>) {
     self.logger.set_sink(sink.clone());
     self.progress_bars.set(Some(Arc::new(ProgressBars::with_sink(sink))));
+  }
+
+  fn download_policy(&self) -> DownloadPolicy {
+    self.download_policy.lock().clone()
+  }
+
+  fn set_download_policy(&self, policy: DownloadPolicy) {
+    *self.download_policy.lock() = policy;
   }
 
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(

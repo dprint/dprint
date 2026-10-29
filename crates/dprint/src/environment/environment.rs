@@ -26,6 +26,7 @@ use sys_traits::ThreadSleep;
 
 use crate::plugins::CompilationResult;
 use crate::utils::BasicShowConfirmStrategy;
+use crate::utils::DownloadPolicy;
 use crate::utils::LogLevel;
 use crate::utils::OutputSink;
 use crate::utils::ProgressBars;
@@ -346,6 +347,12 @@ pub trait Environment:
   /// Sends what's logged and the progress of what's being done to the sink
   /// instead of stderr from now on (ex. for an editor that shows them).
   fn set_output_sink(&self, sink: Arc<dyn OutputSink>);
+  /// Gets what may be downloaded without asking the user.
+  fn download_policy(&self) -> DownloadPolicy;
+  /// Only downloads what the policy allows from now on (ex. for an editor),
+  /// which includes each redirect. Anything else fails with an
+  /// `UntrustedDownloadError`.
+  fn set_download_policy(&self, policy: DownloadPolicy);
   /// Information to force output when the environment is in "machine readable mode".
   fn log_machine_readable(&self, bytes: &[u8]);
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(

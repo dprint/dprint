@@ -1,9 +1,15 @@
-use std::rc::Rc;
+use std::collections::HashSet;
+use std::path::Component;
+use std::path::Path;
+use std::path::Prefix;
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use url::Url;
 
 use crate::configuration::ResolveConfigError;
 use crate::environment::Environment;
+use crate::resolution::ResolvePluginsError;
 
 /// The domains that the editors download plugins and configuration files from
 /// without asking, which `DPRINT_TRUSTED_DOMAINS` replaces.
@@ -12,33 +18,94 @@ pub const DEFAULT_TRUSTED_DOMAINS: [&str; 4] = ["registry.npmjs.org", "plugins.d
 /// replace the default ones.
 pub const TRUSTED_DOMAINS_ENV_VAR_NAME: &str = "DPRINT_TRUSTED_DOMAINS";
 
-/// What may be downloaded without asking the user.
+/// What may be downloaded without asking the user, which the environment
+/// enforces for every request it sends (see `Environment::set_download_policy`).
 ///
 /// IMPORTANT: Opening a project in an editor isn't the same as choosing to
 /// download what its configuration file says. Downloading from any domain would
 /// let a configuration file send information to a server of its choosing (ex.
 /// that the project was opened, from where, and anything in the url), so the
-/// editors only download from the trusted domains without asking.
-#[derive(Debug, Clone)]
+/// editors only download from the trusted domains without asking. The same
+/// goes for reading a file on another machine (ex. a UNC path on Windows).
+#[derive(Debug, Clone, Default)]
 pub enum DownloadPolicy {
   /// Anything may be downloaded (ex. for the CLI, which the user ran).
+  #[default]
   All,
-  /// Only what's on the trusted domains may be downloaded.
-  TrustedDomains(Rc<TrustedDomains>),
+  /// Only what's on the trusted domains or what the user allowed may be downloaded.
+  TrustedDomains(Arc<TrustedDownloads>),
 }
 
 impl DownloadPolicy {
   /// Gets the policy of the editors, which only download from the trusted domains.
   pub fn for_editor(environment: &impl Environment) -> Self {
-    DownloadPolicy::TrustedDomains(Rc::new(TrustedDomains::from_environment(environment)))
+    DownloadPolicy::TrustedDomains(Arc::new(TrustedDownloads {
+      trusted_domains: TrustedDomains::from_environment(environment),
+      allowed: Default::default(),
+    }))
   }
 
   /// Gets whether the url may be downloaded without asking the user.
   pub fn allows(&self, url: &Url) -> bool {
     match self {
       DownloadPolicy::All => true,
-      DownloadPolicy::TrustedDomains(trusted_domains) => trusted_domains.is_trusted(url),
+      DownloadPolicy::TrustedDomains(downloads) => downloads.trusted_domains.is_trusted(url) || downloads.is_allowed(url.as_str()),
     }
+  }
+
+  /// Errors when the url may not be downloaded without asking the user.
+  pub fn ensure_allows(&self, url: &Url) -> Result<(), UntrustedDownloadError> {
+    if self.allows(url) {
+      Ok(())
+    } else {
+      Err(UntrustedDownloadError { url: url.to_string() })
+    }
+  }
+
+  /// Errors when the path is on another machine and may not be read without
+  /// asking the user, which is allowed when the file it's relative to is on the
+  /// same network share (ex. a config file in a project on a share).
+  pub fn ensure_allows_path(&self, path: &Path, base: Option<&Path>) -> Result<(), UntrustedDownloadError> {
+    let DownloadPolicy::TrustedDomains(downloads) = self else {
+      return Ok(());
+    };
+    let Some(share) = get_network_share(path) else {
+      return Ok(());
+    };
+    let path_text = path.display().to_string();
+    if base.and_then(get_network_share).is_some_and(|base_share| base_share == share) || downloads.is_allowed(&path_text) {
+      Ok(())
+    } else {
+      Err(UntrustedDownloadError { url: path_text })
+    }
+  }
+
+  /// Allows downloading what the user was shown and allowed (the urls and
+  /// paths of `UntrustedDownloadError`s) for the rest of the session.
+  pub fn allow(&self, downloads: &[String]) {
+    if let DownloadPolicy::TrustedDomains(trusted_downloads) = self {
+      trusted_downloads.allowed.lock().extend(downloads.iter().cloned());
+    }
+  }
+}
+
+/// What may be downloaded with the `TrustedDomains` download policy.
+#[derive(Debug)]
+pub struct TrustedDownloads {
+  trusted_domains: TrustedDomains,
+  /// The urls and paths the user allowed downloading this session, which are
+  /// only the exact ones they were shown. A url ending with a slash allows
+  /// what's under it (ex. an npm registry).
+  allowed: Mutex<HashSet<String>>,
+}
+
+impl TrustedDownloads {
+  fn is_allowed(&self, url_or_path: &str) -> bool {
+    self
+      .allowed
+      .lock()
+      .iter()
+      .any(|allowed| allowed == url_or_path || (allowed.ends_with('/') && url_or_path.starts_with(allowed.as_str())))
   }
 }
 
@@ -55,9 +122,12 @@ impl UntrustedDownloadError {
   pub fn find(err: &anyhow::Error) -> Option<&UntrustedDownloadError> {
     err.chain().find_map(|err| {
       // a transparent error's source is the source of what it wraps
-      match err.downcast_ref::<ResolveConfigError>() {
-        Some(ResolveConfigError::Other(inner)) => Self::find(inner),
-        _ => err.downcast_ref::<UntrustedDownloadError>(),
+      if let Some(ResolveConfigError::Other(inner)) = err.downcast_ref::<ResolveConfigError>() {
+        Self::find(inner)
+      } else if let Some(ResolvePluginsError(inner)) = err.downcast_ref::<ResolvePluginsError>() {
+        Self::find(inner)
+      } else {
+        err.downcast_ref::<UntrustedDownloadError>()
       }
     })
   }
@@ -123,6 +193,20 @@ impl TrustedDomains {
   }
 }
 
+/// Gets the server and share of a path on another machine (ex. a UNC path on
+/// Windows), lowercased because they're case insensitive.
+fn get_network_share(path: &Path) -> Option<(String, String)> {
+  match path.components().next()? {
+    Component::Prefix(prefix) => match prefix.kind() {
+      Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
+        Some((server.to_string_lossy().to_lowercase(), share.to_string_lossy().to_lowercase()))
+      }
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
@@ -130,6 +214,56 @@ mod test {
 
   fn url(text: &str) -> Url {
     Url::parse(text).unwrap()
+  }
+
+  #[test]
+  fn should_only_allow_exactly_what_the_user_allowed() {
+    let environment = TestEnvironment::new();
+    let policy = DownloadPolicy::for_editor(&environment);
+    assert!(policy.ensure_allows(&url("https://plugins.dprint.dev/plugin.wasm")).is_ok());
+    let err = policy.ensure_allows(&url("https://example.com/plugin.wasm")).unwrap_err();
+    assert_eq!(err.url, "https://example.com/plugin.wasm");
+    policy.allow(&["https://example.com/plugin.wasm".to_string(), "https://npm.example.com/".to_string()]);
+    assert!(policy.allows(&url("https://example.com/plugin.wasm")));
+    // not what redirects to
+    assert!(!policy.allows(&url("https://example.com/other.wasm")));
+    // a url ending with a slash allows what's under it (ex. an npm registry)
+    assert!(policy.allows(&url("https://npm.example.com/@scope/package")));
+    assert!(!policy.allows(&url("https://npm.example.com.evil.com/@scope/package")));
+    // the cli downloads anything
+    assert!(DownloadPolicy::All.allows(&url("http://example.com/plugin.wasm")));
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_not_allow_reading_from_another_machine() {
+    let environment = TestEnvironment::new();
+    let policy = DownloadPolicy::for_editor(&environment);
+    assert!(
+      policy
+        .ensure_allows_path(Path::new(r"C:\project\plugin.wasm"), Some(Path::new(r"C:\project")))
+        .is_ok()
+    );
+    let err = policy
+      .ensure_allows_path(Path::new(r"\\server\share\plugin.wasm"), Some(Path::new(r"C:\project")))
+      .unwrap_err();
+    assert_eq!(err.url, r"\\server\share\plugin.wasm");
+    assert!(policy.ensure_allows_path(Path::new(r"\\?\UNC\server\share\plugin.wasm"), None).is_err());
+    // a config file on the share may use what's on it
+    assert!(
+      policy
+        .ensure_allows_path(Path::new(r"\\SERVER\share\plugin.wasm"), Some(Path::new(r"\\server\Share\project")))
+        .is_ok()
+    );
+    assert!(
+      policy
+        .ensure_allows_path(Path::new(r"\\server\other\plugin.wasm"), Some(Path::new(r"\\server\share\project")))
+        .is_err()
+    );
+    policy.allow(&[r"\\server\share\plugin.wasm".to_string()]);
+    assert!(policy.ensure_allows_path(Path::new(r"\\server\share\plugin.wasm"), None).is_ok());
+    // the cli reads anything
+    assert!(DownloadPolicy::All.ensure_allows_path(Path::new(r"\\server\share\plugin.wasm"), None).is_ok());
   }
 
   #[test]

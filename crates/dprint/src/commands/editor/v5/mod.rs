@@ -23,12 +23,10 @@ use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginsScope;
-use crate::resolution::ResolvePluginsScopeOptions;
 use crate::resolution::UnapprovedProcessPlugins;
 use crate::resolution::get_cant_ask_message;
 use crate::resolution::get_plugins_scope_from_args_with_approval;
 use crate::resolution::resolve_plugins_scope_with_approval;
-use crate::utils::DownloadPolicy;
 use crate::utils::Semaphore;
 
 use super::CONFIG_SCHEMA_URL;
@@ -321,16 +319,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       // when the user allowed its process plugins. The editor starting the service
       // in a project (ex. one that was just cloned) isn't the same as the user
       // choosing to run dprint there.
-      let scope = resolve_plugins_scope_with_approval(
-        config.clone(),
-        self.environment,
-        self.plugin_resolver,
-        ResolvePluginsScopeOptions {
-          download_policy: DownloadPolicy::All,
-        },
-        &permissions,
-      )
-      .await?;
+      let scope = resolve_plugins_scope_with_approval(config.clone(), self.environment, self.plugin_resolver, &permissions).await?;
       scope.ensure_no_global_config_diagnostics()?;
       if let Some(unapproved) = &scope.unapproved_process_plugins {
         self.warn_unapproved_process_plugins(unapproved, &permissions);

@@ -297,6 +297,8 @@ impl NotFormattedReason {
 struct InstallPluginsRequest {
   pub file_path: PathBuf,
   pub use_global_config: bool,
+  /// What the user allowed downloading.
+  pub downloads: Vec<String>,
 }
 
 struct ConfigEditorRequest {
@@ -354,10 +356,8 @@ async fn handle_format_request<TEnvironment: Environment>(
     log_stderr_info!(environment, "Path did not have a dprint config file: {}", request.file_path.display());
     return Ok(FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile));
   };
-  if !scope.uninstalled_plugins.is_empty() {
-    return Ok(FormatOutcome::DownloadRequired(
-      scope.uninstalled_plugins.iter().map(|plugin| plugin.to_full_string()).collect(),
-    ));
+  if !scope.untrusted_downloads.is_empty() {
+    return Ok(FormatOutcome::DownloadRequired(scope.untrusted_downloads.clone()));
   }
   unapproved_process_plugins.clone_from(&scope.unapproved_process_plugins);
   if scope.unapproved_process_plugins.is_some() {
@@ -509,6 +509,10 @@ fn start_message_handler<TEnvironment: Environment>(
   // we use a single threaded runtime. So spawn some tasks and
   // communicate over a channel.
   // todo: deno_tower_lsp doesn't require this, so the channel could be removed
+  // IMPORTANT: Only what's on the trusted domains is downloaded without the
+  // user allowing it because opening a project isn't the same as choosing to
+  // download what its config file says (see `DownloadPolicy`).
+  environment.set_download_policy(DownloadPolicy::for_editor(environment));
   let max_cores = environment.max_threads();
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
   let ensure_stable_format = EnsureStableFormat::for_editor(environment);
@@ -518,7 +522,6 @@ fn start_message_handler<TEnvironment: Environment>(
     plugin_resolver.clone(),
     config_override,
     remote_cache_mode,
-    DownloadPolicy::for_editor(&environment),
     session_permissions,
   ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
@@ -562,13 +565,17 @@ fn start_message_handler<TEnvironment: Environment>(
         }
         ChannelMessage::InstallPlugins(request, sender) => {
           let scope_container = scope_container.clone();
+          let environment = environment.clone();
           dprint_core::async_runtime::spawn(async move {
             let result = async {
               let Some(dir_path) = request.file_path.parent() else {
                 return Ok(());
               };
               match scope_container.find_config_file(dir_path, request.use_global_config)? {
-                Some(config_file) => scope_container.install_plugins(&config_file).await,
+                Some(config_file) => {
+                  environment.download_policy().allow(&request.downloads);
+                  scope_container.install_plugins(&config_file).await
+                }
                 None => Ok(()),
               }
             }
@@ -703,6 +710,11 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       .map(new_message_action)
       .collect();
     let selection = self.client.show_message_request(MessageType::WARNING, message, actions);
+    let request = InstallPluginsRequest {
+      file_path,
+      use_global_config,
+      downloads,
+    };
     let client = self.client.clone();
     let sender = self.sender.clone();
     // don't wait on this because it only resolves once the user responds
@@ -711,11 +723,13 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         return;
       }
       let (tx, rx) = oneshot::channel();
-      let request = InstallPluginsRequest { file_path, use_global_config };
       if sender.send(ChannelMessage::InstallPlugins(request, tx)).is_err() {
         return;
       }
-      if let Ok(Err(err)) = rx.await {
+      if let Ok(Err(err)) = rx.await
+        // the next format asks about what else needs to be downloaded
+        && UntrustedDownloadError::find(&err).is_none()
+      {
         client.log_error(format!("Failed downloading: {:#}", err));
       }
     });

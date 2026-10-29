@@ -216,6 +216,9 @@ struct ConfigFailure {
   /// downloaded (`DownloadRequired`).
   reason: NotFormattedReason,
   message: String,
+  /// What needs to be downloaded that the download policy doesn't allow
+  /// without asking the user.
+  downloads: Vec<String>,
 }
 
 /// The settings of a document.
@@ -262,20 +265,20 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
+  // IMPORTANT: Only what's on the trusted domains is downloaded without the
+  // user allowing it because opening a project isn't the same as choosing to
+  // download what its config file says (see `DownloadPolicy`).
+  environment.set_download_policy(DownloadPolicy::for_editor(environment));
   let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
   let session_permissions = Arc::new(SessionPermissions::default());
   let service = Rc::new(WorkspaceEditorService {
     environment: environment.clone(),
     context: EditorContext::new(environment),
-    // IMPORTANT: Only what's on the trusted domains is downloaded without the
-    // editor asking for it because opening a project isn't the same as choosing
-    // to download what its config file says (see `DownloadPolicy`).
     scope_container: PluginsScopeContainer::new(
       environment.clone(),
       plugin_resolver.clone(),
       config_path,
       args.remote_cache_mode(),
-      DownloadPolicy::for_editor(environment),
       session_permissions.clone(),
     ),
     concurrency_limiter: Rc::new(new_format_concurrency_limiter(environment)),
@@ -559,7 +562,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       .unapproved_process_plugins
       .as_ref()
       .map(|unapproved| unapproved.message(&self.session_permissions.read(&self.environment)));
-    let (reason, message) = if !scope.uninstalled_plugins.is_empty() {
+    let (reason, message) = if !scope.untrusted_downloads.is_empty() {
       let reason = NotFormattedReason::DownloadRequired;
       (Some(reason), get_not_formatted_message(reason, false, false))
     } else if unapproved_message.is_some() {
@@ -656,7 +659,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     // without the user doing anything (ex. when a project is opened), and the
     // install plugins message asks when they aren't installed
     if let Some(unapproved) = &scope.unapproved_process_plugins
-      && scope.uninstalled_plugins.is_empty()
+      && scope.untrusted_downloads.is_empty()
     {
       self.ask_to_allow_process_plugins(unapproved, &document_file.candidates[0], allow_global_config);
     }
@@ -1001,31 +1004,41 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     let Some(config_file) = self.scope_container.find_config_file(dir_path, allow_global_config)? else {
       return Ok(());
     };
-    // what's on a domain that isn't trusted is only downloaded once the user allows it
-    let mut document_config = self.resolve_scope(file_path, allow_global_config).await?;
-    let downloads = match &document_config {
-      DocumentConfig::Resolved(scope) => scope.uninstalled_plugins.iter().map(|plugin| plugin.to_full_string()).collect(),
-      DocumentConfig::Failed(failure) if failure.reason == NotFormattedReason::DownloadRequired => vec![failure.message.clone()],
-      DocumentConfig::Failed(_) | DocumentConfig::NotFound => Vec::new(),
-    };
-    if !downloads.is_empty() {
+    // What the download policy doesn't allow (ex. what's on a domain that isn't
+    // trusted) is only downloaded once the user allows exactly that, which is
+    // asked again for what it leads to (ex. a config file that it extends).
+    let mut asked_process_plugins = false;
+    loop {
+      let downloads = match self.resolve_scope(file_path, allow_global_config).await? {
+        DocumentConfig::Resolved(scope) if scope.untrusted_downloads.is_empty() => {
+          // the user is asked to allow the process plugins first because setting them up runs them
+          if let Some(unapproved) = &scope.unapproved_process_plugins
+            && !asked_process_plugins
+            && !unapproved.is_denied(&self.session_permissions.read(&self.environment))
+          {
+            // the editor asks for this when the user wants to format with the config
+            // file, so it's asked even when it was asked before this session
+            asked_process_plugins = true;
+            self.prompt_to_allow_process_plugins(unapproved).await;
+          }
+          match self.scope_container.install_plugins(&config_file).await {
+            Ok(()) => break,
+            Err(err) => match UntrustedDownloadError::find(&err) {
+              Some(err) => vec![err.url.clone()],
+              None => return Err(err),
+            },
+          }
+        }
+        DocumentConfig::Resolved(scope) => scope.untrusted_downloads.clone(),
+        DocumentConfig::Failed(failure) if !failure.downloads.is_empty() => failure.downloads,
+        // the config file failing is shown to the user
+        DocumentConfig::Failed(_) | DocumentConfig::NotFound => return Ok(()),
+      };
       if !self.ask_to_download(&downloads).await {
         return Ok(());
       }
-      // this downloads the config files it extends, which may have process plugins to allow
-      self.scope_container.install_plugins(&config_file).await?;
-      document_config = self.resolve_scope(file_path, allow_global_config).await?;
+      self.environment.download_policy().allow(&downloads);
     }
-    // the user is asked to allow the process plugins first because setting them up runs them
-    if let DocumentConfig::Resolved(scope) = &document_config
-      && let Some(unapproved) = &scope.unapproved_process_plugins
-      && !unapproved.is_denied(&self.session_permissions.read(&self.environment))
-    {
-      // the editor asks for this when the user wants to format with the config
-      // file, so it's asked even when it was asked before this session
-      self.prompt_to_allow_process_plugins(unapproved).await;
-    }
-    self.scope_container.install_plugins(&config_file).await?;
     // this tells the editor that the config file formats files now
     self.resolve_scope(file_path, allow_global_config).await?;
     Ok(())
@@ -1057,6 +1070,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
           config_file: None,
           reason: NotFormattedReason::ConfigError,
           message: format!("{:#}", err),
+          downloads: Vec::new(),
         }));
       }
     };
@@ -1064,7 +1078,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       return Ok(DocumentConfig::NotFound);
     };
     let key = get_config_file_key(&config_file);
-    let failed = |reason: NotFormattedReason, message: String| {
+    let failed = |reason: NotFormattedReason, message: String, downloads: Vec<String>| {
       DocumentConfig::Failed(ConfigFailure {
         config_file: path_source_to_uri(&config_file.source).map(|uri| ConfigFileInfo {
           uri,
@@ -1072,6 +1086,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
         }),
         reason,
         message,
+        downloads,
       })
     };
     let scope = match self.scope_container.resolve_config_file(&config_file).await {
@@ -1079,19 +1094,19 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
       Err(err) => {
         // not an error because it resolves once the editor asks to download what it extends
         if let Some(err) = UntrustedDownloadError::find(&err) {
-          return Ok(failed(NotFormattedReason::DownloadRequired, err.to_string()));
+          return Ok(failed(NotFormattedReason::DownloadRequired, err.to_string(), vec![err.url.clone()]));
         }
         self.show_config_error(key.clone(), &err);
         self.checked_scopes.borrow_mut().remove(&key);
         self.send_config_diagnostics(&config_file.source, vec![get_config_error_diagnostic(Some(&config_file.content), &err)]);
-        return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err)));
+        return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err), Vec::new()));
       }
     };
     self.check_config_diagnostics(&key, &config_file, &scope);
     if let Err(err) = scope.ensure_no_global_config_diagnostics() {
       let err = anyhow::Error::from(err);
       self.show_config_error(key, &err);
-      return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err)));
+      return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err), Vec::new()));
     }
     self.config_errors.borrow_mut().remove(&key);
     self.notify_if_config_changed(key, &config_file, &scope);
@@ -1179,7 +1194,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     };
     let state = ResolvedConfigState {
       config: config.clone(),
-      plugins_installed: scope.uninstalled_plugins.is_empty(),
+      plugins_installed: scope.untrusted_downloads.is_empty(),
       process_plugins_allowed: scope.unapproved_process_plugins.is_none(),
     };
     let previous = self.resolved_configs.borrow_mut().insert(key, state.clone());
@@ -1233,7 +1248,7 @@ impl<TEnvironment: Environment> WorkspaceEditorService<TEnvironment> {
     notebook_path: Option<&Path>,
     file_bytes: Option<&[u8]>,
   ) -> Option<NotFormattedReason> {
-    if !scope.uninstalled_plugins.is_empty() {
+    if !scope.untrusted_downloads.is_empty() {
       return Some(NotFormattedReason::DownloadRequired);
     }
     if scope.unapproved_process_plugins.is_some() {
@@ -2197,6 +2212,33 @@ mod test {
   }
 
   #[test]
+  fn should_not_download_a_plugin_schema_from_a_domain_that_is_not_trusted() {
+    const UNTRUSTED_SCHEMA_URL: &str = "https://example.com/schema.json";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+    // the plugin's schema url could be anywhere, which this redirect stands in for
+    environment.add_remote_file_redirect("https://plugins.dprint.dev/test/schema.json", UNTRUSTED_SCHEMA_URL);
+    environment.add_remote_file(UNTRUSTED_SCHEMA_URL, br#"{ "type": "object" }"#);
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          let schema = client.config_schema(&["/a/dprint.json"]).await.unwrap();
+          assert!(schema["definitions"].get("plugin-test-plugin").is_none(), "{:#}", schema);
+          assert_eq!(environment.remote_file_request_count(UNTRUSTED_SCHEMA_URL), 0);
+        }
+        .boxed_local()
+      }
+    });
+  }
+
+  #[test]
   fn should_provide_the_config_schema_with_the_plugin_schemas() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
@@ -2972,7 +3014,8 @@ mod test {
             source: UNTRUSTED_PLUGIN_URL.to_string(),
             kind: RemotePluginKind::Wasm,
             installed,
-            trusted: false,
+            // it's allowed once the user allowed downloading it
+            trusted: installed,
           };
           assert_eq!(info.remote_plugins, vec![remote_plugin(false)]);
           // nothing was downloaded
@@ -3074,6 +3117,7 @@ mod test {
   #[test]
   fn should_only_download_a_config_file_it_extends_from_a_domain_that_is_not_trusted_when_the_editor_asks() {
     const UNTRUSTED_CONFIG_URL: &str = "https://example.com/dprint.json";
+    const UNTRUSTED_BASE_CONFIG_URL: &str = "https://other.example.com/base.json";
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_local_config("/a/dprint.json", |c| {
@@ -3082,8 +3126,9 @@ mod test {
       .build();
     environment.add_remote_file(
       UNTRUSTED_CONFIG_URL,
-      br#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"], "test-plugin": { "ending": "extended" } }"#,
+      br#"{ "extends": "https://other.example.com/base.json", "test-plugin": { "ending": "extended" } }"#,
     );
+    environment.add_remote_file(UNTRUSTED_BASE_CONFIG_URL, br#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"] }"#);
 
     run_session(&environment, &[], {
       let environment = environment.clone();
@@ -3097,12 +3142,57 @@ mod test {
           // it's not an error that's shown
           assert!(client.take_messages().is_empty());
 
+          // allowing one only downloads it, so what it extends is asked about too
+          client.set_message_request_answer(Some("Download"));
+          client.install_plugins("/a/file.txt").await.unwrap();
+          let requests = client.take_message_requests();
+          assert_eq!(requests.len(), 2);
+          let expected_message = |url: &str| format!("dprint needs to download {} from domains that aren't trusted.", url);
+          assert!(
+            requests[0].message.starts_with(&expected_message(UNTRUSTED_CONFIG_URL)),
+            "{}",
+            requests[0].message
+          );
+          assert!(
+            requests[1].message.starts_with(&expected_message(UNTRUSTED_BASE_CONFIG_URL)),
+            "{}",
+            requests[1].message
+          );
+          assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_extended"));
+        }
+        .boxed_local()
+      }
+    });
+  }
+
+  #[test]
+  fn should_ask_to_download_what_a_trusted_domain_redirects_to() {
+    const REDIRECT_URL: &str = "https://plugins.dprint.dev/redirect.wasm";
+    const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_plugin(REDIRECT_URL);
+      })
+      .build();
+    environment.add_remote_file_redirect(REDIRECT_URL, UNTRUSTED_PLUGIN_URL);
+
+    run_session(&environment, &[], {
+      let environment = environment.clone();
+      move |client| {
+        async move {
+          // the redirect isn't followed
+          assert_eq!(
+            client.format("/a/file.txt", "text", None).await.unwrap(),
+            not_formatted(NotFormattedReason::DownloadRequired)
+          );
+          assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
           client.set_message_request_answer(Some("Download"));
           client.install_plugins("/a/file.txt").await.unwrap();
           let requests = client.take_message_requests();
           assert_eq!(requests.len(), 1);
-          assert!(requests[0].message.contains(UNTRUSTED_CONFIG_URL), "{}", requests[0].message);
-          assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_extended"));
+          assert!(requests[0].message.contains(UNTRUSTED_PLUGIN_URL), "{}", requests[0].message);
+          assert_eq!(client.format("/a/file.txt", "text", None).await.unwrap(), formatted("text_formatted"));
         }
         .boxed_local()
       }

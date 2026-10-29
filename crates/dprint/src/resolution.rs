@@ -72,7 +72,6 @@ use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
 use crate::plugins::find_npm_plugin_local_path;
 use crate::plugins::output_plugin_config_diagnostics;
-use crate::utils::DownloadPolicy;
 use crate::utils::FastInsecureHasher;
 use crate::utils::GlobOutput;
 use crate::utils::OutsideBasePath;
@@ -389,10 +388,10 @@ pub struct PluginsScope<TEnvironment: Environment> {
   pub config: Option<Rc<ResolvedConfig>>,
   pub plugins: IndexMap<String, Rc<PluginWithConfig>>,
   pub plugin_name_maps: PluginNameResolutionMaps,
-  /// The plugins that need to be downloaded from where the download policy
+  /// The urls the plugins need to be downloaded from where the download policy
   /// doesn't allow without asking the user (ex. a domain that isn't trusted),
   /// which has the scope not have any plugins.
-  pub uninstalled_plugins: Vec<PluginSourceReference>,
+  pub untrusted_downloads: Vec<String>,
   /// The process plugins the user didn't approve running, which has the scope
   /// not have any plugins so that the editors don't format with the config
   /// file until they're approved.
@@ -415,7 +414,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       config: Some(config),
       plugin_name_maps,
       plugins: plugins.into_iter().map(|p| (p.name().to_string(), p)).collect(),
-      uninstalled_plugins: Vec::new(),
+      untrusted_downloads: Vec::new(),
       unapproved_process_plugins: None,
       global_config_diagnostics,
       cached_editor_file_matcher: Default::default(),
@@ -1180,25 +1179,14 @@ pub async fn get_plugins_scope_from_args_with_approval<TEnvironment: Environment
   permissions: &Permissions,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
   match resolve_config_from_args(args, environment).await {
-    Ok(config) => {
-      resolve_plugins_scope_with_approval(
-        Rc::new(config),
-        environment,
-        plugin_resolver,
-        ResolvePluginsScopeOptions {
-          download_policy: DownloadPolicy::All,
-        },
-        permissions,
-      )
-      .await
-    }
+    Ok(config) => resolve_plugins_scope_with_approval(Rc::new(config), environment, plugin_resolver, permissions).await,
     // ignore
     Err(_) => Ok(PluginsScope {
       environment: environment.clone(),
       config: None,
       plugin_name_maps: Default::default(),
       plugins: Default::default(),
-      uninstalled_plugins: Default::default(),
+      untrusted_downloads: Default::default(),
       unapproved_process_plugins: Default::default(),
       global_config_diagnostics: Default::default(),
       cached_editor_file_matcher: Default::default(),
@@ -1212,38 +1200,15 @@ pub struct NoPluginsFoundError;
 
 #[derive(Debug, Error)]
 #[error(transparent)]
-pub struct ResolvePluginsError(#[from] anyhow::Error);
+pub struct ResolvePluginsError(#[from] pub anyhow::Error);
 
 pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   config: Rc<ResolvedConfig>,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
-  let options = ResolvePluginsScopeOptions {
-    download_policy: DownloadPolicy::All,
-  };
-  resolve_plugins_scope_with_options(config, environment, plugin_resolver, options).await
-}
-
-/// How to resolve the plugins of a config.
-pub struct ResolvePluginsScopeOptions {
-  /// What plugins may be downloaded. When a plugin that isn't installed may
-  /// not be downloaded (ex. an editor and a domain that isn't trusted), none
-  /// of the plugins are resolved because formatting with only some of them
-  /// would format differently than the CLI.
-  pub download_policy: DownloadPolicy,
-}
-
-/// Resolves the plugins of the config like `resolve_plugins_scope` with the
-/// options.
-pub async fn resolve_plugins_scope_with_options<TEnvironment: Environment>(
-  config: Rc<ResolvedConfig>,
-  environment: &TEnvironment,
-  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
-  options: ResolvePluginsScopeOptions,
-) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
   // the default permissions allow every process plugin
-  resolve_plugins_scope_with_approval(config, environment, plugin_resolver, options, &Permissions::default()).await
+  resolve_plugins_scope_with_approval(config, environment, plugin_resolver, &Permissions::default()).await
 }
 
 /// The process plugins of a config file that the user didn't approve running.
@@ -1297,7 +1262,7 @@ impl UnapprovedProcessPlugins {
   }
 }
 
-/// Resolves the plugins of the config like `resolve_plugins_scope_with_options`, but
+/// Resolves the plugins of the config like `resolve_plugins_scope`, but
 /// resolves none of them when running one of its process plugins isn't approved
 /// for the config file with its configuration, so they're never set up or started.
 /// The other plugins are left out too because formatting only some of the
@@ -1308,18 +1273,22 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   config: Rc<ResolvedConfig>,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
-  options: ResolvePluginsScopeOptions,
   permissions: &Permissions,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
-  let uninstalled_plugins = config
-    .plugins
-    .iter()
-    .filter(|plugin| plugin_resolver.needs_disallowed_download(plugin, &options.download_policy))
-    .cloned()
-    .collect::<Vec<_>>();
+  // When a plugin that isn't installed may not be downloaded without asking the
+  // user (ex. an editor and a domain that isn't trusted), none of the plugins are
+  // resolved because formatting with only some of them would format differently
+  // than the CLI.
+  let mut untrusted_downloads = Vec::new();
+  for url in config.plugins.iter().filter_map(|plugin| plugin_resolver.get_disallowed_download_url(plugin)) {
+    let url = url.to_string();
+    if !untrusted_downloads.contains(&url) {
+      untrusted_downloads.push(url);
+    }
+  }
   // IMPORTANT: This needs to be checked before resolving the plugins because
   // setting up a process plugin runs it to get its information.
-  let mut plugin_references = if uninstalled_plugins.is_empty() { config.plugins.clone() } else { Vec::new() };
+  let mut plugin_references = if untrusted_downloads.is_empty() { config.plugins.clone() } else { Vec::new() };
   let config_file = config.source.display();
   let unapproved_plugins = get_process_plugin_approvals(&config, plugin_resolver, environment)
     .into_iter()
@@ -1383,7 +1352,7 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   // a shared config may configure more plugins than the ones being used, so remove the leftover
   // plugin config that only an extended config specified so it's not reported as an unknown property
   config_map.retain(|key, _| !config.extended_only_plugin_config_keys.contains(key));
-  if !uninstalled_plugins.is_empty() || unapproved_process_plugins.is_some() {
+  if !untrusted_downloads.is_empty() || unapproved_process_plugins.is_some() {
     // the plugins weren't resolved or the config keys of the process plugins aren't
     // known without setting them up, so don't report the plugin config that's left
     // as an unknown property
@@ -1434,7 +1403,7 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   }
 
   let mut scope = PluginsScope::new(environment.clone(), plugins, config, global_config_result.diagnostics)?;
-  scope.uninstalled_plugins = uninstalled_plugins;
+  scope.untrusted_downloads = untrusted_downloads;
   scope.unapproved_process_plugins = unapproved_process_plugins;
   Ok(scope)
 }

@@ -16,17 +16,15 @@ use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
-use crate::configuration::resolve_config_from_path_with_ancestors_and_policy;
+use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::Environment;
 use crate::plugins;
 use crate::plugins::PluginSourceReference;
 use crate::resolution::PluginsScope;
-use crate::resolution::ResolvePluginsScopeOptions;
 use crate::resolution::resolve_plugins_scope_with_approval;
 use crate::utils::AsyncMutex;
-use crate::utils::DownloadPolicy;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 
@@ -51,9 +49,6 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
   config_override: Option<PathBuf>,
   remote_cache_mode: RemoteCacheMode,
-  /// What's downloaded without asking the user, which is everything else
-  /// once they do (see `install_plugins`).
-  download_policy: DownloadPolicy,
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
   plugins_generation: Cell<usize>,
@@ -67,7 +62,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
     config_override: Option<PathBuf>,
     remote_cache_mode: RemoteCacheMode,
-    download_policy: DownloadPolicy,
     session_permissions: Arc<SessionPermissions>,
   ) -> Self {
     Self {
@@ -76,7 +70,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       plugins_scope_by_config: Default::default(),
       config_override,
       remote_cache_mode,
-      download_policy,
       plugins_generation: Default::default(),
       session_permissions,
     }
@@ -135,7 +128,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
       // a plugin may have been installed since
-      let is_installed = cached_scope.scope.uninstalled_plugins.is_empty();
+      let is_installed = cached_scope.scope.untrusted_downloads.is_empty();
       if is_same_config && is_installed && cached_scope.plugins_generation == self.plugins_generation.get() && cached_scope.permissions == permissions {
         return Ok(cached_scope.scope.clone());
       }
@@ -153,15 +146,12 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 
     // get this before resolving in case the plugins are shut down while resolving
     let plugins_generation = self.plugins_generation.get();
-    let options = ResolvePluginsScopeOptions {
-      download_policy: self.download_policy.clone(),
-    };
     // IMPORTANT: Process plugins don't run sandboxed, so the editors only use
     // the plugins when the user approved running its process plugins with their
     // configuration. The user opening a file (ex. in a cloned repository or in
     // node_modules) isn't the same as choosing to run dprint there.
     let config = Rc::new(config);
-    let new_scope = Rc::new(resolve_plugins_scope_with_approval(config.clone(), &self.environment, &self.plugin_resolver, options, &permissions).await?);
+    let new_scope = Rc::new(resolve_plugins_scope_with_approval(config.clone(), &self.environment, &self.plugin_resolver, &permissions).await?);
     let permissions = if new_scope.plugins.is_empty() {
       permissions
     } else {
@@ -183,8 +173,11 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   /// installed along with what it extends, which is for when the user asked
   /// for it, so they're used the next time it's resolved. A process plugin
   /// is only set up when the user allowed it because that runs it.
+  ///
+  /// It fails with an `UntrustedDownloadError` when something needs to be
+  /// downloaded that the download policy doesn't allow (see `DownloadPolicy::allow`).
   pub async fn install_plugins(&self, config_file: &ResolvedConfigPathWithText) -> Result<()> {
-    let config = self.resolve_config_with_policy(config_file, &DownloadPolicy::All).await?;
+    let config = self.resolve_config(config_file).await?;
     let config_file = config.source.display();
     let permissions = self.session_permissions.read(&self.environment);
     let plugins = config
@@ -210,17 +203,13 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     self
       .plugin_resolver
       .get_download_url(plugin)
-      .is_some_and(|url| self.download_policy.allows(&url))
+      .is_some_and(|url| self.environment.download_policy().allows(&url))
   }
 
   /// Resolves the config of a config file, merging in the config file of an
   /// ancestor directory when it specifies `"inherit": true`.
   async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText) -> Result<ResolvedConfig> {
-    self.resolve_config_with_policy(config_file, &self.download_policy).await
-  }
-
-  async fn resolve_config_with_policy(&self, config_file: &ResolvedConfigPathWithText, download_policy: &DownloadPolicy) -> Result<ResolvedConfig> {
-    Ok(resolve_config_from_path_with_ancestors_and_policy(config_file, self.remote_cache_mode, download_policy, &self.environment).await?)
+    Ok(resolve_config_from_path_with_ancestors(config_file, self.remote_cache_mode, &self.environment).await?)
   }
 }
 

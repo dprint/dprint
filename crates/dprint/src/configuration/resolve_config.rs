@@ -235,32 +235,19 @@ pub fn resolve_config_from_path_with_ancestors<'a, TEnvironment: Environment>(
   remote_cache_mode: RemoteCacheMode,
   environment: &'a TEnvironment,
 ) -> LocalBoxFuture<'a, Result<ResolvedConfig, ResolveConfigError>> {
-  resolve_config_from_path_with_ancestors_inner(config_file, remote_cache_mode, DownloadPolicy::All, environment, Vec::new())
-}
-
-/// Resolves the config like `resolve_config_from_path_with_ancestors`, but
-/// fails with an `UntrustedDownloadError` when a configuration file it extends
-/// needs to be downloaded from where the policy doesn't allow.
-pub fn resolve_config_from_path_with_ancestors_and_policy<'a, TEnvironment: Environment>(
-  config_file: &'a ResolvedConfigPathWithText,
-  remote_cache_mode: RemoteCacheMode,
-  download_policy: &DownloadPolicy,
-  environment: &'a TEnvironment,
-) -> LocalBoxFuture<'a, Result<ResolvedConfig, ResolveConfigError>> {
-  resolve_config_from_path_with_ancestors_inner(config_file, remote_cache_mode, download_policy.clone(), environment, Vec::new())
+  resolve_config_from_path_with_ancestors_inner(config_file, remote_cache_mode, environment, Vec::new())
 }
 
 fn resolve_config_from_path_with_ancestors_inner<'a, TEnvironment: Environment>(
   config_file: &'a ResolvedConfigPathWithText,
   remote_cache_mode: RemoteCacheMode,
-  download_policy: DownloadPolicy,
   environment: &'a TEnvironment,
   mut inherit_chain: Vec<PathSource>,
 ) -> LocalBoxFuture<'a, Result<ResolvedConfig, ResolveConfigError>> {
   // boxed because of recursion
   async move {
     inherit_chain.push(config_file.source.clone());
-    let config = resolve_config_from_path_with_bytes_inner(config_file, remote_cache_mode, download_policy.clone(), environment, inherit_chain.clone()).await?;
+    let config = resolve_config_from_path_with_bytes_inner(config_file, remote_cache_mode, environment, inherit_chain.clone()).await?;
     if config.inherit != Some(true) {
       return Ok(config);
     }
@@ -275,8 +262,7 @@ fn resolve_config_from_path_with_ancestors_inner<'a, TEnvironment: Environment>(
       return Ok(config);
     };
     // the ancestor config file may also inherit
-    let ancestor_config =
-      resolve_config_from_path_with_ancestors_inner(&ancestor_config_file, remote_cache_mode, download_policy, environment, inherit_chain).await?;
+    let ancestor_config = resolve_config_from_path_with_ancestors_inner(&ancestor_config_file, remote_cache_mode, environment, inherit_chain).await?;
     Ok(inherit_config(config, &ancestor_config)?)
   }
   .boxed_local()
@@ -292,13 +278,12 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig, ResolveConfigError> {
   let inherit_chain = vec![config_path_and_text.source.clone()];
-  resolve_config_from_path_with_bytes_inner(config_path_and_text, remote_cache_mode, DownloadPolicy::All, environment, inherit_chain).await
+  resolve_config_from_path_with_bytes_inner(config_path_and_text, remote_cache_mode, environment, inherit_chain).await
 }
 
 async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   config_path_and_text: &ResolvedConfigPathWithText,
   remote_cache_mode: RemoteCacheMode,
-  download_policy: DownloadPolicy,
   environment: &TEnvironment,
   inherit_chain: Vec<PathSource>,
 ) -> Result<ResolvedConfig, ResolveConfigError> {
@@ -393,7 +378,6 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     ancestors: vec![config_path_and_text.source.clone()],
     inherit_chain: Rc::new(inherit_chain),
     remote_cache_mode,
-    download_policy,
     npm_resolver: Default::default(),
     is_trusted: config_path_and_text.source.is_local(),
     requires_checksum: false,
@@ -510,8 +494,6 @@ struct ExtendsContext {
   /// inherit, which is only possible via an extended configuration file.
   inherit_chain: Rc<Vec<PathSource>>,
   remote_cache_mode: RemoteCacheMode,
-  /// What may be downloaded without asking the user.
-  download_policy: DownloadPolicy,
   npm_resolver: Rc<NpmExtendsResolver>,
   /// Whether the configuration file with these `extends` is trusted to
   /// configure process plugins, which is when it's local configuration or
@@ -573,6 +555,8 @@ fn resolve_extends<TEnvironment: Environment>(
       };
       resolved_config = match handle_config_file(&resolved_file, checksum_hint_specifier, resolved_config, pinning, &context, &environment).await {
         Ok(resolved_config) => resolved_config,
+        // keep this one's type so the editors can ask the user to allow it
+        Err(err) if UntrustedDownloadError::find(&err).is_some() => return Err(err),
         Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),
       }
     }
@@ -728,7 +712,8 @@ async fn resolve_extends_file(
 /// where the download policy doesn't allow without asking the user (ex. a
 /// domain that isn't trusted). One that was downloaded before may be used.
 fn ensure_download_allowed(specifier: &str, context: &ExtendsContext, environment: &impl Environment) -> Result<()> {
-  if matches!(context.download_policy, DownloadPolicy::All) {
+  let download_policy = environment.download_policy();
+  if matches!(download_policy, DownloadPolicy::All) {
     return Ok(());
   }
   let url = if specifier.starts_with("npm:") {
@@ -740,7 +725,7 @@ fn ensure_download_allowed(specifier: &str, context: &ExtendsContext, environmen
     }
   };
   match url {
-    Some(url) if !context.download_policy.allows(&url) => Err(UntrustedDownloadError { url: url.to_string() }.into()),
+    Some(url) if !download_policy.allows(&url) => Err(UntrustedDownloadError { url: url.to_string() }.into()),
     _ => Ok(()),
   }
 }
@@ -867,14 +852,12 @@ async fn handle_config_file<TEnvironment: Environment>(
     ancestors,
     inherit_chain: extends_context.inherit_chain.clone(),
     remote_cache_mode: extends_context.remote_cache_mode,
-    download_policy: extends_context.download_policy.clone(),
     npm_resolver: extends_context.npm_resolver.clone(),
     is_trusted,
     requires_checksum: pinning.is_pinned || extends_context.requires_checksum,
     is_in_pinned_npm_package: pinning.is_in_pinned_npm_package,
   };
   let remote_cache_mode = extends_context.remote_cache_mode;
-  let download_policy = extends_context.download_policy.clone();
   let inherit_chain = extends_context.inherit_chain.clone();
   let resolved_config = resolve_extends(resolved_config, extends, extends_context, environment.clone()).await?;
 
@@ -901,8 +884,7 @@ async fn handle_config_file<TEnvironment: Environment>(
       warn_no_config_to_inherit(&config_path_and_text.source, environment);
       return Ok(resolved_config);
     };
-    let ancestor_config =
-      resolve_config_from_path_with_ancestors_inner(&ancestor_config_file, remote_cache_mode, download_policy, environment, inherit_chain.to_vec()).await?;
+    let ancestor_config = resolve_config_from_path_with_ancestors_inner(&ancestor_config_file, remote_cache_mode, environment, inherit_chain.to_vec()).await?;
     inherit_config(resolved_config, &ancestor_config)
   }
 }
