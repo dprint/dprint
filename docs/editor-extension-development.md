@@ -184,7 +184,7 @@ type NotFormattedReason =
   | "rangeFormattingNotSupported"
   /** The configuration of a plugin has problems, which are in the diagnostics of the config file. */
   | "configDiagnostics"
-  /** The config file failed to resolve, which the server shows the user once until it resolves. */
+  /** The config file failed to resolve. */
   | "configError"
   /** Something needs to be approved before the config file is used, which the approval has (see "Approving"). */
   | "approvalRequired"
@@ -193,7 +193,7 @@ type NotFormattedReason =
 
 Each range is formatted in order, and overlapping ranges are merged. A plugin that supports range formatting decides what to format around a range, and the range is expanded to whole lines for a plugin that doesn't say. The edits are of the text that was sent, and the document's line endings are kept.
 
-Only show a `formatError` to the user when they ran a command, because a format on save of a file with a syntax error would show one each time. Show a `pluginError`. Treat an unknown reason like `pluginError` and an unknown not formatted reason like `notMatched`.
+Only show a `formatError` to the user when they ran a command, because a format on save of a file with a syntax error would show one each time. Show a `pluginError`. Show the message of `configError` and `configDiagnostics` when the user formats a document (ex. a format on save or a command), once for each configuration file until the message changes or the server sends `dprint/configChanged` for it, and not for a request the editor made without the user (ex. `dprint/configInfo` when a project is opened). The server doesn't show them to an editor extension's user. Treat an unknown reason like `pluginError` and an unknown not formatted reason like `notMatched`.
 
 ### `dprint/fileInfo` (request)
 
@@ -308,7 +308,7 @@ See "Which documents dprint formats".
 The server also uses these, which an editor extension should handle:
 
 - `window/logMessage` - What the server logs, which isn't written to stderr. Stderr only has what isn't (ex. a crash).
-- `window/showMessage` - An error to show the user (ex. a configuration file that failed to resolve), which is only sent once until it changes because the editor makes requests without the user doing anything.
+- `window/showMessage` - Something to show the user that isn't in the result of a request (ex. failing to store an approval).
 - `window/workDoneProgress/create` and `$/progress` - What's being done that may take a while (ex. downloading a plugin), when the client supports it. Don't time out a request while there's progress because the first request for a configuration file may download and set up its plugins.
 - `textDocument/publishDiagnostics` - The problems with a configuration file (ex. an unknown property), which replace the ones published before. A problem without a known position is at the start of the file.
 - `$/cancelRequest` - Cancels a request (ex. a format the editor doesn't need anymore).

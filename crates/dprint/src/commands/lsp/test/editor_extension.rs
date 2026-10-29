@@ -648,9 +648,8 @@ fn should_provide_the_plugins_known_before_when_a_config_file_has_an_error() {
         let config_info = client.config_info("/dprint.json").await;
         assert_eq!(config_info.reason, Some(NotFormattedReason::ConfigError));
         assert_eq!(config_info.plugins, plugins);
-        // the error is shown once
-        assert_eq!(client.test_client.take_shown_messages().len(), 1);
-        client.config_info("/dprint.json").await;
+        // the editor extension shows the error, which the server doesn't
+        assert!(config_info.message.is_some());
         assert!(client.test_client.take_shown_messages().is_empty());
       }
       .boxed_local()

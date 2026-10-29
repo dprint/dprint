@@ -998,9 +998,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   /// Gets the outcome of a file that wasn't formatted because of problems with
-  /// the configuration of a plugin, which are also shown to the user once for
-  /// the config file until it changes because formatting doesn't log them
-  /// again.
+  /// the configuration of a plugin, which are also shown to a language
+  /// client's user once for the config file until it changes because
+  /// formatting doesn't log them again.
   fn get_plugin_config_diagnostics_outcome(&self, scope: &Rc<PluginsScope<TEnvironment>>, diagnostics: &[PluginConfigDiagnostic]) -> FormatOutcome {
     let config_file = scope.config.as_ref().map(|config| config.source.display()).unwrap_or_default();
     let mut message = format!("dprint did not format the file because of errors in the configuration of {}:", config_file);
@@ -1015,7 +1015,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let previous = self.plugin_config_errors.borrow_mut().insert(config_file, shown);
     let was_shown = previous.is_some_and(|previous| previous.scope.ptr_eq(&Rc::downgrade(scope)) && previous.message == message);
     if !was_shown {
-      self.client.show_message(MessageType::ERROR, message.clone());
+      self.show_error(message.clone());
     }
     // the diagnostics are where they are in the config file's text
     let config_text = self
@@ -1300,7 +1300,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let message = format!("{:#}", err);
     let previous_message = self.config_errors.borrow_mut().insert(key, message.clone());
     if previous_message.as_ref() != Some(&message) {
-      self.client.show_message(MessageType::ERROR, message);
+      self.show_error(message);
     }
   }
 
@@ -1313,6 +1313,18 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     config_find_errors.insert(dir_path.to_path_buf(), message.clone());
     drop(config_find_errors);
     if !was_shown {
+      self.show_error(message);
+    }
+  }
+
+  /// Shows a language client's user an error that's in the result of a
+  /// request. An editor extension shows it from the result instead because it
+  /// knows whether the user made the request (ex. a format on save) or the
+  /// editor did (ex. when a project is opened).
+  fn show_error(&self, message: String) {
+    if self.client_kind.get() == ClientKind::EditorExtension {
+      log_debug!(self.environment, "{}", message);
+    } else {
       self.client.show_message(MessageType::ERROR, message);
     }
   }
