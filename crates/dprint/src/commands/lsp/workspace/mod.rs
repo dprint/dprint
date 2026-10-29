@@ -1357,7 +1357,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Resolves the plugins of the config file used for the file.
   async fn resolve_scope(self: &Rc<Self>, file_path: &Path, use_global_config: bool) -> Result<DocumentConfig<TEnvironment>> {
     let Some(dir_path) = file_path.parent() else {
-      return Err(UnsupportedDocumentError::unsupported(format!("Cannot format non-file path: {}", file_path.display())));
+      return Err(UnsupportedDocumentError::unsupported(format!(
+        "Cannot format non-file path: {}",
+        file_path.display()
+      )));
     };
     let config_file = match self.scope_container.find_config_file(dir_path, use_global_config) {
       Ok(config_file) => {
@@ -1719,7 +1722,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
     let file_path = self.get_uri_file_path(&document.uri)?;
     if file_path.parent().is_none() {
-      return Err(UnsupportedDocumentError::unsupported(format!("Cannot format non-file path: {}", file_path.display())));
+      return Err(UnsupportedDocumentError::unsupported(format!(
+        "Cannot format non-file path: {}",
+        file_path.display()
+      )));
     }
     Ok(DocumentFile {
       candidates: vec![file_path],

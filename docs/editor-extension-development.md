@@ -23,10 +23,10 @@ Run `dprint lsp` in the workspace folder and send the `initialize` request with 
 The server supports the `dprint/*` methods when the `capabilities` of its result have the `dprint` experimental capability:
 
 ```json
-{ "experimental": { "dprint": { "version": 1 } } }
+{ "experimental": { "dprint": { "version": 1 } }, "positionEncoding": "utf-16" }
 ```
 
-When they don't (ex. an older version of dprint), shut the server down and fall back to [schema version 5](./editor-extension-development-schema-5.md).
+When they don't (ex. an older version of dprint), shut the server down and fall back to [schema version 5](./editor-extension-development-schema-5.md). The result's `serverInfo.version` is the version of dprint (ex. to log it or to tell apart the servers of different executables).
 
 One server formats the files of a whole workspace. For each file, the server finds the configuration file in an ancestor directory, or uses the global configuration file when that's allowed. The configuration is read again for each request, so an edited configuration file is used for the next request without restarting the server. Specifying `dprint lsp --config <path>` uses that configuration file for every file instead.
 
@@ -34,11 +34,12 @@ With the `dprint` capability, the server doesn't sync documents, register the te
 
 ### Compatibility
 
-The client and the server each send the version of the `dprint/*` methods they support:
+The client and the server each send the version of the `dprint/*` methods they support, and may also send `features`, an object of optional behavior that's opted into where a feature that isn't known is ignored (there aren't any yet):
 
-- The version is increased when something is added that an editor extension needs to know about (ex. a method, or a field it should handle). A server supports the versions before its own, so check that the server's version is at least the one the editor extension needs, and don't use what was added after the server's version.
+- The version is increased when something is added that an editor extension needs to know about (ex. a method, or a field it should handle). A server supports the versions before its own, so check that the server's version is at least the one the editor extension needs, and don't use what was added after the server's version. The server only sends what was added at or below the client's version.
 - A change that would break an editor extension uses a new capability name instead of `dprint`, so the editor extension treats a server without `dprint` like an older version of dprint.
-- Fields may be added to results and values to the string unions (ex. reasons and kinds) without increasing the version, so ignore fields that aren't known and handle values that aren't known like the methods below say.
+- Fields may be added to results and params, and values to the string unions (ex. kinds and reasons), without increasing the version. Ignore fields that aren't known and handle values that aren't known like the methods below say.
+- A capability that's an object is an editor extension's even when it can't be read (ex. `"version": "1"`), which uses version 1.
 
 ### Finding the executable
 
@@ -47,17 +48,17 @@ Use the `dprint` executable the user configured, or otherwise the one on the pat
 ### Lifecycle
 
 - The server exits when the process of the `processId` of the `initialize` request exits, when the `exit` notification is received, or when its stdin is closed.
-- Send `shutdown` and then `exit` to stop it, which stops the plugins.
+- Send `shutdown` and then `exit` to stop it, which stops the plugins. Clear the diagnostics it published once it exits, because they aren't published again until a configuration file is used.
 - Keep the server running for as long as the editor uses it. It reads a configuration file again for each request that uses it, so there's no need to start it again when one is created, changed, or deleted, or when the workspace folders change (send `workspace/didChangeWorkspaceFolders`).
-- The server doesn't watch the file system. Send `workspace/didChangeWatchedFiles` when a configuration file (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, or one of them in a `.config` directory) is created, changed, or deleted. The server resolves a configuration file that it resolved before again to publish its diagnostics, and sends `dprint/configChanged` when what a configuration file formats may have changed. It doesn't resolve one that wasn't used yet because that would download and set up its plugins without the user doing anything. A configuration file in `node_modules` is ignored, so leave those out of the file watcher. The server doesn't register to be told about them for an editor extension.
+- The server doesn't watch the file system. Send `workspace/didChangeWatchedFiles` when a configuration file (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, or one of them in a `.config` directory) is created, changed, or deleted, and when one of the `watchUris` of `dprint/configInfo` changes (ex. a configuration file it extends). The server resolves a configuration file that it resolved before again to publish its diagnostics, and sends `dprint/configChanged` when what a configuration file formats may have changed. It doesn't resolve one that wasn't used yet because that would download and set up its plugins without the user doing anything. A configuration file in `node_modules` is ignored, so leave those out of the file watcher. The server doesn't register to be told about them for an editor extension.
 - Starting it again forgets what the user decided for the session (ex. denying a download), which is what a restart command is for. Use `dprint/reset` instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
 - A notification that changes the server's state (ex. `workspace/didChangeConfiguration`) applies to the requests sent after it.
 
 ### Settings
 
-The settings are in the `initializationOptions` of the `initialize` request and the `settings` of `workspace/didChangeConfiguration`, which may have them at the top level or within a `dprint` property. A setting that isn't provided keeps its value.
+The settings are in the `initializationOptions` of the `initialize` request and the `settings` of `workspace/didChangeConfiguration`, which may have them at the top level or within a `dprint` property. A setting that isn't provided keeps its value, and a setting that's `null` is set back to its default.
 
-- `useGlobalConfig` (boolean) - Whether to format a file without a configuration file in an ancestor directory with the global configuration file. Defaults to `false`, or `true` when the `DPRINT_EDITOR_USE_GLOBAL_CONFIG` environment variable is `1` or `true`. The `dprint/*` methods also take it for a document (ex. for a command that formats with the global configuration file).
+- `useGlobalConfig` (boolean) - Whether to format a file without a configuration file in an ancestor directory with the global configuration file. Defaults to `false`, or `true` when the `DPRINT_EDITOR_USE_GLOBAL_CONFIG` environment variable is `1` or `true`. The `dprint/*` methods also take `globalConfig` for a document (ex. for a command that formats with the global configuration file, or a setting of a workspace folder).
 - `ensureStableFormat` (boolean) - Whether to format again until the text doesn't change, which defaults to what the `DPRINT_EDITOR_STABLE_FORMAT` environment variable says.
 - `verbose` (boolean) - Whether to log debug messages.
 
@@ -70,7 +71,7 @@ Documents are identified by their uri (ex. `file:///home/user/project/file.ts`).
 - An untitled document (ex. `untitled:Untitled-1`) is formatted as a file in the first workspace folder, or the home directory when there isn't one.
 - A notebook cell is formatted as a file in the notebook's directory when the `notebookDocument` is provided, which is what the jupyter plugin does when `dprint fmt` formats a notebook. It's only formatted when the notebook would be.
 
-The file is named after the document's language (ex. `Untitled.ts` or `code_block.py`), so provide the `language` of these documents. The file name is the first of the language's file extensions, its file names, and then the file extension dprint knows for the language id that the configuration file formats, or otherwise the first one. A request for any other kind of uri fails.
+The file is named after the document's language (ex. `Untitled.ts` or `code_block.py`), so provide the `language` of these documents, which is otherwise not formatted for the `languageRequired` reason. The file name is the first of the language's file extensions, its file names, and then the file extension dprint knows for the language id that the configuration file formats, or otherwise the first one. Any other kind of uri isn't formatted for the `unsupportedDocument` reason (ex. a `git:` document).
 
 ```ts
 interface DocumentParams {
@@ -79,8 +80,10 @@ interface DocumentParams {
   language?: DocumentLanguage;
   /** The notebook when the document is one of its cells. */
   notebookDocument?: { uri: string };
-  /** Whether to use the global config file when there's no config file in an ancestor directory, which is in addition to the setting. */
-  useGlobalConfig?: boolean;
+  /** When the global config file is used when there's no config file in an ancestor directory, which is what the setting says when not provided. */
+  globalConfig?: "whenNoConfigFile" | "never";
+  /** The token to report the progress of the request with (ex. downloading the plugins of the configuration file). */
+  workDoneToken?: string | number;
 }
 
 interface DocumentLanguage {
@@ -99,13 +102,13 @@ Positions are in UTF-16 code units like the language server protocol's default.
 
 An editor usually needs to know which documents an extension formats before formatting them (ex. to register as their formatter). Get each configuration file's plugins with `dprint/configInfo`:
 
-- A document whose file extension or file name is one of a plugin's may be formatted with it. Use `dprint/fileInfo` to know for sure (ex. the configuration file's `includes` and `excludes`).
+- `filePatterns` are globs of the documents its plugins may format, which are relative to the directory of the configuration file (`dirUri`). Register them as the documents the editor extension formats. Use `dprint/fileInfo` to know for sure (ex. the configuration file's `includes` and `excludes`).
 - When `formatsOtherFiles` is `true`, the configuration file formats other documents too (ex. with a plugin's `associations` or `shebangs`), which only `dprint/fileInfo` says.
-- When something needs to be approved, `plugins` are what they formatted the last time they were set up, which is remembered across sessions, so claim those documents and ask when the user formats one (see "Approving").
-- When `plugins` is `null`, they aren't known (ex. a plugin that needs to be downloaded). Don't claim the documents of the configuration file, so the editor's other formatters are still used, and show what needs to be approved instead.
-- When the configuration file has an error, `plugins` are the ones it had before, so a typo doesn't change what the editor formats with it.
+- When something needs to be approved, `plugins` and `filePatterns` are what they were the last time the plugins were set up, which is remembered across sessions, so claim those documents and ask when the user formats one (see "Approving").
+- When `plugins` is `null`, they aren't known (ex. a plugin that needs to be downloaded) and `filePatterns` is empty. Don't claim the documents of the configuration file, so the editor's other formatters are still used, and show what needs to be approved instead.
+- When the configuration file has an error, `plugins` and `filePatterns` are the ones it had before, so a typo doesn't change what the editor formats with it.
 
-Get them again only when the server sends `dprint/configChanged`, which it sends whenever what a configuration file formats may have changed: when one the editor said was created, changed, or deleted, when resolving it for a request has a different result (ex. a configuration file it extends changed), and when what needed to be approved was approved.
+Get them again only when the server sends `dprint/configChanged`, which it sends whenever what a configuration file formats may have changed: when one the editor said was created, changed, or deleted, when a file it was resolved from changed, when resolving it for a request has a different result (ex. a remote configuration file it extends changed), and when what needed to be approved was approved.
 
 ## Approving
 
@@ -123,28 +126,50 @@ interface PendingApproval {
   kind: "download" | "processPlugins" | (string & {});
   /** The configuration file that needs it, which is what the user approves for. */
   configFile?: string;
-  /** The urls or paths to download, or the process plugins to run. */
-  items: string[];
-  /** The configuration of the process plugins that were set up before by their config key, which is what they run with (ex. the commands of dprint-plugin-exec). */
-  configuration?: { [configKey: string]: unknown };
+  /** What's downloaded or run. */
+  items: ApprovalItem[];
+  /** The decisions the user can make, in the order to show them. */
+  decisions: ApprovalDecision[];
   /** Whether the user denied it, which means they shouldn't be asked unless they ask for it (ex. a command). */
   denied: boolean;
+  /** What the user decided before, which is "deny" or "alwaysDeny" when it's denied. */
+  previousDecision?: ApprovalDecision;
   /** The message to show the user when asking. */
   message: string;
 }
+
+interface ApprovalItem {
+  /** The url, path, or npm specifier (ex. of a plugin with its checksum). */
+  specifier: string;
+  /** A config file is one that a config file extends. */
+  kind?: "plugin" | "config" | (string & {});
+  /** The name, version, and config key of a plugin that was set up before. */
+  name?: string;
+  version?: string;
+  configKey?: string;
+  /** The configuration a process plugin that was set up before runs with (ex. the commands of dprint-plugin-exec). */
+  configuration?: unknown;
+}
+
+/** Only remembered for the session unless it's "alwaysAllow" or "alwaysDeny". */
+type ApprovalDecision = "allow" | "alwaysAllow" | "deny" | "alwaysDeny" | (string & {});
 ```
 
-Ask whenever a result has an `approval`, which is the same for a kind that isn't known. Ask when the user wants to format with the configuration file (ex. a format on save or a command), and not when a project is opened, because the editor makes requests without the user doing anything. Show the configuration file and what will run (`configuration`) so the user knows what they're approving. Also show that the configuration file needs approval somewhere that doesn't interrupt the user (ex. a status bar item that asks when it's clicked), because a denied approval isn't asked about again and the editor may not format a document with it.
+Several may need to be approved at once (ex. downloading a plugin and running a process plugin), so they can be shown together. Ask whenever a result has `approvals`, which is the same for a kind that isn't known, and only offer the approval's `decisions`. Ask when the user wants to format with the configuration file (ex. a format on save or a command), and not when a project is opened, because the editor makes requests without the user doing anything. Show the configuration file and what will run (each item's `configuration`) so the user knows what they're approving. Also show that the configuration file needs approval somewhere that doesn't interrupt the user (ex. a status bar item that asks when it's clicked), because a denied approval isn't asked about again and the editor may not format a document with it. `dprint/pendingApprovals` has what needs to be approved for that.
 
-Then send what they decided with `dprint/approve`. A download can be allowed or denied, which is only for the session, and process plugins can also be always allowed or denied. The result is what needs to be approved now, so ask about that until it's `null` (ex. a configuration file that a downloaded one extends or the process plugins of a downloaded configuration file), and then format the document again.
+Then send what they decided with `dprint/approve`. The result is what needs to be approved now, so ask about the approvals that weren't denied until it's empty (ex. a configuration file that a downloaded one extends or the process plugins of a downloaded configuration file), and then format the document again. The "Always" decisions are stored in an `editor-approvals.json` file next to dprint's settings file, and deleting it has the user asked again (ex. for a command that resets them).
 
 ## Methods
 
-The server responds with an error to a request that can't be handled, which has its message and one of these codes:
+The server responds with an error to a request that can't be handled, which has its message and a code:
 
-- `-32602` (InvalidParams) - The params can't be handled (ex. a document that isn't a file or an `overrideConfig` property that can't be overridden).
-- `-32801` (ContentModified) - What `dprint/approve` was sent for isn't pending anymore because what needs to be approved changed (ex. the configuration file changed). Get what's pending again (ex. format again) and ask about that.
-- `-32603` (InternalError) - Anything else (ex. the server stopped).
+- `-32602` (InvalidParams) - The params can't be handled (ex. an `overrideConfig` property that can't be overridden or a decision the approval doesn't have).
+- `-32801` (ContentModified) - What `dprint/approve` was sent for isn't pending anymore because what needs to be approved changed (ex. the configuration file changed). The error's `data` has what needs to be approved now when it's known (`{ approvals: PendingApproval[] }`), which is what to ask about, and otherwise get what's pending again (ex. format again).
+- `-32800` (RequestCancelled) - The request was cancelled with `$/cancelRequest`, which isn't shown to the user.
+- `-32601` (MethodNotFound) - The method isn't known (ex. one that was added after the server's version).
+- `-32603` (InternalError) - Anything else (ex. the server stopped). Treat a code that isn't known like this.
+
+The methods that take params take an object that may have fields added later, so a method without params yet takes `{}`.
 
 ### `dprint/format` (request)
 
@@ -166,10 +191,18 @@ interface FormatParams extends DocumentParams {
 type FormatResult =
   /** The edits of the text that was sent, which don't overlap and are in order. It's empty when the text is already formatted. */
   | { kind: "formatted"; edits: TextEdit[] }
-  /** Why it wasn't formatted, where the message is for a command the user ran. */
-  | { kind: "notFormatted"; reason: NotFormattedReason; message?: string; approval?: PendingApproval }
-  /** A plugin couldn't format it (ex. a syntax error) or failed (ex. it panicked). */
-  | { kind: "failed"; reason: "formatError" | "pluginError" | (string & {}); message: string };
+  | ({ kind: "notFormatted" } & NotFormatted)
+  /** A plugin couldn't format it (ex. a syntax error) or failed (ex. it panicked), which says the plugin when it's known. */
+  | { kind: "failed"; reason: "formatError" | "pluginError" | (string & {}); message: string; plugin?: FilePlugin };
+
+/** Why a document isn't formatted, which is the same for each method. */
+interface NotFormatted {
+  reason: NotFormattedReason;
+  /** The message to show the user (ex. for a command the user ran). */
+  message?: string;
+  /** What needs to be approved to format it (see "Approving"). */
+  approvals?: PendingApproval[];
+}
 
 type NotFormattedReason =
   /** There's no config file in an ancestor directory and there's no global config file. */
@@ -186,42 +219,59 @@ type NotFormattedReason =
   | "configDiagnostics"
   /** The config file failed to resolve. */
   | "configError"
-  /** Something needs to be approved before the config file is used, which the approval has (see "Approving"). */
+  /** Something needs to be approved before the config file is used, which the approvals have. */
   | "approvalRequired"
+  /** It can't be formatted (ex. its uri isn't a file, an untitled document, or a notebook cell). */
+  | "unsupportedDocument"
+  /** It isn't a file, so its language is needed to format it (see "Documents"). */
+  | "languageRequired"
   | (string & {});
 ```
 
 Each range is formatted in order, and overlapping ranges are merged. A plugin that supports range formatting decides what to format around a range, and the range is expanded to whole lines for a plugin that doesn't say. The edits are of the text that was sent, and the document's line endings are kept.
 
-Only show a `formatError` to the user when they ran a command, because a format on save of a file with a syntax error would show one each time. Show a `pluginError`. Show the message of `configError` and `configDiagnostics` when the user formats a document (ex. a format on save or a command), once for each configuration file until the message changes or the server sends `dprint/configChanged` for it, and not for a request the editor made without the user (ex. `dprint/configInfo` when a project is opened). The server doesn't show them to an editor extension's user. Treat an unknown reason like `pluginError` and an unknown not formatted reason like `notMatched`.
+Only show a `formatError` to the user when they ran a command, because a format on save of a file with a syntax error would show one each time. Show a `pluginError`. Show the message of `configError` and `configDiagnostics` when the user formats a document (ex. a format on save or a command), once for each configuration file until the message changes or the server sends `dprint/configChanged` for it, and not for a request the editor made without the user (ex. `dprint/configInfo` when a project is opened). The server doesn't show them to an editor extension's user.
+
+Treat a kind that isn't known like `failed` with `pluginError`, an unknown failed reason like `pluginError`, and an unknown not formatted reason like `notMatched`, showing its message when the user ran a command.
 
 ### `dprint/fileInfo` (request)
 
-Gets how a document is formatted, which doesn't need its text.
+Gets how a document is formatted.
 
 ```ts
+interface FileInfoParams extends DocumentParams {
+  /** The text of the document, which is otherwise read from the file when it's needed (ex. the shebang of an extensionless file). */
+  text?: string;
+}
+
 interface FileInfoResult {
   configFile: ConfigFileInfo | null;
-  canFormat: boolean;
-  /** The plugins that format it in the order they do. */
-  plugins: { name: string; version: string }[];
-  reason?: NotFormattedReason;
-  message?: string;
-  approval?: PendingApproval;
+  /** The plugins that format it in the order they do, which is empty when it isn't formatted. */
+  plugins: FilePlugin[];
+  status: FormatStatus;
+}
+
+/** Treat a kind that isn't known like "notFormatted" with "notMatched". */
+type FormatStatus = { kind: "ready" } | ({ kind: "notFormatted" } & NotFormatted);
+
+interface FilePlugin {
+  name: string;
+  version: string;
+  configKey: string;
 }
 
 interface ConfigFileInfo {
+  /** A file, https, or npm uri. */
   uri: string;
   /**
    * The directory whose files it formats, which is the directory it's in unless that's a `.config` directory,
    * and the directory it's used for when it's the global configuration file. It's missing for a remote one.
    */
   dirUri?: string;
-  isGlobal: boolean;
+  /** How it was chosen: found in an ancestor directory, the global configuration file, or the one the server was started with (`dprint lsp --config <path>`). */
+  kind: "local" | "global" | "override" | (string & {});
 }
 ```
-
-An extensionless file's shebang is read from the file on disk.
 
 ### `dprint/configInfo` (request)
 
@@ -231,7 +281,8 @@ Gets the plugins of a configuration file.
 interface ConfigParams {
   /** The configuration file or a document it's used for. */
   uri: string;
-  useGlobalConfig?: boolean;
+  globalConfig?: "whenNoConfigFile" | "never";
+  workDoneToken?: string | number;
 }
 
 interface ConfigInfoResult {
@@ -239,9 +290,11 @@ interface ConfigInfoResult {
   /** `null` when they aren't known (see "Which documents dprint formats"). */
   plugins: PluginInfo[] | null;
   formatsOtherFiles: boolean;
-  reason?: NotFormattedReason;
-  message?: string;
-  approval?: PendingApproval;
+  /** Globs of the files the plugins may format, which are relative to `configFile.dirUri` and match file extensions and names case insensitively. */
+  filePatterns: string[];
+  /** The local files besides the configuration file that it was resolved from (ex. a configuration file it extends), which the editor watches too. */
+  watchUris: string[];
+  status: FormatStatus;
 }
 
 interface PluginInfo {
@@ -252,6 +305,13 @@ interface PluginInfo {
   fileExtensions: string[];
   /** The file names it formats regardless of their extension. */
   fileNames: string[];
+  /** Whether it formats a file in addition to the plugin that formats it instead of on its own (ex. sorting the keys of a package.json). */
+  additive: boolean;
+  /** Whether it formats a range, which is `null` when it formats the whole lines of the range. */
+  supportsRangeFormatting: boolean | null;
+  helpUrl: string;
+  /** Where its newer version is said to be. */
+  updateUrl?: string;
 }
 ```
 
@@ -264,6 +324,11 @@ Gets the JSON schema of a configuration file (`ConfigParams`), which has the sch
 ```ts
 interface ConfigSchemaResult {
   schema: object;
+  /**
+   * Whether it has the schema of each plugin. It doesn't when the configuration file can't be used (ex. its plugins need to be approved)
+   * or a plugin's schema didn't download in time, in which case `dprint/configChanged` is sent once it did.
+   */
+  complete: boolean;
 }
 ```
 
@@ -274,30 +339,42 @@ Approves what was pending.
 ```ts
 interface ApproveParams {
   id: string;
-  /** Only remembered for the session unless it's "alwaysAllow" or "alwaysDeny", which a download doesn't have. */
-  decision: "allow" | "alwaysAllow" | "deny" | "alwaysDeny";
+  /** One of the approval's decisions. */
+  decision: ApprovalDecision;
+  workDoneToken?: string | number;
 }
 
 interface ApproveResult {
   /**
-   * What needs to be approved now, which is `null` only when the configuration file is ready.
-   * It's what was denied when the decision was to deny it, and otherwise it may be something else that needs to be approved.
+   * What needs to be approved now for the configuration file, which is empty only when it's ready. It has what
+   * was denied when the decision was to deny it, and otherwise it may have something else that needs to be approved.
    */
-  approval: PendingApproval | null;
+  approvals: PendingApproval[];
 }
 ```
 
 The decision is used once the server receives it, even when the request is cancelled. Allowing it downloads and sets up what was allowed, and then the configuration file is resolved again for the result. It fails with `-32801` when nothing is pending with the id.
 
+### `dprint/pendingApprovals` (request)
+
+Gets what needs to be approved for the configuration files that were used, which includes what the user denied (ex. for a status bar item or a command that asks about them). It takes `{}`.
+
+```ts
+interface PendingApprovalsResult {
+  approvals: PendingApproval[];
+}
+```
+
 ### `dprint/reset` (request)
 
-Forgets the configuration files and stops the plugins, which are set up again when they're next used (ex. after a plugin stopped responding or was changed). Unlike starting a new server, what the user decided for the session is kept.
+Forgets the configuration files and stops the plugins, which are set up again when they're next used (ex. after a plugin stopped responding or was changed). Unlike starting a new server, what the user decided for the session is kept. It takes `{}` and its result is `null`. Get the plugins of the configuration files again afterwards because a plugin that changed may format other files.
 
 ### `dprint/configChanged` (notification from the server)
 
 ```ts
 interface ConfigChangedParams {
   uri: string;
+  reason?: "created" | "changed" | "deleted" | (string & {});
 }
 ```
 
@@ -309,7 +386,7 @@ The server also uses these, which an editor extension should handle:
 
 - `window/logMessage` - What the server logs, which isn't written to stderr. Stderr only has what isn't (ex. a crash).
 - `window/showMessage` - Something to show the user that isn't in the result of a request (ex. failing to store an approval).
-- `window/workDoneProgress/create` and `$/progress` - What's being done that may take a while (ex. downloading a plugin), when the client supports it. Don't time out a request while there's progress because the first request for a configuration file may download and set up its plugins.
+- `window/workDoneProgress/create` and `$/progress` - What's being done that may take a while (ex. downloading a plugin), when the client supports it. What's done while a request with a `workDoneToken` is handled is also reported on its token. Don't time out a request while there's progress because the first request for a configuration file may download and set up its plugins.
 - `textDocument/publishDiagnostics` - The problems with a configuration file (ex. an unknown property), which replace the ones published before. A problem without a known position is at the start of the file.
 - `$/cancelRequest` - Cancels a request (ex. a format the editor doesn't need anymore).
 - `workspace/didChangeWatchedFiles` - See "Lifecycle".
