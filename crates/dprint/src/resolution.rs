@@ -1214,6 +1214,9 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnapprovedProcessPlugins {
   pub config_file: String,
+  /// The hash of the trusted configuration of the config file, which allowing
+  /// a plugin that isn't set up is for (see `get_trusted_config_hash`).
+  pub trusted_config_hash: String,
   pub plugins: Vec<UnapprovedProcessPlugin>,
 }
 
@@ -1289,16 +1292,14 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   // setting up a process plugin runs it to get its information.
   let mut plugin_references = if untrusted_downloads.is_empty() { config.plugins.clone() } else { Vec::new() };
   let config_file = config.source.display();
+  let trusted_config_hash = get_trusted_config_hash(&config);
   let unapproved_plugins = get_process_plugin_approvals(&config, plugin_resolver, environment)
     .into_iter()
-    .filter(|(plugin, approval)| {
+    .filter(|(plugin, approval)| match approval {
+      Some(approval) => !permissions.is_process_plugin_allowed(approval),
       // a plugin the user allowed setting up is allowed with its configuration
       // once it's set up, which the editor records after resolving it
-      let may_set_up = permissions.may_set_up_process_plugin(&config_file, &plugin.to_full_string());
-      match approval {
-        Some(approval) => !permissions.is_process_plugin_allowed(approval) && !may_set_up,
-        None => !may_set_up,
-      }
+      None => !permissions.may_set_up_process_plugin(&config_file, &plugin.to_full_string(), &trusted_config_hash),
     })
     .map(|(plugin, approval)| UnapprovedProcessPlugin {
       plugin: plugin.to_full_string(),
@@ -1315,6 +1316,7 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
     plugin_references.clear();
     unapproved_process_plugins = Some(UnapprovedProcessPlugins {
       config_file,
+      trusted_config_hash,
       plugins: unapproved_plugins,
     });
   }
@@ -1431,6 +1433,14 @@ pub fn get_process_plugin_approvals<TEnvironment: Environment>(
       (plugin.clone(), approval)
     })
     .collect()
+}
+
+/// Gets the hash of the trusted configuration of the config file, which is
+/// what the user allows a process plugin that isn't set up with because the
+/// configuration of the plugin isn't known until then.
+pub fn get_trusted_config_hash(config: &ResolvedConfig) -> String {
+  let text = serde_json::to_string(&config.trusted_config_map).expect("config should serialize");
+  get_sha256_checksum(text.as_bytes())
 }
 
 /// Gets the message that says how to have the process plugins of a config file

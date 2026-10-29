@@ -148,6 +148,9 @@ pub struct ProcessPluginSetUpGrant {
   pub config_file: String,
   /// The plugin as the config file specifies it (ex. its url and checksum).
   pub plugin: String,
+  /// The hash of the trusted configuration of the config file the user allowed
+  /// it with, so that it's not allowed once that changes.
+  pub trusted_config_hash: String,
   /// Whether to remember the decision once the plugin is set up instead of
   /// only using it for the session.
   pub always: bool,
@@ -179,14 +182,15 @@ impl Permissions {
     !self.requires_process_plugin_approval() || self.get_decision(approval) == Some(true)
   }
 
-  /// Gets whether the process plugin of the config file may be set up, which
-  /// runs it to get its information before its configuration is known.
-  pub fn may_set_up_process_plugin(&self, config_file: &str, plugin: &str) -> bool {
+  /// Gets whether the process plugin of the config file may be set up with
+  /// its trusted configuration, which runs it to get its information before
+  /// its configuration is known.
+  pub fn may_set_up_process_plugin(&self, config_file: &str, plugin: &str, trusted_config_hash: &str) -> bool {
     !self.requires_process_plugin_approval()
       || self
         .process_plugin_set_up_grants
         .iter()
-        .any(|grant| grant.config_file == config_file && grant.plugin == plugin)
+        .any(|grant| grant.config_file == config_file && grant.plugin == plugin && grant.trusted_config_hash == trusted_config_hash)
   }
 
   /// Gets whether the user denied running the process plugin, which means
@@ -459,12 +463,12 @@ mod test {
     let permissions = read_permissions(&environment, &[]);
     assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
     assert!(!permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1")));
-    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", "plugin"));
+    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash"));
     // the user can opt out
     crate::test_helpers::allow_process_plugins_in_editors(&environment);
     let permissions = read_permissions(&environment, &[]);
     assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
-    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", "plugin"));
+    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash"));
   }
 
   #[test]
@@ -584,19 +588,30 @@ mod test {
     require_approval(&environment);
     let session_permissions = SessionPermissions::default();
     let plugin = approval("/a/dprint.json", "1").plugin;
-    assert!(!session_permissions.read(&environment).may_set_up_process_plugin("/a/dprint.json", &plugin));
+    assert!(
+      !session_permissions
+        .read(&environment)
+        .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash")
+    );
     session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant {
       config_file: "/a/dprint.json".to_string(),
       plugin: plugin.clone(),
+      trusted_config_hash: "hash".to_string(),
       always: true,
     });
     let permissions = session_permissions.read(&environment);
-    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", &plugin));
-    assert!(!permissions.may_set_up_process_plugin("/b/dprint.json", &plugin));
+    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash"));
+    assert!(!permissions.may_set_up_process_plugin("/b/dprint.json", &plugin, "hash"));
+    // it's not allowed once the config file changes
+    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "other"));
     // it's not allowed with any configuration
     assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
     assert!(session_permissions.take_process_plugin_set_up_grant("/a/dprint.json", &plugin).unwrap().always);
-    assert!(!session_permissions.read(&environment).may_set_up_process_plugin("/a/dprint.json", &plugin));
+    assert!(
+      !session_permissions
+        .read(&environment)
+        .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash")
+    );
   }
 
   #[test]

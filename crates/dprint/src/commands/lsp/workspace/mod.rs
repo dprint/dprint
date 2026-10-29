@@ -771,7 +771,17 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     // the config file formats files now
     let file_path = &stored.file_path;
     let use_global_config = stored.use_global_config;
-    Ok(match self.resolve_scope(file_path, use_global_config).await? {
+    let config = self.resolve_scope(file_path, use_global_config).await;
+    if let ApprovalItem::ProcessPlugins(unapproved) = &stored.item {
+      // allowing a plugin to be set up is only for this, so a plugin that
+      // wasn't set up (ex. it failed to) needs to be approved again
+      for plugin in &unapproved.plugins {
+        self
+          .session_permissions
+          .take_process_plugin_set_up_grant(&unapproved.config_file, &plugin.plugin);
+      }
+    }
+    Ok(match config? {
       DocumentConfig::Resolved(scope) => self.get_scope_approval(&scope, file_path, use_global_config),
       DocumentConfig::Failed(failure) => self.get_failure_approval(&failure, file_path, use_global_config),
       DocumentConfig::NotFound => None,

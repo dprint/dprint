@@ -13,6 +13,7 @@ use crate::environment::Environment;
 use crate::plugins::PluginResolver;
 use crate::resolution::UnapprovedProcessPlugins;
 use crate::resolution::get_process_plugin_approvals;
+use crate::resolution::get_trusted_config_hash;
 
 /// The actions of the message that asks the user whether to allow running the
 /// process plugins of a config file, in the order they're shown.
@@ -23,10 +24,11 @@ pub const PROCESS_PLUGIN_ACTION_TITLES: [&str; 4] = [ALLOW_ACTION_TITLE, ALWAYS_
 /// allow or deny them. Not choosing an action (ex. closing the message) leaves
 /// it undecided, so they can be asked again.
 ///
-/// A plugin that isn't set up is only allowed to be set up because its
-/// configuration isn't known until then. It's allowed with its configuration
-/// once it's set up (see `record_set_up_process_plugins`), and denying it
-/// denies it with any configuration.
+/// A plugin that isn't set up is only allowed to be set up with the trusted
+/// configuration of the config file because its configuration isn't known
+/// until then. It's allowed with its configuration once it's set up (see
+/// `record_set_up_process_plugins`). Denying a plugin denies it with any
+/// configuration so that changing it doesn't ask the user again.
 ///
 /// The decision is used for the session even when storing it fails.
 pub async fn store_process_plugin_action<TEnvironment: Environment>(
@@ -45,16 +47,17 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
   let mut result = Ok(());
   for plugin in &unapproved.plugins {
     let approval = match &plugin.approval {
+      _ if !allowed => ProcessPluginApproval::any_config(unapproved.config_file.clone(), plugin.plugin.clone()),
       Some(approval) => approval.clone(),
-      None if allowed => {
+      None => {
         session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant {
           config_file: unapproved.config_file.clone(),
           plugin: plugin.plugin.clone(),
+          trusted_config_hash: unapproved.trusted_config_hash.clone(),
           always,
         });
         continue;
       }
-      None => ProcessPluginApproval::any_config(unapproved.config_file.clone(), plugin.plugin.clone()),
     };
     let decision = ProcessPluginDecision::new(environment, approval, allowed);
     session_permissions.add_process_plugin_decision(decision.clone());
@@ -75,6 +78,7 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
   let mut result = Ok(());
+  let trusted_config_hash = get_trusted_config_hash(config);
   for (_, approval) in get_process_plugin_approvals(config, plugin_resolver, environment) {
     let Some(approval) = approval else {
       continue;
@@ -82,6 +86,11 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
     let Some(grant) = session_permissions.take_process_plugin_set_up_grant(&approval.config_file, &approval.plugin) else {
       continue;
     };
+    // IMPORTANT: The plugin may have been set up elsewhere (ex. by another
+    // config file), so only allow it with the configuration the user saw.
+    if grant.trusted_config_hash != trusted_config_hash {
+      continue;
+    }
     let decision = ProcessPluginDecision::new(environment, approval, true);
     session_permissions.add_process_plugin_decision(decision.clone());
     if grant.always
@@ -200,6 +209,7 @@ mod test {
   fn unapproved(approval: Option<ProcessPluginApproval>) -> UnapprovedProcessPlugins {
     UnapprovedProcessPlugins {
       config_file: "/dprint.json".to_string(),
+      trusted_config_hash: "hash".to_string(),
       plugins: vec![UnapprovedProcessPlugin {
         plugin: PLUGIN.to_string(),
         approval,
@@ -245,7 +255,7 @@ mod test {
         .await
         .unwrap();
       let permissions = session_permissions.read(&environment);
-      assert!(permissions.may_set_up_process_plugin("/dprint.json", PLUGIN));
+      assert!(permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash"));
       // its configuration isn't known yet, so nothing is stored
       assert!(!permissions.is_process_plugin_allowed(&approval()));
       assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
@@ -275,7 +285,33 @@ mod test {
       assert!(not_set_up.is_denied(&permissions));
       // it stays denied once it's set up because what was denied is the plugin
       assert!(unapproved(Some(approval())).is_denied(&permissions));
-      assert!(!permissions.may_set_up_process_plugin("/dprint.json", PLUGIN));
+      assert!(!permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash"));
+    });
+  }
+
+  #[test]
+  fn should_deny_a_plugin_that_is_set_up_with_any_config() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let session_permissions = SessionPermissions::default();
+
+    environment.clone().run_in_runtime(async move {
+      store_process_plugin_action(
+        &environment,
+        &session_permissions,
+        &unapproved(Some(approval())),
+        Some(ALWAYS_DENY_ACTION_TITLE),
+      )
+      .await
+      .unwrap();
+      // changing its configuration doesn't ask the user again
+      let other_config = ProcessPluginApproval {
+        config_hash: Some("2".to_string()),
+        ..approval()
+      };
+      let permissions = SessionPermissions::default().read(&environment);
+      assert!(permissions.is_process_plugin_denied(&approval()));
+      assert!(permissions.is_process_plugin_denied(&other_config));
     });
   }
 
