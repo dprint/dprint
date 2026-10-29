@@ -24,7 +24,7 @@ The server communicates over stdin and stdout, so this command is run by the edi
 - **Notebook cells** and **untitled documents**, in clients that support them (see below).
 - **Commands for formatting with the global configuration file** (see [Global Configuration](#global-configuration)).
 
-The server also publishes the problems with dprint configuration files (ex. an unknown property) as diagnostics. It doesn't provide code actions.
+The server also publishes the problems with dprint configuration files (ex. an unknown property) as diagnostics, which are updated when a configuration file changes in a client that supports registering `workspace/didChangeWatchedFiles`. It doesn't provide code actions.
 
 An editor extension can use the server's `dprint/*` methods instead of the text document methods, which are only sent a document's text when formatting it (see [developing an editor extension](https://github.com/dprint/dprint/blob/main/docs/editor-extension-development.md)).
 

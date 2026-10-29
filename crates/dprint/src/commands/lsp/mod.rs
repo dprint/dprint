@@ -22,6 +22,8 @@ use deno_tower_lsp::lsp_types::CompletionResponse;
 use deno_tower_lsp::lsp_types::DidChangeConfigurationParams;
 use deno_tower_lsp::lsp_types::DidChangeNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
+use deno_tower_lsp::lsp_types::DidChangeWatchedFilesParams;
+use deno_tower_lsp::lsp_types::DidChangeWatchedFilesRegistrationOptions;
 use deno_tower_lsp::lsp_types::DidChangeWorkspaceFoldersParams;
 use deno_tower_lsp::lsp_types::DidCloseNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidCloseTextDocumentParams;
@@ -32,8 +34,10 @@ use deno_tower_lsp::lsp_types::DocumentFormattingParams;
 use deno_tower_lsp::lsp_types::DocumentRangeFormattingParams;
 use deno_tower_lsp::lsp_types::ExecuteCommandOptions;
 use deno_tower_lsp::lsp_types::ExecuteCommandParams;
+use deno_tower_lsp::lsp_types::FileSystemWatcher;
 use deno_tower_lsp::lsp_types::FormattingOptions;
 use deno_tower_lsp::lsp_types::FormattingProperty;
+use deno_tower_lsp::lsp_types::GlobPattern;
 use deno_tower_lsp::lsp_types::Hover;
 use deno_tower_lsp::lsp_types::HoverParams;
 use deno_tower_lsp::lsp_types::InitializeParams;
@@ -142,6 +146,10 @@ const USE_GLOBAL_CONFIG_OPTION: &str = "useGlobalConfig";
 /// work regardless of whether the server is set to use the global config file.
 const FORMAT_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatWithGlobalConfig";
 const FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatSelectionWithGlobalConfig";
+
+/// The configuration files the client tells the server about when they change,
+/// which includes the ones in a `.config` directory.
+const CONFIG_FILE_GLOB: &str = "**/{dprint,.dprint}.{json,jsonc}";
 
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
@@ -720,8 +728,10 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       state.client_kind = client_kind;
       state.supports_document_changes = supports_document_changes(&params.capabilities);
       state.workspace_folders = get_workspace_folder_paths(params.workspace_folders.as_deref().unwrap_or_default());
+      // an editor extension tells the server when a config file changes without this
       if !is_editor_extension {
-        state.pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
+        state.pending_registrations = get_config_file_watcher_registrations(&params.capabilities);
+        state.pending_registrations.extend(get_notebook_cell_format_registrations(&params.capabilities));
         state.pending_registrations.extend(get_untitled_registrations(&params.capabilities));
         state
           .pending_registrations
@@ -817,6 +827,28 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
     self.state.lock().settings.update(&params.settings);
     self.update_workspace_settings().await;
+  }
+
+  async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+    let file_paths = params
+      .changes
+      .iter()
+      .filter(|change| is_config_uri(&change.uri))
+      .filter_map(|change| uri_to_file_path(&change.uri))
+      .collect::<Vec<_>>();
+    if file_paths.is_empty() {
+      return;
+    }
+    self
+      .run(move |workspace| {
+        async move {
+          for file_path in file_paths {
+            workspace.config_file_changed(&file_path).await;
+          }
+        }
+        .boxed_local()
+      })
+      .await;
   }
 
   async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
@@ -1155,6 +1187,31 @@ fn new_workspace_edit(uri: &Uri, version: Option<i32>, edits: Vec<TextEdit>, sup
       ..Default::default()
     }
   }
+}
+
+/// Gets the registration that has the client tell the server when a config
+/// file changes, which is when the client supports registering it.
+fn get_config_file_watcher_registrations(capabilities: &ClientCapabilities) -> Vec<Registration> {
+  let can_register = capabilities
+    .workspace
+    .as_ref()
+    .and_then(|workspace| workspace.did_change_watched_files.as_ref())
+    .and_then(|did_change_watched_files| did_change_watched_files.dynamic_registration)
+    == Some(true);
+  if !can_register {
+    return Vec::new();
+  }
+  let options = DidChangeWatchedFilesRegistrationOptions {
+    watchers: vec![FileSystemWatcher {
+      glob_pattern: GlobPattern::String(CONFIG_FILE_GLOB.to_string()),
+      kind: None,
+    }],
+  };
+  vec![Registration {
+    id: "dprint-config-file-watcher".to_string(),
+    method: "workspace/didChangeWatchedFiles".to_string(),
+    register_options: Some(serde_json::to_value(options).expect("options should serialize")),
+  }]
 }
 
 fn supports_message_actions(capabilities: &ClientCapabilities) -> bool {

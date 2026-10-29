@@ -36,7 +36,8 @@ With the `dprint` capability, the server doesn't sync documents, register the te
 
 - The server exits when the process of the `processId` of the `initialize` request exits, when the `exit` notification is received, or when its stdin is closed.
 - Send `shutdown` and then `exit` to stop it, which stops the plugins.
-- Keep the server running for as long as the editor uses it. It notices when configuration files change, so there's no need to start it again when one is created, changed, or deleted, or when the workspace folders change (send `workspace/didChangeWorkspaceFolders`).
+- Keep the server running for as long as the editor uses it. It reads a configuration file again for each request that uses it, so there's no need to start it again when one is created, changed, or deleted, or when the workspace folders change (send `workspace/didChangeWorkspaceFolders`).
+- The server doesn't watch the file system. Send `workspace/didChangeWatchedFiles` when a configuration file (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, or one of them in a `.config` directory) is created, changed, or deleted, which has the server resolve it again to publish its diagnostics and send `dprint/configChanged`. The server doesn't register to be told about them for an editor extension.
 - Starting it again forgets what the user decided for the session (ex. denying a download), which is what a restart command is for. Use `dprint/reset` instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
 - A notification that changes the server's state (ex. `workspace/didChangeConfiguration`) applies to the requests sent after it.
 
@@ -48,7 +49,7 @@ The settings are in the `initializationOptions` of the `initialize` request and 
 - `ensureStableFormat` (boolean) - Whether to format again until the text doesn't change, which defaults to what the `DPRINT_EDITOR_STABLE_FORMAT` environment variable says.
 - `verbose` (boolean) - Whether to log debug messages.
 
-The process plugins of the global configuration file run without being approved because it's the user's own, so consider that a project's settings (ex. `.vscode/settings.json`) can turn on `useGlobalConfig` for its folder.
+The process plugins of the global configuration file run without being approved because it's the user's own.
 
 ## Documents
 
@@ -279,3 +280,4 @@ The server also uses these, which an editor extension should handle:
 - `window/workDoneProgress/create` and `$/progress` - What's being done that may take a while (ex. downloading a plugin), when the client supports it. Don't time out a request while there's progress because the first request for a configuration file may download and set up its plugins.
 - `textDocument/publishDiagnostics` - The problems with a configuration file (ex. an unknown property), which replace the ones published before. A problem without a known position is at the start of the file.
 - `$/cancelRequest` - Cancels a request (ex. a format the editor doesn't need anymore).
+- `workspace/didChangeWatchedFiles` - See "Lifecycle".

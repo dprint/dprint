@@ -59,6 +59,7 @@ use crate::commands::process_plugin_approval::get_process_plugin_decision;
 use crate::commands::process_plugin_approval::store_process_plugin_action;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
+use crate::configuration::DOT_CONFIG_DIR_NAME;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
@@ -362,6 +363,29 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   pub async fn shutdown(&self) {
     self.scope_container.shutdown().await;
+  }
+
+  /// Resolves a config file again once the editor says it was created,
+  /// changed, or deleted, which publishes its diagnostics and tells an editor
+  /// extension when what it formats changed. Otherwise, a config file is only
+  /// read again by the next request that uses it.
+  pub async fn config_file_changed(self: &Rc<Self>, file_path: &Path) {
+    if !self.environment.path_exists(file_path)
+      && let Some(uri) = file_path_to_uri(file_path)
+    {
+      // a deleted config file doesn't have problems anymore
+      self.publish_diagnostics(uri, Vec::new());
+    }
+    let Some(dir_path) = file_path.parent() else {
+      return;
+    };
+    // a config file in a `.config` directory is used for the directory it's in
+    let dir_path = match dir_path.file_name() {
+      Some(name) if name == DOT_CONFIG_DIR_NAME => dir_path.parent().unwrap_or(dir_path),
+      _ => dir_path,
+    };
+    // a file path in the directory has the config file be found for it
+    let _ = self.resolve_scope(&dir_path.join("file"), false).await;
   }
 
   pub async fn file_info(self: &Rc<Self>, document: &DocumentInfo, use_global_config: bool) -> Result<FileInfoResult> {
@@ -1063,9 +1087,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Publishes the problems with the config file when they're different from
   /// the ones that were published before.
   fn publish_config_diagnostics(&self, source: &PathSource, diagnostics: Vec<ConfigDiagnostic>) {
-    let Some(uri) = path_source_to_uri(source) else {
-      return;
-    };
+    if let Some(uri) = path_source_to_uri(source) {
+      self.publish_diagnostics(uri, diagnostics);
+    }
+  }
+
+  fn publish_diagnostics(&self, uri: Uri, diagnostics: Vec<ConfigDiagnostic>) {
     let mut published_diagnostics = self.published_diagnostics.borrow_mut();
     let previous = published_diagnostics.get(uri.as_str());
     // there's nothing to clear when nothing was published

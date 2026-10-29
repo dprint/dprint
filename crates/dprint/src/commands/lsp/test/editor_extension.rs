@@ -1,5 +1,7 @@
 //! Tests of an editor extension using the `dprint/*` methods.
 
+use deno_tower_lsp::lsp_types::FileChangeType;
+use deno_tower_lsp::lsp_types::FileEvent;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -332,6 +334,48 @@ fn should_publish_the_diagnostics_of_config_files() {
           .write_file("/dprint.json", r#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"] }"#)
           .unwrap();
         client.config_info("/dprint.json").await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics, vec![(uri("/dprint.json"), Vec::new())]);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_resolve_a_config_file_again_when_the_editor_says_it_changed() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.config_info("/dprint.json").await;
+        assert!(client.test_client.published_diagnostics.lock().drain(..).next().is_none());
+
+        // the diagnostics are published without another request
+        environment.write_file("/dprint.json", "{").unwrap();
+        let did_change = |change_type| DidChangeWatchedFilesParams {
+          changes: vec![FileEvent {
+            uri: uri("/dprint.json"),
+            typ: change_type,
+          }],
+        };
+        client.backend.did_change_watched_files(did_change(FileChangeType::CHANGED)).await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].0, uri("/dprint.json"));
+        assert_eq!(diagnostics[0].1.len(), 1);
+        client.test_client.take_shown_messages();
+
+        // and cleared once it's deleted
+        environment.remove_file("/dprint.json").unwrap();
+        client.backend.did_change_watched_files(did_change(FileChangeType::DELETED)).await;
         let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
         assert_eq!(diagnostics, vec![(uri("/dprint.json"), Vec::new())]);
       }
