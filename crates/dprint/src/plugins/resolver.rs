@@ -95,6 +95,24 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     }
   }
 
+  /// Shuts down and forgets the plugins that aren't one of the used ones.
+  pub async fn shutdown_unused(&self, used_plugins: &[Rc<PluginWrapper>]) {
+    let unused_plugins = {
+      let mut memory_cache = self.memory_cache.borrow_mut();
+      let unused_references = memory_cache
+        .iter()
+        .filter(|(_, cell)| cell.get().is_some_and(|plugin| !used_plugins.iter().any(|used| Rc::ptr_eq(used, plugin))))
+        .map(|(reference, _)| reference.clone())
+        .collect::<Vec<_>>();
+      unused_references
+        .into_iter()
+        .filter_map(|reference| memory_cache.remove(&reference))
+        .collect::<Vec<_>>()
+    };
+    let futures = unused_plugins.iter().filter_map(|plugin| plugin.get()).map(|plugin| plugin.shutdown());
+    future::join_all(futures).await;
+  }
+
   pub async fn clear_and_shutdown_initialized(&self) {
     let plugins = self.memory_cache.borrow_mut().drain().collect::<Vec<_>>();
     let futures = plugins.iter().filter_map(|p| p.1.get()).map(|p| p.shutdown());

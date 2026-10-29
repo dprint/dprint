@@ -102,6 +102,18 @@ use self::messages::NotFormattedReason;
 use self::messages::PendingApproval;
 use self::messages::PluginInfo;
 
+/// How long to wait for more config files to change before handling the ones
+/// that did.
+const CONFIG_CHANGE_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// How a config file changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigFileChange {
+  Created,
+  Changed,
+  Deleted,
+}
+
 /// How the client works with the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientKind {
@@ -223,6 +235,8 @@ pub struct Workspace<TEnvironment: Environment> {
   /// Whether a language client's user was notified this session about a file
   /// without a config file.
   has_notified_no_config: Cell<bool>,
+  /// The config files the editor said changed that weren't handled yet.
+  pending_config_changes: RefCell<Vec<(PathBuf, ConfigFileChange)>>,
 }
 
 /// What a config file resolved to.
@@ -332,6 +346,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       denied_downloads: Default::default(),
       prompted_approvals: Default::default(),
       has_notified_no_config: Default::default(),
+      pending_config_changes: Default::default(),
       environment,
       client,
       scope_container,
@@ -365,27 +380,72 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.scope_container.shutdown().await;
   }
 
-  /// Resolves a config file again once the editor says it was created,
-  /// changed, or deleted, which publishes its diagnostics and tells an editor
-  /// extension when what it formats changed. Otherwise, a config file is only
-  /// read again by the next request that uses it.
-  pub async fn config_file_changed(self: &Rc<Self>, file_path: &Path) {
-    if !self.environment.path_exists(file_path)
-      && let Some(uri) = file_path_to_uri(file_path)
-    {
-      // a deleted config file doesn't have problems anymore
-      self.publish_diagnostics(uri, Vec::new());
+  /// Handles the config files the editor says were created, changed, or
+  /// deleted, which is done together after a short delay because several
+  /// often change at once (ex. switching branches). Otherwise, a config file is
+  /// only read again by the next request that uses it.
+  pub fn config_files_changed(self: &Rc<Self>, changes: Vec<(PathBuf, ConfigFileChange)>) {
+    let mut pending_changes = self.pending_config_changes.borrow_mut();
+    let was_empty = pending_changes.is_empty();
+    for (file_path, change) in changes {
+      // the most recent change of a file is what's handled
+      pending_changes.retain(|(pending_path, _)| *pending_path != file_path);
+      pending_changes.push((file_path, change));
     }
-    let Some(dir_path) = file_path.parent() else {
+    if !was_empty {
+      return;
+    }
+    let workspace = self.clone();
+    dprint_core::async_runtime::spawn(async move {
+      tokio::time::sleep(CONFIG_CHANGE_DELAY).await;
+      let changes = std::mem::take(&mut *workspace.pending_config_changes.borrow_mut());
+      for (file_path, change) in changes {
+        workspace.handle_config_file_change(&file_path, change).await;
+      }
+    });
+  }
+
+  /// Resolves a config file that changed again when it was resolved before,
+  /// which publishes its diagnostics and tells an editor extension when what it
+  /// formats changed. A config file that wasn't resolved before isn't because
+  /// nothing asked for it, which would download and set up its plugins (an
+  /// editor extension is told it changed instead).
+  async fn handle_config_file_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange) {
+    let Some(uri) = file_path_to_uri(file_path) else {
       return;
     };
-    // a config file in a `.config` directory is used for the directory it's in
-    let dir_path = match dir_path.file_name() {
-      Some(name) if name == DOT_CONFIG_DIR_NAME => dir_path.parent().unwrap_or(dir_path),
-      _ => dir_path,
-    };
-    // a file path in the directory has the config file be found for it
-    let _ = self.resolve_scope(&dir_path.join("file"), false).await;
+    match change {
+      ConfigFileChange::Changed if self.was_resolved(file_path) => {
+        let Some(dir_path) = file_path.parent() else {
+          return;
+        };
+        // a config file in a `.config` directory is used for the directory it's in
+        let dir_path = match dir_path.file_name() {
+          Some(name) if name == DOT_CONFIG_DIR_NAME => dir_path.parent().unwrap_or(dir_path),
+          _ => dir_path,
+        };
+        // a file path in the directory has the config file be found for it, and
+        // an editor extension is told when what it resolves to changed
+        let _ = self.resolve_scope(&dir_path.join("file"), false).await;
+      }
+      ConfigFileChange::Deleted => {
+        // a deleted config file doesn't have problems anymore
+        self.publish_diagnostics(uri.clone(), Vec::new());
+        self.send_config_changed(uri);
+      }
+      ConfigFileChange::Created | ConfigFileChange::Changed => self.send_config_changed(uri),
+    }
+  }
+
+  /// Gets whether the config file was resolved before.
+  fn was_resolved(&self, file_path: &Path) -> bool {
+    let file_path = self.canonicalize(file_path.to_path_buf()).display().to_string();
+    self
+      .resolved_configs
+      .borrow()
+      .keys()
+      .chain(self.config_errors.borrow().keys())
+      .any(|key| key.split('\n').next() == Some(file_path.as_str()))
   }
 
   pub async fn file_info(self: &Rc<Self>, document: &DocumentInfo, use_global_config: bool) -> Result<FileInfoResult> {
@@ -1008,6 +1068,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let scope = match self.scope_container.resolve_config_file(&config_file).await {
       Ok(scope) => scope,
       Err(err) => {
+        // what it formats changed when it resolved before
+        if self.resolved_configs.borrow_mut().remove(&key).is_some()
+          && let Some(uri) = path_source_to_uri(&config_file.source)
+        {
+          self.send_config_changed(uri);
+        }
         // not an error because it resolves once the user allows downloading what it extends
         if let Some(err) = UntrustedDownloadError::find(&err) {
           let downloads = vec![err.url.clone()];
@@ -1121,9 +1187,15 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     };
     let previous = self.resolved_configs.borrow_mut().insert(key, state.clone());
     if previous.is_some_and(|previous| previous != state)
-      && self.client_kind.get() == ClientKind::EditorExtension
       && let Some(uri) = path_source_to_uri(&config_file.source)
     {
+      self.send_config_changed(uri);
+    }
+  }
+
+  /// Tells an editor extension that what a config file formats may have changed.
+  fn send_config_changed(&self, uri: Uri) {
+    if self.client_kind.get() == ClientKind::EditorExtension {
       self.client.send_config_changed(uri);
     }
   }

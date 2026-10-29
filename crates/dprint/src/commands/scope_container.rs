@@ -133,13 +133,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       // forget the scope so that failing to resolve the new one
       // doesn't have this be seen as a config change again
       cell.take();
-      if !is_same_config {
-        // For simplicity, shut down all plugins when any config changes in order
-        // to do some cleanup. The scopes of the other configs are using those
-        // plugins too, so this has them be resolved again when they're next used.
-        self.plugins_generation.set(self.plugins_generation.get() + 1);
-        self.plugin_resolver.clear_and_shutdown_initialized().await;
-      }
     }
 
     // get this before resolving in case the plugins are shut down while resolving
@@ -164,7 +157,27 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       plugins_generation,
       permissions,
     });
+    drop(cell);
+    self.shutdown_unused_plugins().await;
     Ok(new_scope)
+  }
+
+  /// Shuts down the plugins that none of the scopes use anymore (ex. a plugin
+  /// that was removed from a config file), which leaves the others running so
+  /// that changing a config file doesn't stop formatting with another.
+  async fn shutdown_unused_plugins(&self) {
+    let cells = self.plugins_scope_by_config.borrow().values().cloned().collect::<Vec<_>>();
+    let mut used_plugins = Vec::new();
+    for cell in cells {
+      // a scope that's being resolved may use any of them
+      let Some(cell) = cell.try_read() else {
+        return;
+      };
+      if let Some(cached_scope) = cell.as_ref() {
+        used_plugins.extend(cached_scope.scope.plugins.values().map(|plugin| plugin.plugin.clone()));
+      }
+    }
+    self.plugin_resolver.shutdown_unused(&used_plugins).await;
   }
 
   /// Resolves the config of a config file, merging in the config file of an

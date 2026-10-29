@@ -34,6 +34,7 @@ use deno_tower_lsp::lsp_types::DocumentFormattingParams;
 use deno_tower_lsp::lsp_types::DocumentRangeFormattingParams;
 use deno_tower_lsp::lsp_types::ExecuteCommandOptions;
 use deno_tower_lsp::lsp_types::ExecuteCommandParams;
+use deno_tower_lsp::lsp_types::FileChangeType;
 use deno_tower_lsp::lsp_types::FileSystemWatcher;
 use deno_tower_lsp::lsp_types::FormattingOptions;
 use deno_tower_lsp::lsp_types::FormattingProperty;
@@ -100,6 +101,7 @@ use self::text::to_lsp_edits;
 use self::untitled::get_untitled_registrations;
 use self::untitled::is_untitled_uri;
 use self::workspace::ClientKind;
+use self::workspace::ConfigFileChange;
 use self::workspace::DocumentInfo;
 use self::workspace::FormatOutcome;
 use self::workspace::FormatRequest;
@@ -146,6 +148,12 @@ const USE_GLOBAL_CONFIG_OPTION: &str = "useGlobalConfig";
 /// work regardless of whether the server is set to use the global config file.
 const FORMAT_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatWithGlobalConfig";
 const FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatSelectionWithGlobalConfig";
+
+/// How many requests and notifications are handled at the same time. A request
+/// may wait a while (ex. for the plugins of a config file to be downloaded), so
+/// this is high enough that it doesn't hold up the others (ex. a format on save
+/// for another config file). Formatting is limited separately.
+const MAX_CONCURRENT_MESSAGES: usize = 64;
 
 /// The configuration files the client tells the server about when they change,
 /// which includes the ones in a `.config` directory.
@@ -227,7 +235,10 @@ pub async fn run_language_server<TEnvironment: Environment>(
       Backend::new(client.clone(), environment.clone(), tx)
     }))
     .finish();
-    Server::new(stdin, stdout, socket, pending).serve(service).await;
+    Server::new(stdin, stdout, socket, pending)
+      .concurrency_level(MAX_CONCURRENT_MESSAGES)
+      .serve(service)
+      .await;
   });
 
   let (shutdown_received, _) = try_join!(recv_task, lsp_task)?;
@@ -404,6 +415,12 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     });
     self.sender.send(ChannelMessage::Workspace(task)).ok()?;
     receiver.await.ok()
+  }
+
+  /// Runs the task with the `Workspace` on the message handler's task without
+  /// waiting on it.
+  fn spawn(&self, task: impl FnOnce(Rc<Workspace<TEnvironment>>) -> LocalBoxFuture<'static, ()> + Send + 'static) {
+    let _ = self.sender.send(ChannelMessage::Workspace(Box::new(task)));
   }
 
   /// Sends the settings to the `Workspace`.
@@ -830,25 +847,32 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-    let file_paths = params
+    let changes = params
       .changes
       .iter()
       .filter(|change| is_config_uri(&change.uri))
-      .filter_map(|change| uri_to_file_path(&change.uri))
+      .filter_map(|change| {
+        let file_path = uri_to_file_path(&change.uri)?;
+        // a config file in node_modules is only used when it's extended
+        if file_path.components().any(|component| component.as_os_str() == "node_modules") {
+          return None;
+        }
+        let change = match change.typ {
+          FileChangeType::CREATED => ConfigFileChange::Created,
+          FileChangeType::DELETED => ConfigFileChange::Deleted,
+          _ => ConfigFileChange::Changed,
+        };
+        Some((file_path, change))
+      })
       .collect::<Vec<_>>();
-    if file_paths.is_empty() {
+    if changes.is_empty() {
       return;
     }
-    self
-      .run(move |workspace| {
-        async move {
-          for file_path in file_paths {
-            workspace.config_file_changed(&file_path).await;
-          }
-        }
-        .boxed_local()
-      })
-      .await;
+    // a notification doesn't wait on this so that it doesn't hold up the other messages
+    self.spawn(move |workspace| {
+      workspace.config_files_changed(changes);
+      async {}.boxed_local()
+    });
   }
 
   async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {

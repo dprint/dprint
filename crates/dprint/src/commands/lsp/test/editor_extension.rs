@@ -349,6 +349,9 @@ fn should_resolve_a_config_file_again_when_the_editor_says_it_changed() {
     .with_local_config("/dprint.json", |c| {
       c.add_remote_wasm_plugin();
     })
+    .with_local_config("/other/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
     .initialize()
     .build();
   run_session(&environment, {
@@ -357,27 +360,48 @@ fn should_resolve_a_config_file_again_when_the_editor_says_it_changed() {
       async move {
         client.config_info("/dprint.json").await;
         assert!(client.test_client.published_diagnostics.lock().drain(..).next().is_none());
-
-        // the diagnostics are published without another request
-        environment.write_file("/dprint.json", "{").unwrap();
-        let did_change = |change_type| DidChangeWatchedFilesParams {
+        let did_change = |path: &str, change_type| DidChangeWatchedFilesParams {
           changes: vec![FileEvent {
-            uri: uri("/dprint.json"),
+            uri: uri(path),
             typ: change_type,
           }],
         };
-        client.backend.did_change_watched_files(did_change(FileChangeType::CHANGED)).await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+
+        // the diagnostics are published without another request
+        environment.write_file("/dprint.json", "{").unwrap();
+        client
+          .backend
+          .did_change_watched_files(did_change("/dprint.json", FileChangeType::CHANGED))
+          .await;
+        let diagnostics = client.wait_for_published_diagnostics().await;
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].0, uri("/dprint.json"));
         assert_eq!(diagnostics[0].1.len(), 1);
+        assert_eq!(client.take_config_changes(), vec![uri("/dprint.json")]);
         client.test_client.take_shown_messages();
 
-        // and cleared once it's deleted
+        // a config file that wasn't used isn't resolved, which would set up its plugins
+        environment.write_file("/other/dprint.json", "{").unwrap();
+        client
+          .backend
+          .did_change_watched_files(did_change("/other/dprint.json", FileChangeType::CHANGED))
+          .await;
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/other/dprint.json")]);
+        assert!(client.test_client.published_diagnostics.lock().is_empty());
+        // and neither is one in node_modules
+        client
+          .backend
+          .did_change_watched_files(did_change("/node_modules/package/dprint.json", FileChangeType::CREATED))
+          .await;
+
+        // the diagnostics are cleared once it's deleted
         environment.remove_file("/dprint.json").unwrap();
-        client.backend.did_change_watched_files(did_change(FileChangeType::DELETED)).await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
-        assert_eq!(diagnostics, vec![(uri("/dprint.json"), Vec::new())]);
+        client
+          .backend
+          .did_change_watched_files(did_change("/dprint.json", FileChangeType::DELETED))
+          .await;
+        assert_eq!(client.wait_for_published_diagnostics().await, vec![(uri("/dprint.json"), Vec::new())]);
+        assert_eq!(client.take_config_changes(), vec![uri("/dprint.json")]);
       }
       .boxed_local()
     }
@@ -765,6 +789,31 @@ impl Client {
 
   fn take_config_changes(&self) -> Vec<Uri> {
     self.test_client.config_changes.lock().drain(..).collect()
+  }
+
+  /// Waits for the config changes, which are sent a little after the editor
+  /// says a config file changed.
+  async fn wait_for_config_changes(&self) -> Vec<Uri> {
+    for _ in 0..200 {
+      let changes = self.take_config_changes();
+      if !changes.is_empty() {
+        return changes;
+      }
+      tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    Vec::new()
+  }
+
+  /// Waits for diagnostics to be published.
+  async fn wait_for_published_diagnostics(&self) -> Vec<(Uri, Vec<Diagnostic>)> {
+    for _ in 0..200 {
+      let diagnostics = self.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+      if !diagnostics.is_empty() {
+        return diagnostics;
+      }
+      tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    Vec::new()
   }
 }
 
