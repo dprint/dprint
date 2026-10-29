@@ -1167,7 +1167,7 @@ pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
-  get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, &Permissions::default()).await
+  get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, &Permissions::allow_all()).await
 }
 
 /// Gets the plugins scope like `get_plugins_scope_from_args`, but only with the
@@ -1207,8 +1207,7 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
-  // the default permissions allow every process plugin
-  resolve_plugins_scope_with_approval(config, environment, plugin_resolver, &Permissions::default()).await
+  resolve_plugins_scope_with_approval(config, environment, plugin_resolver, &Permissions::allow_all()).await
 }
 
 /// The process plugins of a config file that the user didn't approve running.

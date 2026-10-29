@@ -110,14 +110,17 @@ dprint's settings that aren't formatting configuration go in a `settings.json` f
 ```jsonc
 {
   "editor": {
-    // require allowing process plugins
-    "allowProcessPlugins": false
+    // trust a private npm registry
+    "trustedDomains": ["npm.example.com"]
   }
 }
 ```
 
-- `editor.allowProcessPlugins` - Whether editors run [process plugins](/lsp#process-plugins) without you allowing them, which is the default for now. When it's `false`, editors don't format with a configuration file that has process plugins until you allow them.
+- `editor.allowProcessPlugins` (default: `false`) - Whether editors run [process plugins](/lsp#process-plugins) without you allowing them. Editors don't format with a configuration file that has process plugins until you allow them unless this is `true`.
+- `editor.trustedDomains` - The domains editors download from without asking you in addition to the [default ones](/setup#trusted-domains).
 
-dprint warns about a property it doesn't know (ex. a misspelled one). When the file can't be read or parsed, editors require allowing process plugins as if `editor.allowProcessPlugins` was `false`.
+dprint warns about a property it doesn't know (ex. a misspelled one). When the file can't be read or parsed, editors use the defaults.
+
+What you always allow or deny in an editor is stored in an `editor-approvals.json` file next to it.
 
 dprint also stores the [preferences of `dprint init`](/setup#init-preferences) here (`init`). Only the property being changed is written, so the rest of the file is kept as it is.

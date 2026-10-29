@@ -428,6 +428,7 @@ mod test {
         c.add_remote_wasm_plugin().add_remote_process_plugin();
       })
       .build(); // build only, don't initialize
+    crate::test_helpers::allow_process_plugins_in_editors(&environment);
     run_test_cli(vec!["editor-info"], &environment).unwrap();
     let mut final_output = r#"{"schemaVersion":5,"cliVersion":""#.to_string();
     final_output.push_str(&environment.cli_version());
@@ -803,6 +804,7 @@ mod test {
       .write_file(&ignored_file_path, "text")
       .initialize()
       .build();
+    crate::test_helpers::allow_process_plugins_in_editors(&environment);
     let stdin = environment.stdin_writer();
     let stdout = environment.stdout_reader();
 
@@ -1645,6 +1647,7 @@ mod test {
       .write_file(&file_path4, "")
       .write_file(&file_path5, "")
       .build();
+    crate::test_helpers::allow_process_plugins_in_editors(&environment);
 
     let stdin = environment.stdin_writer();
     let stdout = environment.stdout_reader();

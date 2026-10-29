@@ -8,15 +8,13 @@ use parking_lot::Mutex;
 use url::Url;
 
 use crate::configuration::ResolveConfigError;
+use crate::configuration::read_settings;
 use crate::environment::Environment;
 use crate::resolution::ResolvePluginsError;
 
 /// The domains that the editors download plugins and configuration files from
-/// without asking, which `DPRINT_TRUSTED_DOMAINS` replaces.
+/// without asking, which the `editor.trustedDomains` setting adds to.
 pub const DEFAULT_TRUSTED_DOMAINS: [&str; 4] = ["registry.npmjs.org", "plugins.dprint.dev", "github.com", "githubusercontent.com"];
-/// The environment variable with the comma separated trusted domains, which
-/// replace the default ones.
-pub const TRUSTED_DOMAINS_ENV_VAR_NAME: &str = "DPRINT_TRUSTED_DOMAINS";
 
 /// What may be downloaded without asking the user, which the environment
 /// enforces for every request it sends (see `Environment::set_download_policy`).
@@ -40,7 +38,7 @@ impl DownloadPolicy {
   /// Gets the policy of the editors, which only download from the trusted domains.
   pub fn for_editor(environment: &impl Environment) -> Self {
     DownloadPolicy::TrustedDomains(Arc::new(TrustedDownloads {
-      trusted_domains: TrustedDomains::from_environment(environment),
+      trusted_domains: TrustedDomains::from_settings(environment),
       allowed: Default::default(),
     }))
   }
@@ -145,10 +143,9 @@ pub fn get_untrusted_download_message(downloads: &[String]) -> String {
     concat!(
       "dprint needs to download {} from domains that aren't trusted. ",
       "Only download them when you trust the configuration file because a download can send information to the domain. ",
-      "Set the {} environment variable to change the trusted domains."
+      "Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."
     ),
     downloads.join(", "),
-    TRUSTED_DOMAINS_ENV_VAR_NAME,
   )
 }
 
@@ -158,22 +155,22 @@ pub fn get_untrusted_download_message(downloads: &[String]) -> String {
 pub struct TrustedDomains(Vec<String>);
 
 impl TrustedDomains {
-  /// Gets the trusted domains, which `DPRINT_TRUSTED_DOMAINS` replaces.
-  pub fn from_environment(environment: &impl Environment) -> Self {
-    match environment.env_var(TRUSTED_DOMAINS_ENV_VAR_NAME) {
-      Some(value) => Self::parse(&value.to_string_lossy()),
-      None => TrustedDomains(DEFAULT_TRUSTED_DOMAINS.iter().map(|domain| domain.to_string()).collect()),
+  /// Gets the default trusted domains along with the ones of the
+  /// `editor.trustedDomains` setting. It's only a setting and not something
+  /// like an environment variable because what the editor is started with
+  /// may come from the project (ex. a terminal in the project's directory).
+  pub fn from_settings(environment: &impl Environment) -> Self {
+    let mut domains = DEFAULT_TRUSTED_DOMAINS.iter().map(|domain| domain.to_string()).collect::<Vec<_>>();
+    // a warning that the settings can't be read is logged when reading the permissions
+    if let Ok(Some(settings)) = read_settings(environment) {
+      for domain in settings.editor.trusted_domains {
+        let domain = domain.trim().trim_matches('.').to_ascii_lowercase();
+        if !domain.is_empty() && !domains.contains(&domain) {
+          domains.push(domain);
+        }
+      }
     }
-  }
-
-  fn parse(text: &str) -> Self {
-    TrustedDomains(
-      text
-        .split(',')
-        .map(|domain| domain.trim().trim_matches('.').to_ascii_lowercase())
-        .filter(|domain| !domain.is_empty())
-        .collect(),
-    )
+    TrustedDomains(domains)
   }
 
   /// Gets whether the url is on a trusted domain, which is only for https
@@ -269,7 +266,7 @@ mod test {
   #[test]
   fn should_trust_the_default_domains_and_their_subdomains() {
     let environment = TestEnvironment::new();
-    let trusted_domains = TrustedDomains::from_environment(&environment);
+    let trusted_domains = TrustedDomains::from_settings(&environment);
     assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/typescript-0.95.0.wasm")));
     assert!(trusted_domains.is_trusted(&url("https://registry.npmjs.org/@dprint/typescript")));
     assert!(trusted_domains.is_trusted(&url("https://github.com/dprint/dprint-plugin-exec/releases/download/0.5.0/plugin.json")));
@@ -284,15 +281,24 @@ mod test {
   }
 
   #[test]
-  fn should_replace_the_default_domains_with_the_environment_variable() {
+  fn should_add_the_domains_of_the_setting() {
     let environment = TestEnvironment::new();
-    environment.set_env_var(TRUSTED_DOMAINS_ENV_VAR_NAME, Some(" example.com , .Other.dev, "));
-    let trusted_domains = TrustedDomains::from_environment(&environment);
-    assert!(trusted_domains.is_trusted(&url("https://example.com/plugin.wasm")));
-    assert!(trusted_domains.is_trusted(&url("https://sub.other.dev/plugin.wasm")));
-    assert!(!trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
-    // nothing is trusted when it's empty
-    environment.set_env_var(TRUSTED_DOMAINS_ENV_VAR_NAME, Some(""));
-    assert!(!TrustedDomains::from_environment(&environment).is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
+    let file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    environment
+      .write_file(
+        &file_path,
+        r#"{ "editor": { "trustedDomains": ["npm.example.com", " Other.Example.com. ", ""] } }"#,
+      )
+      .unwrap();
+    let trusted_domains = TrustedDomains::from_settings(&environment);
+    assert!(trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
+    assert!(trusted_domains.is_trusted(&url("https://sub.other.example.com/plugin.wasm")));
+    // the default ones are still trusted
+    assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
+    assert!(!trusted_domains.is_trusted(&url("https://example.com/plugin.wasm")));
+    // the environment doesn't change them
+    environment.set_env_var("DPRINT_TRUSTED_DOMAINS", Some("example.com"));
+    assert!(!TrustedDomains::from_settings(&environment).is_trusted(&url("https://example.com/plugin.wasm")));
   }
 }

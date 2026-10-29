@@ -6,9 +6,9 @@ use crate::configuration::ProcessPluginDecision;
 use crate::configuration::ProcessPluginSetUpGrant;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::SessionPermissions;
-use crate::configuration::read_editor_state;
+use crate::configuration::read_editor_approvals;
 use crate::configuration::store_process_plugin_decision;
-use crate::configuration::update_editor_state;
+use crate::configuration::update_editor_approvals;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
 use crate::resolution::UnapprovedProcessPlugins;
@@ -127,7 +127,7 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   if approvals.is_empty() {
     return Ok(());
   }
-  let stored_decisions = read_editor_state(environment).process_plugin_decisions;
+  let stored_decisions = read_editor_approvals(environment)?.process_plugin_decisions;
   let decisions = approvals
     .into_iter()
     // the state file is only written when something changed, which is usually not
@@ -143,9 +143,9 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   if decisions.is_empty() {
     return Ok(());
   }
-  update_editor_state(environment, |state| {
+  update_editor_approvals(environment, |approvals| {
     for decision in decisions {
-      state.add_process_plugin_decision(decision);
+      approvals.add_process_plugin_decision(decision);
     }
   })
   .await
@@ -182,7 +182,7 @@ const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 #[cfg(test)]
 mod test {
   use super::*;
-  use crate::configuration::get_editor_state_file_path;
+  use crate::configuration::get_editor_approvals_file_path;
   use crate::configuration::get_settings_file_path;
   use crate::environment::TestEnvironment;
   use crate::resolution::UnapprovedProcessPlugin;
@@ -248,7 +248,7 @@ mod test {
       assert!(permissions.may_set_up_process_plugin("/dprint.json", PLUGIN));
       // its configuration isn't known yet, so nothing is stored
       assert!(!permissions.is_process_plugin_allowed(&approval()));
-      assert!(read_editor_state(&environment).process_plugin_decisions.is_empty());
+      assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
     });
   }
 
@@ -265,7 +265,7 @@ mod test {
         .unwrap();
       assert!(not_set_up.is_denied(&session_permissions.read(&environment)));
       // denying it for the session isn't stored
-      assert!(read_editor_state(&environment).process_plugin_decisions.is_empty());
+      assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
       assert!(!not_set_up.is_denied(&SessionPermissions::default().read(&environment)));
 
       store_process_plugin_action(&environment, &session_permissions, &not_set_up, Some(ALWAYS_DENY_ACTION_TITLE))
@@ -283,8 +283,8 @@ mod test {
   fn should_use_decision_for_session_when_storing_it_fails() {
     let environment = TestEnvironment::new();
     require_approval(&environment);
-    // writing the state file fails when it's a directory
-    environment.mk_dir_all(get_editor_state_file_path(&environment)).unwrap();
+    // writing the approvals file fails when it's a directory
+    environment.mk_dir_all(get_editor_approvals_file_path(&environment).unwrap()).unwrap();
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
@@ -299,6 +299,10 @@ mod test {
         .is_err()
       );
       assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
+      // reading what's stored failed too, which nothing is allowed by
+      let messages = environment.take_stderr_messages();
+      assert_eq!(messages.len(), 1);
+      assert!(messages[0].starts_with("Asking to allow process plugins again in editors."), "{}", messages[0]);
     });
   }
 }

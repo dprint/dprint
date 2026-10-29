@@ -98,17 +98,15 @@ A server can't change an editor's settings, so the choice is stored in an `edito
 
 ## Process Plugins
 
-Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Opening a file isn't the same as choosing to run dprint in its directory—the file may be in a repository you just cloned—so you can have the server only run them once you allow them. To do so, set `editor.allowProcessPlugins` to `false` in the [settings file](/global-config#settings-file) (ex. `~/.config/dprint/settings.json`):
+Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Opening a file isn't the same as choosing to run dprint in its directory—the file may be in a repository you just cloned—so the server only runs them once you allow them. To run them without being asked, set `editor.allowProcessPlugins` to `true` in the [settings file](/global-config#settings-file) (ex. `~/.config/dprint/settings.json`):
 
 ```json
 {
   "editor": {
-    "allowProcessPlugins": false
+    "allowProcessPlugins": true
   }
 }
 ```
-
-Process plugins are allowed without asking by default for now. A future version of dprint will ask by default, which setting `editor.allowProcessPlugins` to `true` opts out of.
 
 When a file is formatted with a configuration file whose process plugins you haven't allowed, the server doesn't set them up or start them and asks with a message that has the following actions:
 
@@ -129,7 +127,7 @@ dprint config install
 dprint config install --config path/to/dprint.json
 ```
 
-The most recent decision is used, so this also allows them in a session where they were denied. What's decided on is each process plugin of that configuration file with its configuration, so when a plugin or its configuration changes (ex. the commands of dprint-plugin-exec), you're asked again. The same goes for the `plugin.json` file of an npm plugin without a version, which is resolved from `node_modules` (ex. when updating the package). A process plugin's configuration isn't known until it's downloaded and set up, so denying one that isn't denies it with any configuration. The process plugins of the [global configuration file](/global-config) are always allowed. The `Always Allow` and `Always Deny` choices are stored in an `editor-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file has you asked again.
+The most recent decision is used, so this also allows them in a session where they were denied. What's decided on is each process plugin of that configuration file with its configuration, so when a plugin or its configuration changes (ex. the commands of dprint-plugin-exec), you're asked again. The same goes for the `plugin.json` file of an npm plugin without a version, which is resolved from `node_modules` (ex. when updating the package). A process plugin's configuration isn't known until it's downloaded and set up, so denying one that isn't denies it with any configuration. The process plugins of the [global configuration file](/global-config) are always allowed. The `Always Allow` and `Always Deny` choices are stored in an `editor-approvals.json` file next to the [settings file](/global-config#settings-file). Deleting that file has you asked again.
 
 This is deliberately not a [setting](#settings) because an editor's workspace settings can come from the project (ex. `.vscode/settings.json`), which would let a project allow its own process plugins. The CLI doesn't use this file because running `dprint fmt` is choosing to run dprint in that directory.
 

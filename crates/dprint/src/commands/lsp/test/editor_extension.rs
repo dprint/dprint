@@ -514,7 +514,7 @@ fn should_approve_running_process_plugins() {
 
         // allowing it sets it up, and it's remembered with its configuration
         assert_eq!(client.approve(&denied.id, ApprovalDecision::AlwaysAllow).await, None);
-        let decisions = crate::configuration::read_editor_state(&environment).process_plugin_decisions;
+        let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
         assert_eq!(decisions.len(), 1);
         assert!(decisions[0].allowed);
         assert_eq!(client.take_config_changes(), vec![uri("/a/dprint.json")]);

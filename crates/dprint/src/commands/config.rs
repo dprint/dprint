@@ -4433,7 +4433,8 @@ text",
       })
       .build();
     let get_approvals = || {
-      crate::configuration::read_editor_state(&environment)
+      crate::configuration::read_editor_approvals(&environment)
+        .unwrap()
         .process_plugin_decisions
         .into_iter()
         .filter(|decision| decision.allowed)

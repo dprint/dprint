@@ -41,10 +41,13 @@ pub struct Settings {
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorSettings {
-  /// Whether process plugins run without the user approving them, which is
-  /// the default for now.
+  /// Whether process plugins run without the user approving them.
   #[serde(default)]
   pub allow_process_plugins: Option<bool>,
+  /// The domains the editors download from without asking the user in
+  /// addition to the default ones (ex. a private npm registry).
+  #[serde(default)]
+  pub trusted_domains: Vec<String>,
 }
 
 /// Gets the path of the settings file.
@@ -53,7 +56,7 @@ pub fn get_settings_file_path(environment: &impl Environment) -> Option<PathBuf>
 }
 
 /// Reads the settings, which are `None` when there's no settings file.
-pub(super) fn read_settings(environment: &impl Environment) -> Result<Option<Settings>> {
+pub fn read_settings(environment: &impl Environment) -> Result<Option<Settings>> {
   // nothing is created just to find out there's nothing in it
   let Some(file_path) = get_settings_file_path(environment) else {
     return Ok(None);
@@ -125,7 +128,7 @@ fn get_unknown_properties(value: &serde_json::Value) -> Vec<String> {
       "editor" => {
         if let Some(editor) = value.as_object() {
           for name in editor.keys() {
-            if name != "allowProcessPlugins" {
+            if name != "allowProcessPlugins" && name != "trustedDomains" {
               unknown_properties.push(format!("editor.{}", name));
             }
           }

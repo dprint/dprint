@@ -1225,7 +1225,7 @@ mod test {
 
   use super::client::ClientTrait;
   use super::*;
-  use crate::configuration::get_editor_state_file_path;
+  use crate::configuration::get_editor_approvals_file_path;
   use crate::configuration::get_settings_file_path;
 
   macro_rules! did_open {
@@ -1357,6 +1357,7 @@ mod test {
       })
       .initialize()
       .build();
+    crate::test_helpers::allow_process_plugins_in_editors(&environment);
     environment.write_file(".gitignore", "gitignored_file.txt\ngitignored_dir").unwrap();
 
     environment.clone().run_in_runtime(async move {
@@ -1889,6 +1890,7 @@ mod test {
       })
       .initialize()
       .build();
+    crate::test_helpers::allow_process_plugins_in_editors(&environment);
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -2246,6 +2248,7 @@ mod test {
       })
       .initialize()
       .build();
+    crate::test_helpers::allow_process_plugins_in_editors(&environment);
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -2967,7 +2970,7 @@ mod test {
       );
 
       // always allowing replaces the decision and uses it in the next session
-      environment.remove_file(get_editor_state_file_path(&environment)).unwrap();
+      environment.remove_file(get_editor_approvals_file_path(&environment).unwrap()).unwrap();
       let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Allow"), [false, true]).await;
       assert_asked(shown, "because its process plugins (https://plugins.dprint.dev/test-process.json@");
       assert_eq!(

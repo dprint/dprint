@@ -898,11 +898,16 @@ mod test {
       let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
         .write_file("/file.txt_ps", "text_formatted_process")
         .build();
-      assert!(crate::configuration::read_editor_state(&environment).process_plugin_decisions.is_empty());
+      assert!(
+        crate::configuration::read_editor_approvals(&environment)
+          .unwrap()
+          .process_plugin_decisions
+          .is_empty()
+      );
 
       // the file is already formatted, so this passes for `dprint check`
       run_test_cli(args, &environment).unwrap();
-      let decisions = crate::configuration::read_editor_state(&environment).process_plugin_decisions;
+      let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
       assert_eq!(decisions.len(), 1);
       assert!(decisions[0].allowed);
       assert_eq!(decisions[0].approval.config_file, "/dprint.json");
