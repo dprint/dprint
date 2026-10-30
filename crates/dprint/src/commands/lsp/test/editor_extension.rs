@@ -2078,6 +2078,51 @@ fn should_provide_the_most_recent_decision_of_a_process_plugin() {
 }
 
 #[test]
+fn should_forget_the_decisions_of_a_remote_config_file() {
+  let environment = TestEnvironmentBuilder::new().initialize().build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // ex. from running `dprint fmt --config https://example.com/dprint.json`
+        let decision = crate::configuration::ProcessPluginDecision::new(
+          &environment,
+          crate::configuration::ProcessPluginApproval {
+            config_file: "https://example.com/dprint.json".to_string(),
+            plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
+            config_hash: Some("1:hash".to_string()),
+          },
+          true,
+        );
+        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
+        let decisions = client
+          .backend
+          .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
+          .await
+          .unwrap()
+          .decisions;
+        let config_file = decisions[0].config_file.clone().unwrap();
+        assert_eq!(config_file.uri.as_str(), "https://example.com/dprint.json");
+        let params = ForgetDecisionsParams {
+          config_file: Some(config_file),
+          work_done_token: None,
+        };
+        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+        assert_eq!(forgotten.decisions, decisions);
+        assert!(
+          crate::configuration::read_editor_approvals(&environment)
+            .unwrap()
+            .process_plugin_decisions
+            .is_empty()
+        );
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_provide_the_id_of_a_process_plugin_approval_before_it_was_set_up() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()

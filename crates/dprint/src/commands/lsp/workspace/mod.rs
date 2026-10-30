@@ -1641,6 +1641,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       let dir_path = dir_path.unwrap_or_else(|| self.environment.cwd().into_path_buf());
       self.scope_container.find_config_file(&dir_path, false)?
     } else {
+      // a remote or npm config file's decisions are from running dprint with it (ex. `dprint fmt --config <url>`),
+      // which are by its url as it's shown
+      if ["http", "https", "npm"].contains(&uri.scheme().as_str()) {
+        return Ok((uri.as_str().to_string(), uri.as_str().to_string()));
+      }
       let Some(file_path) = uri_to_file_path(uri).filter(|path| is_config_file_path(&self.environment, path)) else {
         return Err(InvalidParamsError(format!("The configFile isn't a config file: {}", uri.as_str())).into());
       };
