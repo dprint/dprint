@@ -57,10 +57,21 @@ pub struct PreferredPlugin {
 
 /// Reads what the user prefers, which is nothing when it was never saved or
 /// can't be read. `dprint init` works without it, so a problem with the file
-/// is only warned about.
+/// is only warned about, which includes preferences in a shape this version
+/// doesn't know (ex. from a newer version of dprint).
 pub fn read_init_preferences(environment: &impl Environment) -> InitPreferences {
   match read_settings(environment) {
-    Ok(Some(Settings { init: Some(preferences), .. })) => preferences,
+    Ok(Some(Settings { init: Some(preferences), .. })) => match serde_json::from_value::<InitPreferences>(preferences) {
+      Ok(preferences) => preferences,
+      Err(err) => {
+        log_warn!(
+          environment,
+          "Ignoring the preferences in the settings because they couldn't be parsed: {:#}",
+          err
+        );
+        Default::default()
+      }
+    },
     // they're moved to the settings file the next time they're written
     Ok(_) => read_legacy_init_preferences(environment),
     Err(err) => {
@@ -211,6 +222,25 @@ mod test {
     assert!(!preferences.is_preferred("b"));
     assert!(preferences.is_avoided("b"));
     assert!(!preferences.is_avoided("c"));
+  }
+
+  #[test]
+  fn should_warn_and_ignore_preferences_in_the_settings_that_do_not_parse() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/config/dprint").unwrap();
+    // ex. a newer version of dprint changed their shape
+    environment
+      .write_file(
+        "/config/dprint/settings.json",
+        r#"{ "editor": { "allowProcessPlugins": true }, "init": { "preferredPlugins": ["a"] } }"#,
+      )
+      .unwrap();
+    assert_eq!(read_init_preferences(&environment), InitPreferences::default());
+    let messages = environment.take_stderr_messages();
+    assert_eq!(messages.len(), 1);
+    assert!(messages[0].contains("Ignoring the preferences in the settings"), "{}", messages[0]);
+    // the editors still use the settings
+    assert_eq!(read_settings(&environment).unwrap().unwrap().editor.allow_process_plugins, Some(true));
   }
 
   #[test]

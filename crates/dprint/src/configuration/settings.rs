@@ -2,13 +2,13 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 use jsonc_parser::cst::CstRootNode;
 use serde::Deserialize;
 
 use crate::environment::Environment;
 use crate::utils::TrustedDomains;
 
-use super::InitPreferences;
 use super::get_init_config_file_text::to_cst_input;
 use super::resolve_global_config_dir;
 use super::resolve_global_config_dir_path;
@@ -39,19 +39,22 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 ///   any new property in it has the older versions ignore
 ///   `editor.allowProcessPlugins` and `editor.trustedDomains`. A property
 ///   outside of `editor` that a version doesn't know is only logged.
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// - A property outside of `editor` may change its shape (ex. the type of a
+///   value in `init`), because only `editor` is parsed strictly. A version
+///   that can't parse another property only ignores it (ex. `dprint init`
+///   warns and uses its defaults).
+#[derive(Debug, Default)]
 pub struct Settings {
   /// The settings of the editor integrations (the language server and the
   /// editor service).
-  #[serde(default)]
   pub editor: EditorSettings,
-  /// What the user told `dprint init` to remember for the next time it runs.
-  #[serde(default)]
-  pub init: Option<InitPreferences>,
+  /// What the user told `dprint init` to remember for the next time it runs,
+  /// which is parsed when it's used (see `read_init_preferences`) so that a
+  /// value this version can't parse doesn't keep the editors from using
+  /// `editor`.
+  pub init: Option<serde_json::Value>,
   /// The paths of the properties dprint doesn't know (ex. `editor.allowProcessPlugin`),
   /// which are likely a typo.
-  #[serde(skip)]
   pub unknown_properties: Vec<String>,
 }
 
@@ -93,7 +96,10 @@ pub fn get_settings_file_path(environment: &impl Environment) -> Option<PathBuf>
   resolve_global_config_dir_path(environment).map(|dir| dir.join(SETTINGS_FILE_NAME))
 }
 
-/// Reads the settings, which are `None` when there's no settings file.
+/// Reads the settings, which are `None` when there's no settings file. It
+/// fails when the file can't be read, isn't an object, or `editor` doesn't
+/// parse (ex. it's `null` or a value has another type), and a property
+/// outside of `editor` is only parsed when it's used (see `Settings`).
 pub fn read_settings(environment: &impl Environment) -> Result<Option<Settings>> {
   // nothing is created just to find out there's nothing in it
   let Some(file_path) = get_settings_file_path(environment) else {
@@ -111,9 +117,23 @@ pub fn read_settings(environment: &impl Environment) -> Result<Option<Settings>>
     return Ok(None);
   };
   let unknown_properties = get_unknown_properties(&value);
-  let mut settings = serde_json::from_value::<Settings>(value).with_context(|| format!("Failed parsing {}", file_path.display()))?;
-  settings.unknown_properties = unknown_properties;
-  Ok(Some(settings))
+  let serde_json::Value::Object(mut obj) = value else {
+    bail!("Failed parsing {}: expected an object.", file_path.display());
+  };
+  // IMPORTANT: Only `editor` is parsed strictly, so a property outside of it that
+  // changed its shape in another version of dprint doesn't keep the editors from
+  // using it, while a value in it that this version can't parse is never ignored.
+  let editor = match obj.remove("editor") {
+    // serde would parse an array as the values of the properties in order
+    Some(editor) if !editor.is_object() => bail!("Failed parsing \"editor\" in {}: expected an object.", file_path.display()),
+    Some(editor) => serde_json::from_value::<EditorSettings>(editor).with_context(|| format!("Failed parsing \"editor\" in {}", file_path.display()))?,
+    None => Default::default(),
+  };
+  Ok(Some(Settings {
+    editor,
+    init: obj.remove("init"),
+    unknown_properties,
+  }))
 }
 
 /// Sets a property of the settings at the path of property names, keeping the
@@ -242,6 +262,37 @@ mod test {
 }
 "#
     );
+  }
+
+  #[test]
+  fn should_only_parse_editor_strictly() {
+    let environment = TestEnvironment::new();
+    ensure_global_config_dir(&environment);
+    let file_path = get_settings_file_path(&environment).unwrap();
+    // ex. a newer version of dprint changed the shape of the init preferences
+    environment
+      .write_file(
+        &file_path,
+        r#"{ "editor": { "allowProcessPlugins": true, "trustedDomains": ["example.com"] }, "init": { "preferredPlugins": ["a"] }, "other": [1] }"#,
+      )
+      .unwrap();
+    let settings = read_settings(&environment).unwrap().unwrap();
+    assert_eq!(settings.editor.allow_process_plugins, Some(true));
+    assert_eq!(settings.editor.trusted_domains, vec!["example.com".to_string()]);
+    assert_eq!(settings.init, Some(serde_json::json!({ "preferredPlugins": ["a"] })));
+    assert_eq!(settings.unknown_properties, vec!["other".to_string()]);
+    assert_eq!(settings.get_editor_problem(), None);
+
+    // a value in editor that doesn't parse fails
+    for text in [
+      r#"{ "editor": { "allowProcessPlugins": "yes" } }"#,
+      r#"{ "editor": null }"#,
+      r#"{ "editor": [] }"#,
+      r#"[]"#,
+    ] {
+      environment.write_file(&file_path, text).unwrap();
+      assert!(read_settings(&environment).is_err(), "{}", text);
+    }
   }
 
   #[test]
