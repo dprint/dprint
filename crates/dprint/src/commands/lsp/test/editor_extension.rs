@@ -10,6 +10,7 @@ use serde_json::json;
 use super::*;
 use crate::commands::lsp::workspace::messages::Action;
 use crate::commands::lsp::workspace::messages::ApprovalDecision;
+use crate::commands::lsp::workspace::messages::ApprovalItem;
 use crate::commands::lsp::workspace::messages::ApprovalItemKind;
 use crate::commands::lsp::workspace::messages::ApprovalKind;
 use crate::commands::lsp::workspace::messages::ConfigFileIdentifier;
@@ -1692,12 +1693,11 @@ fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
         // the setting is shown before its environment variables are replaced
         assert_eq!(approval.items[0].specifier, PROXY_SETTING);
         assert_eq!(approval.items[0].kind, ApprovalItemKind::NpmrcProxy);
-        assert_eq!(approval.items[0].npmrc.as_deref(), Some(npmrc_path.as_str()));
+        assert_eq!(approval.items[0].npmrc_uri, Some(uri("/project/.npmrc")));
         assert!(
-          approval.message.starts_with(&format!(
-            "dprint needs to download through the proxy {} that {} sets,",
-            PROXY_SETTING, npmrc_path
-          )),
+          approval
+            .message
+            .starts_with(&format!("The proxy {} that {} sets isn't trusted", PROXY_SETTING, npmrc_path)),
           "{}",
           approval.message
         );
@@ -1730,8 +1730,109 @@ fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
           .unwrap();
         assert_eq!(decisions.decisions.len(), 1);
         assert_eq!(decisions.decisions[0].kind, ApprovalKind::Downloads);
-        assert_eq!(decisions.decisions[0].specifiers, vec![format!("{} ({})", PROXY_SETTING, npmrc_path)]);
+        // its specifier is the setting like the item's, and the item says it's a proxy and of which file
+        assert_eq!(decisions.decisions[0].specifiers, vec![PROXY_SETTING.to_string()]);
+        assert_eq!(decisions.decisions[0].items, Some(approval.items.clone()));
         assert!(decisions.decisions[0].allows);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_approve_the_proxy_of_a_project_npmrc_on_its_own() {
+  use crate::test_helpers::WASM_PLUGIN_BYTES;
+  use crate::test_helpers::create_test_npm_tarball;
+
+  const PACKUMENT_URL: &str = "https://npm.example.com/test-plugin";
+  const TARBALL_URL: &str = "https://npm.example.com/test-plugin/-/test-plugin-1.0.0.tgz";
+  const PROXY_SETTING: &str = "https://${GITHUB_TOKEN}@proxy.example";
+  // the registry isn't trusted, and the project chose the proxy too
+  let environment = TestEnvironmentBuilder::new()
+    .with_local_config("/project/dprint.json", |c| {
+      c.add_plugin("npm:test-plugin@1.0.0");
+    })
+    .write_file("/project/.npmrc", format!("registry=https://npm.example.com/\nhttps-proxy={}", PROXY_SETTING))
+    .build();
+  environment.set_env_var("GITHUB_TOKEN", Some("secret"));
+  let packument = json!({ "versions": { "1.0.0": { "dist": { "tarball": TARBALL_URL } } } });
+  environment.add_remote_file_bytes(PACKUMENT_URL, packument.to_string().into_bytes());
+  environment.add_remote_file_bytes(TARBALL_URL, create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]));
+  let npmrc_path = Path::new("/project").join(".npmrc").display().to_string();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let config_info = client.config_info("/project/dprint.json").await;
+        let approvals = config_info.status.approvals();
+        assert_eq!(approvals.len(), 2);
+        // the proxy is its own approval, which is first and only about it
+        let proxy_approval = approvals[0].clone();
+        assert_eq!(proxy_approval.kind, ApprovalKind::Downloads);
+        assert_eq!(proxy_approval.title, "Download through a proxy that isn't trusted");
+        assert_eq!(
+          proxy_approval.items,
+          vec![ApprovalItem {
+            specifier: PROXY_SETTING.to_string(),
+            kind: ApprovalItemKind::NpmrcProxy,
+            registry: None,
+            npmrc_uri: Some(uri("/project/.npmrc")),
+            plugin: None,
+            configuration: None,
+          }]
+        );
+        assert!(
+          proxy_approval
+            .message
+            .starts_with(&format!("The proxy {} that {} sets isn't trusted", PROXY_SETTING, npmrc_path)),
+          "{}",
+          proxy_approval.message
+        );
+        assert!(!proxy_approval.message.contains("npm.example.com"), "{}", proxy_approval.message);
+        let url_approval = approvals[1].clone();
+        assert_eq!(url_approval.kind, ApprovalKind::Downloads);
+        assert_eq!(url_approval.title, "Download plugins from domains that aren't trusted");
+        assert_eq!(url_approval.items.len(), 1);
+        assert_eq!(url_approval.items[0].kind, ApprovalItemKind::Plugin);
+        let registry_url = url_approval.items[0].specifier.clone();
+        assert!(registry_url.starts_with("https://npm.example.com"), "{}", registry_url);
+        assert!(!url_approval.message.contains("proxy"), "{}", url_approval.message);
+        assert_ne!(proxy_approval.id, url_approval.id);
+        // the message of the result says the proxy first too
+        let FormatResult::NotFormatted(not_formatted) = client.format("/project/file.txt", "text").await else {
+          panic!("it shouldn't be formatted");
+        };
+        assert!(not_formatted.message.starts_with("The proxy "), "{}", not_formatted.message);
+
+        // allowing the url reveals that the proxy is still needed, with the same id
+        assert_eq!(client.approve(&url_approval.id, ApprovalDecision::Allow).await, vec![proxy_approval.clone()]);
+        assert_eq!(environment.remote_file_request_count(PACKUMENT_URL), 0);
+
+        // denying the proxy only denies it
+        let denied = client.approve(&proxy_approval.id, ApprovalDecision::Deny).await;
+        assert_eq!(denied.len(), 1);
+        assert_eq!(denied[0].id, proxy_approval.id);
+        assert!(denied[0].denied);
+        assert_eq!(environment.remote_file_request_count(PACKUMENT_URL), 0);
+        let decisions = client
+          .backend
+          .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
+          .await
+          .unwrap()
+          .decisions;
+        assert_eq!(decisions.len(), 2);
+        assert_eq!(decisions[0].specifiers, vec![PROXY_SETTING.to_string()]);
+        assert_eq!(decisions[0].items, Some(proxy_approval.items.clone()));
+        assert!(!decisions[0].allows);
+        assert_eq!(decisions[1].specifiers, vec![registry_url.clone()]);
+        assert_eq!(decisions[1].items, Some(url_approval.items.clone()));
+        assert!(decisions[1].allows);
+
+        // the user can still allow it (ex. with a command), which downloads through it
+        assert_eq!(client.approve(&proxy_approval.id, ApprovalDecision::Allow).await, Vec::new());
+        assert_eq!(environment.remote_file_request_count(PACKUMENT_URL), 1);
+        assert_eq!(client.format("/project/file.txt", "text").await, formatted("text", "text_formatted"));
       }
       .boxed_local()
     }

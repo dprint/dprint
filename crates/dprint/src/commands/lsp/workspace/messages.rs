@@ -582,9 +582,10 @@ pub struct ApprovalItem {
   /// (ex. a project's `.npmrc` sets another one for its scope).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub registry: Option<String>,
-  /// The path of the `.npmrc` file that sets an `npmrcProxy`.
+  /// The uri of the `.npmrc` file that sets an `npmrcProxy` as the editor
+  /// knows it.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub npmrc: Option<String>,
+  pub npmrc_uri: Option<Uri>,
   /// The plugin when it was set up before.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub plugin: Option<FilePlugin>,
@@ -801,8 +802,13 @@ pub struct Decision {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file: Option<ConfigFileIdentifier>,
   /// The urls, paths, or specifiers it's for like the `specifier`s of an
-  /// approval's items (ex. the process plugins).
+  /// approval's items (ex. the process plugins or the setting of a proxy).
   pub specifiers: Vec<String>,
+  /// What it's for like an approval's items in the order of the specifiers,
+  /// which is provided for downloads so a proxy can be told apart from a url
+  /// and shown with its `.npmrc` file.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub items: Option<Vec<ApprovalItem>>,
   pub allows: bool,
   /// Whether it's remembered after the server stops, which includes running
   /// dprint with the config file (ex. `dprint fmt`).
@@ -1102,7 +1108,7 @@ mod test {
           specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
           kind: ApprovalItemKind::Plugin,
           registry: None,
-          npmrc: None,
+          npmrc_uri: None,
           plugin: Some(FilePlugin {
             name: "dprint-plugin-exec".to_string(),
             version: "0.5.0".to_string(),

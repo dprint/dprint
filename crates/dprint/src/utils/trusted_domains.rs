@@ -240,9 +240,23 @@ pub const CANCEL_DOWNLOAD_ACTION_TITLE: &str = "Cancel";
 /// Gets the message that asks the user whether to download what a config file
 /// needs from domains that aren't trusted, or through the proxies of `.npmrc`
 /// files that aren't the user's own.
+///
+/// Each proxy is said first, starting with its setting and its file, because
+/// an editor may cut off a long message (ex. after many long urls) and the
+/// user needs to see what's sent to it.
 pub fn get_untrusted_download_message(downloads: &[String]) -> String {
   let (proxies, urls): (Vec<_>, Vec<_>) = downloads.iter().partition(|download| NpmrcProxy::from_download(download).is_some());
   let mut messages = Vec::new();
+  for proxy in proxies.iter().filter_map(|download| NpmrcProxy::from_download(download)) {
+    messages.push(format!(
+      concat!(
+        "The proxy {} that {} sets isn't trusted because it isn't your own .npmrc file. ",
+        "Only allow dprint to download through it when you trust the .npmrc file because the proxy receives every download ",
+        "and the credentials in the setting, including the values of the environment variables it has."
+      ),
+      proxy.setting, proxy.npmrc_path,
+    ));
+  }
   if !urls.is_empty() {
     messages.push(format!(
       concat!(
@@ -253,27 +267,7 @@ pub fn get_untrusted_download_message(downloads: &[String]) -> String {
       urls.iter().map(|url| url.as_str()).collect::<Vec<_>>().join(", "),
     ));
   }
-  for proxy in proxies.iter().filter_map(|download| NpmrcProxy::from_download(download)) {
-    messages.push(format!(
-      concat!(
-        "dprint needs to download through the proxy {} that {} sets, which isn't trusted because it isn't your own .npmrc file. ",
-        "Only allow it when you trust the .npmrc file because the proxy receives every download and the credentials in the setting, ",
-        "including the values of the environment variables it has."
-      ),
-      proxy.setting, proxy.npmrc_path,
-    ));
-  }
   messages.join(" ")
-}
-
-/// Gets how to show a download of an `UntrustedDownloadError` (ex. in a
-/// list of what the user decided), which is the url or the proxy setting of
-/// an `.npmrc` file with its path.
-pub fn get_download_display(download: &str) -> String {
-  match NpmrcProxy::from_download(download) {
-    Some(proxy) => format!("{} ({})", proxy.setting, proxy.npmrc_path),
-    None => download.to_string(),
-  }
 }
 
 /// The domains that are trusted to download from, which includes their
@@ -468,16 +462,21 @@ mod test {
       setting: "https://${TOKEN}@proxy.example".to_string(),
     };
     let url = "https://example.com/plugin.wasm".to_string();
-    assert_eq!(get_download_display(&url), url);
-    assert_eq!(get_download_display(&proxy.to_download()), "https://${TOKEN}@proxy.example (/project/.npmrc)");
-    let message = get_untrusted_download_message(&[proxy.to_download(), url]);
+    let message = get_untrusted_download_message(std::slice::from_ref(&url));
     assert!(
       message.starts_with("dprint needs to download https://example.com/plugin.wasm from domains that aren't trusted."),
       "{}",
       message
     );
+    // the proxy is said first, so a long url doesn't push it past where an editor cuts off the message
+    let message = get_untrusted_download_message(&[url.clone(), proxy.to_download()]);
     assert!(
-      message.contains("dprint needs to download through the proxy https://${TOKEN}@proxy.example that /project/.npmrc sets,"),
+      message.starts_with(concat!(
+        "The proxy https://${TOKEN}@proxy.example that /project/.npmrc sets isn't trusted because it isn't your own .npmrc file. ",
+        "Only allow dprint to download through it when you trust the .npmrc file because the proxy receives every download ",
+        "and the credentials in the setting, including the values of the environment variables it has. ",
+        "dprint needs to download https://example.com/plugin.wasm from domains that aren't trusted."
+      )),
       "{}",
       message
     );

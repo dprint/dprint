@@ -92,7 +92,6 @@ use crate::utils::PathSource;
 use crate::utils::Semaphore;
 use crate::utils::UntrustedDownloadError;
 use crate::utils::get_bytes_hash;
-use crate::utils::get_download_display;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
 use crate::utils::get_sha256_checksum;
@@ -364,6 +363,9 @@ pub struct Workspace<TEnvironment: Environment> {
   last_file_patterns: RefCell<HashMap<String, FilePatterns>>,
   /// The downloads the user denied this session by their approval id.
   denied_downloads: RefCell<HashMap<String, DeniedDownload>>,
+  /// The items of the downloads the user allowed this session by what's
+  /// allowed (see `UntrustedDownloadError`), which is what the decisions show.
+  allowed_download_items: RefCell<HashMap<String, ApprovalItem>>,
   /// The paths of the directories the editor knows by another path than their
   /// canonical one, which are the paths the server provides.
   editor_paths: EditorPaths,
@@ -415,7 +417,8 @@ struct DeniedDownload {
   config_key: String,
   /// The config file the user was shown.
   config_file: ConfigFileIdentifier,
-  urls: Vec<String>,
+  /// What the user was shown as the approval's items.
+  items: Vec<ApprovalItem>,
 }
 
 /// What needs to be approved for a config file.
@@ -541,6 +544,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       stopped: Default::default(),
       last_file_patterns: Default::default(),
       denied_downloads: Default::default(),
+      allowed_download_items: Default::default(),
       editor_paths: Default::default(),
       prompted_approvals: Default::default(),
       has_notified_no_config: Default::default(),
@@ -1338,6 +1342,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       ApprovalSubject::Downloads(urls) => {
         if decision.is_allowed() {
           self.environment.download_policy().allow(urls);
+          // the items are of the downloads in the same order
+          let mut allowed_items = self.allowed_download_items.borrow_mut();
+          for (url, item) in urls.iter().zip(&stored.approval.items) {
+            allowed_items.insert(url.clone(), item.clone());
+          }
         } else {
           self.denied_downloads.borrow_mut().insert(
             stored.approval.id.clone(),
@@ -1347,7 +1356,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
                 uri: stored.approval.config_file.uri.clone(),
                 dir_uri: Some(stored.approval.config_file.dir_uri.clone()),
               },
-              urls: urls.clone(),
+              items: stored.approval.items.clone(),
             },
           );
         }
@@ -1595,6 +1604,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         kind: ApprovalKind::ProcessPlugins,
         config_file,
         specifiers: vec![plugin],
+        items: None,
         allows,
         always,
       });
@@ -1604,7 +1614,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         decisions.push(Decision {
           kind: ApprovalKind::Downloads,
           config_file: Some(denied.config_file.clone()),
-          specifiers: denied.urls.iter().map(|download| get_download_display(download)).collect(),
+          specifiers: denied.items.iter().map(|item| item.specifier.clone()).collect(),
+          items: Some(denied.items.clone()),
           allows: false,
           always: false,
         });
@@ -1613,12 +1624,17 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     // what was allowed to be downloaded is allowed for every config file
     let mut allowed_downloads = self.environment.download_policy().allowed_downloads();
     allowed_downloads.sort();
-    decisions.extend(allowed_downloads.into_iter().map(|url| Decision {
-      kind: ApprovalKind::Downloads,
-      config_file: None,
-      specifiers: vec![get_download_display(&url)],
-      allows: true,
-      always: false,
+    let allowed_items = self.allowed_download_items.borrow();
+    decisions.extend(allowed_downloads.into_iter().map(|download| {
+      let item = allowed_items.get(&download);
+      Decision {
+        kind: ApprovalKind::Downloads,
+        config_file: None,
+        specifiers: vec![item.map(|item| item.specifier.clone()).unwrap_or_else(|| get_download_specifier(&download))],
+        items: item.map(|item| vec![item.clone()]),
+        allows: true,
+        always: false,
+      }
     }));
     decisions
   }
@@ -1675,9 +1691,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       return Vec::new();
     };
     let mut subjects = Vec::new();
-    if !scope.untrusted_downloads.is_empty() {
-      let urls = scope.untrusted_downloads.clone();
-      let items = get_download_items(&urls, ApprovalItemKind::Plugin);
+    for urls in get_download_groups(&scope.untrusted_downloads) {
+      let items = get_download_items(&urls, ApprovalItemKind::Plugin, &self.editor_paths);
       subjects.push((ApprovalSubject::Downloads(urls), items));
     }
     // what a process plugin that isn't set up runs with isn't known yet, so it's
@@ -1718,7 +1733,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       specifier: unapproved_plugin.plugin.clone(),
       kind: ApprovalItemKind::Plugin,
       registry: unapproved_plugin.registry.clone(),
-      npmrc: None,
+      npmrc_uri: None,
       configuration,
       plugin: info.as_ref().map(get_file_plugin),
     }
@@ -1729,10 +1744,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let config_file = failure.config_file.clone();
     let key = failure.config_key.as_ref().map(|(key, _)| key.clone()).unwrap_or_default();
     let mut subjects = Vec::new();
-    if !failure.downloads.is_empty() {
-      // what fails to download while resolving a config file is what it extends
-      let urls = failure.downloads.clone();
-      let items = get_download_items(&urls, ApprovalItemKind::Config);
+    // what fails to download while resolving a config file is what it extends
+    for urls in get_download_groups(&failure.downloads) {
+      let items = get_download_items(&urls, ApprovalItemKind::Config, &self.editor_paths);
       subjects.push((ApprovalSubject::Downloads(urls), items));
     }
     self.store_approvals(key, config_file, failure.config_target.clone(), subjects, None, target)
@@ -1768,6 +1782,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               previous_decision: denied.then_some(ApprovalDecision::Deny),
               id,
               kind: ApprovalKind::Downloads,
+              // a proxy is approved on its own (see `get_download_groups`)
               title: match urls.iter().all(|download| NpmrcProxy::from_download(download).is_some()) {
                 true => "Download through a proxy that isn't trusted".to_string(),
                 false => "Download plugins from domains that aren't trusted".to_string(),
@@ -1777,7 +1792,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               items,
               // a download is only allowed for the session
               decisions: get_decision_options(ApprovalKind::Downloads, &[ApprovalDecision::Allow, ApprovalDecision::Deny]),
-              message: get_untrusted_download_message(urls),
+              message: self.get_untrusted_download_message(urls),
               id_before_set_up: None,
             }
           }
@@ -2124,7 +2139,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           let downloads = vec![err.download.clone()];
           return Ok(failed(
             NotFormattedReason::ApprovalRequired,
-            get_untrusted_download_message(&downloads),
+            self.get_untrusted_download_message(&downloads),
             downloads,
           ));
         }
@@ -2275,11 +2290,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let Some(config) = &scope.config else {
       return (false, false);
     };
-    let is_download_denied = !scope.untrusted_downloads.is_empty()
-      && self
-        .denied_downloads
-        .borrow()
-        .contains_key(&get_approval_id("download", &get_config_key(config), &scope.untrusted_downloads));
+    let config_key = get_config_key(config);
+    let is_download_denied = get_download_groups(&scope.untrusted_downloads)
+      .iter()
+      .any(|urls| self.denied_downloads.borrow().contains_key(&get_approval_id("download", &config_key, urls)));
     let is_process_plugins_denied = scope
       .unapproved_process_plugins
       .as_ref()
@@ -2589,6 +2603,24 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
+  /// Gets the message that asks whether to download what isn't trusted (see
+  /// `get_untrusted_download_message`) with the editor's path of each `.npmrc`
+  /// file.
+  fn get_untrusted_download_message(&self, downloads: &[String]) -> String {
+    let downloads = downloads
+      .iter()
+      .map(|download| match NpmrcProxy::from_download(download) {
+        Some(proxy) => NpmrcProxy {
+          npmrc_path: self.editor_paths.get(Path::new(&proxy.npmrc_path)).display().to_string(),
+          ..proxy
+        }
+        .to_download(),
+        None => download.clone(),
+      })
+      .collect::<Vec<_>>();
+    get_untrusted_download_message(&downloads)
+  }
+
   /// Gets the notification that a local config file the editor said changed did.
   fn new_file_config_changed(&self, file_path: &Path, change: ConfigChange) -> Option<ConfigChangedParams> {
     Some(new_identified_config_changed(
@@ -2716,7 +2748,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     use_global_config: bool,
   ) -> Option<String> {
     match (reason, &scope.unapproved_process_plugins) {
-      (NotFormattedReason::ApprovalRequired, _) if !scope.untrusted_downloads.is_empty() => Some(get_untrusted_download_message(&scope.untrusted_downloads)),
+      (NotFormattedReason::ApprovalRequired, _) if !scope.untrusted_downloads.is_empty() => {
+        Some(self.get_untrusted_download_message(&scope.untrusted_downloads))
+      }
       (NotFormattedReason::ApprovalRequired, Some(unapproved)) => Some(unapproved.message(&self.session_permissions.read(&self.environment))),
       _ => self.get_not_formatted_message(reason, is_notebook_cell, use_global_config),
     }
@@ -3264,9 +3298,27 @@ fn get_found_config_key(config_file: &ResolvedConfigPathWithText) -> Option<(Str
   Some((key, uri))
 }
 
+/// Gets the downloads that are each approved on their own (see
+/// `UntrustedDownloadError`), which is each proxy of an `.npmrc` file and then
+/// the urls together.
+///
+/// A proxy is approved on its own so its message and decision are only about
+/// it, because it receives every download with the credentials in its setting,
+/// which would otherwise be easy to miss among the urls (ex. an editor cuts
+/// off a long message).
+fn get_download_groups(downloads: &[String]) -> Vec<Vec<String>> {
+  let (proxies, urls): (Vec<_>, Vec<_>) = downloads.iter().cloned().partition(|download| NpmrcProxy::from_download(download).is_some());
+  let mut groups = proxies.into_iter().map(|proxy| vec![proxy]).collect::<Vec<_>>();
+  if !urls.is_empty() {
+    groups.push(urls);
+  }
+  groups
+}
+
 /// Gets the items of what to download (see `UntrustedDownloadError`), which
-/// are of the kind except for the proxies of `.npmrc` files.
-fn get_download_items(downloads: &[String], kind: ApprovalItemKind) -> Vec<ApprovalItem> {
+/// are of the kind except for the proxies of `.npmrc` files, whose files are
+/// the editor's paths.
+fn get_download_items(downloads: &[String], kind: ApprovalItemKind, editor_paths: &EditorPaths) -> Vec<ApprovalItem> {
   downloads
     .iter()
     .map(|download| match NpmrcProxy::from_download(download) {
@@ -3274,7 +3326,7 @@ fn get_download_items(downloads: &[String], kind: ApprovalItemKind) -> Vec<Appro
         specifier: proxy.setting,
         kind: ApprovalItemKind::NpmrcProxy,
         registry: None,
-        npmrc: Some(proxy.npmrc_path),
+        npmrc_uri: file_path_to_uri(&editor_paths.get(Path::new(&proxy.npmrc_path))),
         plugin: None,
         configuration: None,
       },
@@ -3282,12 +3334,21 @@ fn get_download_items(downloads: &[String], kind: ApprovalItemKind) -> Vec<Appro
         specifier: download.clone(),
         kind,
         registry: None,
-        npmrc: None,
+        npmrc_uri: None,
         plugin: None,
         configuration: None,
       },
     })
     .collect()
+}
+
+/// Gets the specifier of a download like its item has it (see
+/// `get_download_items`), which is the setting of a proxy.
+fn get_download_specifier(download: &str) -> String {
+  match NpmrcProxy::from_download(download) {
+    Some(proxy) => proxy.setting,
+    None => download.to_string(),
+  }
 }
 
 /// The version of how the approval ids are made, which changes them when it
@@ -3491,7 +3552,7 @@ mod test {
         specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
         kind: ApprovalItemKind::Plugin,
         registry: None,
-        npmrc: None,
+        npmrc_uri: None,
         plugin: Some(FilePlugin {
           name: "dprint-plugin-exec".to_string(),
           version: "0.5.0".to_string(),
@@ -3554,5 +3615,54 @@ mod test {
       get_approval_id("download", "file:///a/dprint.json", &["https://example.com/plugin.wasm".to_string()]),
       "2ab4d0c7e0fbd9986542b36b33f2be90fd9166a85487acdfbb050927c923c5d5"
     );
+  }
+
+  #[test]
+  fn should_approve_each_npmrc_proxy_on_its_own_with_the_editors_uri() {
+    let editor_paths = EditorPaths::default();
+    editor_paths.add(Path::new("/link"), Path::new("/real"));
+    let proxy = NpmrcProxy {
+      npmrc_path: Path::new("/real/project").join(".npmrc").display().to_string(),
+      setting: "https://${TOKEN}@proxy.example".to_string(),
+    };
+    let other_proxy = NpmrcProxy {
+      npmrc_path: Path::new("/real").join(".npmrc").display().to_string(),
+      setting: "https://other.example".to_string(),
+    };
+    let url = "https://example.com/plugin.wasm".to_string();
+    let other_url = "https://example.com/other.wasm".to_string();
+    let downloads = vec![url.clone(), proxy.to_download(), other_url.clone(), other_proxy.to_download()];
+    // each proxy first and then the urls together
+    assert_eq!(
+      get_download_groups(&downloads),
+      vec![vec![proxy.to_download()], vec![other_proxy.to_download()], vec![url.clone(), other_url]]
+    );
+    assert_eq!(get_download_groups(std::slice::from_ref(&url)), vec![vec![url.clone()]]);
+    assert_eq!(get_download_groups(&[]), Vec::<Vec<String>>::new());
+
+    // the file of a proxy is the editor's path of it
+    let items = get_download_items(&[url.clone(), proxy.to_download()], ApprovalItemKind::Plugin, &editor_paths);
+    assert_eq!(
+      items,
+      vec![
+        ApprovalItem {
+          specifier: url,
+          kind: ApprovalItemKind::Plugin,
+          registry: None,
+          npmrc_uri: None,
+          plugin: None,
+          configuration: None,
+        },
+        ApprovalItem {
+          specifier: "https://${TOKEN}@proxy.example".to_string(),
+          kind: ApprovalItemKind::NpmrcProxy,
+          registry: None,
+          npmrc_uri: Some("file:///link/project/.npmrc".parse().unwrap()),
+          plugin: None,
+          configuration: None,
+        },
+      ]
+    );
+    assert_eq!(get_download_specifier(&proxy.to_download()), "https://${TOKEN}@proxy.example");
   }
 }
