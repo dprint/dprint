@@ -3662,6 +3662,7 @@ mod test {
         config_file: "/a/dprint.json".to_string(),
         plugin: "https://plugins.dprint.dev/exec-0.5.0.json@checksum".to_string(),
         config_hash: config_hash.map(|config_hash| config_hash.to_string()),
+        config_key: None,
       }),
     };
     let from_registry = UnapprovedProcessPlugin {
@@ -3720,6 +3721,7 @@ mod test {
         config_file: "/a/dprint.json".to_string(),
         plugin: name.to_string(),
         config_hash: Some(config_hash.to_string()),
+        config_key: None,
       }),
     };
     let unapproved = |plugins: Vec<UnapprovedProcessPlugin>| UnapprovedProcessPlugins {

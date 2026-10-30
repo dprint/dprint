@@ -201,6 +201,14 @@ pub struct ProcessPluginApproval {
   /// denying it because its configuration isn't known until it's set up.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_hash: Option<String>,
+  /// The key of the plugin's configuration in the config file, which is the
+  /// configuration that's hashed. It's used to find the configuration an
+  /// allow is for before the plugin is set up (ex. by another version of
+  /// dprint or with another cache directory), which is checked with the
+  /// plugin's own key once it's set up, so a reader that ignores it (ex. it
+  /// was stored before it existed) can try the configuration of each key.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub config_key: Option<String>,
 }
 
 impl ProcessPluginApproval {
@@ -211,6 +219,7 @@ impl ProcessPluginApproval {
       config_file,
       plugin,
       config_hash: None,
+      config_key: None,
     }
   }
 }
@@ -375,8 +384,17 @@ impl Permissions {
   /// whose hash is made another way (ex. by another version of dprint) isn't
   /// used, so it doesn't say the configuration changed.
   pub fn was_allowed_with_other_config(&self, approval: &ProcessPluginApproval) -> bool {
-    get_latest_decision(&self.process_plugin_decisions, approval)
+    get_latest_decision(&self.process_plugin_decisions, &approval.config_file, &approval.plugin)
       .is_some_and(|decision| decision.allowed && decision.approval.config_hash != approval.config_hash)
+  }
+
+  /// Gets what the most recent decision for the process plugin of the config
+  /// file allowed when it allows it, which is for a configuration of the
+  /// plugin that may not be known yet (ex. it isn't set up).
+  pub fn get_latest_allow(&self, config_file: &str, plugin: &str) -> Option<&ProcessPluginApproval> {
+    get_latest_decision(&self.process_plugin_decisions, config_file, plugin)
+      .filter(|decision| decision.allowed)
+      .map(|decision| &decision.approval)
   }
 
   fn requires_process_plugin_approval(&self) -> bool {
@@ -1074,7 +1092,7 @@ fn is_more_recent(decision: &ProcessPluginDecision, other: &ProcessPluginDecisio
 /// is asked instead of an older one being used (ex. a denial from before the
 /// plugin was allowed with its previous configuration).
 fn get_winning_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &ProcessPluginApproval) -> Option<&'a ProcessPluginDecision> {
-  let decision = get_latest_decision(decisions, approval)?;
+  let decision = get_latest_decision(decisions, &approval.config_file, &approval.plugin)?;
   let is_for_approval = match decision.allowed {
     // IMPORTANT: Only allow it with the configuration that was allowed.
     true => decision.approval.config_hash.is_some() && decision.approval.config_hash == approval.config_hash,
@@ -1085,12 +1103,12 @@ fn get_winning_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &P
 
 /// Gets the most recent decision that this version uses (see
 /// `ProcessPluginDecision::is_used`) for the process plugin of the config file
-/// of the approval with any configuration. A denial wins a tie, and otherwise
-/// the last one does, which is the one for the session.
-fn get_latest_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &ProcessPluginApproval) -> Option<&'a ProcessPluginDecision> {
+/// with any configuration. A denial wins a tie, and otherwise the last one
+/// does, which is the one for the session.
+fn get_latest_decision<'a>(decisions: &'a [ProcessPluginDecision], config_file: &str, plugin: &str) -> Option<&'a ProcessPluginDecision> {
   decisions
     .iter()
-    .filter(|decision| decision.approval.config_file == approval.config_file && decision.approval.plugin == approval.plugin && decision.is_used())
+    .filter(|decision| decision.approval.config_file == config_file && decision.approval.plugin == plugin && decision.is_used())
     .max_by_key(|decision| (decision.decided_at, !decision.allowed))
 }
 
@@ -1107,6 +1125,7 @@ mod test {
       config_file: config_file.to_string(),
       plugin: "https://plugins.dprint.dev/plugin.json@checksum".to_string(),
       config_hash: Some(config_hash.to_string()),
+      config_key: None,
     }
   }
 

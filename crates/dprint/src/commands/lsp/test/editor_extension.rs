@@ -2048,6 +2048,89 @@ fn should_approve_running_process_plugins() {
 }
 
 #[test]
+fn should_use_an_always_allow_for_a_process_plugin_that_is_not_set_up() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_process_plugin()
+        .add_config_section("testProcessPlugin", r#"{ "ending": "first" }"#);
+    })
+    .build();
+  disallow_process_plugins(&environment);
+  // ex. another version of dprint, the same one after an upgrade, or another cache directory
+  let remove_plugin_cache = || environment.remove_dir_all(environment.get_cache_dir().join("plugins")).unwrap();
+  let approvals_file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+  run_session(&environment, |client| {
+    async move {
+      let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+      assert_eq!(client.approve(&approval.id, ApprovalDecision::AlwaysAllow).await, Vec::new());
+    }
+    .boxed_local()
+  });
+  // it's stored with the key of its configuration
+  let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
+  assert_eq!(decisions.len(), 1);
+  assert_eq!(decisions[0].approval.config_key.as_deref(), Some("testProcessPlugin"));
+
+  remove_plugin_cache();
+  run_session(&environment, |client| {
+    async move {
+      // it's set up without asking because its configuration was allowed
+      let info = client.config_info("/dprint.json").await;
+      assert_eq!(info.status, FormatStatus::ready());
+      assert_eq!(info.plugins.unwrap()[0].config_key, "testProcessPlugin");
+      assert_eq!(client.format("/file.txt_ps", "text").await, formatted("text", "text_first"));
+    }
+    .boxed_local()
+  });
+
+  // an allow that was stored without the key of its configuration (ex. by another version of dprint)
+  // is used with the configuration of any key
+  let text = environment.read_file(&approvals_file_path).unwrap();
+  let mut approvals = serde_json::from_str::<serde_json::Value>(&text).unwrap();
+  approvals["processPluginDecisions"][0].as_object_mut().unwrap().remove("configKey");
+  environment.write_file(&approvals_file_path, &approvals.to_string()).unwrap();
+  remove_plugin_cache();
+  run_session(&environment, |client| {
+    async move {
+      assert_eq!(client.config_info("/dprint.json").await.status, FormatStatus::ready());
+      assert_eq!(client.format("/file.txt_ps", "text").await, formatted("text", "text_first"));
+    }
+    .boxed_local()
+  });
+
+  // IMPORTANT: it's checked with its own configuration once it's set up, before it runs with it
+  let config_text = environment.read_file("/dprint.json").unwrap();
+  let mut config = serde_json::from_str::<serde_json::Value>(&config_text).unwrap();
+  // ex. the configuration of another plugin is what the process plugin had
+  config["otherPlugin"] = json!({ "ending": "first" });
+  config["testProcessPlugin"] = json!({ "ending": "second" });
+  environment.write_file("/dprint.json", &config.to_string()).unwrap();
+  remove_plugin_cache();
+  run_session(&environment, |client| {
+    async move {
+      let status = client.config_info("/dprint.json").await.status;
+      assert_eq!(status.reason(), Some(NotFormattedReason::ApprovalRequired));
+      let approval = status.approvals()[0].clone();
+      assert_eq!(approval.items[0].configuration, Some(json!({ "ending": "second" })));
+      assert!(approval.message.contains("changed since they were allowed."), "{}", approval.message);
+    }
+    .boxed_local()
+  });
+
+  // and a configuration that wasn't allowed isn't set up
+  environment.write_file("/dprint.json", &config_text.replace("first", "second")).unwrap();
+  remove_plugin_cache();
+  run_session(&environment, |client| {
+    async move {
+      let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+      assert_eq!(approval.items[0].plugin, None);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_change_the_id_of_a_process_plugin_that_is_not_set_up_when_the_configuration_does() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_process_plugin()
@@ -2312,6 +2395,7 @@ fn should_provide_the_most_recent_decision_of_a_process_plugin() {
             config_file: "/a/dprint.json".to_string(),
             plugin: approval.items[0].specifier.clone(),
             config_hash: Some("1:hash".to_string()),
+            config_key: None,
           },
           true,
           &[],
@@ -2346,6 +2430,7 @@ fn should_forget_the_decisions_of_a_remote_config_file() {
             config_file: "https://example.com/dprint.json".to_string(),
             plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
             config_hash: Some("1:hash".to_string()),
+            config_key: None,
           },
           true,
           &[],

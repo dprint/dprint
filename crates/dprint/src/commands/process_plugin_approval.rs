@@ -254,6 +254,7 @@ mod test {
       config_file: "/dprint.json".to_string(),
       plugin: PLUGIN.to_string(),
       config_hash: Some("1:a".to_string()),
+      config_key: None,
     }
   }
 
@@ -380,6 +381,7 @@ mod test {
       // changing its configuration doesn't ask the user again
       let other_config = ProcessPluginApproval {
         config_hash: Some("1:b".to_string()),
+        config_key: None,
         ..approval()
       };
       let permissions = SessionPermissions::default().read(&environment);

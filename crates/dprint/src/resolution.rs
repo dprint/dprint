@@ -1329,34 +1329,22 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   // IMPORTANT: This needs to be checked before resolving the plugins because
   // setting up a process plugin runs it to get its information.
   let mut plugin_references = if untrusted_downloads.is_empty() { config.plugins.clone() } else { Vec::new() };
-  let config_file = config.source.display();
-  let trusted_config_hash = get_trusted_config_hash(&config);
-  let unapproved_plugins = get_unapproved_process_plugins(&config, plugin_resolver, environment, permissions)
-    .into_iter()
-    .map(|(plugin, approval)| UnapprovedProcessPlugin {
-      plugin: plugin.to_full_string(),
-      registry: plugin_resolver.get_npm_registry(&plugin),
-      unpinned_file_checksum: get_unpinned_plugin_file_checksum(&plugin, environment),
-      approval,
-    })
-    .collect::<Vec<_>>();
-  let mut unapproved_process_plugins = None;
-  if !unapproved_plugins.is_empty() {
-    log_debug!(
-      environment,
-      "Not using the plugins of {} because its process plugins weren't approved",
-      config_file
-    );
+  let mut unapproved_process_plugins = get_unapproved_process_plugins_of_config(&config, plugin_resolver, environment, permissions);
+  if unapproved_process_plugins.is_some() {
     plugin_references.clear();
-    unapproved_process_plugins = Some(UnapprovedProcessPlugins {
-      config_file,
-      trusted_config_hash,
-      plugins: unapproved_plugins,
-    });
   }
 
   // resolve the plugins
-  let plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(plugin_references).await?);
+  let mut plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(plugin_references).await?);
+  // IMPORTANT: A process plugin that wasn't set up may have been allowed by a decision for the
+  // configuration of another config key, because its own isn't known until it's set up (see
+  // `is_allowed_before_set_up`), so check it with its own before it runs with its configuration.
+  if !plugins.is_empty() {
+    unapproved_process_plugins = get_unapproved_process_plugins_of_config(&config, plugin_resolver, environment, permissions);
+    if unapproved_process_plugins.is_some() {
+      plugins.clear();
+    }
+  }
   let mut config_map = config.config_map.clone();
   let mut trusted_config_map = config.trusted_config_map.clone();
 
@@ -1473,6 +1461,12 @@ pub fn get_process_plugin_approvals<TEnvironment: Environment>(
 /// allow running with their configuration (see `get_process_plugin_approvals`),
 /// or setting up when they aren't set up, which is empty when using its
 /// plugins is approved.
+///
+/// A plugin the user allowed setting up for the session is allowed with any
+/// of the trusted configuration, which the editor records as allowing its own
+/// configuration once it's set up. A plugin that isn't set up is also allowed
+/// to be set up when the most recent decision for it allows it with its
+/// configuration in the trusted configuration (see `is_allowed_before_set_up`).
 pub fn get_unapproved_process_plugins<TEnvironment: Environment>(
   config: &ResolvedConfig,
   plugin_resolver: &PluginResolver<TEnvironment>,
@@ -1483,18 +1477,80 @@ pub fn get_unapproved_process_plugins<TEnvironment: Environment>(
   let trusted_config_hash = get_trusted_config_hash(config);
   get_process_plugin_approvals(config, plugin_resolver, environment)
     .into_iter()
-    .filter(|(plugin, approval)| match approval {
-      Some(approval) => !permissions.is_process_plugin_allowed(approval),
-      // a plugin the user allowed setting up is allowed with its configuration
-      // once it's set up, which the editor records after resolving it
-      None => !permissions.may_set_up_process_plugin(
-        &config_file,
-        &plugin.to_full_string(),
-        &trusted_config_hash,
-        get_unpinned_plugin_file_checksum(plugin, environment).as_deref(),
-      ),
+    .filter(|(plugin, approval)| {
+      let unpinned_file_checksum = get_unpinned_plugin_file_checksum(plugin, environment);
+      let may_set_up =
+        || permissions.may_set_up_process_plugin(&config_file, &plugin.to_full_string(), &trusted_config_hash, unpinned_file_checksum.as_deref());
+      match approval {
+        Some(approval) => !permissions.is_process_plugin_allowed(approval) && !may_set_up(),
+        None => !may_set_up() && !is_allowed_before_set_up(config, plugin, unpinned_file_checksum.clone(), permissions),
+      }
     })
     .collect()
+}
+
+/// Gets the process plugins of the config file that the permissions don't
+/// allow like `get_unapproved_process_plugins`, which is `None` when using its
+/// plugins is approved.
+fn get_unapproved_process_plugins_of_config<TEnvironment: Environment>(
+  config: &ResolvedConfig,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+  environment: &TEnvironment,
+  permissions: &Permissions,
+) -> Option<UnapprovedProcessPlugins> {
+  let plugins = get_unapproved_process_plugins(config, plugin_resolver, environment, permissions)
+    .into_iter()
+    .map(|(plugin, approval)| UnapprovedProcessPlugin {
+      plugin: plugin.to_full_string(),
+      registry: plugin_resolver.get_npm_registry(&plugin),
+      unpinned_file_checksum: get_unpinned_plugin_file_checksum(&plugin, environment),
+      approval,
+    })
+    .collect::<Vec<_>>();
+  if plugins.is_empty() {
+    return None;
+  }
+  let config_file = config.source.display();
+  log_debug!(
+    environment,
+    "Not using the plugins of {} because its process plugins weren't approved",
+    config_file
+  );
+  Some(UnapprovedProcessPlugins {
+    config_file,
+    trusted_config_hash: get_trusted_config_hash(config),
+    plugins,
+  })
+}
+
+/// Gets whether the most recent decision for a process plugin of the config
+/// file that isn't set up allows it with its configuration in the trusted
+/// configuration, so it may be set up (ex. it was allowed by another version
+/// of dprint, or by this one before an upgrade or with another cache
+/// directory, which don't have it set up). Its config key isn't known until
+/// it's set up, so it's the configuration of the key the decision was stored
+/// with, or of any key (or none) when it wasn't stored with one. The plugin
+/// is checked again with its own config key once it's set up and before it's
+/// run with its configuration (see `resolve_plugins_scope_with_approval`).
+///
+/// Setting it up runs it to get its information without a configuration,
+/// which the decision allows because it allows running the plugin.
+fn is_allowed_before_set_up(
+  config: &ResolvedConfig,
+  plugin: &PluginSourceReference,
+  unpinned_file_checksum: Option<String>,
+  permissions: &Permissions,
+) -> bool {
+  let Some(allowed) = permissions.get_latest_allow(&config.source.display(), &plugin.to_full_string()) else {
+    return false;
+  };
+  let is_allowed_config = |plugin_config: Option<&ConfigMapValue>| {
+    allowed.config_hash.as_deref() == Some(get_process_plugin_config_hash(unpinned_file_checksum.clone(), plugin_config).as_str())
+  };
+  match &allowed.config_key {
+    Some(config_key) => is_allowed_config(config.trusted_config_map.get(config_key)),
+    None => is_allowed_config(None) || config.trusted_config_map.values().any(|value| is_allowed_config(Some(value))),
+  }
 }
 
 /// Gets the hash of the trusted configuration of the config file, which is
@@ -1546,6 +1602,7 @@ fn get_process_plugin_approval(
     config_file: config.source.display(),
     plugin: plugin.to_full_string(),
     config_hash: Some(config_hash),
+    config_key: Some(config_key.to_string()),
   }
 }
 
