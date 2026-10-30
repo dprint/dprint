@@ -221,7 +221,7 @@ noproxy=npm.mycorp.com,localhost
 - `https-proxy` is preferred over `proxy`, and the nearest `.npmrc` that sets either is used.
 - Hosts listed in `noproxy` are connected to directly.
 - The `NPM_CONFIG_HTTPS_PROXY`, `NPM_CONFIG_PROXY`, and `NPM_CONFIG_NOPROXY` environment variables take precedence over `.npmrc` files.
-- `http://`, `https://`, and `socks` proxies are supported.
+- `http://`, `https://`, and `socks` proxies are supported. A setting that isn't the url of a proxy (a scheme, a host, and optionally a port and credentials, ex. `http://user:pass@proxy.mycorp.com:8080`) is ignored, like one with a path or with text after the url.
 - When npm has no proxy configured, the `HTTPS_PROXY`/`HTTP_PROXY` environment variables are used the same as for any other download (see [Proxy](/setup#proxy)).
 
 #### Process plugins distributed via npm

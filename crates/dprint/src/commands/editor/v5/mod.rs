@@ -701,7 +701,7 @@ mod test {
     let stderr_messages = environment.take_stderr_messages();
     assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
     assert!(
-      stderr_messages[0].starts_with("dprint isn't formatting files with /dprint.json because its process plugins ("),
+      stderr_messages[0].starts_with("dprint isn't formatting files with `/dprint.json` because its process plugins (`"),
       "{stderr_messages:?}"
     );
   }
@@ -736,8 +736,8 @@ mod test {
     assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
     assert!(
       stderr_messages[0].starts_with(concat!(
-        "dprint isn't formatting files with /dprint.json because its process plugins ",
-        "(https://plugins.dprint.dev/test-process.json@"
+        "dprint isn't formatting files with `/dprint.json` because its process plugins ",
+        "(`https://plugins.dprint.dev/test-process.json@"
       )),
       "{stderr_messages:?}"
     );

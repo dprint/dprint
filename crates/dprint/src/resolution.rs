@@ -81,6 +81,7 @@ use crate::utils::PluginKind;
 use crate::utils::escape_glob_text_for_cli;
 use crate::utils::get_sha256_checksum;
 use crate::utils::is_negated_glob;
+use crate::utils::quote_text;
 
 pub enum GetPluginResult {
   HadDiagnostics(Vec<PluginConfigDiagnostic>),
@@ -1243,10 +1244,11 @@ pub struct UnapprovedProcessPlugin {
 
 impl UnapprovedProcessPlugin {
   /// Gets the plugin with the registry it's from when it isn't the default one.
+  /// They're quoted because they're from the project (see `quote_text`).
   pub fn display(&self) -> String {
     match &self.registry {
-      Some(registry) => format!("{} from {}", self.plugin, registry),
-      None => self.plugin.clone(),
+      Some(registry) => format!("{} from {}", quote_text(&self.plugin), quote_text(registry)),
+      None => quote_text(&self.plugin),
     }
   }
 }
@@ -1289,7 +1291,8 @@ impl UnapprovedProcessPlugins {
         "dprint isn't formatting files with {} because {}. ",
         "Process plugins aren't sandboxed, so only allow them when you trust this configuration file."
       ),
-      self.config_file, reason,
+      quote_text(&self.config_file),
+      reason,
     );
     // it may be why the user is asked (ex. they allowed every process plugin in it)
     if let Some(ignored_settings_message) = &permissions.ignored_settings_message {
@@ -1516,9 +1519,9 @@ pub fn get_cant_ask_message(environment: &impl Environment, config_file: &str) -
   format!(
     concat!(
       "The editor can't ask whether to allow them, so dprint only formats with it once you allow them by running ",
-      "`dprint config install --config \"{}\"` or when \"editor.allowProcessPlugins\" isn't false in {}."
+      "{} or when \"editor.allowProcessPlugins\" isn't false in {}."
     ),
-    config_file,
+    quote_text(&format!("dprint config install --config \"{}\"", config_file)),
     file_path.as_deref().unwrap_or("settings.json in dprint's global config directory"),
   )
 }

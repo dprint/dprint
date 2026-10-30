@@ -249,9 +249,14 @@ impl std::fmt::Display for UntrustedDownloadError {
       Some(proxy) => write!(
         f,
         "Downloading through the proxy {} of {} needs to be allowed because the .npmrc file isn't the user's own.",
-        proxy.setting, proxy.npmrc_path
+        quote_text(&proxy.setting),
+        quote_text(&proxy.npmrc_path)
       ),
-      None => write!(f, "Downloading {} needs to be allowed because its domain isn't trusted.", self.download),
+      None => write!(
+        f,
+        "Downloading {} needs to be allowed because its domain isn't trusted.",
+        quote_text(&self.download)
+      ),
     }
   }
 }
@@ -299,7 +304,8 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
         "Only allow dprint to download through it when you trust the .npmrc file because the proxy receives every download ",
         "and the credentials in the setting, including the values of the environment variables it has."
       ),
-      proxy.setting, proxy.npmrc_path,
+      quote_text(&proxy.setting),
+      quote_text(&proxy.npmrc_path),
     ));
   }
   if !urls.is_empty() {
@@ -308,11 +314,29 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
         "dprint needs to download {} from domains that aren't trusted. ",
         "Only download them when you trust the configuration file because a download can send information to the domain. {}"
       ),
-      urls.iter().map(|url| url.as_str()).collect::<Vec<_>>().join(", "),
+      urls.iter().map(|url| quote_text(url)).collect::<Vec<_>>().join(", "),
       ignored_settings_message.unwrap_or("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."),
     ));
   }
   messages.join(" ")
+}
+
+/// Quotes text from the project (ex. a url, a path, or the setting of an
+/// `.npmrc` file) in a message as code (ex. `` `https://example.com` ``), so it's
+/// clear where it starts and ends and it can't read as part of the message's
+/// sentences. The quotes are longer than any run of backticks in the text like
+/// in Markdown.
+pub fn quote_text(text: &str) -> String {
+  let mut longest_run = 0;
+  let mut run = 0;
+  for c in text.chars() {
+    run = if c == '`' { run + 1 } else { 0 };
+    longest_run = longest_run.max(run);
+  }
+  let quotes = "`".repeat(longest_run + 1);
+  // a space keeps a backtick at the start or end from being part of the quotes
+  let padding = if text.starts_with('`') || text.ends_with('`') { " " } else { "" };
+  format!("{quotes}{padding}{text}{padding}{quotes}")
 }
 
 /// The domains that are trusted to download from, which includes their
@@ -768,7 +792,7 @@ mod test {
     assert_eq!(NpmrcProxy::from_download(&err.download), Some(proxy.clone()));
     assert_eq!(
       err.to_string(),
-      "Downloading through the proxy https://${TOKEN}@proxy.example of /project/.npmrc needs to be allowed because the .npmrc file isn't the user's own."
+      "Downloading through the proxy `https://${TOKEN}@proxy.example` of `/project/.npmrc` needs to be allowed because the .npmrc file isn't the user's own."
     );
     assert!(policy.ensure_allows_download(&trusted_url, DownloadProxy::Url("https://proxy.example")).is_ok());
     // a url is still checked first
@@ -793,6 +817,15 @@ mod test {
   }
 
   #[test]
+  fn should_quote_text_from_the_project() {
+    assert_eq!(quote_text("https://example.com"), "`https://example.com`");
+    assert_eq!(quote_text("a`b"), "``a`b``");
+    assert_eq!(quote_text("a``b`c"), "```a``b`c```");
+    assert_eq!(quote_text("`a"), "`` `a ``");
+    assert_eq!(quote_text("a`"), "`` a` ``");
+  }
+
+  #[test]
   fn should_say_what_needs_to_be_allowed() {
     let proxy = NpmrcProxy {
       npmrc_path: "/project/.npmrc".to_string(),
@@ -801,7 +834,7 @@ mod test {
     let url = "https://example.com/plugin.wasm".to_string();
     let message = get_untrusted_download_message(std::slice::from_ref(&url), None);
     assert!(
-      message.starts_with("dprint needs to download https://example.com/plugin.wasm from domains that aren't trusted."),
+      message.starts_with("dprint needs to download `https://example.com/plugin.wasm` from domains that aren't trusted."),
       "{}",
       message
     );
@@ -821,10 +854,10 @@ mod test {
     let message = get_untrusted_download_message(&[url.clone(), proxy.to_download()], None);
     assert!(
       message.starts_with(concat!(
-        "The proxy https://${TOKEN}@proxy.example that /project/.npmrc sets isn't trusted because it isn't your own .npmrc file. ",
+        "The proxy `https://${TOKEN}@proxy.example` that `/project/.npmrc` sets isn't trusted because it isn't your own .npmrc file. ",
         "Only allow dprint to download through it when you trust the .npmrc file because the proxy receives every download ",
         "and the credentials in the setting, including the values of the environment variables it has. ",
-        "dprint needs to download https://example.com/plugin.wasm from domains that aren't trusted."
+        "dprint needs to download `https://example.com/plugin.wasm` from domains that aren't trusted."
       )),
       "{}",
       message

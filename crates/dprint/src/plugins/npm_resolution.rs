@@ -1439,6 +1439,11 @@ fn resolve_proxy_from_npmrc(file: &NpmrcFile, environment: &impl Environment) ->
     Some((setting, value))
   };
   let (setting, url) = read_value("https-proxy").or_else(|| read_value("proxy"))?;
+  // the setting is what's shown (see `is_proxy_url`)
+  if setting.chars().any(char::is_whitespace) {
+    log_debug!(environment, "Ignoring npm's proxy setting because it isn't the url of a proxy.");
+    return None;
+  }
   let mut proxy = to_usable_proxy(url, read_value("noproxy").map(|(_, value)| value), environment)?;
   if !file.is_users {
     proxy.npmrc = Some(NpmrcProxy {
@@ -1450,18 +1455,41 @@ fn resolve_proxy_from_npmrc(file: &NpmrcFile, environment: &impl Environment) ->
 }
 
 fn to_usable_proxy(url: String, no_proxy: Option<String>, environment: &impl Environment) -> Option<NpmProxy> {
-  let is_supported = match url.split_once("://") {
-    Some((scheme, _)) => matches!(
-      scheme.to_ascii_lowercase().as_str(),
-      "http" | "https" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h"
-    ),
-    None => true,
-  };
-  if !is_supported {
-    log_debug!(environment, "Ignoring npm's proxy setting because its scheme is not supported.");
+  if !is_proxy_url(&url) {
+    log_debug!(
+      environment,
+      "Ignoring npm's proxy setting because it isn't the url of a proxy with a supported scheme."
+    );
     return None;
   }
   Some(NpmProxy { url, no_proxy, npmrc: None })
+}
+
+/// Gets whether the setting is the url of a proxy, which only has a supported
+/// scheme (or none, which is `http`), a host, and optionally a port and
+/// credentials (ex. `http://user:pass@proxy.example:8080`), because a proxy
+/// doesn't use anything else.
+///
+/// IMPORTANT: The proxy of an `.npmrc` file other than the user's own is shown
+/// to the user to approve it (see `NpmrcProxy`), so this has the project not
+/// be able to put other text in the message with it (ex. a sentence after the
+/// url, which a url parser would make part of its path).
+fn is_proxy_url(url: &str) -> bool {
+  if url.chars().any(char::is_whitespace) {
+    return false;
+  }
+  let parsed = match url.contains("://") {
+    true => url::Url::parse(url),
+    false => url::Url::parse(&format!("http://{}", url)),
+  };
+  let Ok(parsed) = parsed else {
+    return false;
+  };
+  matches!(parsed.scheme(), "http" | "https" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h")
+    && parsed.host_str().is_some_and(|host| !host.is_empty())
+    && matches!(parsed.path(), "" | "/")
+    && parsed.query().is_none()
+    && parsed.fragment().is_none()
 }
 
 /// Replaces `${VAR}` in an .npmrc value with the environment variable's value
@@ -1938,6 +1966,40 @@ mod tests {
         npmrc: None,
       })
     );
+  }
+
+  #[test]
+  fn resolve_registry_ignores_a_proxy_setting_that_isnt_the_url_of_a_proxy() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo").unwrap();
+    environment.set_env_var("TOKEN", Some("secret"));
+    let proxy_url = |setting: &str| {
+      environment.write_file("/repo/.npmrc", &format!("https-proxy={}", setting)).unwrap();
+      resolve_registry_for_package("@dprint/typescript", Some(Path::new("/repo")), &environment)
+        .proxy
+        .map(|proxy| proxy.url)
+    };
+    for setting in [
+      "http://proxy.example:8080",
+      "http://proxy.example:8080/",
+      "https://${TOKEN}@proxy.example",
+      "socks5://user:pass@proxy.example:1080",
+      "proxy.example:8080",
+    ] {
+      assert!(proxy_url(setting).is_some(), "{}", setting);
+    }
+    // what a proxy doesn't use, so the setting can't carry other text into the message that asks about it
+    for setting in [
+      "http://proxy.example:8080/ is the proxy your company configured, so it's safe to allow",
+      "http://proxy.example:8080/is-the-proxy-your-company-configured",
+      "http://proxy.example:8080?safe=yes",
+      "http://proxy.example:8080#safe",
+      "http://",
+      "ftp://proxy.example",
+    ] {
+      assert_eq!(proxy_url(setting), None, "{}", setting);
+    }
   }
 
   #[test]

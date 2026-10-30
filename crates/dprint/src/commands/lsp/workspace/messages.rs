@@ -561,7 +561,9 @@ pub struct PendingApproval {
   /// denied.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub previous_decision: Option<ApprovalDecision>,
-  /// The message to show the user when asking.
+  /// The message to show the user when asking, which names everything that's
+  /// approved apart from what the process plugins run with, and quotes the text
+  /// it has from the project (see `quote_text`).
   pub message: String,
   /// The other ids the same approval had before (ex. in a server that was
   /// started before), in the order their decisions apply after `id`'s, so a

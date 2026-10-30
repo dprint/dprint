@@ -1619,7 +1619,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert!(
           approval
             .message
-            .starts_with("dprint needs to download https://example.com/test-plugin.wasm from domains that aren't trusted.")
+            .starts_with("dprint needs to download `https://example.com/test-plugin.wasm` from domains that aren't trusted.")
         );
         assert_eq!(
           client.format("/file.txt", "text").await,
@@ -1794,7 +1794,7 @@ fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
         assert!(
           approval
             .message
-            .starts_with(&format!("The proxy {} that {} sets isn't trusted", PROXY_SETTING, npmrc_path)),
+            .starts_with(&format!("The proxy `{}` that `{}` sets isn't trusted", PROXY_SETTING, npmrc_path)),
           "{}",
           approval.message
         );
@@ -1882,7 +1882,7 @@ fn should_approve_the_proxy_of_a_project_npmrc_on_its_own() {
         assert!(
           proxy_approval
             .message
-            .starts_with(&format!("The proxy {} that {} sets isn't trusted", PROXY_SETTING, npmrc_path)),
+            .starts_with(&format!("The proxy `{}` that `{}` sets isn't trusted", PROXY_SETTING, npmrc_path)),
           "{}",
           proxy_approval.message
         );
@@ -2134,7 +2134,7 @@ fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one
   assert!(
     approval
       .message
-      .contains(&format!("({} from https://raw.githubusercontent.com/other/registry/main)", PLUGIN)),
+      .contains(&format!("(`{}` from `https://raw.githubusercontent.com/other/registry/main`)", PLUGIN)),
     "{}",
     approval.message
   );
@@ -2144,7 +2144,7 @@ fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one
   // the default registry isn't shown
   let default_registry = get_approval(None);
   assert_eq!(default_registry.items[0].registry, None);
-  assert!(default_registry.message.contains(&format!("({})", PLUGIN)), "{}", default_registry.message);
+  assert!(default_registry.message.contains(&format!("(`{}`)", PLUGIN)), "{}", default_registry.message);
   assert_ne!(default_registry.id, approval.id);
   assert_eq!(get_approval(Some("registry=https://registry.npmjs.org/")).id, default_registry.id);
 }
