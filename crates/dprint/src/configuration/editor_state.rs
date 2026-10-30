@@ -108,18 +108,20 @@ pub struct EditorApprovals {
 
 impl EditorApprovals {
   /// Remembers the decision for a process plugin of a config file, which
-  /// replaces the one for a previous configuration of it. An allow isn't
-  /// remembered when the user denied the plugin after it was made.
+  /// replaces the one for a previous configuration of it. It isn't remembered
+  /// when the decision for the plugin is more recent, whether it allows or
+  /// denies it, because a decision may be stored after it was made (ex. once
+  /// the plugin the user allowed is set up).
   pub fn add_process_plugin_decision(&mut self, decision: ProcessPluginDecision) {
     let decisions = &mut self.process_plugin_decisions;
     let is_same_plugin =
       |existing: &ProcessPluginDecision| existing.approval.config_file == decision.approval.config_file && existing.approval.plugin == decision.approval.plugin;
-    // IMPORTANT: Don't replace what the user denied since (ex. "Always Deny" in
-    // another window while the plugin they allowed was being set up).
-    if decision.allowed
-      && decisions
-        .iter()
-        .any(|existing| is_same_plugin(existing) && !existing.allowed && existing.decided_at > decision.decided_at)
+    // IMPORTANT: Don't replace what the user decided since (ex. "Always Deny" in another
+    // window, or running `dprint fmt` with a changed configuration, while the plugin they
+    // allowed was being set up).
+    if decisions
+      .iter()
+      .any(|existing| is_same_plugin(existing) && existing.decided_at > decision.decided_at)
     {
       return;
     }
@@ -195,13 +197,11 @@ pub struct ProcessPluginDecision {
 }
 
 impl ProcessPluginDecision {
-  /// Creates the decision the user made now.
-  pub fn new(environment: &impl Environment, approval: ProcessPluginApproval, allowed: bool) -> Self {
-    Self {
-      approval,
-      allowed,
-      decided_at: get_decided_at(environment),
-    }
+  /// Creates the decision the user made now, which is more recent than the
+  /// decisions for the plugin (see `get_decided_now_at`).
+  pub fn new(environment: &impl Environment, approval: ProcessPluginApproval, allowed: bool, decisions: &[ProcessPluginDecision]) -> Self {
+    let decided_at = get_decided_now_at(environment, decisions, &approval.config_file, &approval.plugin);
+    Self { approval, allowed, decided_at }
   }
 }
 
@@ -225,14 +225,23 @@ pub struct ProcessPluginSetUpGrant {
 }
 
 impl ProcessPluginSetUpGrant {
-  /// Creates what the user allowed now.
-  pub fn new(environment: &impl Environment, config_file: String, plugin: String, trusted_config_hash: String, always: bool) -> Self {
+  /// Creates what the user allowed now, which is more recent than the
+  /// decisions for the plugin (see `get_decided_now_at`).
+  pub fn new(
+    environment: &impl Environment,
+    config_file: String,
+    plugin: String,
+    trusted_config_hash: String,
+    always: bool,
+    decisions: &[ProcessPluginDecision],
+  ) -> Self {
+    let decided_at = get_decided_now_at(environment, decisions, &config_file, &plugin);
     Self {
       config_file,
       plugin,
       trusted_config_hash,
       always,
-      decided_at: get_decided_at(environment),
+      decided_at,
     }
   }
 }
@@ -481,14 +490,22 @@ impl SessionPermissions {
   }
 }
 
-/// Gets the time of a decision the user made now, in milliseconds since the
-/// Unix epoch.
-fn get_decided_at(environment: &impl Environment) -> u64 {
-  environment
+/// Gets the time of a decision the user made now about the process plugin of
+/// the config file, in milliseconds since the Unix epoch. It's after each of
+/// the decisions for the plugin, so that what the user decided is used even
+/// when one of them seems to be from the future (ex. it's from a machine whose
+/// clock is ahead, or the clock was set back since).
+fn get_decided_now_at(environment: &impl Environment, decisions: &[ProcessPluginDecision], config_file: &str, plugin: &str) -> u64 {
+  let now = environment
     .sys_time_now()
     .duration_since(UNIX_EPOCH)
     .map(|duration| duration.as_millis() as u64)
-    .unwrap_or(0)
+    .unwrap_or(0);
+  decisions
+    .iter()
+    .filter(|decision| decision.approval.config_file == config_file && decision.approval.plugin == plugin)
+    .map(|decision| decision.decided_at.saturating_add(1))
+    .fold(now, u64::max)
 }
 
 /// Remembers the user's decision for running a process plugin of a config
@@ -992,7 +1009,7 @@ mod test {
   }
 
   #[test]
-  fn should_not_replace_a_more_recent_denial_with_an_allow() {
+  fn should_not_replace_a_more_recent_decision() {
     let mut approvals = EditorApprovals::default();
     let plugin = approval("/a/dprint.json", "1").plugin;
     let denied = ProcessPluginDecision {
@@ -1013,11 +1030,23 @@ mod test {
       ..decision("/a/dprint.json", "1", true)
     };
     approvals.add_process_plugin_decision(allowed.clone());
+    assert_eq!(approvals.process_plugin_decisions, vec![allowed.clone()]);
+    // ex. a plugin allowed before the configuration changed and `dprint fmt` allowed it is set up
+    approvals.add_process_plugin_decision(ProcessPluginDecision {
+      decided_at: 2,
+      ..decision("/a/dprint.json", "2", true)
+    });
+    assert_eq!(approvals.process_plugin_decisions, vec![allowed.clone()]);
+    // and a denial that's older doesn't either
+    approvals.add_process_plugin_decision(ProcessPluginDecision { decided_at: 2, ..denied });
     assert_eq!(approvals.process_plugin_decisions, vec![allowed]);
-    // and a denial always does
-    let denied = ProcessPluginDecision { decided_at: 0, ..denied };
-    approvals.add_process_plugin_decision(denied.clone());
-    assert_eq!(approvals.process_plugin_decisions, vec![denied]);
+    // one that's as recent does
+    let allowed = ProcessPluginDecision {
+      decided_at: 3,
+      ..decision("/a/dprint.json", "2", true)
+    };
+    approvals.add_process_plugin_decision(allowed.clone());
+    assert_eq!(approvals.process_plugin_decisions, vec![allowed]);
   }
 
   #[test]
@@ -1038,11 +1067,11 @@ mod test {
       ..decision("/a/dprint.json", "1", false)
     };
 
+    stored(true, 1);
+    assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_denied(&approval("/a/dprint.json", "1")));
     // ex. allowing it by running `dprint fmt` after denying it for the session
     stored(true, 3);
     assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
-    stored(true, 1);
-    assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_denied(&approval("/a/dprint.json", "1")));
   }
 
   #[test]
@@ -1174,7 +1203,38 @@ mod test {
   fn should_record_when_the_decision_was_made() {
     let environment = TestEnvironment::new();
     environment.set_fs_time(5);
-    assert_eq!(ProcessPluginDecision::new(&environment, approval("/a/dprint.json", "1"), true).decided_at, 5000);
+    assert_eq!(
+      ProcessPluginDecision::new(&environment, approval("/a/dprint.json", "1"), true, &[]).decided_at,
+      5000
+    );
+    // it's after the decisions for the plugin, even one that seems to be from the future (ex. from a machine whose clock is ahead)
+    let decisions = [
+      ProcessPluginDecision {
+        decided_at: 9000,
+        ..decision("/a/dprint.json", "1", false)
+      },
+      ProcessPluginDecision {
+        decided_at: 12000,
+        ..decision("/b/dprint.json", "1", false)
+      },
+    ];
+    assert_eq!(
+      ProcessPluginDecision::new(&environment, approval("/a/dprint.json", "2"), true, &decisions).decided_at,
+      9001
+    );
+    let grant = ProcessPluginSetUpGrant::new(
+      &environment,
+      "/a/dprint.json".to_string(),
+      approval("/a/dprint.json", "1").plugin,
+      "hash".to_string(),
+      false,
+      &decisions,
+    );
+    assert_eq!(grant.decided_at, 9001);
+    assert_eq!(
+      ProcessPluginDecision::new(&environment, approval("/c/dprint.json", "1"), true, &decisions).decided_at,
+      5000
+    );
   }
 
   #[test]

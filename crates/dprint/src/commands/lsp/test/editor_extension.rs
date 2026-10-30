@@ -2217,6 +2217,7 @@ fn should_provide_the_most_recent_decision_of_a_process_plugin() {
             config_hash: Some("hash".to_string()),
           },
           true,
+          &[],
         );
         crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
         let decisions = client
@@ -2250,6 +2251,7 @@ fn should_forget_the_decisions_of_a_remote_config_file() {
             config_hash: Some("1:hash".to_string()),
           },
           true,
+          &[],
         );
         crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
         let decisions = client
@@ -2408,6 +2410,7 @@ fn should_not_use_a_process_plugin_that_was_denied_while_it_was_set_up() {
             &environment,
             crate::configuration::ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin),
             false,
+            &[],
           );
           crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
           environment.remove_unresponsive_remote_file(ZIP_URL);

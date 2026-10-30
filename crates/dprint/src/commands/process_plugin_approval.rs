@@ -44,6 +44,8 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
     Some(_) | None => return Ok(()),
   };
   let always = matches!(action_title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE));
+  // what the user decided now is more recent than what they decided before
+  let decisions = session_permissions.read(environment).process_plugin_decisions;
   let mut result = Ok(());
   for plugin in &unapproved.plugins {
     let approval = match &plugin.approval {
@@ -60,11 +62,12 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
           plugin.plugin.clone(),
           unapproved.trusted_config_hash.clone(),
           always,
+          &decisions,
         ));
         continue;
       }
     };
-    let decision = ProcessPluginDecision::new(environment, approval, allowed);
+    let decision = ProcessPluginDecision::new(environment, approval, allowed, &decisions);
     if let Err(err) = add_process_plugin_decision(environment, session_permissions, decision, always).await {
       result = Err(err);
     }
@@ -174,7 +177,8 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
         .max_by_key(|decision| decision.decided_at);
       !last_decision.is_some_and(|decision| decision.allowed)
     })
-    .map(|approval| ProcessPluginDecision::new(environment, approval, true))
+    // running dprint is more recent than what the user decided before
+    .map(|approval| ProcessPluginDecision::new(environment, approval, true, &stored_decisions))
     .collect::<Vec<_>>();
   if decisions.is_empty() {
     return Ok(());
@@ -362,6 +366,46 @@ mod test {
       let permissions = SessionPermissions::default().read(&environment);
       assert!(permissions.is_process_plugin_denied(&approval()));
       assert!(permissions.is_process_plugin_denied(&other_config));
+    });
+  }
+
+  #[test]
+  fn should_use_what_the_user_decided_after_a_decision_from_the_future() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    environment.set_fs_time(5);
+    let session_permissions = SessionPermissions::default();
+
+    environment.clone().run_in_runtime(async move {
+      // ex. from a machine whose clock is ahead, or the clock was set back since
+      let denied = ProcessPluginDecision {
+        approval: ProcessPluginApproval::any_config("/dprint.json".to_string(), PLUGIN.to_string()),
+        allowed: false,
+        decided_at: 10_000,
+      };
+      store_process_plugin_decision(&environment, denied).await.unwrap();
+      store_process_plugin_action(&environment, &session_permissions, &unapproved(None), Some(ALWAYS_ALLOW_ACTION_TITLE))
+        .await
+        .unwrap();
+      assert!(session_permissions.read(&environment).may_set_up_process_plugin("/dprint.json", PLUGIN, "hash"));
+      store_process_plugin_action(
+        &environment,
+        &session_permissions,
+        &unapproved(Some(approval())),
+        Some(ALWAYS_ALLOW_ACTION_TITLE),
+      )
+      .await
+      .unwrap();
+      let decisions = read_editor_approvals(&environment).unwrap().process_plugin_decisions;
+      assert_eq!(
+        decisions,
+        vec![ProcessPluginDecision {
+          approval: approval(),
+          allowed: true,
+          decided_at: 10_001,
+        }]
+      );
+      assert!(SessionPermissions::default().read(&environment).is_process_plugin_allowed(&approval()));
     });
   }
 
