@@ -91,6 +91,11 @@ struct VerifyAndStoreOptions<'a> {
   primary_stamp: Option<LocalStamp>,
 }
 
+/// The most config files a plugin's cache entry remembers the files the
+/// plugin matched for (see `PluginCache::store_file_matching_info`), which
+/// are the ones the editors resolved most recently.
+const MAX_FILE_MATCHING_CONFIG_FILES: usize = 50;
+
 /// On-disk cache of set-up plugins.
 ///
 /// Each plugin gets a flat pair of files under `<cache>/plugins/` keyed by a
@@ -266,8 +271,6 @@ where
   /// Remembers the files the plugin matched when an editor resolved the config
   /// file with it (see `get_last_file_matching_info`).
   pub async fn store_file_matching_info(&self, source_reference: &PluginSourceReference, config: &str, file_matching: &FileMatchingInfo) -> Result<()> {
-    // the config files the editors resolved most recently are kept
-    const MAX_CONFIG_FILES: usize = 50;
     let Some(path_source) = self.cache_source_for_forget(&source_reference.path_source) else {
       return Ok(());
     };
@@ -279,9 +282,14 @@ where
       return Ok(());
     };
     let entries = &mut meta.config_file_matching;
-    if entries
-      .first()
-      .is_some_and(|entry| entry.config == config && entry.file_matching == *file_matching)
+    // it's only written when what's remembered for the config file changed, so
+    // config files that share the plugin don't rewrite it whenever another of
+    // them is resolved, unless it's the entry that storing another config file
+    // would drop next, which is kept by moving it to the front
+    let index = entries.iter().position(|entry| entry.config == config);
+    if let Some(index) = index
+      && entries[index].file_matching == *file_matching
+      && index + 1 < MAX_FILE_MATCHING_CONFIG_FILES
     {
       return Ok(());
     }
@@ -293,7 +301,7 @@ where
         file_matching: file_matching.clone(),
       },
     );
-    entries.truncate(MAX_CONFIG_FILES);
+    entries.truncate(MAX_FILE_MATCHING_CONFIG_FILES);
     write_meta(&hash, &meta, &self.environment)
   }
 
@@ -1017,6 +1025,55 @@ mod test {
     assert!(!environment.path_exists(&file_path));
     assert!(read_meta(&hash, &environment).is_none());
 
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn should_only_store_the_file_matching_of_a_config_file_when_it_changed() -> Result<()> {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://plugins.dprint.dev/test.wasm", WASM_PLUGIN_BYTES);
+    environment.set_cpu_arch("aarch64");
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
+    plugin_cache.get_plugin_cache_item(&plugin_source).await?;
+    environment.take_stderr_messages();
+    let hash = entry_hash(&plugin_cache.compute_cache_key(&plugin_source.path_source)?, &environment);
+    let stored_configs = || {
+      read_meta(&hash, &environment)
+        .unwrap()
+        .config_file_matching
+        .into_iter()
+        .map(|entry| entry.config)
+        .collect::<Vec<_>>()
+    };
+    let matching = |extension: &str| FileMatchingInfo {
+      file_extensions: vec![extension.to_string()],
+      file_names: Vec::new(),
+      additive: false,
+    };
+
+    plugin_cache.store_file_matching_info(&plugin_source, "a", &matching("ts")).await?;
+    plugin_cache.store_file_matching_info(&plugin_source, "b", &matching("ts")).await?;
+    assert_eq!(stored_configs(), ["b", "a"]);
+    // resolving a config file again with the same files matched doesn't write it (which would move it to the front)
+    plugin_cache.store_file_matching_info(&plugin_source, "a", &matching("ts")).await?;
+    assert_eq!(stored_configs(), ["b", "a"]);
+    // but a change does
+    plugin_cache.store_file_matching_info(&plugin_source, "a", &matching("js")).await?;
+    assert_eq!(stored_configs(), ["a", "b"]);
+    assert_eq!(plugin_cache.get_last_file_matching_info(&plugin_source, "a"), Some(matching("js")));
+
+    // the entry that storing another config file would drop next is kept by moving it to the front
+    for i in 0..MAX_FILE_MATCHING_CONFIG_FILES - 2 {
+      plugin_cache
+        .store_file_matching_info(&plugin_source, &format!("other{}", i), &matching("ts"))
+        .await?;
+    }
+    assert_eq!(stored_configs().len(), MAX_FILE_MATCHING_CONFIG_FILES);
+    assert_eq!(stored_configs().last().map(|config| config.as_str()), Some("b"));
+    plugin_cache.store_file_matching_info(&plugin_source, "b", &matching("ts")).await?;
+    assert_eq!(stored_configs().first().map(|config| config.as_str()), Some("b"));
+    assert_eq!(stored_configs().len(), MAX_FILE_MATCHING_CONFIG_FILES);
     Ok(())
   }
 
