@@ -480,9 +480,6 @@ pub enum NotFormattedReason {
   LanguageRequired,
   /// The config file that was asked about doesn't exist (ex. it was deleted).
   ConfigFileMissing,
-  /// The config file that was asked about isn't used because another one in
-  /// its directory is (ex. a `dprint.json` beside a `dprint.jsonc`).
-  ConfigFileNotUsed,
 }
 
 impl NotFormattedReason {
@@ -498,8 +495,7 @@ impl NotFormattedReason {
       | NotFormattedReason::ApprovalRequired
       | NotFormattedReason::UnsupportedDocument
       | NotFormattedReason::LanguageRequired
-      | NotFormattedReason::ConfigFileMissing
-      | NotFormattedReason::ConfigFileNotUsed => ShowPolicy::Command,
+      | NotFormattedReason::ConfigFileMissing => ShowPolicy::Command,
     }
   }
 
@@ -507,7 +503,7 @@ impl NotFormattedReason {
   pub fn severity(self) -> Severity {
     match self {
       NotFormattedReason::ConfigError | NotFormattedReason::ConfigDiagnostics => Severity::Error,
-      NotFormattedReason::ApprovalRequired | NotFormattedReason::ConfigFileMissing | NotFormattedReason::ConfigFileNotUsed => Severity::Warning,
+      NotFormattedReason::ApprovalRequired | NotFormattedReason::ConfigFileMissing => Severity::Warning,
       NotFormattedReason::NoConfigFile
       | NotFormattedReason::GlobalConfigNotAllowed
       | NotFormattedReason::NotMatched
@@ -532,8 +528,7 @@ impl NotFormattedReason {
       | NotFormattedReason::NoPlugin
       | NotFormattedReason::UnsupportedDocument
       | NotFormattedReason::LanguageRequired
-      | NotFormattedReason::ConfigFileMissing
-      | NotFormattedReason::ConfigFileNotUsed => false,
+      | NotFormattedReason::ConfigFileMissing => false,
     }
   }
 }

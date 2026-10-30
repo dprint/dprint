@@ -1055,22 +1055,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           file_path: config_file_path,
           dir_path,
         };
-        // a config file that another one in its directory is used instead of isn't resolved (ex. its plugins)
-        if let Some(used_config_file) = self.get_used_config_file(&config_file) {
-          let message = format!(
-            "This configuration file isn't used because {} is used for its directory.",
-            used_config_file.source.display()
-          );
-          let failure = ConfigFailure {
-            config_file: self.new_config_file_info(&config_file.source, false, config_file.base_path.as_ref()),
-            config_key: get_found_config_key(&config_file),
-            config_target: None,
-            reason: NotFormattedReason::ConfigFileNotUsed,
-            message,
-            downloads: Vec::new(),
-          };
-          return Ok((target, DocumentConfig::Failed(failure)));
-        }
         let config = self.resolve_found_config(config_file).await?;
         Ok((target, config))
       }
@@ -1081,18 +1065,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         Ok((target, config))
       }
     }
-  }
-
-  /// Gets the config file that's used for the directory of a local config
-  /// file when it's another one (ex. a `dprint.json` beside a `dprint.jsonc`).
-  fn get_used_config_file(&self, config_file: &ResolvedConfigPathWithText) -> Option<ResolvedConfigPathWithText> {
-    if config_file.is_global_config {
-      return None;
-    }
-    let path = config_file.source.maybe_local_path()?;
-    let used = self.scope_container.find_config_file(config_file.base_path.as_ref(), false).ok()??;
-    let used_path = used.source.maybe_local_path()?;
-    (used_path.as_ref() != path.as_ref()).then_some(used)
   }
 
   /// Gets whether the uri is of the config file the server was started with,
@@ -2587,7 +2559,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets why a config file that failed to resolve doesn't format a file.
   fn get_failure_not_formatted(&self, failure: &ConfigFailure, target: &ApprovalTarget) -> NotFormatted {
     let actions = match (&failure.config_file, failure.reason) {
-      (Some(config_file), NotFormattedReason::ConfigError | NotFormattedReason::ConfigFileNotUsed) => vec![open_config_file_action(&config_file.uri)],
+      (Some(config_file), NotFormattedReason::ConfigError) => vec![open_config_file_action(&config_file.uri)],
       _ => Vec::new(),
     };
     let not_formatted = NotFormatted::new(failure.reason, Some(failure.message.clone()), self.get_failure_approvals(failure, target)).with_actions(actions);
@@ -2654,10 +2626,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       // the message is the approval's
       NotFormattedReason::ApprovalRequired => None,
       // the message is the error's
-      NotFormattedReason::UnsupportedDocument
-      | NotFormattedReason::LanguageRequired
-      | NotFormattedReason::ConfigFileMissing
-      | NotFormattedReason::ConfigFileNotUsed => None,
+      NotFormattedReason::UnsupportedDocument | NotFormattedReason::LanguageRequired | NotFormattedReason::ConfigFileMissing => None,
     }
   }
 

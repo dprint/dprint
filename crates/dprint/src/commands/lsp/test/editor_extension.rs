@@ -894,37 +894,6 @@ fn should_not_resolve_a_deleted_config_file_again_when_dprints_own_files_change(
 }
 
 #[test]
-fn should_not_use_a_config_file_when_another_is_used_for_its_directory() {
-  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
-  let environment = TestEnvironmentBuilder::new()
-    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
-    .with_local_config("/dprint.json", |c| {
-      c.ensure_plugins_section();
-    })
-    .build();
-  environment
-    .write_file("/dprint.jsonc", &format!(r#"{{ "plugins": ["{}"] }}"#, UNTRUSTED_PLUGIN_URL))
-    .unwrap();
-  run_session(&environment, {
-    let environment = environment.clone();
-    move |client| {
-      async move {
-        // the directory uses the dprint.json, so the dprint.jsonc isn't resolved or asked about
-        let config_info = client.config_info("/dprint.jsonc").await;
-        assert_eq!(config_info.config_file.unwrap().uri, uri("/dprint.jsonc"));
-        assert_eq!(config_info.plugins, None);
-        assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ConfigFileNotUsed));
-        assert!(!config_info.status.claim());
-        assert!(config_info.status.message().unwrap().contains("/dprint.json"));
-        assert_eq!(client.pending_approvals().await, Vec::new());
-        assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
-      }
-      .boxed_local()
-    }
-  });
-}
-
-#[test]
 fn should_get_the_global_config_file_when_asked_about_it() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_process_plugin()
@@ -1012,10 +981,9 @@ fn should_get_the_config_file_of_a_config_file_or_a_document() {
   environment.write_file("/dprint.jsonc", r#"{ "plugins": [] }"#).unwrap();
   run_session(&environment, |client| {
     async move {
-      // the config file that's asked about, which isn't used because another one is for its directory
+      // the config file that's asked about
       let config_info = client.config_info("/dprint.jsonc").await;
       assert_eq!(config_info.config_file.unwrap().uri, uri("/dprint.jsonc"));
-      assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ConfigFileNotUsed));
       // the config file of an untitled document
       let mut params = config_params("untitled:Untitled-1");
       params.language = Some(DocumentLanguage {

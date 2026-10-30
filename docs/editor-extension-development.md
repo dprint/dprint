@@ -199,7 +199,6 @@ An editor usually needs to know which documents an extension formats before form
 - When something needs to be approved, `plugins` and `filePatterns` are what they were the last time the plugins were set up, which is remembered across sessions, so claim those documents and ask when the user formats one (see "Approving"). Only those documents are `approvalRequired`, and another document is `notMatched` or `noPlugin`.
 - When `plugins` is `null`, they aren't known (ex. a plugin that needs to be downloaded) and `filePatterns` is empty. Every document in the directory is then `approvalRequired` with `claim` set to `false`. Don't claim the documents of the configuration file, so the editor's other formatters are still used, and show what needs to be approved instead.
 - When the configuration file has an error, `plugins` and `filePatterns` are the ones it had before, so a typo doesn't change what the editor formats with it.
-- When another configuration file in its directory is used instead, its status is `configFileNotUsed` and its `plugins` are `null`. The one that's used is the first of `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, `.config/dprint.json`, and `.config/dprint.jsonc`.
 
 The globs use `/` to separate path segments and are relative without a leading `/` or `./`. A `**` segment matches any number of segments (including none), `*` matches any characters within a segment and `?` one character, which includes names that start with a period (ex. `**/*.json` matches `.config/.eslintrc.json`, like picomatch's `dot: true`), and `[...]` matches one of the characters of the class, which may have ranges (ex. `[a-z]`) and be negated with a leading `!` (ex. `[!.]`), and doesn't match `/`. There aren't braces or negated patterns. A character that's otherwise special (`*`, `?`, `[`, `{`, or `}`) is in a class of its own when it's matched literally (ex. `[*]`), and file extensions and names are matched case insensitively with a class of both cases (ex. `**/*.[tT][sS]`). These are VS Code's globs. Check the options of another glob library (ex. picomatch and minimatch skip names that start with a period by default, and Python's `fnmatch` has `*` match `/`).
 
@@ -418,8 +417,6 @@ type NotFormattedReason =
   | "languageRequired"
   /** The config file that was asked about doesn't exist (ex. it was deleted). */
   | "configFileMissing"
-  /** The config file that was asked about isn't used because another one in its directory is (see "Which documents dprint formats"). */
-  | "configFileNotUsed"
   | (string & {});
 ```
 
@@ -536,7 +533,7 @@ Or with a document it's used for:
 { "textDocument": { "uri": "file:///home/user/project/src/file.ts" } }
 ```
 
-Providing both or neither fails with `-32602`. With `configFile`, it's the information of that configuration file, which needs the name of a configuration file, to be the global configuration file, or to be the one the server was started with (`dprint lsp --config <path>`), which is the only one when there's one. Its status is `configFileMissing` when it doesn't exist and `configFileNotUsed` when another one in its directory is used instead (ex. a `dprint.jsonc` beside a `dprint.json`). Getting it sets up the plugins that are approved (ex. downloads them), so get it once a configuration file is found so the first format doesn't wait on that.
+Providing both or neither fails with `-32602`. With `configFile`, it's the information of that configuration file, which needs the name of a configuration file, to be the global configuration file, or to be the one the server was started with (`dprint lsp --config <path>`), which is the only one when there's one. Its status is `configFileMissing` when it doesn't exist. Getting it sets up the plugins that are approved (ex. downloads them), so get it once a configuration file is found so the first format doesn't wait on that.
 
 The status is for the configuration file, so it's `ready` or why none of its documents are formatted (ex. `configError`, `approvalRequired`, or `configFileMissing`), while `dprint/fileInfo` has the reasons for a document (ex. `notMatched`).
 
@@ -693,5 +690,6 @@ These are kept here for the maintainers and aren't part of the protocol.
 - An approval's id is a SHA-256 hash of everything that's approved, including the trusted configuration of the config file for a process plugin that isn't set up yet, so a decision is never used for something other than what was shown.
 - When the server doesn't support any of the client's versions, it still provides the capability with its `versions` so that a client can tell it apart from a dprint that's older than the `dprint/*` methods, which can't be added after a version is dropped.
 - `-32803` (RequestFailed) is used for an approval that changed instead of a code in JSON-RPC's reserved range, which a client library may use for its own errors.
+- A configuration file that's asked about is resolved even when another one in its directory is what dprint uses for the directory (ex. a `dprint.jsonc` beside a `dprint.json`). Detecting that isn't worth maintaining for a mistake that's rare and obvious to the user.
 - A decision isn't remembered by url or domain beyond the session, and allowing a download only allows its urls, because a broader scope (ex. trusting a domain) is the settings file's `editor.trustedDomains`, which the user edits on purpose.
 -->
