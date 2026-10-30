@@ -66,6 +66,7 @@ use crate::configuration::forget_editor_approvals;
 use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
 use crate::configuration::is_dot_config_dir;
+use crate::configuration::is_more_recent_at;
 use crate::configuration::read_editor_approval_denials;
 use crate::configuration::read_editor_approvals;
 use crate::configuration::resolve_global_config_dir;
@@ -1544,6 +1545,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let grants = self.session_permissions.process_plugin_set_up_grants();
     let candidates = stored
       .iter()
+      // an allow that this version doesn't use isn't what it decides with (ex. its config hash is made another way)
+      .filter(|decision| decision.is_used())
       .map(|decision| {
         (
           &decision.approval.config_file,
@@ -1567,8 +1570,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           .iter()
           .map(|grant| (&grant.config_file, &grant.plugin, true, grant.always, grant.decided_at)),
       );
-    // the most recent decision for a plugin of a config file is what's used, which is the
-    // session's or a grant on a tie like when formatting
+    // the most recent decision for a plugin of a config file is what's used, which is a denial
+    // on a tie and otherwise the session's or a grant like when formatting
     let mut plugin_decisions: Vec<(String, String, bool, bool, u64)> = Vec::new();
     for (config_file, plugin, allows, always, decided_at) in candidates {
       if !is_config_file(config_file) {
@@ -1576,7 +1579,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
       let existing = plugin_decisions.iter().position(|(c, p, ..)| c == config_file && p == plugin);
       if let Some(index) = existing {
-        if plugin_decisions[index].4 > decided_at {
+        let (_, _, existing_allows, _, existing_decided_at) = &plugin_decisions[index];
+        if is_more_recent_at(*existing_decided_at, *existing_allows, decided_at, allows) {
           continue;
         }
         plugin_decisions.remove(index);

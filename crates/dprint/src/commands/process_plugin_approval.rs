@@ -155,8 +155,8 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   if approvals.is_empty() {
     return Ok(());
   }
-  let stored_decisions = match read_editor_approvals(environment) {
-    Ok(approvals) => approvals.process_plugin_decisions,
+  let stored = match read_editor_approvals(environment) {
+    Ok(approvals) => approvals,
     Err(err) => {
       log_debug!(
         environment,
@@ -169,16 +169,11 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   };
   let decisions = approvals
     .into_iter()
-    // the state file is only written when something changed, which is usually not
-    .filter(|approval| {
-      let last_decision = stored_decisions
-        .iter()
-        .filter(|decision| decision.approval == *approval)
-        .max_by_key(|decision| decision.decided_at);
-      !last_decision.is_some_and(|decision| decision.allowed)
-    })
+    // the approvals file is only written when something changed, which is usually not, and an allow
+    // that's stored by a version of dprint that makes its config hash another way doesn't change it
+    .filter(|approval| !stored.is_process_plugin_allowed(approval))
     // running dprint is more recent than what the user decided before
-    .map(|approval| ProcessPluginDecision::new(environment, approval, true, &stored_decisions))
+    .map(|approval| ProcessPluginDecision::new(environment, approval, true, &stored.process_plugin_decisions))
     .collect::<Vec<_>>();
   if decisions.is_empty() {
     return Ok(());
@@ -254,7 +249,7 @@ mod test {
     ProcessPluginApproval {
       config_file: "/dprint.json".to_string(),
       plugin: PLUGIN.to_string(),
-      config_hash: Some("1".to_string()),
+      config_hash: Some("1:a".to_string()),
     }
   }
 
@@ -360,7 +355,7 @@ mod test {
       .unwrap();
       // changing its configuration doesn't ask the user again
       let other_config = ProcessPluginApproval {
-        config_hash: Some("2".to_string()),
+        config_hash: Some("1:b".to_string()),
         ..approval()
       };
       let permissions = SessionPermissions::default().read(&environment);

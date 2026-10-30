@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::environment::Environment;
+use crate::resolution::PROCESS_PLUGIN_CONFIG_HASH_VERSION;
 use crate::utils::LaxSingleProcessFsFlag;
 
 use super::get_init_config_file_text::to_cst_input;
@@ -83,7 +84,21 @@ pub struct EditorState {
 ///   It writes its decisions in its own format, so a reader needs to handle the
 ///   decisions of any version from `minVersion` on. It removes the decisions in
 ///   an older format for what it decides about (ex. the same plugin of the same
-///   config file), so an older reader doesn't keep using one the user replaced.
+///   config file), so an older reader doesn't keep using one the user replaced,
+///   apart from the allows whose `configHash` is made another way (see below).
+/// - A `configHash` starts with the version of how it's made (see
+///   `ProcessPluginApproval::config_hash`), which changes without a
+///   `minVersion` because a reader never matches a hash it doesn't make. A
+///   reader only uses an allow whose hash is made the way it makes them, so an
+///   allow it can't check never hides an older one it can, and it still applies
+///   a denial with any hash. An allow is stored for each way its hash is made:
+///   a writer that stores an allow keeps the allows for the same plugin whose
+///   hash is made another way and only removes those with a denial, so two
+///   versions of dprint that make it differently don't undo each other's
+///   allows. A writer that can make an older hash too may store an allow with
+///   each, so the older readers use it.
+/// - When decisions for the same plugin are compared by when they were made, a
+///   denial wins a tie with an allow.
 /// - Decisions are only in the top-level arrays whose names end with
 ///   `Decisions` (ex. `processPluginDecisions`), and each one is an object with
 ///   a top-level `configFile` string in the form of `PathSource::display` (ex.
@@ -111,22 +126,26 @@ impl EditorApprovals {
   /// replaces the one for a previous configuration of it. It isn't remembered
   /// when the decision for the plugin is more recent, whether it allows or
   /// denies it, because a decision may be stored after it was made (ex. once
-  /// the plugin the user allowed is set up).
+  /// the plugin the user allowed is set up). A denial wins a tie.
+  ///
+  /// An allow keeps the allows whose config hash is made another way (ex. by
+  /// another version of dprint), which a denial removes (see `EditorApprovals`).
   pub fn add_process_plugin_decision(&mut self, decision: ProcessPluginDecision) {
     let decisions = &mut self.process_plugin_decisions;
-    let is_same_plugin =
-      |existing: &ProcessPluginDecision| existing.approval.config_file == decision.approval.config_file && existing.approval.plugin == decision.approval.plugin;
+    // the decisions this one replaces, which keep it from being stored when they're more recent
+    let is_replaced = |existing: &ProcessPluginDecision| {
+      existing.approval.config_file == decision.approval.config_file
+        && existing.approval.plugin == decision.approval.plugin
+        && (!decision.allowed || !existing.allowed || get_config_hash_version(&existing.approval) == get_config_hash_version(&decision.approval))
+    };
     // IMPORTANT: Don't replace what the user decided since (ex. "Always Deny" in another
     // window, or running `dprint fmt` with a changed configuration, while the plugin they
     // allowed was being set up).
-    if decisions
-      .iter()
-      .any(|existing| is_same_plugin(existing) && existing.decided_at > decision.decided_at)
-    {
+    if decisions.iter().any(|existing| is_replaced(existing) && is_more_recent(existing, &decision)) {
       return;
     }
     // the decision for a previous configuration isn't needed anymore
-    decisions.retain(|existing| !is_same_plugin(existing));
+    decisions.retain(|existing| !is_replaced(existing));
     decisions.push(decision);
     while decisions.len() > MAX_PROCESS_PLUGIN_DECISIONS {
       // forget the oldest decision that allowed a plugin first so that what
@@ -134,6 +153,13 @@ impl EditorApprovals {
       let index = decisions.iter().position(|decision| decision.allowed).unwrap_or(0);
       decisions.remove(index);
     }
+  }
+
+  /// Gets whether the decisions allow running the process plugin with its
+  /// configuration like they do in an editor, which an allow whose config hash
+  /// is made another way doesn't change.
+  pub fn is_process_plugin_allowed(&self, approval: &ProcessPluginApproval) -> bool {
+    get_winning_decision(&self.process_plugin_decisions, approval).is_some_and(|decision| decision.allowed)
   }
 }
 
@@ -202,6 +228,14 @@ impl ProcessPluginDecision {
   pub fn new(environment: &impl Environment, approval: ProcessPluginApproval, allowed: bool, decisions: &[ProcessPluginDecision]) -> Self {
     let decided_at = get_decided_now_at(environment, decisions, &approval.config_file, &approval.plugin);
     Self { approval, allowed, decided_at }
+  }
+
+  /// Gets whether this version of dprint uses the decision, which is a denial
+  /// or an allow whose config hash is made the way this version makes it (see
+  /// `EditorApprovals`). An allow it can't check is left out so that it
+  /// doesn't hide an older one it can.
+  pub fn is_used(&self) -> bool {
+    !self.allowed || get_config_hash_version(&self.approval).is_some_and(|version| version == PROCESS_PLUGIN_CONFIG_HASH_VERSION.to_string())
   }
 }
 
@@ -285,13 +319,14 @@ impl Permissions {
   }
 
   /// Gets whether the user denied running the process plugin of the grant
-  /// after allowing it to be set up (ex. "Always Deny" in another window).
+  /// after allowing it to be set up (ex. "Always Deny" in another window),
+  /// which includes a denial at the same time because a denial wins a tie.
   pub fn is_denied_since(&self, grant: &ProcessPluginSetUpGrant) -> bool {
     self.process_plugin_decisions.iter().any(|decision| {
       !decision.allowed
         && decision.approval.config_file == grant.config_file
         && decision.approval.plugin == grant.plugin
-        && decision.decided_at > grant.decided_at
+        && is_more_recent_at(decision.decided_at, false, grant.decided_at, true)
     })
   }
 
@@ -312,14 +347,12 @@ impl Permissions {
   }
 
   /// Gets whether the most recent decision for the process plugin of the
-  /// config file allowed it when it had a different configuration.
+  /// config file allowed it when it had a different configuration. An allow
+  /// whose hash is made another way (ex. by another version of dprint) isn't
+  /// used, so it doesn't say the configuration changed.
   pub fn was_allowed_with_other_config(&self, approval: &ProcessPluginApproval) -> bool {
-    self.get_latest_decision(approval).is_some_and(|decision| {
-      decision.allowed
-        && decision.approval.config_hash != approval.config_hash
-        // a hash that's made another way (ex. by another version of dprint) doesn't say the configuration changed
-        && get_config_hash_version(&decision.approval) == get_config_hash_version(approval)
-    })
+    get_latest_decision(&self.process_plugin_decisions, approval)
+      .is_some_and(|decision| decision.allowed && decision.approval.config_hash != approval.config_hash)
   }
 
   fn requires_process_plugin_approval(&self) -> bool {
@@ -332,32 +365,8 @@ impl Permissions {
     self.get_winning_decision(approval).map(|decision| decision.allowed)
   }
 
-  /// Gets the decision that's used for the approval, which is the most recent
-  /// one for the process plugin of the config file when it's for the
-  /// approval's configuration or denies the plugin with any configuration.
-  /// When the most recent one is for another configuration, there's no
-  /// decision, so the user is asked instead of an older one being used (ex.
-  /// a denial from before the plugin was allowed with its previous
-  /// configuration).
   fn get_winning_decision(&self, approval: &ProcessPluginApproval) -> Option<&ProcessPluginDecision> {
-    let decision = self.get_latest_decision(approval)?;
-    let is_for_approval = match decision.allowed {
-      // IMPORTANT: Only allow it with the configuration that was allowed.
-      true => decision.approval.config_hash.is_some() && decision.approval.config_hash == approval.config_hash,
-      false => decision.approval.config_hash.is_none() || decision.approval.config_hash == approval.config_hash,
-    };
-    is_for_approval.then_some(decision)
-  }
-
-  /// Gets the most recent decision for the process plugin of the config file
-  /// of the approval with any configuration.
-  fn get_latest_decision(&self, approval: &ProcessPluginApproval) -> Option<&ProcessPluginDecision> {
-    self
-      .process_plugin_decisions
-      .iter()
-      .filter(|decision| decision.approval.config_file == approval.config_file && decision.approval.plugin == approval.plugin)
-      // the last one wins a tie, which is the one for the session
-      .max_by_key(|decision| decision.decided_at)
+    get_winning_decision(&self.process_plugin_decisions, approval)
   }
 }
 
@@ -488,6 +497,47 @@ impl SessionPermissions {
       log_warn!(environment, "{}", message);
     }
   }
+}
+
+/// Gets whether a decision is more recent than another one for the same
+/// process plugin, which a denial is at the same time as an allow because
+/// denying more than the user did is safe (ex. two windows decide at the same
+/// time after a decision from the future, see `get_decided_now_at`).
+fn is_more_recent(decision: &ProcessPluginDecision, other: &ProcessPluginDecision) -> bool {
+  is_more_recent_at(decision.decided_at, decision.allowed, other.decided_at, other.allowed)
+}
+
+/// Gets whether what was decided at a time is more recent than what was
+/// decided at another like `is_more_recent` (ex. for a set-up grant).
+pub fn is_more_recent_at(decided_at: u64, allowed: bool, other_decided_at: u64, other_allowed: bool) -> bool {
+  decided_at > other_decided_at || (decided_at == other_decided_at && !allowed && other_allowed)
+}
+
+/// Gets the decision that's used for the approval, which is the most recent
+/// one for the process plugin of the config file when it's for the approval's
+/// configuration or denies the plugin with any configuration. When the most
+/// recent one is for another configuration, there's no decision, so the user
+/// is asked instead of an older one being used (ex. a denial from before the
+/// plugin was allowed with its previous configuration).
+fn get_winning_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &ProcessPluginApproval) -> Option<&'a ProcessPluginDecision> {
+  let decision = get_latest_decision(decisions, approval)?;
+  let is_for_approval = match decision.allowed {
+    // IMPORTANT: Only allow it with the configuration that was allowed.
+    true => decision.approval.config_hash.is_some() && decision.approval.config_hash == approval.config_hash,
+    false => decision.approval.config_hash.is_none() || decision.approval.config_hash == approval.config_hash,
+  };
+  is_for_approval.then_some(decision)
+}
+
+/// Gets the most recent decision that this version uses (see
+/// `ProcessPluginDecision::is_used`) for the process plugin of the config file
+/// of the approval with any configuration. A denial wins a tie, and otherwise
+/// the last one does, which is the one for the session.
+fn get_latest_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &ProcessPluginApproval) -> Option<&'a ProcessPluginDecision> {
+  decisions
+    .iter()
+    .filter(|decision| decision.approval.config_file == approval.config_file && decision.approval.plugin == approval.plugin && decision.is_used())
+    .max_by_key(|decision| (decision.decided_at, !decision.allowed))
 }
 
 /// Gets the time of a decision the user made now about the process plugin of
@@ -933,13 +983,13 @@ mod test {
   fn should_require_approving_process_plugins_by_default() {
     let environment = TestEnvironment::new();
     let permissions = read_permissions(&environment, &[]);
-    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
-    assert!(!permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(!permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1:a")));
     assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash"));
     // the user can opt out
     crate::test_helpers::allow_process_plugins_in_editors(&environment);
     let permissions = read_permissions(&environment, &[]);
-    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     assert!(permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash"));
   }
 
@@ -948,31 +998,34 @@ mod test {
     let environment = TestEnvironment::new();
     require_approval(&environment);
     for decision in [
-      decision("/a/dprint.json", "1", true),
-      decision("/b/dprint.json", "1", false),
-      decision("/a/dprint.json", "2", true),
+      decision("/a/dprint.json", "1:a", true),
+      decision("/b/dprint.json", "1:a", false),
+      decision("/a/dprint.json", "1:b", true),
     ] {
       update_editor_approvals_without_lock(&environment, |approvals| approvals.add_process_plugin_decision(decision)).unwrap();
     }
     assert_eq!(
       read_editor_approvals(&environment).unwrap().process_plugin_decisions,
-      vec![decision("/b/dprint.json", "1", false), decision("/a/dprint.json", "2", true)]
+      vec![decision("/b/dprint.json", "1:a", false), decision("/a/dprint.json", "1:b", true)]
     );
 
-    let permissions = read_permissions(&environment, &[decision("/c/dprint.json", "1", true), decision("/a/dprint.json", "2", false)]);
+    let permissions = read_permissions(
+      &environment,
+      &[decision("/c/dprint.json", "1:a", true), decision("/a/dprint.json", "1:b", false)],
+    );
     // the session decision wins
-    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "2")));
-    assert!(permissions.is_process_plugin_denied(&approval("/a/dprint.json", "2")));
-    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
-    assert!(!permissions.is_process_plugin_allowed(&approval("/b/dprint.json", "1")));
-    assert!(permissions.is_process_plugin_denied(&approval("/b/dprint.json", "1")));
-    assert!(permissions.is_process_plugin_allowed(&approval("/c/dprint.json", "1")));
-    assert!(!permissions.is_process_plugin_allowed(&approval("/d/dprint.json", "1")));
-    assert!(!permissions.is_process_plugin_denied(&approval("/d/dprint.json", "1")));
-    assert!(permissions.was_allowed_with_other_config(&approval("/c/dprint.json", "3")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:b")));
+    assert!(permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1:b")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/b/dprint.json", "1:a")));
+    assert!(permissions.is_process_plugin_denied(&approval("/b/dprint.json", "1:a")));
+    assert!(permissions.is_process_plugin_allowed(&approval("/c/dprint.json", "1:a")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/d/dprint.json", "1:a")));
+    assert!(!permissions.is_process_plugin_denied(&approval("/d/dprint.json", "1:a")));
+    assert!(permissions.was_allowed_with_other_config(&approval("/c/dprint.json", "1:c")));
     // the most recent decision denied it
-    assert!(!permissions.was_allowed_with_other_config(&approval("/a/dprint.json", "3")));
-    assert!(!permissions.was_allowed_with_other_config(&approval("/b/dprint.json", "3")));
+    assert!(!permissions.was_allowed_with_other_config(&approval("/a/dprint.json", "1:c")));
+    assert!(!permissions.was_allowed_with_other_config(&approval("/b/dprint.json", "1:c")));
   }
 
   #[test]
@@ -1011,7 +1064,7 @@ mod test {
   #[test]
   fn should_not_replace_a_more_recent_decision() {
     let mut approvals = EditorApprovals::default();
-    let plugin = approval("/a/dprint.json", "1").plugin;
+    let plugin = approval("/a/dprint.json", "1:a").plugin;
     let denied = ProcessPluginDecision {
       approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin),
       allowed: false,
@@ -1021,20 +1074,20 @@ mod test {
     // ex. allowed setting it up before it was denied in another window
     approvals.add_process_plugin_decision(ProcessPluginDecision {
       decided_at: 1,
-      ..decision("/a/dprint.json", "1", true)
+      ..decision("/a/dprint.json", "1:a", true)
     });
     assert_eq!(approvals.process_plugin_decisions, vec![denied.clone()]);
     // a more recent one replaces it
     let allowed = ProcessPluginDecision {
       decided_at: 3,
-      ..decision("/a/dprint.json", "1", true)
+      ..decision("/a/dprint.json", "1:a", true)
     };
     approvals.add_process_plugin_decision(allowed.clone());
     assert_eq!(approvals.process_plugin_decisions, vec![allowed.clone()]);
     // ex. a plugin allowed before the configuration changed and `dprint fmt` allowed it is set up
     approvals.add_process_plugin_decision(ProcessPluginDecision {
       decided_at: 2,
-      ..decision("/a/dprint.json", "2", true)
+      ..decision("/a/dprint.json", "1:b", true)
     });
     assert_eq!(approvals.process_plugin_decisions, vec![allowed.clone()]);
     // and a denial that's older doesn't either
@@ -1043,7 +1096,7 @@ mod test {
     // one that's as recent does
     let allowed = ProcessPluginDecision {
       decided_at: 3,
-      ..decision("/a/dprint.json", "2", true)
+      ..decision("/a/dprint.json", "1:b", true)
     };
     approvals.add_process_plugin_decision(allowed.clone());
     assert_eq!(approvals.process_plugin_decisions, vec![allowed]);
@@ -1057,21 +1110,21 @@ mod test {
       update_editor_approvals_without_lock(&environment, |approvals| {
         approvals.add_process_plugin_decision(ProcessPluginDecision {
           decided_at,
-          ..decision("/a/dprint.json", "1", allowed)
+          ..decision("/a/dprint.json", "1:a", allowed)
         })
       })
       .unwrap();
     };
     let session_decision = ProcessPluginDecision {
       decided_at: 2,
-      ..decision("/a/dprint.json", "1", false)
+      ..decision("/a/dprint.json", "1:a", false)
     };
 
     stored(true, 1);
-    assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_denied(&approval("/a/dprint.json", "1")));
+    assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_denied(&approval("/a/dprint.json", "1:a")));
     // ex. allowing it by running `dprint fmt` after denying it for the session
     stored(true, 3);
-    assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    assert!(read_permissions(&environment, std::slice::from_ref(&session_decision)).is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
   }
 
   #[test]
@@ -1079,7 +1132,7 @@ mod test {
     let environment = TestEnvironment::new();
     require_approval(&environment);
     let any_config = |config_file: &str, allowed| ProcessPluginDecision {
-      approval: ProcessPluginApproval::any_config(config_file.to_string(), approval(config_file, "1").plugin),
+      approval: ProcessPluginApproval::any_config(config_file.to_string(), approval(config_file, "1:a").plugin),
       allowed,
       decided_at: 1,
     };
@@ -1096,21 +1149,21 @@ mod test {
     );
 
     let permissions = read_permissions(&environment, &[any_config("/b/dprint.json", true)]);
-    let a_approval = ProcessPluginApproval::any_config("/a/dprint.json".to_string(), approval("/a/dprint.json", "1").plugin);
+    let a_approval = ProcessPluginApproval::any_config("/a/dprint.json".to_string(), approval("/a/dprint.json", "1:a").plugin);
     assert!(permissions.is_process_plugin_denied(&a_approval));
     // it's denied with each configuration
-    assert!(permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1")));
-    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    assert!(permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1:a")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     // IMPORTANT: allowing it with any configuration doesn't allow it
-    assert!(!permissions.is_process_plugin_allowed(&approval("/b/dprint.json", "1")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/b/dprint.json", "1:a")));
     // allowing it with its configuration afterwards wins (ex. running `dprint fmt`)
     let allowed = ProcessPluginDecision {
       decided_at: 2,
-      ..decision("/a/dprint.json", "1", true)
+      ..decision("/a/dprint.json", "1:a", true)
     };
     let permissions = read_permissions(&environment, &[allowed]);
-    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
-    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "2")));
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:b")));
   }
 
   #[test]
@@ -1121,12 +1174,12 @@ mod test {
       decision.approval.plugin = "https://plugins.dprint.dev/other.json@checksum".to_string();
       decision
     };
-    state.add_process_plugin_decision(decision("/a/dprint.json", "1", true));
-    state.add_process_plugin_decision(other_plugin("1", true));
-    state.add_process_plugin_decision(other_plugin("2", false));
+    state.add_process_plugin_decision(decision("/a/dprint.json", "1:a", true));
+    state.add_process_plugin_decision(other_plugin("1:a", true));
+    state.add_process_plugin_decision(other_plugin("1:b", false));
     assert_eq!(
       state.process_plugin_decisions,
-      vec![decision("/a/dprint.json", "1", true), other_plugin("2", false)]
+      vec![decision("/a/dprint.json", "1:a", true), other_plugin("1:b", false)]
     );
   }
 
@@ -1135,7 +1188,7 @@ mod test {
     let environment = TestEnvironment::new();
     require_approval(&environment);
     let session_permissions = SessionPermissions::default();
-    let plugin = approval("/a/dprint.json", "1").plugin;
+    let plugin = approval("/a/dprint.json", "1:a").plugin;
     assert!(
       !session_permissions
         .read(&environment)
@@ -1154,7 +1207,7 @@ mod test {
     // it's not allowed once the config file changes
     assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "other"));
     // it's not allowed with any configuration
-    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     assert!(session_permissions.take_process_plugin_set_up_grant("/a/dprint.json", &plugin).unwrap().always);
     assert!(
       !session_permissions
@@ -1168,7 +1221,7 @@ mod test {
     let environment = TestEnvironment::new();
     require_approval(&environment);
     let session_permissions = SessionPermissions::default();
-    let plugin = approval("/a/dprint.json", "1").plugin;
+    let plugin = approval("/a/dprint.json", "1:a").plugin;
     let grant = |decided_at| ProcessPluginSetUpGrant {
       config_file: "/a/dprint.json".to_string(),
       plugin: plugin.clone(),
@@ -1204,35 +1257,35 @@ mod test {
     let environment = TestEnvironment::new();
     environment.set_fs_time(5);
     assert_eq!(
-      ProcessPluginDecision::new(&environment, approval("/a/dprint.json", "1"), true, &[]).decided_at,
+      ProcessPluginDecision::new(&environment, approval("/a/dprint.json", "1:a"), true, &[]).decided_at,
       5000
     );
     // it's after the decisions for the plugin, even one that seems to be from the future (ex. from a machine whose clock is ahead)
     let decisions = [
       ProcessPluginDecision {
         decided_at: 9000,
-        ..decision("/a/dprint.json", "1", false)
+        ..decision("/a/dprint.json", "1:a", false)
       },
       ProcessPluginDecision {
         decided_at: 12000,
-        ..decision("/b/dprint.json", "1", false)
+        ..decision("/b/dprint.json", "1:a", false)
       },
     ];
     assert_eq!(
-      ProcessPluginDecision::new(&environment, approval("/a/dprint.json", "2"), true, &decisions).decided_at,
+      ProcessPluginDecision::new(&environment, approval("/a/dprint.json", "1:b"), true, &decisions).decided_at,
       9001
     );
     let grant = ProcessPluginSetUpGrant::new(
       &environment,
       "/a/dprint.json".to_string(),
-      approval("/a/dprint.json", "1").plugin,
+      approval("/a/dprint.json", "1:a").plugin,
       "hash".to_string(),
       false,
       &decisions,
     );
     assert_eq!(grant.decided_at, 9001);
     assert_eq!(
-      ProcessPluginDecision::new(&environment, approval("/c/dprint.json", "1"), true, &decisions).decided_at,
+      ProcessPluginDecision::new(&environment, approval("/c/dprint.json", "1:a"), true, &decisions).decided_at,
       5000
     );
   }
@@ -1250,7 +1303,7 @@ mod test {
     assert!(
       !session_permissions
         .read(&environment)
-        .is_process_plugin_allowed(&approval("/a/dprint.json", "1"))
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
     );
     session_permissions.read(&environment);
     assert_eq!(
@@ -1277,29 +1330,29 @@ mod test {
       .unwrap();
     let permissions = read_permissions(&environment, &[]);
     assert_eq!(permissions.allow_process_plugins, Some(false));
-    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     // what was decided is still used
-    let permissions = read_permissions(&environment, &[decision("/a/dprint.json", "1", true)]);
-    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    let permissions = read_permissions(&environment, &[decision("/a/dprint.json", "1:a", true)]);
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     // an unknown property outside of "editor" is only logged
     environment
       .write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": true }, "other": 1 }"#)
       .unwrap();
-    assert!(read_permissions(&environment, &[]).is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    assert!(read_permissions(&environment, &[]).is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     environment.take_stderr_messages();
   }
 
   #[test]
   fn should_forget_the_oldest_decisions() {
     let mut approvals = EditorApprovals::default();
-    approvals.add_process_plugin_decision(decision("/denied/dprint.json", "1", false));
+    approvals.add_process_plugin_decision(decision("/denied/dprint.json", "1:a", false));
     for i in 0..MAX_PROCESS_PLUGIN_DECISIONS + 2 {
-      approvals.add_process_plugin_decision(decision(&format!("/{i}/dprint.json"), "1", true));
+      approvals.add_process_plugin_decision(decision(&format!("/{i}/dprint.json"), "1:a", true));
     }
     assert_eq!(approvals.process_plugin_decisions.len(), MAX_PROCESS_PLUGIN_DECISIONS);
     // what was denied is kept
-    assert_eq!(approvals.process_plugin_decisions[0], decision("/denied/dprint.json", "1", false));
-    assert_eq!(approvals.process_plugin_decisions[1], decision("/3/dprint.json", "1", true));
+    assert_eq!(approvals.process_plugin_decisions[0], decision("/denied/dprint.json", "1:a", false));
+    assert_eq!(approvals.process_plugin_decisions[1], decision("/3/dprint.json", "1:a", true));
   }
 
   #[test]
@@ -1310,11 +1363,11 @@ mod test {
     // ex. a newer version of dprint with another format
     environment.write_file(&file_path, r#"{ "version": 2, "other": [] }"#).unwrap();
     let session_permissions = SessionPermissions::default();
-    session_permissions.add_process_plugin_decision(decision("/a/dprint.json", "1", true));
+    session_permissions.add_process_plugin_decision(decision("/a/dprint.json", "1:a", true));
     assert!(
       session_permissions
         .read(&environment)
-        .is_process_plugin_allowed(&approval("/a/dprint.json", "1"))
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
     );
     assert_eq!(
       environment.take_stderr_messages(),
@@ -1326,7 +1379,7 @@ mod test {
     assert!(
       update_editor_approvals_without_lock(&environment, |approvals| approvals.add_process_plugin_decision(decision(
         "/b/dprint.json",
-        "1",
+        "1:a",
         true
       )))
       .is_err()
@@ -1563,7 +1616,7 @@ mod test {
     { "configFile": "/a/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:a", "allowed": true, "decidedAt": 0, "minVersion": 2, "workspace": "/a" },
     { "configFile": "/b/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "allowed": false, "decidedAt": 0, "minVersion": 2 },
     { "configFile": "/c/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:c", "allowed": true, "decidedAt": 0, "minVersion": 1 },
-    { "configFile": "/d/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:d", "allowed": true, "decidedAt": 0, "minVersion": "2" }
+    { "configFile": "/d/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:d", "allowed": true, "decidedAt": 0, "minVersion": "1:b" }
   ]
 }
 "#;
@@ -1700,6 +1753,141 @@ mod test {
   }
 
   #[test]
+  fn should_not_let_an_allow_with_a_hash_made_another_way_hide_one_this_version_makes() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let at = |decision: ProcessPluginDecision, decided_at| ProcessPluginDecision { decided_at, ..decision };
+    // ex. a newer version of dprint that hashes the configuration another way allowed it since
+    let permissions = read_permissions(
+      &environment,
+      &[at(decision("/a/dprint.json", "1:a", true), 1), at(decision("/a/dprint.json", "2:a", true), 2)],
+    );
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(!permissions.was_allowed_with_other_config(&approval("/a/dprint.json", "1:a")));
+    // and a hash without a version isn't one this version makes
+    let permissions = read_permissions(
+      &environment,
+      &[at(decision("/a/dprint.json", "1:a", true), 1), at(decision("/a/dprint.json", "a", true), 2)],
+    );
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    // a denial with any hash is still applied
+    let permissions = read_permissions(
+      &environment,
+      &[at(decision("/a/dprint.json", "1:a", true), 1), at(decision("/a/dprint.json", "2:a", false), 2)],
+    );
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+  }
+
+  #[test]
+  fn should_keep_an_allow_with_a_hash_made_another_way_when_storing_an_allow() {
+    let at = |decision: ProcessPluginDecision, decided_at| ProcessPluginDecision { decided_at, ..decision };
+    let other_way = at(decision("/a/dprint.json", "2:a", true), 2);
+    let mut approvals = EditorApprovals::default();
+    approvals.add_process_plugin_decision(at(decision("/a/dprint.json", "1:a", true), 1));
+    approvals.add_process_plugin_decision(other_way.clone());
+    // ex. the other version stored an allow since, which doesn't keep this version from storing its own
+    assert!(approvals.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert_eq!(
+      approvals.process_plugin_decisions,
+      vec![at(decision("/a/dprint.json", "1:a", true), 1), other_way.clone()]
+    );
+    // an allow replaces the one made the same way and keeps the other
+    approvals.add_process_plugin_decision(at(decision("/a/dprint.json", "1:b", true), 1));
+    assert_eq!(
+      approvals.process_plugin_decisions,
+      vec![other_way.clone(), at(decision("/a/dprint.json", "1:b", true), 1)]
+    );
+    assert!(!approvals.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(approvals.is_process_plugin_allowed(&approval("/a/dprint.json", "1:b")));
+    // a denial that's older doesn't replace the allow made the other way
+    let denied = ProcessPluginDecision {
+      approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), other_way.approval.plugin.clone()),
+      allowed: false,
+      decided_at: 1,
+    };
+    approvals.add_process_plugin_decision(denied.clone());
+    assert_eq!(
+      approvals.process_plugin_decisions,
+      vec![other_way, at(decision("/a/dprint.json", "1:b", true), 1)]
+    );
+    // but a more recent one replaces every allow
+    let denied = ProcessPluginDecision { decided_at: 3, ..denied };
+    approvals.add_process_plugin_decision(denied.clone());
+    assert_eq!(approvals.process_plugin_decisions, vec![denied]);
+  }
+
+  #[test]
+  fn should_keep_the_allows_of_each_version_when_two_versions_use_the_approvals_file() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let file_path = get_editor_approvals_file_path(&environment).unwrap();
+    // ex. a newer version of dprint that hashes the configuration another way stored an allow
+    environment
+      .write_file(
+        &file_path,
+        r#"{
+  "version": 1,
+  "processPluginDecisions": [
+    { "configFile": "/a/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "2:a", "allowed": true, "decidedAt": 5 }
+  ]
+}
+"#,
+      )
+      .unwrap();
+    update_editor_approvals_without_lock(&environment, |approvals| {
+      approvals.add_process_plugin_decision(ProcessPluginDecision {
+        decided_at: 1,
+        ..decision("/a/dprint.json", "1:a", true)
+      })
+    })
+    .unwrap();
+    let text = environment.read_file(&file_path).unwrap();
+    assert!(text.contains(r#""configHash": "2:a""#), "{}", text);
+    assert!(text.contains(r#""configHash": "1:a""#), "{}", text);
+    assert!(read_permissions(&environment, &[]).is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(
+      read_editor_approvals(&environment)
+        .unwrap()
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
+    );
+  }
+
+  #[test]
+  fn should_let_a_denial_win_a_tie() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let plugin = approval("/a/dprint.json", "1:a").plugin;
+    // ex. two windows decided at the same time after a decision from the future
+    let denied = ProcessPluginDecision {
+      approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin.clone()),
+      allowed: false,
+      decided_at: 2,
+    };
+    let allowed = ProcessPluginDecision {
+      decided_at: 2,
+      ..decision("/a/dprint.json", "1:a", true)
+    };
+    // whichever is last
+    for decisions in [[denied.clone(), allowed.clone()], [allowed.clone(), denied.clone()]] {
+      let permissions = read_permissions(&environment, &decisions);
+      assert!(permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1:a")));
+      let mut approvals = EditorApprovals::default();
+      for decision in decisions {
+        approvals.add_process_plugin_decision(decision);
+      }
+      assert_eq!(approvals.process_plugin_decisions, vec![denied.clone()]);
+    }
+    let grant = ProcessPluginSetUpGrant {
+      config_file: "/a/dprint.json".to_string(),
+      plugin,
+      trusted_config_hash: "hash".to_string(),
+      always: true,
+      decided_at: 2,
+    };
+    assert!(read_permissions(&environment, std::slice::from_ref(&denied)).is_denied_since(&grant));
+  }
+
+  #[test]
   fn should_not_allow_process_plugins_when_settings_do_not_parse() {
     let environment = TestEnvironment::new();
     let file_path = get_settings_file_path(&environment).unwrap();
@@ -1709,7 +1897,7 @@ mod test {
     assert!(
       !session_permissions
         .read(&environment)
-        .is_process_plugin_allowed(&approval("/a/dprint.json", "1"))
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
     );
     // only logged once
     session_permissions.read(&environment);

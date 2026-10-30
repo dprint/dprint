@@ -1539,8 +1539,11 @@ fn get_process_plugin_approval(
 /// (see `ProcessPluginApproval::config_hash`), which is stored with it and
 /// needs to be increased when what's hashed changes (ex. a property is added
 /// to `ApprovedPlugin` or the configuration serializes differently) so that a
-/// decision isn't reported as being for another configuration.
-const PROCESS_PLUGIN_CONFIG_HASH_VERSION: u32 = 1;
+/// decision isn't reported as being for another configuration. An allow with
+/// a hash made another way isn't used, and storing an allow keeps it, so the
+/// versions of dprint that make it differently don't undo each other's allows
+/// (see `EditorApprovals`).
+pub(crate) const PROCESS_PLUGIN_CONFIG_HASH_VERSION: u32 = 1;
 
 /// The version of how the hash of the trusted configuration of a config file
 /// is made (see `get_trusted_config_hash`), which needs to be increased when
