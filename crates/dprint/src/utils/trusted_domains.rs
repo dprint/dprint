@@ -1,4 +1,7 @@
 use std::collections::HashSet;
+use std::path::Component;
+use std::path::Path;
+use std::path::Prefix;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -21,9 +24,8 @@ pub const DEFAULT_TRUSTED_DOMAINS: [&str; 4] = ["registry.npmjs.org", "plugins.d
 /// download what its configuration file says. Downloading from any domain would
 /// let a configuration file send information to a server of its choosing (ex.
 /// that the project was opened, from where, and anything in the url), so the
-/// editors only download from the trusted domains without asking. A file on a
-/// network share or a mounted drive is read like a local file because the user
-/// chose to make it reachable like one.
+/// editors only download from the trusted domains without asking. The same
+/// goes for reading a file on another machine (ex. a UNC path on Windows).
 ///
 /// The same goes for sending downloads through a proxy that an `.npmrc` file
 /// other than the user's own sets (see `NpmrcProxy`), even to a trusted domain.
@@ -91,6 +93,24 @@ impl DownloadPolicy {
     }
   }
 
+  /// Errors when the path is on another machine and may not be read without
+  /// asking the user, which is allowed when the file it's relative to is on the
+  /// same network share (ex. a config file in a project on a share).
+  pub fn ensure_allows_path(&self, path: &Path, base: Option<&Path>) -> Result<(), UntrustedDownloadError> {
+    let DownloadPolicy::TrustedDomains(downloads) = self else {
+      return Ok(());
+    };
+    let Some(share) = get_network_share(path) else {
+      return Ok(());
+    };
+    let path_text = path.display().to_string();
+    if base.and_then(get_network_share).is_some_and(|base_share| base_share == share) || downloads.is_allowed(&path_text) {
+      Ok(())
+    } else {
+      Err(UntrustedDownloadError { download: path_text })
+    }
+  }
+
   /// Allows downloading what the user was shown and allowed (the downloads
   /// of `UntrustedDownloadError`s) for the rest of the session.
   pub fn allow(&self, downloads: &[String]) {
@@ -119,7 +139,7 @@ impl DownloadPolicy {
 #[derive(Debug)]
 pub struct TrustedDownloads {
   trusted_domains: Mutex<TrustedDomains>,
-  /// The urls the user allowed downloading this session, which are only the
+  /// The urls and paths the user allowed downloading this session, which are only the
   /// exact ones they were shown. A url ending with a slash allows what's
   /// under it (ex. an npm registry). It also has the proxies of `.npmrc`
   /// files the user allowed downloading through (see `NpmrcProxy::to_download`).
@@ -127,12 +147,12 @@ pub struct TrustedDownloads {
 }
 
 impl TrustedDownloads {
-  fn is_allowed(&self, url: &str) -> bool {
+  fn is_allowed(&self, url_or_path: &str) -> bool {
     self
       .allowed
       .lock()
       .iter()
-      .any(|allowed| allowed == url || (allowed.ends_with('/') && url.starts_with(allowed.as_str())))
+      .any(|allowed| allowed == url_or_path || (allowed.ends_with('/') && url_or_path.starts_with(allowed.as_str())))
   }
 }
 
@@ -301,6 +321,37 @@ impl TrustedDomains {
 /// isn't mistaken for a url because a url can't have the newline it has.
 const NPMRC_PROXY_DOWNLOAD_PREFIX: &str = "npmrc-proxy:";
 
+/// Gets where a path that may be on another machine is (ex. the server and
+/// share of a UNC path), lowercased because it's case insensitive.
+///
+/// IMPORTANT: On Windows, only a path on a drive is known to be local. A UNC
+/// path isn't, and neither is any other kind of prefix because some of them
+/// also reach another machine (ex. `\\.\UNC\server\share` or
+/// `\\?\GLOBALROOT\Device\Mup\server\share`). On macOS, a path in `/net` is on
+/// another machine because the automounter mounts it.
+fn get_network_share(path: &Path) -> Option<String> {
+  match path.components().next()? {
+    Component::Prefix(prefix) => match prefix.kind() {
+      Prefix::Disk(_) | Prefix::VerbatimDisk(_) => None,
+      Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => Some(format!(
+        "{}\\{}",
+        server.to_string_lossy().to_lowercase(),
+        share.to_string_lossy().to_lowercase()
+      )),
+      // the share isn't known, so this is the whole path, which the file it's relative to never matches
+      _ => Some(path.to_string_lossy().to_lowercase()),
+    },
+    Component::RootDir if cfg!(target_os = "macos") => {
+      let mut components = path.components().skip(1);
+      match (components.next(), components.next()) {
+        (Some(Component::Normal(net)), Some(Component::Normal(host))) if net == "net" => Some(format!("/net/{}", host.to_string_lossy().to_lowercase())),
+        _ => None,
+      }
+    }
+    _ => None,
+  }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
@@ -326,6 +377,46 @@ mod test {
     assert!(!policy.allows(&url("https://npm.example.com.evil.com/@scope/package")));
     // the cli downloads anything
     assert!(DownloadPolicy::All.allows(&url("http://example.com/plugin.wasm")));
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_not_allow_reading_from_another_machine() {
+    let environment = TestEnvironment::new();
+    let policy = DownloadPolicy::for_editor(&environment);
+    assert!(
+      policy
+        .ensure_allows_path(Path::new(r"C:\project\plugin.wasm"), Some(Path::new(r"C:\project")))
+        .is_ok()
+    );
+    let err = policy
+      .ensure_allows_path(Path::new(r"\\server\share\plugin.wasm"), Some(Path::new(r"C:\project")))
+      .unwrap_err();
+    assert_eq!(err.download, r"\\server\share\plugin.wasm");
+    assert!(policy.ensure_allows_path(Path::new(r"\\?\UNC\server\share\plugin.wasm"), None).is_err());
+    // other ways of reaching another machine
+    assert!(policy.ensure_allows_path(Path::new(r"\\.\UNC\server\share\plugin.wasm"), None).is_err());
+    assert!(
+      policy
+        .ensure_allows_path(Path::new(r"\\?\GLOBALROOT\Device\Mup\server\share\plugin.wasm"), Some(Path::new(r"C:\project")))
+        .is_err()
+    );
+    assert!(policy.ensure_allows_path(Path::new(r"\\?\C:\project\plugin.wasm"), None).is_ok());
+    // a config file on the share may use what's on it
+    assert!(
+      policy
+        .ensure_allows_path(Path::new(r"\\SERVER\share\plugin.wasm"), Some(Path::new(r"\\server\Share\project")))
+        .is_ok()
+    );
+    assert!(
+      policy
+        .ensure_allows_path(Path::new(r"\\server\other\plugin.wasm"), Some(Path::new(r"\\server\share\project")))
+        .is_err()
+    );
+    policy.allow(&[r"\\server\share\plugin.wasm".to_string()]);
+    assert!(policy.ensure_allows_path(Path::new(r"\\server\share\plugin.wasm"), None).is_ok());
+    // the cli reads anything
+    assert!(DownloadPolicy::All.ensure_allows_path(Path::new(r"\\server\share\plugin.wasm"), None).is_ok());
   }
 
   #[test]

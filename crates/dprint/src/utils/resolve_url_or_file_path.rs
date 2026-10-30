@@ -283,7 +283,13 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       // handle file urls (ex. file:///C:/some/folder/file.json)
       if url.scheme() == "file" {
         match url.to_file_path() {
-          Ok(file_path) => return Ok(PathSource::new_local(environment.canonicalize(file_path)?)),
+          Ok(file_path) => {
+            // IMPORTANT: Check this before canonicalizing because that reads it.
+            environment
+              .download_policy()
+              .ensure_allows_path(&file_path, base.maybe_local_path().map(|path| path.as_ref()))?;
+            return Ok(PathSource::new_local(environment.canonicalize(file_path)?));
+          }
           Err(()) => bail!("Problem converting file url `{}` to file path.", url_or_file_path),
         }
       }
@@ -297,7 +303,12 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
           home_dir
         } else {
           // a path that's absolute (ex. a UNC path) replaces the home directory
-          environment.canonicalize(home_dir.join(rest))?
+          let path = home_dir.join(rest);
+          // IMPORTANT: Check this before canonicalizing because that reads it.
+          environment
+            .download_policy()
+            .ensure_allows_path(&path, base.maybe_local_path().map(|path| path.as_ref()))?;
+          environment.canonicalize(path)?
         };
         return Ok(PathSource::new_local(path));
       }
@@ -312,6 +323,8 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
     }
     PathSource::Local(local_base) => {
       let path = local_base.path.join(url_or_file_path);
+      // IMPORTANT: Check this before canonicalizing because that reads it.
+      environment.download_policy().ensure_allows_path(&path, Some(local_base.path.as_ref()))?;
       PathSource::new_local(environment.canonicalize(path)?)
     }
     PathSource::Npm(_) => bail!("Cannot resolve a relative path against an npm specifier"),
@@ -952,8 +965,9 @@ mod tests {
     });
   }
 
+  #[cfg(windows)]
   #[test]
-  fn should_read_from_another_machine_like_a_local_file() {
+  fn should_not_read_from_another_machine_without_it_being_allowed() {
     let environment = TestEnvironment::new();
     environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
     let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/project"));
@@ -962,14 +976,13 @@ mod tests {
       r"\\.\UNC\server\share\plugin.wasm",
       r"\\?\GLOBALROOT\Device\Mup\server\share\plugin.wasm",
       "file://server/share/plugin.wasm",
-      "/net/server/plugin.wasm",
       // an absolute path replaces the home directory
       r"~/\\server\share\plugin.wasm",
     ] {
-      // the user made it reachable like a local file, so it isn't asked about
-      if let Err(err) = resolve_url_or_file_path_to_path_source(specifier, &base, &environment) {
-        assert!(crate::utils::UntrustedDownloadError::find(&err).is_none(), "{}: {:#}", specifier, err);
-      }
+      let Err(err) = resolve_url_or_file_path_to_path_source(specifier, &base, &environment) else {
+        panic!("expected an error for {}", specifier);
+      };
+      assert!(crate::utils::UntrustedDownloadError::find(&err).is_some(), "{}: {:#}", specifier, err);
     }
   }
 }
