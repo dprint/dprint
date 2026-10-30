@@ -18,6 +18,7 @@ use crate::environment::Environment;
 use crate::resolution::PROCESS_PLUGIN_CONFIG_HASH_VERSION;
 use crate::utils::LaxSingleProcessFsFlag;
 
+use super::Settings;
 use super::get_init_config_file_text::to_cst_input;
 use super::get_settings_file_path;
 use super::read_settings;
@@ -292,6 +293,10 @@ impl ProcessPluginSetUpGrant {
 pub struct Permissions {
   /// Whether process plugins run without the user approving them.
   pub allow_process_plugins: Option<bool>,
+  /// Why the editors don't use the settings file when they don't (see
+  /// `read_ignored_settings_message`), which the messages that ask the user
+  /// say because it may be why they're asked.
+  pub ignored_settings_message: Option<String>,
   /// The decisions to always use followed by the ones for the session, where
   /// the most recent one for a plugin of a config file wins.
   pub process_plugin_decisions: Vec<ProcessPluginDecision>,
@@ -399,44 +404,32 @@ impl SessionPermissions {
   /// Reads what the user allowed the editor integrations to do, along with
   /// what they decided for the session.
   pub fn read(&self, environment: &impl Environment) -> Permissions {
-    let allow_process_plugins = match read_settings(environment) {
-      Ok(Some(settings)) => {
-        let file_path = get_settings_file_path(environment).map(|path| path.display().to_string()).unwrap_or_default();
-        for property_name in &settings.unknown_properties {
-          self.log_settings_problem(environment, format!("Unknown property in {}: {}", file_path, property_name));
-        }
-        if settings.has_unknown_editor_properties() {
-          // IMPORTANT: A property this version doesn't know may be a setting of a
-          // newer version that narrows what's allowed, so don't allow more than
-          // the defaults (the trusted domains do the same).
-          self.log_settings_problem(
-            environment,
-            format!(
-              concat!(
-                "Requiring approval to run process plugins and only trusting the default domains in editors ",
-                "because {} has a property in \"editor\" that this version of dprint doesn't know."
-              ),
-              file_path
-            ),
-          );
-          Some(false)
-        } else {
-          settings.editor.allow_process_plugins
-        }
+    let settings = read_settings(environment);
+    if let Ok(Some(settings)) = &settings {
+      let file_path = get_settings_file_path(environment).map(|path| path.display().to_string()).unwrap_or_default();
+      for property_name in &settings.unknown_properties {
+        self.log_settings_problem(environment, format!("Unknown property in {}: {}", file_path, property_name));
       }
-      Ok(None) => None,
-      Err(err) => {
+    }
+    let ignored_reason = get_ignored_settings_reason(environment, &settings);
+    let allow_process_plugins = match (&settings, &ignored_reason) {
+      (_, Some(reason)) => {
+        // IMPORTANT: Don't allow what the user may have tried to disallow, and a property or
+        // value this version doesn't know may be a setting of a newer version that narrows
+        // what's allowed, so don't allow more than the defaults (the trusted domains do the same).
         self.log_settings_problem(
           environment,
           format!(
-            "Requiring approval to run process plugins in editors because the settings couldn't be read: {:#}",
-            err
+            "Requiring approval to run process plugins and only trusting the default domains in editors because {}.",
+            reason
           ),
         );
-        // IMPORTANT: Don't allow what the user may have tried to disallow.
         Some(false)
       }
+      (Ok(Some(settings)), None) => settings.editor.allow_process_plugins,
+      (_, None) => None,
     };
+    let ignored_settings_message = ignored_reason.map(|reason| get_ignored_settings_message(environment, &reason));
     // only read the decisions when they're used
     let mut process_plugin_decisions = if allow_process_plugins != Some(true) {
       match read_editor_approvals(environment) {
@@ -455,6 +448,7 @@ impl SessionPermissions {
     process_plugin_decisions.extend(self.process_plugin_decisions.lock().iter().cloned());
     Permissions {
       allow_process_plugins,
+      ignored_settings_message,
       stored_process_plugin_decision_count,
       process_plugin_decisions,
       process_plugin_set_up_grants: self.process_plugin_set_up_grants.lock().clone(),
@@ -511,45 +505,20 @@ impl SessionPermissions {
   }
 }
 
-/// Gets whether a decision is more recent than another one for the same
-/// process plugin, which a denial is at the same time as an allow because
-/// denying more than the user did is safe (ex. two windows decide at the same
-/// time after a decision from the future, see `get_decided_now_at`).
-fn is_more_recent(decision: &ProcessPluginDecision, other: &ProcessPluginDecision) -> bool {
-  is_more_recent_at(decision.decided_at, decision.allowed, other.decided_at, other.allowed)
-}
-
 /// Gets whether what was decided at a time is more recent than what was
 /// decided at another like `is_more_recent` (ex. for a set-up grant).
 pub fn is_more_recent_at(decided_at: u64, allowed: bool, other_decided_at: u64, other_allowed: bool) -> bool {
   decided_at > other_decided_at || (decided_at == other_decided_at && !allowed && other_allowed)
 }
 
-/// Gets the decision that's used for the approval, which is the most recent
-/// one for the process plugin of the config file when it's for the approval's
-/// configuration or denies the plugin with any configuration. When the most
-/// recent one is for another configuration, there's no decision, so the user
-/// is asked instead of an older one being used (ex. a denial from before the
-/// plugin was allowed with its previous configuration).
-fn get_winning_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &ProcessPluginApproval) -> Option<&'a ProcessPluginDecision> {
-  let decision = get_latest_decision(decisions, approval)?;
-  let is_for_approval = match decision.allowed {
-    // IMPORTANT: Only allow it with the configuration that was allowed.
-    true => decision.approval.config_hash.is_some() && decision.approval.config_hash == approval.config_hash,
-    false => decision.approval.config_hash.is_none() || decision.approval.config_hash == approval.config_hash,
-  };
-  is_for_approval.then_some(decision)
-}
-
-/// Gets the most recent decision that this version uses (see
-/// `ProcessPluginDecision::is_used`) for the process plugin of the config file
-/// of the approval with any configuration. A denial wins a tie, and otherwise
-/// the last one does, which is the one for the session.
-fn get_latest_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &ProcessPluginApproval) -> Option<&'a ProcessPluginDecision> {
-  decisions
-    .iter()
-    .filter(|decision| decision.approval.config_file == approval.config_file && decision.approval.plugin == approval.plugin && decision.is_used())
-    .max_by_key(|decision| (decision.decided_at, !decision.allowed))
+/// Reads why the editors don't use the settings file, which is a message for
+/// the user that's `None` when they use it. They don't when it can't be read
+/// or `editor` has a property or a value that this version doesn't know (see
+/// `Settings`), and then only trust the default domains and ask before running
+/// process plugins.
+pub fn read_ignored_settings_message(environment: &impl Environment) -> Option<String> {
+  let reason = get_ignored_settings_reason(environment, &read_settings(environment))?;
+  Some(get_ignored_settings_message(environment, &reason))
 }
 
 /// Gets the time of a decision the user made now about the process plugin of
@@ -952,6 +921,65 @@ fn get_config_hash_version(approval: &ProcessPluginApproval) -> Option<&str> {
   approval.config_hash.as_deref()?.split_once(':').map(|(version, _)| version)
 }
 
+/// Gets the message for the user that says why the editors don't use the
+/// settings file (see `read_ignored_settings_message`).
+fn get_ignored_settings_message(environment: &impl Environment, reason: &str) -> String {
+  format!(
+    "dprint {} doesn't use its settings file in editors because {}. Update dprint or change the file to use it.",
+    environment.cli_version(),
+    reason
+  )
+}
+
+/// Gets why the editors don't use the settings that were read, which is said
+/// after "because".
+fn get_ignored_settings_reason(environment: &impl Environment, settings: &Result<Option<Settings>>) -> Option<String> {
+  match settings {
+    Ok(Some(settings)) => {
+      let problem = settings.get_editor_problem()?;
+      let file_path = get_settings_file_path(environment).map(|path| path.display().to_string()).unwrap_or_default();
+      Some(format!("{} {}", file_path, problem))
+    }
+    Ok(None) => None,
+    Err(err) => Some(format!("the settings couldn't be read: {:#}", err)),
+  }
+}
+
+/// Gets whether a decision is more recent than another one for the same
+/// process plugin, which a denial is at the same time as an allow because
+/// denying more than the user did is safe (ex. two windows decide at the same
+/// time after a decision from the future, see `get_decided_now_at`).
+fn is_more_recent(decision: &ProcessPluginDecision, other: &ProcessPluginDecision) -> bool {
+  is_more_recent_at(decision.decided_at, decision.allowed, other.decided_at, other.allowed)
+}
+
+/// Gets the decision that's used for the approval, which is the most recent
+/// one for the process plugin of the config file when it's for the approval's
+/// configuration or denies the plugin with any configuration. When the most
+/// recent one is for another configuration, there's no decision, so the user
+/// is asked instead of an older one being used (ex. a denial from before the
+/// plugin was allowed with its previous configuration).
+fn get_winning_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &ProcessPluginApproval) -> Option<&'a ProcessPluginDecision> {
+  let decision = get_latest_decision(decisions, approval)?;
+  let is_for_approval = match decision.allowed {
+    // IMPORTANT: Only allow it with the configuration that was allowed.
+    true => decision.approval.config_hash.is_some() && decision.approval.config_hash == approval.config_hash,
+    false => decision.approval.config_hash.is_none() || decision.approval.config_hash == approval.config_hash,
+  };
+  is_for_approval.then_some(decision)
+}
+
+/// Gets the most recent decision that this version uses (see
+/// `ProcessPluginDecision::is_used`) for the process plugin of the config file
+/// of the approval with any configuration. A denial wins a tie, and otherwise
+/// the last one does, which is the one for the session.
+fn get_latest_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &ProcessPluginApproval) -> Option<&'a ProcessPluginDecision> {
+  decisions
+    .iter()
+    .filter(|decision| decision.approval.config_file == approval.config_file && decision.approval.plugin == approval.plugin && decision.is_used())
+    .max_by_key(|decision| (decision.decided_at, !decision.allowed))
+}
+
 #[cfg(test)]
 mod test {
   use pretty_assertions::assert_eq;
@@ -1327,7 +1355,7 @@ mod test {
         format!("Unknown property in {}: editor.allowProcessPlugin", file_path.display()),
         format!("Unknown property in {}: other", file_path.display()),
         format!(
-          "Requiring approval to run process plugins and only trusting the default domains in editors because {} has a property in \"editor\" that this version of dprint doesn't know.",
+          "Requiring approval to run process plugins and only trusting the default domains in editors because {} has a property in \"editor\" that this version of dprint doesn't know (editor.allowProcessPlugin).",
           file_path.display()
         ),
       ]
@@ -1346,6 +1374,17 @@ mod test {
     let permissions = read_permissions(&environment, &[]);
     assert_eq!(permissions.allow_process_plugins, Some(false));
     assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    // the messages that ask the user say why, because it's what the user would otherwise do
+    let message = format!(
+      concat!(
+        "dprint {} doesn't use its settings file in editors because {} has a property in \"editor\" that this version of dprint ",
+        "doesn't know (editor.processPluginExceptions). Update dprint or change the file to use it."
+      ),
+      environment.cli_version(),
+      file_path.display()
+    );
+    assert_eq!(permissions.ignored_settings_message.as_deref(), Some(message.as_str()));
+    assert_eq!(read_ignored_settings_message(&environment), Some(message));
     // what was decided is still used
     let permissions = read_permissions(&environment, &[decision("/a/dprint.json", "1:a", true)]);
     assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
@@ -1353,8 +1392,40 @@ mod test {
     environment
       .write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": true }, "other": 1 }"#)
       .unwrap();
-    assert!(read_permissions(&environment, &[]).is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    let permissions = read_permissions(&environment, &[]);
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert_eq!(permissions.ignored_settings_message, None);
+    assert_eq!(read_ignored_settings_message(&environment), None);
     environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_not_allow_process_plugins_with_a_trusted_domain_this_version_does_not_know() {
+    let environment = TestEnvironment::new();
+    let file_path = get_settings_file_path(&environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    // ex. a value of a newer version of dprint that trusts less
+    environment
+      .write_file(
+        &file_path,
+        r#"{ "editor": { "allowProcessPlugins": true, "trustedDomains": ["!github.com"] } }"#,
+      )
+      .unwrap();
+    let permissions = read_permissions(&environment, &[]);
+    assert_eq!(permissions.allow_process_plugins, Some(false));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    let reason = format!(
+      "{} has a value in \"editor.trustedDomains\" that isn't a domain (\"!github.com\")",
+      file_path.display()
+    );
+    assert!(permissions.ignored_settings_message.unwrap().contains(&reason));
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![format!(
+        "Requiring approval to run process plugins and only trusting the default domains in editors because {}.",
+        reason
+      )]
+    );
   }
 
   #[test]
@@ -1920,7 +1991,8 @@ mod test {
     let messages = environment.take_stderr_messages();
     assert_eq!(messages.len(), 1);
     assert!(
-      messages[0].starts_with("Requiring approval to run process plugins in editors because the settings couldn't be read: "),
+      messages[0]
+        .starts_with("Requiring approval to run process plugins and only trusting the default domains in editors because the settings couldn't be read: "),
       "{}",
       messages[0]
     );

@@ -252,7 +252,10 @@ pub const CANCEL_DOWNLOAD_ACTION_TITLE: &str = "Cancel";
 /// Each proxy is said first, starting with its setting and its file, because
 /// an editor may cut off a long message (ex. after many long urls) and the
 /// user needs to see what's sent to it.
-pub fn get_untrusted_download_message(downloads: &[String]) -> String {
+///
+/// The settings file isn't said to trust a domain when the editors don't use
+/// it (see `read_ignored_settings_message`), which is said instead.
+pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_message: Option<&str>) -> String {
   let (proxies, urls): (Vec<_>, Vec<_>) = downloads.iter().partition(|download| NpmrcProxy::from_download(download).is_some());
   let mut messages = Vec::new();
   for proxy in proxies.iter().filter_map(|download| NpmrcProxy::from_download(download)) {
@@ -269,10 +272,10 @@ pub fn get_untrusted_download_message(downloads: &[String]) -> String {
     messages.push(format!(
       concat!(
         "dprint needs to download {} from domains that aren't trusted. ",
-        "Only download them when you trust the configuration file because a download can send information to the domain. ",
-        "Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."
+        "Only download them when you trust the configuration file because a download can send information to the domain. {}"
       ),
       urls.iter().map(|url| url.as_str()).collect::<Vec<_>>().join(", "),
+      ignored_settings_message.unwrap_or("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."),
     ));
   }
   messages.join(" ")
@@ -290,21 +293,43 @@ impl TrustedDomains {
   /// may come from the project (ex. a terminal in the project's directory).
   pub fn from_settings(environment: &impl Environment) -> Self {
     let mut domains = DEFAULT_TRUSTED_DOMAINS.iter().map(|domain| domain.to_string()).collect::<Vec<_>>();
-    // IMPORTANT: A property in `editor` this version doesn't know may be a setting
-    // of a newer version that trusts less, so only the default domains are trusted
-    // then, like when the settings can't be read. A warning for either is logged
-    // when reading the permissions.
+    // IMPORTANT: A property or value in `editor` this version doesn't know may be a
+    // setting of a newer version that trusts less, so only the default domains are
+    // trusted then, like when the settings can't be read. A warning for either is
+    // logged when reading the permissions.
     if let Ok(Some(settings)) = read_settings(environment)
-      && !settings.has_unknown_editor_properties()
+      && settings.get_editor_problem().is_none()
     {
-      for domain in settings.editor.trusted_domains {
-        let domain = domain.trim().trim_matches('.').to_ascii_lowercase();
-        if !domain.is_empty() && !domains.contains(&domain) {
+      for domain in settings.editor.trusted_domains.iter().filter_map(|domain| Self::parse_domain(domain)) {
+        if !domains.contains(&domain) {
           domains.push(domain);
         }
       }
     }
     TrustedDomains(domains)
+  }
+
+  /// Parses a domain of the `editor.trustedDomains` setting as it's compared
+  /// to the host of a url, which is `None` when it isn't a host name (letters,
+  /// digits, hyphens, and dots between them) or an IP address (an IPv6 one in
+  /// brackets). The whitespace and the dots around it are ignored, and so is
+  /// the case.
+  ///
+  /// IMPORTANT: Anything else fails instead of being trusted as something that
+  /// matches nothing, because it may be a value of a newer version of dprint
+  /// that trusts less (ex. `!github.com` to not trust a default domain).
+  pub fn parse_domain(value: &str) -> Option<String> {
+    let value = value.trim().trim_matches('.').to_ascii_lowercase();
+    let is_ip_v6 = value.starts_with('[');
+    let is_host_name = !value.is_empty()
+      && value.split('.').all(|label| !label.is_empty())
+      && value.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.');
+    if !is_ip_v6 && !is_host_name {
+      return None;
+    }
+    // it's in the form of the host of a url (ex. an IPv4 address written another way)
+    let host = url::Host::parse(&value).ok()?;
+    (matches!(host, url::Host::Ipv6(_)) == is_ip_v6).then(|| host.to_string())
   }
 
   /// Gets whether the url is on a trusted domain, which is only for https
@@ -647,14 +672,26 @@ mod test {
       setting: "https://${TOKEN}@proxy.example".to_string(),
     };
     let url = "https://example.com/plugin.wasm".to_string();
-    let message = get_untrusted_download_message(std::slice::from_ref(&url));
+    let message = get_untrusted_download_message(std::slice::from_ref(&url), None);
     assert!(
       message.starts_with("dprint needs to download https://example.com/plugin.wasm from domains that aren't trusted."),
       "{}",
       message
     );
+    assert!(
+      message.ends_with("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."),
+      "{}",
+      message
+    );
+    // what the user already did isn't suggested when the settings file isn't used
+    let message = get_untrusted_download_message(std::slice::from_ref(&url), Some("The settings file isn't used."));
+    assert!(
+      message.ends_with("send information to the domain. The settings file isn't used."),
+      "{}",
+      message
+    );
     // the proxy is said first, so a long url doesn't push it past where an editor cuts off the message
-    let message = get_untrusted_download_message(&[url.clone(), proxy.to_download()]);
+    let message = get_untrusted_download_message(&[url.clone(), proxy.to_download()], None);
     assert!(
       message.starts_with(concat!(
         "The proxy https://${TOKEN}@proxy.example that /project/.npmrc sets isn't trusted because it isn't your own .npmrc file. ",
@@ -692,12 +729,15 @@ mod test {
     environment
       .write_file(
         &file_path,
-        r#"{ "editor": { "trustedDomains": ["npm.example.com", " Other.Example.com. ", ""] } }"#,
+        r#"{ "editor": { "trustedDomains": ["npm.example.com", " Other.Example.com. ", "[0:0::1]", "127.1"] } }"#,
       )
       .unwrap();
     let trusted_domains = TrustedDomains::from_settings(&environment);
     assert!(trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
     assert!(trusted_domains.is_trusted(&url("https://sub.other.example.com/plugin.wasm")));
+    // an IP address is compared like the host of a url
+    assert!(trusted_domains.is_trusted(&url("https://[::1]/plugin.wasm")));
+    assert!(trusted_domains.is_trusted(&url("https://127.0.0.1/plugin.wasm")));
     // the default ones are still trusted
     assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
     assert!(!trusted_domains.is_trusted(&url("https://example.com/plugin.wasm")));
@@ -726,5 +766,45 @@ mod test {
       .write_file(&file_path, r#"{ "editor": { "trustedDomains": ["npm.example.com"] }, "other": 1 }"#)
       .unwrap();
     assert!(TrustedDomains::from_settings(&environment).is_trusted(&url("https://npm.example.com/@scope/package")));
+  }
+
+  #[test]
+  fn should_only_parse_a_host_name_or_an_ip_address_as_a_trusted_domain() {
+    assert_eq!(TrustedDomains::parse_domain("npm.example.com").as_deref(), Some("npm.example.com"));
+    assert_eq!(TrustedDomains::parse_domain(" .NPM.example-1.com. ").as_deref(), Some("npm.example-1.com"));
+    assert_eq!(TrustedDomains::parse_domain("localhost").as_deref(), Some("localhost"));
+    assert_eq!(TrustedDomains::parse_domain("127.1").as_deref(), Some("127.0.0.1"));
+    assert_eq!(TrustedDomains::parse_domain("[0:0::1]").as_deref(), Some("[::1]"));
+    // ex. a syntax of a newer version of dprint that trusts less
+    for value in [
+      "",
+      ".",
+      "!github.com",
+      "github.com/dprint",
+      "*.example.com",
+      "https://npm.example.com/",
+      "npm.example.com:8080",
+      "npm..example.com",
+      "npm_example.com",
+      "bücher.example",
+      "[::1",
+      "[example.com]",
+    ] {
+      assert_eq!(TrustedDomains::parse_domain(value), None, "{}", value);
+    }
+  }
+
+  #[test]
+  fn should_only_trust_the_default_domains_with_a_trusted_domain_this_version_does_not_know() {
+    let environment = TestEnvironment::new();
+    let file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    // ex. a newer version of dprint that lets the user not trust a default domain
+    environment
+      .write_file(&file_path, r#"{ "editor": { "trustedDomains": ["!github.com", "npm.example.com"] } }"#)
+      .unwrap();
+    let trusted_domains = TrustedDomains::from_settings(&environment);
+    assert!(!trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
+    assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
   }
 }

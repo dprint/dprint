@@ -1659,6 +1659,42 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
 }
 
 #[test]
+fn should_say_why_the_settings_file_is_not_used_when_asking() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  ensure_global_config_dir(&environment);
+  let settings_file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+  // ex. a value of a newer version of dprint that trusts less
+  environment
+    .write_file(&settings_file_path, r#"{ "editor": { "trustedDomains": ["example.com", "!github.com"] } }"#)
+    .unwrap();
+  run_session(&environment, {
+    move |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        assert_eq!(approval.kind, ApprovalKind::Downloads);
+        // it doesn't say to trust the domain in the settings file, which the user did
+        assert!(!approval.message.contains("Add a domain"), "{}", approval.message);
+        assert!(
+          approval.message.ends_with(&format!(
+            "doesn't use its settings file in editors because {} has a value in \"editor.trustedDomains\" that isn't a domain (\"!github.com\"). Update dprint or change the file to use it.",
+            settings_file_path.display()
+          )),
+          "{}",
+          approval.message
+        );
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
   use crate::test_helpers::WASM_PLUGIN_BYTES;
   use crate::test_helpers::create_test_npm_tarball;

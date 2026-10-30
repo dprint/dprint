@@ -69,6 +69,7 @@ use crate::configuration::is_dot_config_dir;
 use crate::configuration::is_more_recent_at;
 use crate::configuration::read_editor_approval_denials;
 use crate::configuration::read_editor_approvals;
+use crate::configuration::read_ignored_settings_message;
 use crate::configuration::resolve_global_config_dir;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
@@ -2600,7 +2601,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         None => download.clone(),
       })
       .collect::<Vec<_>>();
-    get_untrusted_download_message(&downloads)
+    get_untrusted_download_message(&downloads, read_ignored_settings_message(&self.environment).as_deref())
   }
 
   /// Gets the notification that a local config file the editor said changed did.

@@ -1284,13 +1284,19 @@ impl UnapprovedProcessPlugins {
     } else {
       format!("its process plugins ({}) weren't allowed to run", plugins)
     };
-    format!(
+    let mut message = format!(
       concat!(
         "dprint isn't formatting files with {} because {}. ",
         "Process plugins aren't sandboxed, so only allow them when you trust this configuration file."
       ),
       self.config_file, reason,
-    )
+    );
+    // it may be why the user is asked (ex. they allowed every process plugin in it)
+    if let Some(ignored_settings_message) = &permissions.ignored_settings_message {
+      message.push(' ');
+      message.push_str(ignored_settings_message);
+    }
+    message
   }
 }
 

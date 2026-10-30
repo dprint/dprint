@@ -6,6 +6,7 @@ use jsonc_parser::cst::CstRootNode;
 use serde::Deserialize;
 
 use crate::environment::Environment;
+use crate::utils::TrustedDomains;
 
 use super::InitPreferences;
 use super::get_init_config_file_text::to_cst_input;
@@ -22,6 +23,22 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 /// something a project controls (ex. a config file or the editor's workspace
 /// settings) because that would let a project allow itself to run process
 /// plugins.
+///
+/// Every version of dprint that's installed reads the same file (ex. a
+/// project's npm dprint next to a global one), so it changes by these rules:
+///
+/// - The editors don't use `editor` when it has a property or a value that the
+///   version doesn't know (ex. an `editor.trustedDomains` entry that isn't a
+///   domain). They only trust the default domains and ask before running
+///   process plugins instead, like when the file can't be read, and say why in
+///   the messages that ask the user (see `Settings::get_editor_problem`).
+/// - So a setting that narrows what the editors allow goes in `editor`, as a
+///   property or as a value of one that an older version rejects (ex. a
+///   syntax for not trusting a default domain in `editor.trustedDomains`).
+/// - A setting that doesn't narrow anything goes outside of `editor`, because
+///   any new property in it has the older versions ignore
+///   `editor.allowProcessPlugins` and `editor.trustedDomains`. A property
+///   outside of `editor` that a version doesn't know is only logged.
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -39,12 +56,22 @@ pub struct Settings {
 }
 
 impl Settings {
-  /// Gets whether `editor` has a property dprint doesn't know, which the
-  /// editors treat like settings that can't be read because it may be a
-  /// setting of a newer version of dprint that narrows what's allowed (ex.
-  /// trusting fewer domains). A misspelled property is treated that way too.
-  pub fn has_unknown_editor_properties(&self) -> bool {
-    self.unknown_properties.iter().any(|name| name.starts_with("editor."))
+  /// Gets why the editors don't use `editor`, which is when it has a property
+  /// or a value that this version of dprint doesn't know, and is `None` when
+  /// they use it. The editors treat that like settings that can't be read
+  /// because it may be a setting of a newer version of dprint that narrows
+  /// what's allowed (ex. trusting fewer domains). A misspelled property or a
+  /// value that isn't a domain is treated that way too.
+  ///
+  /// It's said after the path of the file (ex. "has a property ...").
+  pub fn get_editor_problem(&self) -> Option<String> {
+    if let Some(name) = self.unknown_properties.iter().find(|name| name.starts_with("editor.")) {
+      return Some(format!("has a property in \"editor\" that this version of dprint doesn't know ({})", name));
+    }
+    if let Some(domain) = self.editor.trusted_domains.iter().find(|domain| TrustedDomains::parse_domain(domain).is_none()) {
+      return Some(format!("has a value in \"editor.trustedDomains\" that isn't a domain (\"{}\")", domain));
+    }
+    None
   }
 }
 
@@ -55,7 +82,8 @@ pub struct EditorSettings {
   #[serde(default)]
   pub allow_process_plugins: Option<bool>,
   /// The domains the editors download from without asking the user in
-  /// addition to the default ones (ex. a private npm registry).
+  /// addition to the default ones (ex. a private npm registry), which are each
+  /// a host name or an IP address (see `TrustedDomains::parse_domain`).
   #[serde(default)]
   pub trusted_domains: Vec<String>,
 }
