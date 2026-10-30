@@ -321,7 +321,7 @@ pub struct Workspace<TEnvironment: Environment> {
   /// The plugins of each config file uri the last time they were known, which
   /// are provided when it can't be used (ex. it has an error) so that the
   /// editor doesn't change what it formats with it.
-  last_plugin_infos: RefCell<HashMap<String, Vec<PluginInfo>>>,
+  last_plugin_infos: RefCell<HashMap<String, LastPluginInfos>>,
   /// What needs to be approved for each config file, which is what a client
   /// approves by its id.
   approvals: RefCell<HashMap<String, Vec<StoredApproval>>>,
@@ -361,15 +361,24 @@ pub struct Workspace<TEnvironment: Environment> {
   registered_watch_files: RefCell<Option<Vec<PathBuf>>>,
 }
 
+/// The plugins of a config file the last time they were known.
+struct LastPluginInfos {
+  /// What identifies the plugins of the config file they're for, which they
+  /// aren't for anymore once a plugin was added or changed.
+  plugin_references: Vec<String>,
+  plugins: Vec<PluginInfo>,
+}
+
 /// What a config file resolved to.
 #[derive(Clone, PartialEq)]
 struct ResolvedConfigState {
   config: Rc<ResolvedConfig>,
   untrusted_downloads: Vec<String>,
   process_plugins_allowed: bool,
-  /// Whether what needs to be approved was denied, which changes whether the
-  /// editor extension keeps acting as the formatter of its documents.
-  denied: bool,
+  /// Whether the download and the process plugins that need to be approved
+  /// were denied, which changes whether the editor extension keeps acting as
+  /// the formatter of its documents.
+  denied: (bool, bool),
 }
 
 /// What needs to be approved for a config file.
@@ -571,6 +580,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   async fn handle_config_file_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange) {
     // the uris the server provides are of the canonicalized paths (ex. `configFile.uri`)
     let file_path = &self.canonicalize(file_path.to_path_buf());
+    // the server watches the global config file itself (see `watch_dprint_files`)
+    if self.get_global_config_path().as_deref() == Some(file_path.as_path()) {
+      return;
+    }
     let Some(uri) = file_path_to_uri(file_path) else {
       return;
     };
@@ -723,7 +736,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
       DocumentConfig::Failed(failure) => {
         let config_uri = failure.config_file.as_ref().map(|config_file| config_file.uri.as_str().to_string());
-        let plugins = config_uri.as_ref().and_then(|uri| self.last_plugin_infos.borrow().get(uri).cloned());
+        let plugins = config_uri
+          .as_ref()
+          .and_then(|uri| self.last_plugin_infos.borrow().get(uri).map(|last| last.plugins.clone()));
         let (file_patterns, other_files) = config_uri
           .as_ref()
           .and_then(|uri| self.last_file_patterns.borrow().get(uri).cloned())
@@ -784,8 +799,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets the plugins of the config file from what they matched the last time
   /// it was resolved, which is `None` when that isn't known for each of them.
   fn get_last_plugin_infos(&self, config: &ResolvedConfig) -> Option<Vec<PluginInfo>> {
-    if let Some(plugins) = self.last_plugin_infos.borrow().get(&get_config_key(config)) {
-      return Some(plugins.clone());
+    // they're of other plugins once a plugin was added or changed
+    if let Some(last) = self.last_plugin_infos.borrow().get(&get_config_key(config))
+      && last.plugin_references == get_plugin_references(config)
+    {
+      return Some(last.plugins.clone());
     }
     // a plugin's information is in the plugin cache, which is kept across sessions
     config
@@ -802,7 +820,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Remembers the plugins of the config file for when they can't be resolved
   /// (ex. the config file has an error or the user needs to approve them).
   async fn store_plugin_infos(&self, config: &ResolvedConfig, scope: &PluginsScope<TEnvironment>, plugins: &[PluginInfo]) {
-    self.last_plugin_infos.borrow_mut().insert(get_config_key(config), plugins.to_vec());
+    self.last_plugin_infos.borrow_mut().insert(
+      get_config_key(config),
+      LastPluginInfos {
+        plugin_references: get_plugin_references(config),
+        plugins: plugins.to_vec(),
+      },
+    );
     for plugin in config.plugins.iter() {
       let Some(plugin_with_config) = self
         .scope_container
@@ -1715,7 +1739,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       config: config.clone(),
       untrusted_downloads: scope.untrusted_downloads.clone(),
       process_plugins_allowed: scope.unapproved_process_plugins.is_none(),
-      denied: self.is_scope_denied(scope),
+      denied: self.get_scope_denials(scope),
     };
     let previous = self.resolved_configs.borrow_mut().insert(key, state.clone());
     // it resolves again after it failed (ex. what it extends was fixed or allowed to be downloaded)
@@ -1727,10 +1751,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.register_watch_files();
   }
 
-  /// Gets whether what needs to be approved for the scope was denied.
-  fn is_scope_denied(&self, scope: &PluginsScope<TEnvironment>) -> bool {
+  /// Gets whether the download and the process plugins that need to be
+  /// approved for the scope were denied.
+  fn get_scope_denials(&self, scope: &PluginsScope<TEnvironment>) -> (bool, bool) {
     let Some(config) = &scope.config else {
-      return false;
+      return (false, false);
     };
     let is_download_denied = !scope.untrusted_downloads.is_empty()
       && self
@@ -1741,24 +1766,24 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .unapproved_process_plugins
       .as_ref()
       .is_some_and(|unapproved| unapproved.is_denied(&self.session_permissions.read(&self.environment)));
-    is_download_denied || is_process_plugins_denied
+    (is_download_denied, is_process_plugins_denied)
   }
 
-  /// Asks the client to watch the files outside the workspace that the config
-  /// files were resolved from when it uses the `watchFiles` feature, which is
-  /// done again when they change. The config files in the workspace are
-  /// watched by a glob that's registered once the client is initialized.
+  /// Asks the client to watch the config files that were resolved and the
+  /// files they were resolved from when it uses the `watchFiles` feature,
+  /// which is done again when they change. The config files are also watched
+  /// by a glob that's registered once the client is initialized (ex. for one
+  /// that's created), and the global config file is watched by the server.
   fn register_watch_files(&self) {
     let mut registered = self.registered_watch_files.borrow_mut();
     let Some(registered) = registered.as_mut() else {
       return;
     };
-    let workspace_folders = self.settings.borrow().workspace_folders.clone();
+    let global_config_path = self.get_global_config_path();
     let mut file_paths = Vec::new();
     for (config_file_path, dependencies) in self.config_dependencies.borrow().values() {
       for file_path in std::iter::once(config_file_path).chain(dependencies.iter()) {
-        let is_in_workspace = workspace_folders.iter().any(|folder| file_path.starts_with(folder));
-        if !is_in_workspace && !file_paths.contains(file_path) {
+        if Some(file_path) != global_config_path.as_ref() && !file_paths.contains(file_path) {
           file_paths.push(file_path.clone());
         }
       }
@@ -1877,22 +1902,34 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   async fn handle_dprint_files_change(self: &Rc<Self>) {
     self.environment.download_policy().reload_trusted_domains(&self.environment);
     let config_files = self.used_configs.borrow().values().cloned().collect::<Vec<_>>();
-    for config_file in config_files {
+    for previous in config_files {
       if self.stopped.is_cancelled() {
         return;
       }
       // read it again in case it changed (ex. the global config file)
-      let config_file = if config_file.is_global_config {
-        resolve_global_config_path_and_text_at_path_root(&self.environment, config_file.base_path.as_ref())
+      let config_file = if previous.is_global_config {
+        resolve_global_config_path_and_text_at_path_root(&self.environment, previous.base_path.as_ref())
           .ok()
           .flatten()
       } else {
-        config_file
+        previous
           .source
           .maybe_local_path()
           .and_then(|path| self.scope_container.load_config_file(path.as_ref()).ok().flatten())
       };
       let Some(config_file) = config_file else {
+        // the editor isn't told when the global config file is deleted
+        if previous.is_global_config
+          && let Some(file_path) = previous.source.maybe_local_path()
+        {
+          self.forget_config_file(file_path.as_ref());
+          if let Some(params) = new_found_config_changed(&previous) {
+            self.send_config_changed(ConfigChangedParams {
+              reason: Some(ConfigChangeReason::Deleted),
+              ..params
+            });
+          }
+        }
         continue;
       };
       let target = match config_file.source.maybe_local_path() {
@@ -1920,6 +1957,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if let Some(uri) = file_path_to_uri(file_path) {
       self.config_dependencies.borrow_mut().remove(uri.as_str());
     }
+    self.register_watch_files();
+  }
+
+  /// Gets the path of the global config file when there's one.
+  fn get_global_config_path(&self) -> Option<PathBuf> {
+    let config_file = resolve_global_config_path_and_text(&self.environment).ok()??;
+    config_file.source.maybe_local_path().map(|path| path.as_ref().to_path_buf())
   }
 
   /// Loads the config file at the path, which is the global config file for
@@ -2513,6 +2557,11 @@ fn get_config_file_dir(file_path: &Path) -> Option<&Path> {
     Some(name) if name == DOT_CONFIG_DIR_NAME => dir_path.parent().unwrap_or(dir_path),
     _ => dir_path,
   })
+}
+
+/// Gets what identifies each plugin of the config.
+fn get_plugin_references(config: &ResolvedConfig) -> Vec<String> {
+  config.plugins.iter().map(|plugin| plugin.to_full_string()).collect()
 }
 
 /// Gets the key of what's approved for the config.

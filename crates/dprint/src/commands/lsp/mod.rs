@@ -887,7 +887,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if !can_register_watched_files {
       features.remove(WATCH_FILES_FEATURE);
     }
-    let watches_files_outside_workspace = features.contains_key(WATCH_FILES_FEATURE) && supports_relative_watch_patterns(&params.capabilities);
+    let watches_files_outside_workspace =
+      is_editor_extension && features.contains_key(WATCH_FILES_FEATURE) && supports_relative_watch_patterns(&params.capabilities);
     let client_kind = if is_editor_extension {
       ClientKind::EditorExtension
     } else {
@@ -1347,6 +1348,25 @@ impl LspOutputSink {
               if is_begun {
                 client.send_progress(token, WorkDoneProgress::End(WorkDoneProgressEnd { message: None })).await;
               }
+            }
+            // what's still being done (ex. a download a cancelled request started) is
+            // reported on the server's own tokens once no request reports it
+            if !supports_progress || !requests.is_empty() {
+              continue;
+            }
+            for active in &active_progress {
+              let token = NumberOrString::String(format!("dprint/{}", active.id));
+              if server_progress_ids.contains(&active.id) || !client.create_work_done_progress(token.clone()).await {
+                continue;
+              }
+              server_progress_ids.insert(active.id);
+              let begin = WorkDoneProgress::Begin(WorkDoneProgressBegin {
+                title: active.title.clone(),
+                cancellable: Some(false),
+                message: None,
+                percentage: active.percentage,
+              });
+              client.send_progress(token, begin).await;
             }
           }
         }

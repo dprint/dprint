@@ -35,6 +35,8 @@ use super::workspace::messages::ConfigChangedParams;
 /// client is asked to watch (see `ClientWrapper::register_watched_files`).
 const WATCHED_FILES_REGISTRATION_ID: &str = "dprint-watched-files";
 const DID_CHANGE_WATCHED_FILES_METHOD: &str = "workspace/didChangeWatchedFiles";
+/// Has the capabilities be replaced in the order they're replaced in.
+static REPLACE_CAPABILITY_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   fn log(&self, message_type: MessageType, message: String);
@@ -92,6 +94,8 @@ impl ClientTrait for Client {
   fn replace_capability(&self, unregistration: Unregistration, registration: Option<Registration>) {
     let client = self.clone();
     dprint_core::async_runtime::spawn(async move {
+      // one at a time so a registration isn't unregistered before it's registered
+      let _permit = REPLACE_CAPABILITY_LOCK.lock().await;
       // it fails when it wasn't registered before, which is fine
       let _ = client.unregister_capability(vec![unregistration]).await;
       if let Some(registration) = registration

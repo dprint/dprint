@@ -1321,13 +1321,18 @@ fn should_register_the_files_to_watch_with_the_watch_files_feature() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
     .with_local_config("/a/dprint.json", |c| {
-      c.add_remote_wasm_plugin().add_config_section("extends", r#""../shared/base.json""#);
+      c.add_remote_wasm_plugin()
+        .add_config_section("extends", r#"["../shared/base.json", "./configs/local.json"]"#);
     })
     .initialize()
     .build();
   environment.mk_dir_all("/shared").unwrap();
   environment
     .write_file("/shared/base.json", r#"{ "test-plugin": { "ending": "base" } }"#)
+    .unwrap();
+  environment.mk_dir_all("/a/configs").unwrap();
+  environment
+    .write_file("/a/configs/local.json", r#"{ "test-plugin": { "ending": "local" } }"#)
     .unwrap();
   let mut params = editor_extension_params();
   params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
@@ -1347,15 +1352,31 @@ fn should_register_the_files_to_watch_with_the_watch_files_feature() {
       // the config files in the workspace
       let registration_ids = || client.test_client.registrations.lock().iter().map(|r| r.id.clone()).collect::<Vec<_>>();
       assert_eq!(registration_ids(), vec!["dprint-config-file-watcher".to_string()]);
-      // and the files outside it that a config file was resolved from
+      // and the config files that were resolved with the files they were resolved from
       client.config_info("/a/dprint.json").await;
       assert_eq!(
         registration_ids(),
         vec!["dprint-config-file-watcher".to_string(), "dprint-watched-files".to_string()]
       );
       let options = client.test_client.registrations.lock()[1].register_options.clone().unwrap();
-      assert_eq!(options["watchers"][0]["globPattern"]["baseUri"], json!(uri("/shared").as_str()));
-      assert_eq!(options["watchers"][0]["globPattern"]["pattern"], json!("base.json"));
+      let mut watched = options["watchers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|watcher| {
+          let pattern = &watcher["globPattern"];
+          format!("{}/{}", pattern["baseUri"].as_str().unwrap(), pattern["pattern"].as_str().unwrap())
+        })
+        .collect::<Vec<_>>();
+      watched.sort();
+      assert_eq!(
+        watched,
+        vec![
+          format!("{}/local.json", uri("/a/configs").as_str()),
+          format!("{}/dprint.json", uri("/a").as_str()),
+          format!("{}/base.json", uri("/shared").as_str()),
+        ]
+      );
     }
     .boxed_local()
   });

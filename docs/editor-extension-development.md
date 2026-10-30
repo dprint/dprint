@@ -40,7 +40,7 @@ Run `dprint lsp` in the workspace folder and send the `initialize` request with 
 
 When its result doesn't have the capability, the server doesn't support any of the versions (ex. it's an older version of dprint) and handles the client like a language client. Check this before sending `initialized`, and when it's missing, send `shutdown` and `exit` without sending `initialized` (otherwise the server registers the text document methods) and fall back to [schema version 5](./editor-extension-development-schema-5.md) or a newer editor extension. A language client library may send `initialized` before the extension sees the result (ex. `vscode-languageclient`), so check it as soon as the client starts and stop the server right away when it's missing. The result's `serverInfo.version` is the version of dprint (ex. to log it or to tell apart the servers of different executables).
 
-`files` are where dprint's own files are, so the editor extension can offer commands that open them (ex. to add a domain to `editor.trustedDomains` in the settings file, or to edit the global configuration file) or to forget the "Always" decisions by deleting the approvals file. A file is left out when its directory can't be found, and `globalConfig` is where the global configuration file would be created when it doesn't exist.
+`files` are where dprint's own files are, so the editor extension can offer commands that open them (ex. to add a domain to `editor.trustedDomains` in the settings file, or to edit the global configuration file) or to forget the "Always" decisions by deleting the approvals file. A file is left out when its directory can't be found, and `globalConfig` is where the global configuration file would be created when it doesn't exist, so a command that opens it may offer to create it.
 
 An editor whose extensions can't send custom requests or handle custom notifications (ex. Zed or Helix) uses `dprint lsp` as a language client instead (see [the language server docs](../website/src/lsp.md)).
 
@@ -67,7 +67,7 @@ Optional behavior is opted into with `features`, an object of the features the c
 ```
 
 - `fileUri` - A document is formatted as the file of its `fileUri` instead of its uri (see "Documents").
-- `watchFiles` - The server registers the files it needs to be told about with `workspace/didChangeWatchedFiles` instead of the editor extension watching them (see "Lifecycle"). This is for an editor extension built on a language client library that already handles that registration (ex. one for Neovim, Emacs, or Sublime Text). It's only used when the client supports registering it dynamically, and the files outside the workspace folders are only registered when the client supports relative patterns (`relativePatternSupport`).
+- `watchFiles` - The server registers the files it needs to be told about with `workspace/didChangeWatchedFiles` instead of the editor extension watching them (see "Lifecycle"). This is for an editor extension built on a language client library that already handles that registration (ex. one for Neovim, Emacs, or Sublime Text). It's only used when the client supports registering it dynamically. The configuration files in the workspace folders are registered with a glob, and the configuration files that were used and the files they were resolved from (their `watchUris`) are registered by their directory when the client supports relative patterns (`relativePatternSupport`), which is registered again when they change.
 
 ### Finding the executable
 
@@ -141,7 +141,7 @@ An editor usually needs to know which documents an extension formats before form
 - `filePatterns` are globs of the documents its plugins may format, which are relative to the directory of the configuration file (`configFile.dirUri`). Register them as the documents the editor extension formats, and the cells of the notebooks they match.
 - `otherFiles` are the other documents the configuration file formats, which a glob can't match:
   - `shebang` - Files without an extension whose first line is one of the values, or starts with one followed by whitespace (ex. `#!/usr/bin/env node`). Register the files without an extension (ex. by checking the first line, or with every file) and get their `dprint/fileInfo`.
-  - `associations` - The files of the patterns of a plugin's `associations` that can't be made relative to `configFile.dirUri` (ex. `../shared/**/*.ts`). The values are the patterns as they're written in the configuration file, which are relative to the configuration file's directory and matched like its `includes`. Get the `dprint/fileInfo` of a document they may match.
+  - `associations` - The files of the patterns of a plugin's `associations` that can't be made relative to `configFile.dirUri` (ex. `../shared/**/*.ts`). The values are the patterns as they're written in the configuration file (relative to its directory), which are for showing the user and aren't globs to match, so treat every document like it may be formatted and get its `dprint/fileInfo`.
   - Treat a kind that isn't known like every document may be formatted, and get its `dprint/fileInfo`.
 - The patterns are a superset of what's formatted, because the configuration file's `includes` and `excludes` aren't in them and a configuration file in a descendant directory may format the documents there instead. Before acting as a document's formatter (ex. when it's opened), get its `dprint/fileInfo` and only act as its formatter when its status is `ready` or its `claim` is `true`, so the editor's other formatters are used otherwise. The server says to keep claiming a document when the user needs to be told why it isn't formatted (ex. the configuration file has an error or something that isn't denied needs to be approved).
 - When something needs to be approved, `plugins` and `filePatterns` are what they were the last time the plugins were set up, which is remembered across sessions, so claim those documents and ask when the user formats one (see "Approving").
@@ -223,7 +223,7 @@ The editor formats without the user doing anything in between (ex. a "save all" 
 - A format the user didn't run as a command asks about an `id` at most once per server session, even when the prompt is closed without deciding, because that leaves it pending. A command or the status bar item asks again, including about what was denied.
 - Don't make a save wait on the prompt. Once it's approved, format the document's current text again, which may have changed in the meantime.
 
-Then send what they decided with `dprint/approve`, one at a time, and take what to ask about next from its result, which is what needs to be approved now (ex. a configuration file that a downloaded one extends or the process plugins of a downloaded configuration file). Stop when the result has nothing that isn't denied, and format the document again when its `status` is `ready`. A decision whose option doesn't `allow` is a denial, so don't ask again right away after `-32001` for it. When the request is cancelled or fails, the decision may still have been used, so get what's pending again with `dprint/pendingApprovals`. The decisions that are `always` are stored in an `editor-approvals.json` file next to dprint's settings file (`files.approvals`), and deleting it has the user asked again, which the server notices (see "Lifecycle").
+Then send what they decided with `dprint/approve`, one at a time, and take what to ask about next from its result, which is what needs to be approved now (ex. a configuration file that a downloaded one extends or the process plugins of a downloaded configuration file). Stop when the result has nothing that isn't denied, and format the document again when its `status` is `ready`. A decision whose option's `allows` is `false` is a denial, so don't ask again right away after `-32001` for it. When the request is cancelled, fails, or is `-32001` without `approvals`, the decision may still have been used, so get what's pending for the configuration file again with `dprint/pendingApprovals` and continue with it like it's the result, and when nothing that isn't denied is pending, format the document again (its result says whether the configuration file is used). The decisions that are `always` are stored in an `editor-approvals.json` file next to dprint's settings file (`files.approvals`), and deleting it has the user asked again, which the server notices (see "Lifecycle").
 
 ## Methods
 
@@ -317,7 +317,7 @@ type NotFormattedReason =
 
 Each range is formatted in order, and overlapping ranges are merged. A plugin that supports range formatting decides what to format around a range, and the range is expanded to whole lines for a plugin that doesn't say. The edits are of the text that was sent, and the document's line endings are kept.
 
-Show the message of a result like its `show` says. The server doesn't show them to an editor extension's user. Treat a kind that isn't known like `failed` with its `message` shown when the user ran a command.
+Show the message of a result like its `show` says. A format that the editor can't tell apart from one the user didn't run as a command (ex. a formatter that's also run on save) isn't a command. For `oncePerConfigFile`, the configuration file is the `configFile` of the document's `dprint/fileInfo` (or of the `dprint/configInfo` that the document's patterns matched). The server doesn't show them to an editor extension's user. Treat a kind that isn't known like `failed` with its `message` shown when the user ran a command.
 
 ### `dprint/fileInfo` (request)
 
@@ -485,7 +485,7 @@ interface ConfigChangedParams {
 }
 ```
 
-See "Which documents dprint formats". The `uri` is of the canonical path like the other uris the server provides, even for a configuration file the editor said was created or deleted. Get both the plugins and the schema again for a change that isn't known.
+See "Which documents dprint formats". The `uri` is of the canonical path like the other uris the server provides, even for a configuration file the editor said was created or deleted. A notification for the global configuration file without a `dirUri` is for each directory it's used for. Get both the plugins and the schema again for a change that isn't known.
 
 ### Language server protocol methods
 
