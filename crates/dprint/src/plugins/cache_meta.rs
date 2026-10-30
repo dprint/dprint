@@ -71,11 +71,23 @@ pub struct PluginCacheMeta {
   /// remote and versioned-npm sources, whose mere presence is a cache hit.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub local_stamps: Option<Vec<LocalStamp>>,
-  /// The files the plugin matched the last time an editor resolved a config
-  /// file with it, which an editor uses to know what a config file formats
-  /// before its plugins can be used (ex. the user needs to approve them).
-  #[serde(skip_serializing_if = "Option::is_none", default)]
-  pub file_matching: Option<FileMatchingInfo>,
+  /// The files the plugin matched the last time an editor resolved each
+  /// config file with it (the most recent first), which an editor uses to know
+  /// what a config file formats before its plugins can be used (ex. the user
+  /// needs to approve them). It's for each config file because what a plugin
+  /// matches may depend on its configuration (ex. the extensions of the exec
+  /// plugin's commands).
+  #[serde(skip_serializing_if = "Vec::is_empty", default)]
+  pub config_file_matching: Vec<ConfigFileMatching>,
+}
+
+/// The files a plugin matched when an editor resolved a config file with it.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigFileMatching {
+  /// Identifies the config file (ex. its url).
+  pub config: String,
+  pub file_matching: FileMatchingInfo,
 }
 
 impl PluginCacheMeta {
@@ -203,7 +215,7 @@ mod test {
       npm_executable_sub_path: None,
       npm_executable_checksum: None,
       local_stamps: None,
-      file_matching: None,
+      config_file_matching: Vec::new(),
     }
   }
 

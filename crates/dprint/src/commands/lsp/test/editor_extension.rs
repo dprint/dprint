@@ -1345,6 +1345,52 @@ fn should_provide_the_plugins_known_before_in_another_session_when_they_need_to_
 }
 
 #[test]
+fn should_provide_the_plugins_known_before_for_the_same_config_file_when_they_need_to_be_approved() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_process_plugin()
+        .add_config_section("testProcessPlugin", r#"{ "file_extensions": ["py"] }"#);
+    })
+    .with_local_config("/b/dprint.json", |c| {
+      c.add_remote_process_plugin()
+        .add_config_section("testProcessPlugin", r#"{ "file_extensions": ["rs"] }"#);
+    })
+    .with_local_config("/c/dprint.json", |c| {
+      c.add_remote_process_plugin();
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, |client| {
+    async move {
+      // the plugin matches other files for each config file because of its configuration
+      for path in ["/a/dprint.json", "/b/dprint.json"] {
+        let approval = client.config_info(path).await.status.approvals()[0].clone();
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+        assert_eq!(client.config_info(path).await.status, FormatStatus::ready());
+      }
+    }
+    .boxed_local()
+  });
+  run_session(&environment, |client| {
+    async move {
+      for (path, extension) in [("/a/dprint.json", "py"), ("/b/dprint.json", "rs")] {
+        let config_info = client.config_info(path).await;
+        assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ApprovalRequired));
+        assert_eq!(config_info.plugins.unwrap()[0].file_extensions, vec![extension.to_string()]);
+      }
+      // what it matches isn't known for a config file it wasn't used with
+      let config_info = client.config_info("/c/dprint.json").await;
+      assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ApprovalRequired));
+      assert_eq!(config_info.plugins, None);
+      assert_eq!(config_info.file_patterns, Vec::new());
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_only_claim_the_documents_a_config_file_that_needs_approval_formats() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()

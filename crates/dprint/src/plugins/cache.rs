@@ -17,6 +17,7 @@ use sys_traits::FsMetadataValue;
 
 use super::cache_fs_locks::CacheFsLockGuard;
 use super::cache_fs_locks::CacheFsLockPool;
+use super::cache_meta::ConfigFileMatching;
 use super::cache_meta::LocalStamp;
 use super::cache_meta::PluginCacheMeta;
 use super::cache_meta::current_signature;
@@ -247,18 +248,26 @@ where
     self.cached_item(&path_source, &hash, &cache_key).map(|item| item.info)
   }
 
-  /// Gets the files the plugin matched the last time an editor resolved a
-  /// config file with it when it's set up in the cache.
-  pub fn get_last_file_matching_info(&self, source_reference: &PluginSourceReference) -> Option<FileMatchingInfo> {
+  /// Gets the files the plugin matched the last time an editor resolved the
+  /// config file with it when it's set up in the cache. The config is what
+  /// identifies the config file (ex. its url).
+  pub fn get_last_file_matching_info(&self, source_reference: &PluginSourceReference, config: &str) -> Option<FileMatchingInfo> {
     let path_source = self.cache_source_for_forget(&source_reference.path_source)?;
     let cache_key = self.compute_cache_key(&path_source).ok()?;
     let hash = entry_hash(&cache_key, &self.environment);
-    self.cached_meta(&path_source, &hash, &cache_key)?.file_matching
+    let meta = self.cached_meta(&path_source, &hash, &cache_key)?;
+    meta
+      .config_file_matching
+      .into_iter()
+      .find(|entry| entry.config == config)
+      .map(|entry| entry.file_matching)
   }
 
-  /// Remembers the files the plugin matched when an editor resolved a config
+  /// Remembers the files the plugin matched when an editor resolved the config
   /// file with it (see `get_last_file_matching_info`).
-  pub async fn store_file_matching_info(&self, source_reference: &PluginSourceReference, file_matching: &FileMatchingInfo) -> Result<()> {
+  pub async fn store_file_matching_info(&self, source_reference: &PluginSourceReference, config: &str, file_matching: &FileMatchingInfo) -> Result<()> {
+    // the config files the editors resolved most recently are kept
+    const MAX_CONFIG_FILES: usize = 50;
     let Some(path_source) = self.cache_source_for_forget(&source_reference.path_source) else {
       return Ok(());
     };
@@ -269,10 +278,22 @@ where
     let Some(mut meta) = self.cached_meta(&path_source, &hash, &cache_key) else {
       return Ok(());
     };
-    if meta.file_matching.as_ref() == Some(file_matching) {
+    let entries = &mut meta.config_file_matching;
+    if entries
+      .first()
+      .is_some_and(|entry| entry.config == config && entry.file_matching == *file_matching)
+    {
       return Ok(());
     }
-    meta.file_matching = Some(file_matching.clone());
+    entries.retain(|entry| entry.config != config);
+    entries.insert(
+      0,
+      ConfigFileMatching {
+        config: config.to_string(),
+        file_matching: file_matching.clone(),
+      },
+    );
+    entries.truncate(MAX_CONFIG_FILES);
     write_meta(&hash, &meta, &self.environment)
   }
 
@@ -718,7 +739,7 @@ where
       npm_executable_sub_path,
       npm_executable_checksum,
       local_stamps,
-      file_matching: None,
+      config_file_matching: Vec::new(),
     };
     write_meta(hash, &meta, &self.environment)?;
     self.set_up_hashes.lock().insert(hash.to_string());
@@ -956,7 +977,7 @@ mod test {
       npm_executable_sub_path: None,
       npm_executable_checksum: None,
       local_stamps: None,
-      file_matching: None,
+      config_file_matching: Vec::new(),
     }
   }
 

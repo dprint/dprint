@@ -885,19 +885,22 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets the plugins of the config file from what they matched the last time
   /// it was resolved, which is `None` when that isn't known for each of them.
   fn get_last_plugin_infos(&self, config: &ResolvedConfig) -> Option<Vec<PluginInfo>> {
+    let config_key = get_config_key(config);
     // they're of other plugins once a plugin was added or changed
-    if let Some(last) = self.last_plugin_infos.borrow().get(&get_config_key(config))
+    if let Some(last) = self.last_plugin_infos.borrow().get(&config_key)
       && last.plugin_references == get_plugin_references(config)
     {
       return Some(last.plugins.clone());
     }
-    // a plugin's information is in the plugin cache, which is kept across sessions
+    // a plugin's information is in the plugin cache, which is kept across
+    // sessions, and what it matched is the config file's because that may
+    // depend on the plugin's configuration (ex. the exec plugin's commands)
     config
       .plugins
       .iter()
       .map(|plugin| {
         let info = self.scope_container.get_set_up_plugin_info(plugin)?;
-        let file_matching = self.scope_container.get_last_file_matching_info(plugin)?;
+        let file_matching = self.scope_container.get_last_file_matching_info(plugin, &config_key)?;
         Some(get_plugin_info(info, file_matching))
       })
       .collect()
@@ -906,8 +909,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Remembers the plugins of the config file for when they can't be resolved
   /// (ex. the config file has an error or the user needs to approve them).
   async fn store_plugin_infos(&self, config: &ResolvedConfig, scope: &PluginsScope<TEnvironment>, plugins: &[PluginInfo]) {
+    let config_key = get_config_key(config);
     self.last_plugin_infos.borrow_mut().insert(
-      get_config_key(config),
+      config_key.clone(),
       LastPluginInfos {
         plugin_references: get_plugin_references(config),
         plugins: plugins.to_vec(),
@@ -921,7 +925,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       else {
         continue;
       };
-      if let Err(err) = self.scope_container.store_file_matching_info(plugin, &plugin_with_config.file_matching).await {
+      if let Err(err) = self
+        .scope_container
+        .store_file_matching_info(plugin, &config_key, &plugin_with_config.file_matching)
+        .await
+      {
         log_debug!(self.environment, "Failed storing the files {} matches: {:#}", plugin.display(), err);
       }
     }
