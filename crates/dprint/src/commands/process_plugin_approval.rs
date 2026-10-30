@@ -261,6 +261,7 @@ mod test {
       plugins: vec![UnapprovedProcessPlugin {
         plugin: PLUGIN.to_string(),
         registry: None,
+        unpinned_file_checksum: None,
         approval,
       }],
     }

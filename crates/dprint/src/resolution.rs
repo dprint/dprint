@@ -1232,6 +1232,10 @@ pub struct UnapprovedProcessPlugin {
   /// shown with it because an `.npmrc` (ex. the project's) can make an npm
   /// specifier that looks familiar come from somewhere else.
   pub registry: Option<String>,
+  /// The checksum of its file when the config file doesn't pin it (an npm
+  /// plugin without a version), which is part of what allowing it approves
+  /// before it's set up like it is after (see `get_process_plugin_approval`).
+  pub unpinned_file_checksum: Option<String>,
   /// What allowing it approves, which is `None` when it isn't set up because
   /// its configuration isn't known until then.
   pub approval: Option<ProcessPluginApproval>,
@@ -1323,6 +1327,7 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
     .map(|(plugin, approval)| UnapprovedProcessPlugin {
       plugin: plugin.to_full_string(),
       registry: plugin_resolver.get_npm_registry(&plugin),
+      unpinned_file_checksum: get_unpinned_plugin_file_checksum(&plugin, environment),
       approval,
     })
     .collect::<Vec<_>>();

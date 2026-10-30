@@ -2315,6 +2315,39 @@ fn should_provide_the_id_of_a_process_plugin_approval_before_it_was_set_up() {
 }
 
 #[test]
+fn should_change_the_id_of_an_unpinned_npm_process_plugin_approval_when_its_file_changes() {
+  let environment = TestEnvironmentBuilder::new()
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin("npm:test-process/plugin.json");
+    })
+    .write_file("/node_modules/test-process/plugin.json", "{}")
+    .build();
+  disallow_process_plugins(&environment);
+  let get_approval = |environment: &TestEnvironment| {
+    let approval = std::rc::Rc::new(std::cell::RefCell::new(None));
+    run_session(environment, {
+      let approval = approval.clone();
+      move |client| {
+        async move {
+          *approval.borrow_mut() = Some(client.config_info("/dprint.json").await.status.approvals()[0].clone());
+        }
+        .boxed_local()
+      }
+    });
+    approval.take().unwrap()
+  };
+  let approval = get_approval(&environment);
+  assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
+  assert_eq!(approval.id_before_set_up, None);
+  assert_eq!(get_approval(&environment).id, approval.id);
+  // ex. `npm install` updated it after the user allowed it for the session, so it isn't what they allowed
+  environment
+    .write_file("/node_modules/test-process/plugin.json", r#"{ "name": "other" }"#)
+    .unwrap();
+  assert_ne!(get_approval(&environment).id, approval.id);
+}
+
+#[test]
 fn should_set_up_an_allowed_process_plugin_once_what_needs_to_be_downloaded_is_allowed() {
   const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
   let environment = TestEnvironmentBuilder::new()

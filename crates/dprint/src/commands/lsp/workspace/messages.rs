@@ -558,8 +558,9 @@ pub struct PendingApproval {
   pub message: String,
   /// The id the approval had before its process plugins were set up (ex. in
   /// a server that was started before), which is for the same trusted
-  /// configuration, so a decision the user made for that id is sent again
-  /// with `id`. It's `None` when none of them is set up.
+  /// configuration and the same file of each plugin, so a decision the user
+  /// made for that id is sent again with `id`. It's `None` until each of them
+  /// is set up, and the id is the same while any of them isn't.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub id_before_set_up: Option<String>,
   /// The trusted configuration of the config file that the process plugins

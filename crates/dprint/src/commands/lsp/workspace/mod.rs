@@ -1797,31 +1797,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             }
           }
           ApprovalSubject::ProcessPlugins(unapproved) => {
-            // the configuration of each plugin is part of what's approved, which is the
-            // trusted configuration of the config file for a plugin that isn't set up,
-            // and so is the registry an npm plugin is from when it isn't the default one
-            let mut parts = unapproved.plugins.iter().map(get_process_plugin_id_part).collect::<Vec<_>>();
-            if unapproved.plugins.iter().any(|plugin| plugin.approval.is_none()) {
-              parts.push(unapproved.trusted_config_hash.clone());
-            }
-            // a server started before may have provided it before the plugins were set up, which
-            // allowed running them with the same trusted configuration
-            let id_before_set_up = unapproved.plugins.iter().any(|plugin| plugin.approval.is_some()).then(|| {
-              let mut parts = unapproved
-                .plugins
-                .iter()
-                .map(|plugin| {
-                  get_process_plugin_id_part(&UnapprovedProcessPlugin {
-                    approval: None,
-                    ..plugin.clone()
-                  })
-                })
-                .collect::<Vec<_>>();
-              parts.push(unapproved.trusted_config_hash.clone());
-              get_approval_id("processPlugins", &config_key, &parts)
-            });
+            let (id, id_before_set_up) = get_process_plugins_approval_ids(&config_key, unapproved);
             PendingApproval {
-              id: get_approval_id("processPlugins", &config_key, &parts),
+              id,
               id_before_set_up,
               kind: ApprovalKind::ProcessPlugins,
               title: "Run process plugins".to_string(),
@@ -3373,20 +3351,66 @@ fn get_approval_id(kind: &str, config_key: &str, items: &[String]) -> String {
   get_sha256_checksum(text.as_bytes())
 }
 
-/// Gets the item of the approval id of a process plugin, which is the plugin
-/// and the hash of its configuration on the next line, or `notSetUp` when its
-/// configuration isn't known until it's set up, followed by the registry an
-/// npm plugin is from on another line when it isn't the default one.
-fn get_process_plugin_id_part(plugin: &UnapprovedProcessPlugin) -> String {
-  let config = match plugin.approval.as_ref().map(|approval| approval.config_hash.as_deref()) {
-    None => "notSetUp",
-    Some(None) => "anyConfig",
-    Some(Some(config_hash)) => config_hash,
-  };
-  match &plugin.registry {
-    Some(registry) => format!("{}\n{}\nregistry: {}", plugin.plugin, config, registry),
-    None => format!("{}\n{}", plugin.plugin, config),
+/// Gets the approval id of the process plugins of a config file and the id it
+/// had before they were set up (`idBeforeSetUp`), which is only provided once
+/// every one of them is set up.
+///
+/// The id has the configuration of each plugin once every one is set up. Until
+/// then, it has the trusted configuration of the config file instead, which
+/// each plugin's configuration is from, so it's the same however many of them
+/// were set up before (ex. a plugin that another project set up). A server
+/// started before may have provided it, which allowed running them with the
+/// same trusted configuration.
+fn get_process_plugins_approval_ids(config_key: &str, unapproved: &UnapprovedProcessPlugins) -> (String, Option<String>) {
+  let id_while_not_set_up = get_process_plugins_approval_id(config_key, unapproved, false);
+  match unapproved.plugins.iter().all(|plugin| plugin.approval.is_some()) {
+    true => (get_process_plugins_approval_id(config_key, unapproved, true), Some(id_while_not_set_up)),
+    false => (id_while_not_set_up, None),
   }
+}
+
+/// Gets the approval id of the process plugins of a config file with the
+/// configuration of each plugin when they're set up, and with the trusted
+/// configuration of the config file otherwise.
+fn get_process_plugins_approval_id(config_key: &str, unapproved: &UnapprovedProcessPlugins, is_set_up: bool) -> String {
+  // the registry an npm plugin is from when it isn't the default one is part of what's approved too
+  let mut parts = unapproved
+    .plugins
+    .iter()
+    .map(|plugin| get_process_plugin_id_part(plugin, is_set_up))
+    .collect::<Vec<_>>();
+  if !is_set_up {
+    parts.push(unapproved.trusted_config_hash.clone());
+  }
+  get_approval_id("processPlugins", config_key, &parts)
+}
+
+/// Gets the item of the approval id of a process plugin, which is the plugin
+/// and the hash of its configuration on the next line once the plugins are set
+/// up. Until then, it's `notSetUp` instead, followed by the checksum of the
+/// file of an unpinned npm plugin on another line because the hash of its
+/// configuration has it once it's set up. The registry an npm plugin is from
+/// is on another line when it isn't the default one.
+fn get_process_plugin_id_part(plugin: &UnapprovedProcessPlugin, is_set_up: bool) -> String {
+  let mut part = plugin.plugin.clone();
+  match plugin.approval.as_ref().filter(|_| is_set_up) {
+    Some(approval) => {
+      part.push('\n');
+      part.push_str(approval.config_hash.as_deref().unwrap_or("anyConfig"));
+    }
+    None => {
+      part.push_str("\nnotSetUp");
+      if let Some(checksum) = &plugin.unpinned_file_checksum {
+        part.push_str("\nfile: ");
+        part.push_str(checksum);
+      }
+    }
+  }
+  if let Some(registry) = &plugin.registry {
+    part.push_str("\nregistry: ");
+    part.push_str(registry);
+  }
+  part
 }
 
 /// Gets the uri of a config file.
@@ -3593,6 +3617,7 @@ mod test {
     let plugin = |config_hash: Option<Option<&str>>| UnapprovedProcessPlugin {
       plugin: "https://plugins.dprint.dev/exec-0.5.0.json@checksum".to_string(),
       registry: None,
+      unpinned_file_checksum: None,
       approval: config_hash.map(|config_hash| ProcessPluginApproval {
         config_file: "/a/dprint.json".to_string(),
         plugin: "https://plugins.dprint.dev/exec-0.5.0.json@checksum".to_string(),
@@ -3602,12 +3627,25 @@ mod test {
     let from_registry = UnapprovedProcessPlugin {
       plugin: "npm:@dprint/exec@0.5.0".to_string(),
       registry: Some("https://npm.example.com/".to_string()),
+      unpinned_file_checksum: None,
+      approval: None,
+    };
+    let unpinned = UnapprovedProcessPlugin {
+      plugin: "npm:@dprint/exec".to_string(),
+      registry: None,
+      unpinned_file_checksum: Some("checksum".to_string()),
       approval: None,
     };
     let trusted_config_map = ConfigMap::from([("lineWidth".to_string(), ConfigMapValue::from_i32(80))]);
-    let parts = [plugin(Some(Some("1:hash"))), plugin(Some(None)), plugin(None), from_registry]
-      .iter()
-      .map(get_process_plugin_id_part)
+    let set_up_parts = [plugin(Some(Some("1:hash"))), plugin(Some(None))]
+      .into_iter()
+      .map(|plugin| get_process_plugin_id_part(&plugin, true));
+    // a plugin that's set up has the same part as one that isn't until every plugin is set up
+    let not_set_up_parts = [plugin(Some(Some("1:hash"))), plugin(None), from_registry, unpinned]
+      .into_iter()
+      .map(|plugin| get_process_plugin_id_part(&plugin, false));
+    let parts = set_up_parts
+      .chain(not_set_up_parts)
       .chain([get_trusted_config_map_hash(&trusted_config_map)])
       .collect::<Vec<_>>();
     assert_eq!(
@@ -3616,18 +3654,49 @@ mod test {
         "https://plugins.dprint.dev/exec-0.5.0.json@checksum\n1:hash",
         "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nanyConfig",
         "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nnotSetUp",
+        "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nnotSetUp",
         "npm:@dprint/exec@0.5.0\nnotSetUp\nregistry: https://npm.example.com/",
+        "npm:@dprint/exec\nnotSetUp\nfile: checksum",
         "1:2fa6774bc8dbe963c51fb07f6539189e5d272df1e4b048319a3cd9b093e6fd48",
       ]
     );
     assert_eq!(
       get_approval_id("processPlugins", "file:///a/dprint.json", &parts),
-      "d38ae5893a98161365bed9043499c95b7e4e3949aaa0d3151c94e9cc9a985743"
+      "36fae175f99fa1fd15be669839e0cc96ad6794e99087af71cc98920c0d7bf8aa"
     );
     assert_eq!(
       get_approval_id("download", "file:///a/dprint.json", &["https://example.com/plugin.wasm".to_string()]),
       "2ab4d0c7e0fbd9986542b36b33f2be90fd9166a85487acdfbb050927c923c5d5"
     );
+  }
+
+  #[test]
+  fn should_keep_the_approval_id_of_process_plugins_until_each_one_is_set_up() {
+    let plugin = |name: &str, config_hash: Option<&str>| UnapprovedProcessPlugin {
+      plugin: name.to_string(),
+      registry: None,
+      unpinned_file_checksum: None,
+      approval: config_hash.map(|config_hash| ProcessPluginApproval {
+        config_file: "/a/dprint.json".to_string(),
+        plugin: name.to_string(),
+        config_hash: Some(config_hash.to_string()),
+      }),
+    };
+    let unapproved = |plugins: Vec<UnapprovedProcessPlugin>| UnapprovedProcessPlugins {
+      config_file: "/a/dprint.json".to_string(),
+      trusted_config_hash: "1:trusted".to_string(),
+      plugins,
+    };
+    let get_ids = |plugins| get_process_plugins_approval_ids("file:///a/dprint.json", &unapproved(plugins));
+    let (id, id_before_set_up) = get_ids(vec![plugin("a", None), plugin("b", None)]);
+    assert_eq!(id_before_set_up, None);
+    // ex. `a` was set up by another project
+    assert_eq!(get_ids(vec![plugin("a", Some("1:a")), plugin("b", None)]), (id.clone(), None));
+    let (set_up_id, id_before_set_up) = get_ids(vec![plugin("a", Some("1:a")), plugin("b", Some("1:b"))]);
+    assert_ne!(set_up_id, id);
+    assert_eq!(id_before_set_up, Some(id));
+    // the configuration of a plugin is part of it once they're set up
+    assert_ne!(get_ids(vec![plugin("a", Some("1:a")), plugin("b", Some("1:other"))]).0, set_up_id);
   }
 
   #[test]
