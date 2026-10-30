@@ -1016,11 +1016,16 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         None => root_uri.as_ref().and_then(uri_to_file_path).into_iter().collect(),
       };
       state.features = features.clone();
-      // an editor extension tells the server when a config file changes unless it opts into this
+      // an editor extension tells the server when a config file changes unless it opts into this, and the
+      // config file the server was started with is the only one, which is watched like the files it's resolved from
+      let config_file_watchers = match self.has_config_override {
+        true => Vec::new(),
+        false => get_config_file_watcher_registrations(&params.capabilities),
+      };
       if is_editor_extension && features.contains_key(WATCH_FILES_FEATURE) {
-        state.pending_registrations = get_config_file_watcher_registrations(&params.capabilities);
+        state.pending_registrations = config_file_watchers;
       } else if !is_editor_extension && !is_unsupported_editor_extension {
-        state.pending_registrations = get_config_file_watcher_registrations(&params.capabilities);
+        state.pending_registrations = config_file_watchers;
         state.pending_registrations.extend(get_notebook_cell_format_registrations(&params.capabilities));
         state.pending_registrations.extend(get_untitled_registrations(&params.capabilities));
         state
