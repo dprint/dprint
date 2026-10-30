@@ -244,7 +244,7 @@ pub fn detect_extracted_npm_plugin(name: &str, version: &str, start_dir: Option<
 /// file. Lets `dprint add` write `/plugin.json` for an unversioned process
 /// plugin without hitting the registry.
 pub fn detect_npm_plugin_kind_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Option<PluginKind> {
-  let package_dir = find_package_in_node_modules(package_name, start_dir, environment)?;
+  let package_dir = find_package_in_node_modules(package_name, start_dir, environment).ok().flatten()?;
   if environment.path_exists(package_dir.join("plugin.wasm")) {
     Some(PluginKind::Wasm)
   } else if environment.path_exists(package_dir.join("plugin.json")) {
@@ -623,11 +623,14 @@ pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, e
 /// inside plugin.json covers the per-platform tarball — see
 /// `try_resolve_process_plugin_per_platform_executable`.
 pub async fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir: &Path, environment: &impl Environment) -> Result<NpmResolvedPlugin> {
-  let package_dir = match find_package_in_node_modules(&specifier.name, config_dir, environment) {
+  let package_dir = match find_package_in_node_modules(&specifier.name, config_dir, environment)? {
     Some(dir) => dir,
     None => bail!(node_modules_missing_message(specifier, Some(config_dir), environment).await),
   };
   let plugin_path = package_dir.join(&specifier.path);
+  // IMPORTANT: Check this before reading it because a file in the package may be
+  // on another machine (see `find_package_in_node_modules`).
+  environment.download_policy().ensure_allows_path(environment, &plugin_path, Some(config_dir))?;
   if !environment.path_exists(&plugin_path) {
     bail!(missing_plugin_file_message(
       specifier,
@@ -664,7 +667,7 @@ pub async fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir:
 /// resolve path enriches the message with a versioned suggestion via
 /// [`node_modules_missing_message`].
 pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, environment: &impl Environment) -> Result<PathSource> {
-  let package_dir = find_package_in_node_modules(&specifier.name, config_dir, environment).ok_or_else(|| {
+  let package_dir = find_package_in_node_modules(&specifier.name, config_dir, environment)?.ok_or_else(|| {
     anyhow::anyhow!(
       "Could not find {} in node_modules. Make sure the package is installed (npm install {}).",
       specifier.name,
@@ -672,7 +675,9 @@ pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, e
     )
   })?;
   let plugin_path = package_dir.join(&specifier.path);
-
+  // IMPORTANT: Check this before reading it because a file in the package may be
+  // on another machine (see `find_package_in_node_modules`).
+  environment.download_policy().ensure_allows_path(environment, &plugin_path, Some(config_dir))?;
   if !environment.path_exists(&plugin_path) {
     bail!(missing_plugin_file_message(
       specifier,
@@ -1290,17 +1295,23 @@ struct NpmrcFile {
 impl NpmrcChain {
   pub fn load(start_dir: Option<&Path>, environment: &impl Environment) -> Self {
     let home_dir = environment.get_home_dir();
+    let download_policy = environment.download_policy();
     let mut files = Vec::new();
     let mut load_dir = |dir: &Path| {
       let path = dir.join(".npmrc");
+      let is_users = home_dir.as_ref().is_some_and(|home_dir| dir == home_dir.as_ref());
+      // IMPORTANT: A file that isn't the user's own is ignored when it's on
+      // another machine (ex. a symlink to a UNC path or into `/net`) that the
+      // download policy doesn't allow reading without asking, because reading
+      // it contacts the machine. One on the same share as the start directory
+      // is read.
+      if !is_users && !download_policy.allows_path(environment, &path, start_dir) {
+        log_debug!(environment, "Ignoring {} because it's on another machine.", path.display());
+        return;
+      }
       if let Ok(text) = environment.read_file(&path) {
         let parsed = deno_npmrc::NpmRc::parse(environment, &text).ok();
-        files.push(NpmrcFile {
-          path,
-          is_users: home_dir.as_ref().is_some_and(|home_dir| dir == home_dir.as_ref()),
-          text,
-          parsed,
-        });
+        files.push(NpmrcFile { path, is_users, text, parsed });
       }
     };
     if let Some(start) = start_dir {
@@ -1584,14 +1595,22 @@ fn get_tarball_url_from_packument(packument: &serde_json::Value, version: &str, 
 
 /// Walks up from `start_dir` looking for `node_modules/{package_name}/`.
 /// Returns `None` if not installed anywhere along the ancestor chain.
-pub fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Option<std::path::PathBuf> {
+///
+/// IMPORTANT: It errors with an `UntrustedDownloadError` when the download
+/// policy doesn't allow reading a package on another machine without asking
+/// (ex. a symlink in `node_modules` that points at a UNC path or into `/net`),
+/// which is checked before anything there is read because reading it contacts
+/// the machine. A package on the same share as the start directory is allowed.
+pub fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Result<Option<PathBuf>> {
+  let download_policy = environment.download_policy();
   for dir in start_dir.ancestors() {
     let candidate = dir.join("node_modules").join(package_name);
+    download_policy.ensure_allows_path(environment, &candidate, Some(start_dir))?;
     if environment.path_exists(&candidate) {
-      return Some(candidate);
+      return Ok(Some(candidate));
     }
   }
-  None
+  Ok(None)
 }
 
 /// Builds the user-facing "package not in node_modules" error. When the
@@ -1797,6 +1816,44 @@ mod tests {
     for path in ["/home/repo/.npmrc", "/home/.npmrc", "/.npmrc"] {
       assert_eq!(environment.file_read_count(path), 1, "{path}");
     }
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn resolve_registry_ignores_an_npmrc_on_another_machine_in_the_editors() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo").unwrap();
+    environment.symlink(r"\\server\share\npmrc", "/repo/.npmrc").unwrap();
+    let resolve = || resolve_registry_for_package("@dprint/typescript", Some(Path::new("/repo")), &environment);
+    // the cli reads it
+    resolve();
+    assert_eq!(environment.file_read_count("/repo/.npmrc"), 1);
+    // the editors don't contact the machine
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    resolve();
+    assert_eq!(environment.file_read_count("/repo/.npmrc"), 1);
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn find_package_in_node_modules_needs_reading_one_on_another_machine_allowed_in_the_editors() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo/node_modules/@acme").unwrap();
+    environment.mk_dir_all(r"\\server\share\plugin").unwrap();
+    environment.symlink(r"\\server\share\plugin", "/repo/node_modules/@acme/plugin").unwrap();
+    let find = || find_package_in_node_modules("@acme/plugin", Path::new("/repo"), &environment);
+    // the cli reads it
+    assert!(find().unwrap().is_some());
+    // the editors ask before contacting the machine, and show it
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    let err = find().unwrap_err();
+    let download = crate::utils::UntrustedDownloadError::find(&err).unwrap().download.clone();
+    let package_dir = Path::new("/repo").join("node_modules").join("@acme/plugin");
+    assert_eq!(download, format!(r"{} -> \\server\share\plugin", package_dir.display()));
+    environment.download_policy().allow(&[download]);
+    assert!(find().unwrap().is_some());
   }
 
   #[tokio::test]

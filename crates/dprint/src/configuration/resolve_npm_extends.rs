@@ -123,7 +123,7 @@ impl NpmExtendsResolver {
             name,
           );
         };
-        let Some(package_dir) = find_package_in_node_modules(&name, local_base.path.as_ref(), environment) else {
+        let Some(package_dir) = find_package_in_node_modules(&name, local_base.path.as_ref(), environment)? else {
           bail!(
             concat!(
               "Could not find {} in node_modules. Make sure the package is installed (ex. npm install {}) ",
@@ -347,6 +347,9 @@ struct RegistryPackageDir {
 
 fn read_package_json(package_dir: &Path, environment: &impl Environment) -> Result<Option<serde_json::Value>> {
   let path = package_dir.join("package.json");
+  // IMPORTANT: Check this before reading it because a file in the package may be
+  // on another machine (see `find_package_in_node_modules`).
+  environment.download_policy().ensure_allows_path(environment, &path, Some(package_dir))?;
   if !environment.path_exists(&path) {
     return Ok(None);
   }
@@ -476,6 +479,9 @@ fn read_package_file(package_dir: &Path, package_name: &str, path: &str, environ
 
 fn get_existing_package_file_path(package_dir: &Path, package_name: &str, path: &str, environment: &impl Environment) -> Result<PathBuf> {
   let file_path = package_dir.join(path);
+  // IMPORTANT: Check this before reading it because a file in the package may be
+  // on another machine (see `find_package_in_node_modules`).
+  environment.download_policy().ensure_allows_path(environment, &file_path, Some(package_dir))?;
   if !environment.path_is_file(&file_path) {
     bail!("Could not find {} in npm package {}.", path, package_name);
   }

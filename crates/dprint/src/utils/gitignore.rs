@@ -223,7 +223,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     // skip the read when the caller's listing already shows there's no `.gitignore`
     let maybe_has_gitignore = hint.map(|h| h.has_gitignore).unwrap_or(true);
     let gitignore_text = if maybe_has_gitignore {
-      self.environment.read_file(dir_path.join(".gitignore")).ok()
+      self.read_gitignore(&dir_path.join(".gitignore"), dir_path)
     } else {
       None
     };
@@ -275,13 +275,42 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     Some(Rc::new(gitignore))
   }
 
+  /// Reads the `.gitignore` file of the directory, which is ignored when it's
+  /// on another machine (see `may_read_gitignore`).
+  fn read_gitignore(&self, gitignore_path: &Path, dir_path: &Path) -> Option<String> {
+    if !self.may_read_gitignore(gitignore_path, dir_path) {
+      log_debug!(self.environment, "Ignoring {} because it's on another machine.", gitignore_path.display());
+      return None;
+    }
+    self.environment.read_file(gitignore_path).ok()
+  }
+
+  /// Gets whether the `.gitignore` file of the directory may be read.
+  ///
+  /// IMPORTANT: It's ignored when it's on another machine (ex. a symlink in the
+  /// repository to a UNC path or into `/net`) that the download policy doesn't
+  /// allow reading without asking, because reading it contacts the machine,
+  /// which git also doesn't do for a symlinked `.gitignore`. One on the same
+  /// share as the directory is read.
+  fn may_read_gitignore(&self, gitignore_path: &Path, dir_path: &Path) -> bool {
+    self
+      .environment
+      .download_policy()
+      .allows_path(&self.environment, gitignore_path, Some(dir_path))
+  }
+
   fn take_dir_snapshot(&self, dir_path: &Path) -> DirSnapshot {
     let git_path = dir_path.join(".git");
     // not `path_exists` because that would debug log on every refresh
     let has_git = self.environment.fs_metadata(&git_path).is_ok();
+    let gitignore_path = dir_path.join(".gitignore");
     DirSnapshot {
       has_git,
-      gitignore: self.take_file_snapshot(&dir_path.join(".gitignore")),
+      gitignore: if self.may_read_gitignore(&gitignore_path, dir_path) {
+        self.take_file_snapshot(&gitignore_path)
+      } else {
+        None
+      },
       // only read at the repository root
       exclude: if has_git {
         self.take_file_snapshot(&git_path.join("info").join("exclude"))
@@ -519,6 +548,29 @@ mod test {
     let path = PathBuf::from("/ignored.txt");
     let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
     assert!(gitignore.is_ignored(&path, /* is_dir */ false));
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn ignores_a_gitignore_on_another_machine_in_the_editors() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/repo/.git").unwrap();
+    env.symlink(r"\\server\share\gitignore", "/repo/.gitignore").unwrap();
+    let resolve = |options: GitIgnoreTreeOptions| {
+      let mut ignore_tree = GitIgnoreTree::new(env.clone(), options);
+      ignore_tree.get_resolved_git_ignore_for_file(Path::new("/repo/file.txt"));
+    };
+    // the cli reads it
+    resolve(GitIgnoreTreeOptions::default());
+    assert_eq!(env.file_read_count("/repo/.gitignore"), 1);
+    // the editors don't contact the machine
+    env.set_download_policy(crate::utils::DownloadPolicy::for_editor(&env));
+    resolve(GitIgnoreTreeOptions::default());
+    resolve(GitIgnoreTreeOptions {
+      detect_changes: true,
+      ..Default::default()
+    });
+    assert_eq!(env.file_read_count("/repo/.gitignore"), 1);
   }
 
   fn new_change_detecting_tree(env: &TestEnvironment) -> GitIgnoreTree<TestEnvironment> {

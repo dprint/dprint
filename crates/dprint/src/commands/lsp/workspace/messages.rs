@@ -584,7 +584,9 @@ pub struct PendingApproval {
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalItem {
   /// The url, path, or npm specifier (ex. of a plugin with its checksum), or
-  /// the text of the setting of an `npmrcProxy`.
+  /// the text of the setting of an `npmrcProxy`. A path that reaches another
+  /// machine through a symlink is followed by ` -> ` and the path on that
+  /// machine (see `DownloadPolicy::ensure_allows_path`).
   pub specifier: String,
   pub kind: ApprovalItemKind,
   /// The npm registry an npm plugin is from when it isn't the default one
