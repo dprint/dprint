@@ -1489,6 +1489,35 @@ pub fn get_unapproved_process_plugins<TEnvironment: Environment>(
     .collect()
 }
 
+/// Gets the hash of the trusted configuration of the config file, which is
+/// what the user allows a process plugin that isn't set up with because the
+/// configuration of the plugin isn't known until then. It starts with the
+/// version of how it's made and a colon like the config hash of a process
+/// plugin approval (see `TRUSTED_CONFIG_HASH_VERSION`).
+pub fn get_trusted_config_hash(config: &ResolvedConfig) -> String {
+  get_trusted_config_map_hash(&config.trusted_config_map)
+}
+
+/// Gets the hash of a trusted configuration like `get_trusted_config_hash`.
+pub(crate) fn get_trusted_config_map_hash(trusted_config_map: &ConfigMap) -> String {
+  let text = serde_json::to_string(trusted_config_map).expect("config should serialize");
+  format!("{}:{}", TRUSTED_CONFIG_HASH_VERSION, get_sha256_checksum(text.as_bytes()))
+}
+
+/// Gets the message that says how to have the process plugins of a config file
+/// run when the editor can't ask whether to allow them.
+pub fn get_cant_ask_message(environment: &impl Environment, config_file: &str) -> String {
+  let file_path = get_settings_file_path(environment).map(|path| path.display().to_string());
+  format!(
+    concat!(
+      "The editor can't ask whether to allow them, so dprint only formats with it once you allow them by running ",
+      "{} or when \"editor.allowProcessPlugins\" isn't false in {}."
+    ),
+    quote_text(&format!("dprint config install --config \"{}\"", config_file)),
+    file_path.as_deref().unwrap_or("settings.json in dprint's global config directory"),
+  )
+}
+
 /// Gets the process plugins of the config file that the permissions don't
 /// allow like `get_unapproved_process_plugins`, which is `None` when using its
 /// plugins is approved.
@@ -1551,35 +1580,6 @@ fn is_allowed_before_set_up(
     Some(config_key) => is_allowed_config(config.trusted_config_map.get(config_key)),
     None => is_allowed_config(None) || config.trusted_config_map.values().any(|value| is_allowed_config(Some(value))),
   }
-}
-
-/// Gets the hash of the trusted configuration of the config file, which is
-/// what the user allows a process plugin that isn't set up with because the
-/// configuration of the plugin isn't known until then. It starts with the
-/// version of how it's made and a colon like the config hash of a process
-/// plugin approval (see `TRUSTED_CONFIG_HASH_VERSION`).
-pub fn get_trusted_config_hash(config: &ResolvedConfig) -> String {
-  get_trusted_config_map_hash(&config.trusted_config_map)
-}
-
-/// Gets the hash of a trusted configuration like `get_trusted_config_hash`.
-pub(crate) fn get_trusted_config_map_hash(trusted_config_map: &ConfigMap) -> String {
-  let text = serde_json::to_string(trusted_config_map).expect("config should serialize");
-  format!("{}:{}", TRUSTED_CONFIG_HASH_VERSION, get_sha256_checksum(text.as_bytes()))
-}
-
-/// Gets the message that says how to have the process plugins of a config file
-/// run when the editor can't ask whether to allow them.
-pub fn get_cant_ask_message(environment: &impl Environment, config_file: &str) -> String {
-  let file_path = get_settings_file_path(environment).map(|path| path.display().to_string());
-  format!(
-    concat!(
-      "The editor can't ask whether to allow them, so dprint only formats with it once you allow them by running ",
-      "{} or when \"editor.allowProcessPlugins\" isn't false in {}."
-    ),
-    quote_text(&format!("dprint config install --config \"{}\"", config_file)),
-    file_path.as_deref().unwrap_or("settings.json in dprint's global config directory"),
-  )
 }
 
 /// Gets what the user approves when allowing a process plugin of the config
