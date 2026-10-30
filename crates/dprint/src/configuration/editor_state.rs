@@ -501,7 +501,9 @@ impl SessionPermissions {
     } else {
       Vec::new()
     };
-    self.remove_allows_denied_since(&process_plugin_decisions);
+    if allow_process_plugins != Some(true) {
+      self.remove_allows_denied_since(&process_plugin_decisions);
+    }
     let stored_process_plugin_decision_count = process_plugin_decisions.len();
     process_plugin_decisions.extend(self.process_plugin_decisions.lock().iter().cloned());
     Permissions {
