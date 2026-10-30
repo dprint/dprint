@@ -322,21 +322,31 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
 }
 
 /// Quotes text from the project (ex. a url, a path, or the setting of an
-/// `.npmrc` file) in a message as code (ex. `` `https://example.com` ``), so it's
-/// clear where it starts and ends and it can't read as part of the message's
-/// sentences. The quotes are longer than any run of backticks in the text like
-/// in Markdown.
+/// `.npmrc` file) in a message with backticks (ex. `` `https://example.com` ``),
+/// so it's clear where it starts and ends and it can't read as part of the
+/// message's sentences.
+///
+/// IMPORTANT: The editors show the message as plain text, so the text can't
+/// have anything that would end the quotes or change how the message reads. A
+/// backtick and what looks like one, a control character (ex. a newline), a
+/// space other than a plain one, and an invisible formatting character (ex. a
+/// bidi override like U+202E, which shows the text after it backwards) are
+/// shown as an escape instead (ex. `\u{60}`, `\n`, or `\u{202e}`), and so is a
+/// combining mark at the start, which would change the opening backtick.
 pub fn quote_text(text: &str) -> String {
-  let mut longest_run = 0;
-  let mut run = 0;
-  for c in text.chars() {
-    run = if c == '`' { run + 1 } else { 0 };
-    longest_run = longest_run.max(run);
+  let mut quoted = String::with_capacity(text.len() + 2);
+  quoted.push('`');
+  for (index, c) in text.chars().enumerate() {
+    match c {
+      '\n' => quoted.push_str("\\n"),
+      '\r' => quoted.push_str("\\r"),
+      '\t' => quoted.push_str("\\t"),
+      c if is_escaped_in_quotes(c) || (index == 0 && is_combining_mark(c)) => quoted.extend(c.escape_unicode()),
+      c => quoted.push(c),
+    }
   }
-  let quotes = "`".repeat(longest_run + 1);
-  // a space keeps a backtick at the start or end from being part of the quotes
-  let padding = if text.starts_with('`') || text.ends_with('`') { " " } else { "" };
-  format!("{quotes}{padding}{text}{padding}{quotes}")
+  quoted.push('`');
+  quoted
 }
 
 /// The domains that are trusted to download from, which includes their
@@ -423,10 +433,15 @@ const MAX_SYMLINKS: usize = 64;
 
 /// Gets what's shown and allowed for reading a path on another machine (see
 /// `DownloadPolicy::ensure_allows_path`), which is the path along with what it
-/// resolved to when that's another path.
+/// resolved to when that's another path (ex. `/project/link -> /net/host/dir`).
+///
+/// IMPORTANT: An arrow in the paths is escaped (`-\u{3e}`) so the one between
+/// them is the only one, because otherwise a path from the project could look
+/// like it resolved somewhere else (ex. `/net/host/x -> /project/plugin.wasm`).
 fn get_path_download(path: &Path, resolved: &Path) -> String {
-  let path_text = path.display().to_string();
-  let resolved_text = resolved.display().to_string();
+  let escape_arrows = |path: &Path| path.display().to_string().replace("->", "-\\u{3e}");
+  let path_text = escape_arrows(path);
+  let resolved_text = escape_arrows(resolved);
   if resolved_text == path_text {
     path_text
   } else {
@@ -575,6 +590,30 @@ fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
     }
     _ => None,
   }
+}
+
+/// Gets whether a character is shown as an escape in quoted text (see `quote_text`).
+fn is_escaped_in_quotes(c: char) -> bool {
+  c.is_control()
+    || (c.is_whitespace() && c != ' ')
+    || matches!(
+      c,
+      // a backtick and what looks like one
+      '`' | '\u{2cb}' | '\u{2ce}' | '\u{300}' | '\u{316}' | '\u{340}' | '\u{1fef}' | '\u{2018}' | '\u{201b}' | '\u{2035}' | '\u{ff40}'
+      // invisible formatting characters, including the bidi ones
+      | '\u{ad}' | '\u{34f}' | '\u{61c}' | '\u{115f}' | '\u{1160}' | '\u{17b4}' | '\u{17b5}' | '\u{180b}'..='\u{180f}'
+      | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{3164}' | '\u{fe00}'..='\u{fe0f}'
+      | '\u{feff}' | '\u{ffa0}' | '\u{fff9}'..='\u{fffb}' | '\u{1d173}'..='\u{1d17a}' | '\u{e0000}'..='\u{e0fff}'
+    )
+}
+
+/// Gets whether a character is a combining mark, which is shown on the
+/// character before it.
+fn is_combining_mark(c: char) -> bool {
+  matches!(
+    c,
+    '\u{300}'..='\u{36f}' | '\u{1ab0}'..='\u{1aff}' | '\u{1dc0}'..='\u{1dff}' | '\u{20d0}'..='\u{20ff}' | '\u{fe20}'..='\u{fe2f}'
+  )
 }
 
 #[cfg(test)]
@@ -821,10 +860,30 @@ mod test {
   #[test]
   fn should_quote_text_from_the_project() {
     assert_eq!(quote_text("https://example.com"), "`https://example.com`");
-    assert_eq!(quote_text("a`b"), "``a`b``");
-    assert_eq!(quote_text("a``b`c"), "```a``b`c```");
-    assert_eq!(quote_text("`a"), "`` `a ``");
-    assert_eq!(quote_text("a`"), "`` a` ``");
+    assert_eq!(quote_text(r"C:\Users\Jörg\my project"), r"`C:\Users\Jörg\my project`");
+    // a backtick or what looks like one can't end the quotes
+    assert_eq!(
+      quote_text("/repo/x` is signed by your organization. It's safe to allow. `y/dprint.json"),
+      r"`/repo/x\u{60} is signed by your organization. It's safe to allow. \u{60}y/dprint.json`"
+    );
+    assert_eq!(quote_text("a\u{ff40}b\u{2cb}c\u{2018}d"), r"`a\u{ff40}b\u{2cb}c\u{2018}d`");
+    // nor can a new line, a control character, or another kind of space
+    assert_eq!(quote_text("a\nb\r\tc\u{0}\u{1b}[31m\u{85}"), r"`a\nb\r\tc\u{0}\u{1b}[31m\u{85}`");
+    assert_eq!(quote_text("a\u{2028}b\u{a0}c"), r"`a\u{2028}b\u{a0}c`");
+    // or an invisible formatting character (ex. one that shows the text after it backwards)
+    assert_eq!(quote_text("a\u{202e}b\u{2066}c\u{200b}d\u{feff}"), r"`a\u{202e}b\u{2066}c\u{200b}d\u{feff}`");
+    // or a combining mark that would change the opening backtick
+    assert_eq!(quote_text("\u{301}a\u{301}"), "`\\u{301}a\u{301}`");
+  }
+
+  #[test]
+  fn should_escape_an_arrow_in_a_path_download() {
+    assert_eq!(get_path_download(Path::new("/project/a->b"), Path::new("/project/a->b")), r"/project/a-\u{3e}b");
+    // so the arrow between the path and where it resolved to is the only one
+    assert_eq!(
+      get_path_download(Path::new("/project/link"), Path::new("/net/evil/x -> /project/plugin.wasm")),
+      r"/project/link -> /net/evil/x -\u{3e} /project/plugin.wasm"
+    );
   }
 
   #[test]
