@@ -1549,6 +1549,8 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(approval.kind, ApprovalKind::Downloads);
         assert_eq!(specifiers(&approval), vec![UNTRUSTED_PLUGIN_URL]);
         assert_eq!(approval.items[0].kind, ApprovalItemKind::Plugin);
+        // the decisions of downloads don't replace each other
+        assert_eq!(approval.decision_group, approval.id);
         // a download is only allowed for the session
         assert_eq!(
           approval.decisions.iter().map(|option| (option.id, option.label.as_str())).collect::<Vec<_>>(),
@@ -2326,14 +2328,15 @@ fn should_provide_the_id_of_a_process_plugin_approval_before_it_was_set_up() {
     })
     .build(); // not initialized, so the process plugin is only set up when it's allowed
   disallow_process_plugins(&environment);
-  let id_before = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+  let before = std::rc::Rc::new(std::cell::RefCell::new(None));
   run_session(&environment, {
-    let id_before = id_before.clone();
+    let before = before.clone();
     move |client| {
       async move {
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
-        assert_eq!(approval.id_before_set_up, None);
-        *id_before.borrow_mut() = approval.id.clone();
+        assert_eq!(approval.previous_ids, Vec::<String>::new());
+        assert_ne!(approval.decision_group, approval.id);
+        *before.borrow_mut() = Some(approval.clone());
         // allowing it for the session sets it up
         assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
       }
@@ -2345,8 +2348,11 @@ fn should_provide_the_id_of_a_process_plugin_approval_before_it_was_set_up() {
   run_session(&environment, move |client| {
     async move {
       let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
-      assert_ne!(approval.id, *id_before.borrow());
-      assert_eq!(approval.id_before_set_up.as_deref(), Some(id_before.borrow().as_str()));
+      let before = before.borrow().clone().unwrap();
+      assert_ne!(approval.id, before.id);
+      assert_eq!(approval.previous_ids, vec![before.id]);
+      // a session decision about it replaces the ones about it before it was set up
+      assert_eq!(approval.decision_group, before.decision_group);
     }
     .boxed_local()
   });
@@ -2376,7 +2382,7 @@ fn should_change_the_id_of_an_unpinned_npm_process_plugin_approval_when_its_file
   };
   let approval = get_approval(&environment);
   assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
-  assert_eq!(approval.id_before_set_up, None);
+  assert_eq!(approval.previous_ids, Vec::<String>::new());
   assert_eq!(get_approval(&environment).id, approval.id);
   // ex. `npm install` updated it after the user allowed it for the session, so it isn't what they allowed
   environment

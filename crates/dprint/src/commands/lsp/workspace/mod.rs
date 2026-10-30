@@ -1785,6 +1785,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               denied,
               // a download is only denied for the session
               previous_decision: denied.then_some(ApprovalDecision::Deny),
+              // the decisions of downloads don't replace each other
+              decision_group: id.clone(),
               id,
               kind: ApprovalKind::Downloads,
               // a proxy is approved on its own (see `get_download_groups`)
@@ -1798,14 +1800,15 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               // a download is only allowed for the session
               decisions: get_decision_options(ApprovalKind::Downloads, &[ApprovalDecision::Allow, ApprovalDecision::Deny]),
               message: self.get_untrusted_download_message(urls),
-              id_before_set_up: None,
+              previous_ids: Vec::new(),
             }
           }
           ApprovalSubject::ProcessPlugins(unapproved) => {
-            let (id, id_before_set_up) = get_process_plugins_approval_ids(&config_key, unapproved);
+            let (id, previous_ids) = get_process_plugins_approval_ids(&config_key, unapproved);
             PendingApproval {
               id,
-              id_before_set_up,
+              previous_ids,
+              decision_group: get_process_plugins_decision_group(&config_key),
               kind: ApprovalKind::ProcessPlugins,
               title: "Run process plugins".to_string(),
               config_file: config_file.clone(),
@@ -3356,9 +3359,9 @@ fn get_approval_id(kind: &str, config_key: &str, items: &[String]) -> String {
   get_sha256_checksum(text.as_bytes())
 }
 
-/// Gets the approval id of the process plugins of a config file and the id it
-/// had before they were set up (`idBeforeSetUp`), which is only provided once
-/// every one of them is set up.
+/// Gets the approval id of the process plugins of a config file and the ids
+/// it had before (`previousIds`), which is the id it had before they were set
+/// up once every one of them is set up.
 ///
 /// The id has the configuration of each plugin once every one is set up. Until
 /// then, it has the trusted configuration of the config file instead, which
@@ -3366,12 +3369,21 @@ fn get_approval_id(kind: &str, config_key: &str, items: &[String]) -> String {
 /// were set up before (ex. a plugin that another project set up). A server
 /// started before may have provided it, which allowed running them with the
 /// same trusted configuration.
-fn get_process_plugins_approval_ids(config_key: &str, unapproved: &UnapprovedProcessPlugins) -> (String, Option<String>) {
+fn get_process_plugins_approval_ids(config_key: &str, unapproved: &UnapprovedProcessPlugins) -> (String, Vec<String>) {
   let id_while_not_set_up = get_process_plugins_approval_id(config_key, unapproved, false);
   match unapproved.plugins.iter().all(|plugin| plugin.approval.is_some()) {
-    true => (get_process_plugins_approval_id(config_key, unapproved, true), Some(id_while_not_set_up)),
-    false => (id_while_not_set_up, None),
+    true => (get_process_plugins_approval_id(config_key, unapproved, true), vec![id_while_not_set_up]),
+    false => (id_while_not_set_up, Vec::new()),
   }
+}
+
+/// Gets the group of the session decisions about the process plugins of a
+/// config file (`decisionGroup`), which is the same for each of its approvals
+/// so that a decision replaces the ones for its previous configurations (ex. a
+/// denial replaces allowing them). It's made like an approval id, so it's the
+/// same in another server.
+fn get_process_plugins_decision_group(config_key: &str) -> String {
+  get_approval_id("processPluginsDecisionGroup", config_key, &[])
 }
 
 /// Gets the approval id of the process plugins of a config file with the
@@ -3576,6 +3588,7 @@ mod test {
     let mut approval = PendingApproval {
       id: "1".to_string(),
       kind: ApprovalKind::ProcessPlugins,
+      decision_group: "group".to_string(),
       title: "Run process plugins".to_string(),
       config_file: ConfigFileInfo {
         uri: "file:///dprint.json".parse().unwrap(),
@@ -3599,7 +3612,7 @@ mod test {
       denied: false,
       previous_decision: None,
       message: "Allow them?".to_string(),
-      id_before_set_up: None,
+      previous_ids: Vec::new(),
       trusted_configuration: None,
     };
     assert_eq!(
@@ -3693,13 +3706,13 @@ mod test {
       plugins,
     };
     let get_ids = |plugins| get_process_plugins_approval_ids("file:///a/dprint.json", &unapproved(plugins));
-    let (id, id_before_set_up) = get_ids(vec![plugin("a", None), plugin("b", None)]);
-    assert_eq!(id_before_set_up, None);
+    let (id, previous_ids) = get_ids(vec![plugin("a", None), plugin("b", None)]);
+    assert_eq!(previous_ids, Vec::<String>::new());
     // ex. `a` was set up by another project
-    assert_eq!(get_ids(vec![plugin("a", Some("1:a")), plugin("b", None)]), (id.clone(), None));
-    let (set_up_id, id_before_set_up) = get_ids(vec![plugin("a", Some("1:a")), plugin("b", Some("1:b"))]);
+    assert_eq!(get_ids(vec![plugin("a", Some("1:a")), plugin("b", None)]), (id.clone(), Vec::new()));
+    let (set_up_id, previous_ids) = get_ids(vec![plugin("a", Some("1:a")), plugin("b", Some("1:b"))]);
     assert_ne!(set_up_id, id);
-    assert_eq!(id_before_set_up, Some(id));
+    assert_eq!(previous_ids, vec![id]);
     // the configuration of a plugin is part of it once they're set up
     assert_ne!(get_ids(vec![plugin("a", Some("1:a")), plugin("b", Some("1:other"))]).0, set_up_id);
   }

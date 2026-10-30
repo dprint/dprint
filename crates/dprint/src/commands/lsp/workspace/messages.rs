@@ -538,6 +538,13 @@ pub struct PendingApproval {
   /// configuration of a process plugin).
   pub id: String,
   pub kind: ApprovalKind,
+  /// Which approvals' session decisions replace each other, which a client
+  /// keeps only the most recent one of (ex. a denial of the process plugins of
+  /// a config file replaces allowing them for an id they had before). It's
+  /// the same for each approval of the process plugins of a config file and
+  /// the approval's id for a download, so a client never works it out from
+  /// `kind`.
+  pub decision_group: String,
   /// A short description of what's approved (ex. for a status bar item or
   /// the heading of a prompt).
   pub title: String,
@@ -556,13 +563,14 @@ pub struct PendingApproval {
   pub previous_decision: Option<ApprovalDecision>,
   /// The message to show the user when asking.
   pub message: String,
-  /// The id the approval had before its process plugins were set up (ex. in
-  /// a server that was started before), which is for the same trusted
-  /// configuration and the same file of each plugin, so a decision the user
-  /// made for that id is sent again with `id`. It's `None` until each of them
-  /// is set up, and the id is the same while any of them isn't.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub id_before_set_up: Option<String>,
+  /// The other ids the same approval had before (ex. in a server that was
+  /// started before), in the order their decisions apply after `id`'s, so a
+  /// decision the user made for one of them is sent again with `id`. It's the
+  /// id the approval of process plugins had before they were set up, which is
+  /// for the same trusted configuration and the same file of each plugin, once
+  /// each of them is set up, and the id is the same while any of them isn't.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub previous_ids: Vec<String>,
   /// The trusted configuration of the config file that the process plugins
   /// that aren't set up run with once they're allowed, which is what the user
   /// approves for them because what each one runs with isn't known until it's
@@ -1100,6 +1108,7 @@ mod test {
       vec![PendingApproval {
         id: "1".to_string(),
         kind: ApprovalKind::ProcessPlugins,
+        decision_group: "group".to_string(),
         title: "Run process plugins".to_string(),
         config_file: ConfigFileInfo {
           uri: "file:///dprint.json".parse().unwrap(),
@@ -1129,7 +1138,7 @@ mod test {
         denied: false,
         previous_decision: None,
         message: "message".to_string(),
-        id_before_set_up: None,
+        previous_ids: Vec::new(),
         trusted_configuration: None,
       }],
     ));
@@ -1148,6 +1157,7 @@ mod test {
           "approvals": [{
             "id": "1",
             "kind": "processPlugins",
+            "decisionGroup": "group",
             "title": "Run process plugins",
             "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///", "kind": "local", "inWorkspace": true },
             "items": [{

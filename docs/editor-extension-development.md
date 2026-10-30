@@ -136,7 +136,7 @@ Optional behavior is opted into with `features`, an object of the features the c
 - The `.gitignore` files also change which documents a configuration file formats. The server reads them again when they change, but doesn't watch them or send `dprint/configChanged` for them, so get the `dprint/fileInfo` of the open documents again when the editor sees one change, if it watches them.
 - The server watches dprint's own files, which are outside the workspace and depend on the system: its settings file (ex. a domain added to `editor.trustedDomains`), its `editor-approvals.json` (ex. the user ran `dprint fmt` or allowed a process plugin in another editor window), and the global configuration file. When one changes, it resolves the configuration files that were used again and sends `dprint/configChanged` for the ones whose results changed.
 - The server doesn't watch dprint's cache, so a plugin that was downloaded outside the editor (ex. by running `dprint config install` in a terminal) is only used once the configuration file is resolved again (ex. when the user approves the download, or with `dprint/reset`).
-- When the server exits unexpectedly, start it again for the next request (with a delay that grows when it keeps exiting) and get `dprint/configInfo` again for each configuration file the editor extension knows about and `dprint/fileInfo` for the open documents, because the new server doesn't know them (ex. the files they were resolved from) or publish their diagnostics until they're used. The new server doesn't know what the user decided for the session (ex. a download they denied or a process plugin they allowed), so keep the session's decisions (the ones that aren't `always`, and an `always` one whose result had a `notice` because it couldn't be stored) and send them again with `dprint/approve` instead of asking whenever their approval ids are pending again (the ids are the same in the new server, and an approval of process plugins that were set up since has the id it had before in `idBeforeSetUp`), including an approval that a decision that was sent again revealed, and keep which ids were asked about, so the user isn't asked again. When there are decisions for both an approval's `id` and its `idBeforeSetUp`, send the one for its `id`, and keep only the most recent session decision about the process plugins of a configuration file, so a denial of them replaces the decisions that allowed them before (ex. for the id they had before they were set up). Don't send a decision that allows an approval that's now `denied` (ex. it was denied in another window since), and a command or the status bar item asks about what the user denied for the session again instead of sending the denial. Then get the results again like after any `dprint/approve` (see "Which documents dprint formats").
+- When the server exits unexpectedly, start it again for the next request (with a delay that grows when it keeps exiting) and get `dprint/configInfo` again for each configuration file the editor extension knows about and `dprint/fileInfo` for the open documents, because the new server doesn't know them (ex. the files they were resolved from) or publish their diagnostics until they're used. The new server doesn't know what the user decided for the session (ex. a download they denied or a process plugin they allowed), so keep the session's decisions (the ones that aren't `always`, and an `always` one whose result had a `notice` because it couldn't be stored) and send them again with `dprint/approve` instead of asking whenever their approval ids are pending again (the ids are the same in the new server, and an approval whose id changed since has the ids it had before in `previousIds`, ex. an approval of process plugins that were set up since), including an approval that a decision that was sent again revealed, and keep which ids were asked about, so the user isn't asked again. When there are decisions for more than one of an approval's `id` and `previousIds`, send the one for its `id`, and otherwise the one for the earliest of its `previousIds`. Keep each session decision with the approval's `decisionGroup`, and keep only the most recent session decision for each `decisionGroup`, so a decision replaces the ones it's about to undo (ex. a denial of a configuration file's process plugins replaces the decisions that allowed them before, including for the id they had before they were set up). Don't work out which decisions replace each other from the `kind`. Don't send a decision that allows an approval that's now `denied` (ex. it was denied in another window since), and a command or the status bar item asks about what the user denied for the session again instead of sending the denial. Then get the results again like after any `dprint/approve` (see "Which documents dprint formats").
 - A restart command is for forgetting what the user decided for the session, so forget the session's decisions and which ids were asked about too. So does `dprint/forgetDecisions` (for its configuration file, or every one), because sending a session's decision again would otherwise undo it. Use `dprint/reset` instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
 - A notification that changes the server's state (ex. `workspace/didChangeConfiguration`) applies to the requests sent after it.
 
@@ -244,6 +244,15 @@ interface PendingApproval {
   id: string;
   /** Treat a kind that isn't known like "processPlugins" with its `message`. */
   kind: "downloads" | "processPlugins" | (string & {});
+  /**
+   * Which approvals' session decisions replace each other, which is opaque: a decision the user makes for the session replaces the
+   * session decisions for approvals with the same `decisionGroup`, so only the most recent one for each is kept (see "Lifecycle").
+   * It's the same for each approval of the process plugins of a configuration file (ex. a denial of them replaces allowing them
+   * with another configuration), and it's different for each approval of downloads, whose decisions don't replace each other.
+   * Use it instead of the `kind`, because a later version of dprint may group them differently (ex. ask about each process plugin
+   * on its own).
+   */
+  decisionGroup: string;
   /** A short description of what's approved (ex. for a status bar item or the heading of a prompt). */
   title: string;
   /** The configuration file that needs it, which is what the user approves for. */
@@ -263,13 +272,17 @@ interface PendingApproval {
    */
   message: string;
   /**
-   * The id the approval had before its process plugins were set up (ex. in a server that was started before), which is
-   * for the same trusted configuration and the same file of each plugin. It's only provided once each of its process plugins
-   * is set up, and it's the id the approval had while any of them wasn't, which is the same however many of them were set up.
-   * Treat it like `id` for what's kept about the approval (ex. send a decision the user made for the session for that id again
-   * with `id`, and don't ask about it again when the user was asked about that id), but a decision for `id` takes precedence.
+   * The other ids the same approval had before (ex. in a server that was started before), in the order their decisions take
+   * precedence after the one for `id`. It's left out when there are none. Treat each like `id` for what's kept about the approval
+   * (ex. send a decision the user made for the session for one of them again with `id`, and don't ask about it again when the
+   * user was asked about one of them), but a decision for `id` takes precedence.
+   *
+   * An approval of process plugins has the id it had before they were set up once each of them is set up, which is for the same
+   * trusted configuration and the same file of each plugin. It's the id the approval had while any of them wasn't, which is the
+   * same however many of them were set up. A later version of dprint may add others (ex. the id under how a previous version
+   * made them).
    */
-  idBeforeSetUp?: string;
+  previousIds?: string[];
   /**
    * The trusted configuration of the configuration file, including what it extends, which the process plugins that weren't set up
    * before run with once they're allowed (what each one runs with isn't known until it's set up).
