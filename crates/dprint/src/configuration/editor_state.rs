@@ -402,12 +402,23 @@ fn read_editor_approval_denials(environment: &impl Environment) -> Vec<ProcessPl
   let Ok(decisions) = serde_json::from_str::<Decisions>(&text) else {
     return Vec::new();
   };
-  decisions
+  let decisions = decisions
     .process_plugin_decisions
     .into_iter()
     // a decision that's in another format is left out
     .filter_map(|decision| serde_json::from_value::<ProcessPluginDecision>(decision).ok())
-    .filter(|decision| !decision.allowed)
+    .collect::<Vec<_>>();
+  // a denial that a later decision replaced (they're the most recent last) isn't used
+  decisions
+    .iter()
+    .enumerate()
+    .filter(|(index, decision)| {
+      !decision.allowed
+        && !decisions[index + 1..]
+          .iter()
+          .any(|later| later.approval.config_file == decision.approval.config_file && later.approval.plugin == decision.approval.plugin)
+    })
+    .map(|(_, decision)| decision.clone())
     .collect()
 }
 

@@ -1766,8 +1766,13 @@ fn should_use_the_other_config_files_that_needed_a_download_once_it_is_allowed()
         Some(NotFormattedReason::ApprovalRequired)
       );
       assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+      // the other config file is resolved again after responding
       let mut changes = client.take_config_changes();
+      while !changes.contains(&uri("/b/dprint.json")) {
+        changes.extend(client.wait_for_config_changes().await);
+      }
       changes.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+      changes.dedup();
       assert_eq!(changes, vec![uri("/a/dprint.json"), uri("/b/dprint.json")]);
       assert_eq!(client.config_info("/b/dprint.json").await.status, FormatStatus::Ready);
     }
@@ -1814,9 +1819,52 @@ fn should_forget_the_decisions_of_a_config_file() {
             .process_plugin_decisions
             .is_empty()
         );
+
+        // a deleted config file's decisions can be forgotten too
+        let params = ForgetDecisionsParams {
+          config_file: Some(ConfigFileIdentifier {
+            uri: uri("/b/dprint.json"),
+            dir_uri: None,
+          }),
+        };
+        client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
       }
       .boxed_local()
     }
+  });
+}
+
+#[test]
+fn should_only_forget_the_decisions_of_the_config_file() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .with_local_config("/b/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, |client| {
+    async move {
+      for config_file in ["/a/dprint.json", "/b/dprint.json"] {
+        let approval = client.config_info(config_file).await.status.approvals()[0].clone();
+        client.approve(&approval.id, ApprovalDecision::Deny).await;
+      }
+      let params = ForgetDecisionsParams {
+        config_file: Some(ConfigFileIdentifier {
+          uri: uri("/a/dprint.json"),
+          dir_uri: None,
+        }),
+      };
+      client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+      assert!(!client.config_info("/a/dprint.json").await.status.approvals()[0].denied);
+      assert!(client.config_info("/b/dprint.json").await.status.approvals()[0].denied);
+    }
+    .boxed_local()
   });
 }
 

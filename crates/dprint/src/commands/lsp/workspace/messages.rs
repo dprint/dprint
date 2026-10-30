@@ -716,7 +716,8 @@ pub struct ConfigFileIdentifier {
   pub uri: Uri,
   /// The directory the global config file is used for (see
   /// `ConfigFileInfo::dir_uri`), which is the root of the current directory
-  /// when `None`. It's ignored for another config file.
+  /// when `None`. It's where the config file is found from for the one the
+  /// server was started with, and it's ignored for a local config file.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub dir_uri: Option<Uri>,
 }

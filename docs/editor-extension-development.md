@@ -177,7 +177,7 @@ The globs use `/` to separate path segments and are relative without a leading `
 
 The results stay valid until the server says otherwise, so get them again only when:
 
-- The server sends `dprint/configChanged` for the configuration file, or without a `uri`. It sends it whenever what a configuration file formats may have changed: when one the editor said was created, changed, or deleted, when a file it was resolved from changed, when resolving it for a request has a different result (ex. a remote configuration file it extends changed), when what needed to be approved was approved or denied (including outside the editor, which the server notices in dprint's own files), and without a `uri` when a setting, the workspace folders, or whether there's a global configuration file changed.
+- The server sends `dprint/configChanged` for the configuration file, or without a `uri`. It sends it whenever what a configuration file formats may have changed: when one the editor said was created, changed, or deleted, when a file it was resolved from changed, when resolving it for a request has a different result (ex. a remote configuration file it extends changed), when what needed to be approved was approved or denied (including outside the editor, which the server notices in dprint's own files), and without a `uri` when `useGlobalConfig`, the workspace folders, or whether there's a global configuration file changed.
 - `dprint/approve`, `dprint/forgetDecisions`, or `dprint/reset` responded. A `dprint/configChanged` may also be sent for the same change, so getting the results again once for both is enough (ex. by waiting a moment).
 - The server was started again.
 
@@ -541,7 +541,7 @@ interface PendingApprovalsResult {
 
 ### `dprint/forgetDecisions` (request)
 
-Forgets what the user decided about the approvals of a configuration file, or of every configuration file, including the decisions that are `always` and the ones from running dprint (ex. `dprint fmt`), so the user is asked about them again. It responds once the configuration files were resolved again, and sends `dprint/configChanged` for the ones whose results changed.
+Forgets what the user decided about the approvals of a configuration file, or of every configuration file, including the decisions that are `always` and the ones from running dprint (ex. `dprint fmt`), so the user is asked about them again. A download that was allowed stays allowed for the session, and a plugin that's in dprint's cache doesn't need to be downloaded again. It responds once the configuration files were resolved again, and sends `dprint/configChanged` for the ones whose results changed.
 
 ```ts
 interface ForgetDecisionsParams {
