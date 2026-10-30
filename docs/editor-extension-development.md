@@ -42,7 +42,7 @@ Start one `dprint lsp` process for each `dprint` executable the editor uses (usu
 
 Use the server only when its capability has a `version`. Otherwise, it handles the client like a language client:
 
-- When the capability has `versions` but no `version`, the server doesn't support any of the editor extension's versions, so tell the user whether dprint or the editor extension needs to be updated (ex. the server only supports a newer version).
+- When the capability doesn't have a `version`, the server doesn't support any of the editor extension's versions, so tell the user whether dprint or the editor extension needs to be updated by comparing them with its `versions` (ex. the server only supports a newer version), or that dprint does when it doesn't have `versions`.
 - When the result doesn't have the capability, it's a version of dprint older than 0.65, so fall back to [schema version 5](./editor-extension-development-schema-5.md) or tell the user to update dprint.
 
 Check this before sending `initialized`, and when there's no `version`, send `shutdown` and `exit` without sending `initialized` (otherwise the server registers the text document methods). A language client library may send `initialized` before the extension sees the result (ex. `vscode-languageclient`), so check it as soon as the client starts and stop the server right away when there's no `version`. The result's `serverInfo.version` is the version of dprint (ex. to log it or to tell apart the servers of different executables).
@@ -238,7 +238,7 @@ interface ApprovalDecisionOption {
   allows: boolean;
   /** Whether it's remembered after the server stops, which is otherwise only for the session. */
   always: boolean;
-  /** What it does (ex. for how long and for what), which is shown with it (ex. as a tooltip or a description). */
+  /** What it does (ex. for how long and for what), which is shown with it (ex. as a tooltip, or in the message when the editor can't show one). */
   description: string;
 }
 
@@ -256,7 +256,7 @@ The editor formats without the user doing anything in between (ex. a "save all" 
 
 Several may need to be approved at once (ex. downloading a plugin and running a process plugin). Ask about them one at a time, or show them together and send the decisions one at a time, sending the next only while its `id` is still in the previous result. Send what the user decided with `dprint/approve` and take what to ask about next from its result, which is what needs to be approved now (ex. a configuration file that a downloaded one extends or the process plugins of a downloaded configuration file). Stop when the result has nothing that isn't denied, and format the document again when its `status` is `ready`.
 
-`-32803` means what was approved changed before the decision was received (ex. the configuration file changed), so the decision wasn't used. Its `data` has what needs to be approved now and whether the configuration file is used when they're known, which is like a result of `dprint/approve` to ask about. For a decision whose option's `allows` is `false`, don't ask again right away: send the same denial for the approval of the same `kind` and `configFile` that replaced it, if there is one, and never send an allowing decision that the user didn't make for what's shown. When the request is cancelled or fails otherwise, or `-32803` doesn't say what's pending, the decision may still have been used, so get what's pending for the configuration file with `dprint/pendingApprovals` (with its `configFile`) and continue with its result.
+`-32803` means what was approved changed before the decision was received (ex. the configuration file changed), so the decision wasn't used. Its `data` has what needs to be approved now and whether the configuration file is used when they're known, which is like a result of `dprint/approve` to ask about. For a decision whose option's `allows` is `false`, don't ask again right away: send the same denial for the approval of the same `kind` and `configFile` that replaced it, if there is one and it has that decision, and never send an allowing decision that the user didn't make for what's shown. When the request is cancelled or fails otherwise, or `-32803` doesn't say what's pending, the decision may still have been used, so get what's pending for the configuration file with `dprint/pendingApprovals` (with its `configFile`) and continue with its result.
 
 The decisions that are `always` are stored in an `editor-approvals.json` file next to dprint's settings file (`files.approvals`), which the server notices when it changes (see "Lifecycle"). `dprint/forgetDecisions` forgets what the user decided for a configuration file, or for every configuration file, so they're asked again (ex. a command to undo allowing a process plugin).
 
