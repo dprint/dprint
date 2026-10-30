@@ -323,6 +323,9 @@ pub trait Environment:
   /// or symlink (`None` when the path doesn't exist). Symlinks are not
   /// followed—canonicalize and stat again to see what a symlink points at.
   fn path_kind(&self, path: impl AsRef<Path>) -> Option<PathKind>;
+  /// Reads what a symlink points at without following it any further, which
+  /// may be relative to the symlink's directory.
+  fn read_link(&self, path: impl AsRef<Path>) -> io::Result<PathBuf>;
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   /// Canonicalizes a path that might not exist (ex. an unsaved file in an editor)
   /// by canonicalizing its closest existing ancestor and adding back the rest.

@@ -36,10 +36,12 @@ use sys_traits::FsMetadata;
 use sys_traits::FsMetadataValue;
 use sys_traits::FsRead;
 use sys_traits::FsReadDir;
+use sys_traits::FsReadLink;
 use sys_traits::FsRemoveDirAll;
 use sys_traits::FsRemoveFile;
 use sys_traits::FsRename;
 use sys_traits::FsSetPermissions;
+use sys_traits::FsSymlinkFile;
 use sys_traits::FsWrite;
 use sys_traits::SystemRandom;
 use sys_traits::SystemTimeNow;
@@ -485,6 +487,12 @@ impl TestEnvironment {
     *self.remove_dir_all_failures.lock() = count;
   }
 
+  /// Creates a symlink at `link` that points at `original`, which may be
+  /// relative to the symlink's directory.
+  pub fn symlink(&self, original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
+    self.sys.fs_symlink_file(original, self.clean_path(link))
+  }
+
   pub fn take_run_commands(&self) -> Vec<(Vec<OsString>, io::Result<Option<i32>>)> {
     self.run_command_results.lock().drain(..).collect()
   }
@@ -804,6 +812,11 @@ impl Environment for TestEnvironment {
       sys_traits::FileType::Symlink => PathKind::Symlink,
       sys_traits::FileType::File | sys_traits::FileType::Unknown => PathKind::File,
     })
+  }
+
+  fn read_link(&self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    let path = self.clean_path(path);
+    self.sys.fs_read_link(path)
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {

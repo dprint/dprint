@@ -1,6 +1,8 @@
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::Component;
 use std::path::Path;
+use std::path::PathBuf;
 use std::path::Prefix;
 use std::sync::Arc;
 
@@ -11,6 +13,7 @@ use crate::configuration::ResolveConfigError;
 use crate::configuration::read_settings;
 use crate::environment::DownloadProxy;
 use crate::environment::Environment;
+use crate::environment::PathKind;
 use crate::resolution::ResolvePluginsError;
 
 /// The domains that the editors download plugins and configuration files from
@@ -96,15 +99,20 @@ impl DownloadPolicy {
   /// Errors when the path is on another machine and may not be read without
   /// asking the user, which is allowed when the file it's relative to is on the
   /// same network share (ex. a config file in a project on a share).
-  pub fn ensure_allows_path(&self, path: &Path, base: Option<&Path>) -> Result<(), UntrustedDownloadError> {
+  ///
+  /// It follows the path through the file system (ex. `..` after a symlink),
+  /// but never looks up what's on another machine (see `resolve_network_share`).
+  pub fn ensure_allows_path(&self, environment: &impl Environment, path: &Path, base: Option<&Path>) -> Result<(), UntrustedDownloadError> {
     let DownloadPolicy::TrustedDomains(downloads) = self else {
       return Ok(());
     };
-    let Some(share) = get_network_share(path) else {
+    let Some(share) = resolve_network_share(environment, path, IS_NET_AUTOMOUNTED) else {
       return Ok(());
     };
     let path_text = path.display().to_string();
-    if base.and_then(get_network_share).is_some_and(|base_share| base_share == share) || downloads.is_allowed(&path_text) {
+    // the file it's relative to was already resolved
+    let base_share = base.and_then(|base| get_network_share(base, IS_NET_AUTOMOUNTED));
+    if base_share.is_some_and(|base_share| base_share == share) || downloads.is_allowed(&path_text) {
       Ok(())
     } else {
       Err(UntrustedDownloadError { download: path_text })
@@ -320,15 +328,104 @@ impl TrustedDomains {
 /// isn't mistaken for a url because a url can't have the newline it has.
 const NPMRC_PROXY_DOWNLOAD_PREFIX: &str = "npmrc-proxy:";
 
+/// Whether a path in `/net` is on another machine, which is where the
+/// automounter of macOS mounts the shares of a host when the host is looked up.
+const IS_NET_AUTOMOUNTED: bool = cfg!(target_os = "macos");
+
+/// The most symlinks to follow when resolving a path, which is more than the
+/// systems follow, so reading a path with more fails anyway.
+const MAX_SYMLINKS: usize = 64;
+
+/// Gets where a path that may be on another machine is like
+/// `get_network_share`, which follows the path through the file system one
+/// component at a time from the root.
+///
+/// IMPORTANT: The text of the path isn't enough because `..`, the case of
+/// `/net` on a case insensitive file system, and symlinks (ex. one in the
+/// project that points at a UNC path) may reach another machine. Each
+/// component is only looked up once the path before it is known to be local
+/// because looking up a host in `/net` connects to it, and a symlink is read
+/// without following it, so nothing on another machine is looked up.
+fn resolve_network_share(environment: &impl Environment, path: &Path, is_net_automounted: bool) -> Option<String> {
+  // the components that are left with the next one last, and the path
+  // without symlinks or `..` that's resolved so far
+  let mut remaining = path.components().rev().filter_map(OwnedComponent::new).collect::<Vec<_>>();
+  let mut resolved = PathBuf::new();
+  let mut symlink_count = 0;
+  while let Some(component) = remaining.pop() {
+    match component {
+      OwnedComponent::Root(root) => {
+        resolved.push(root);
+        // ex. a UNC prefix
+        if let Some(share) = get_network_share(&resolved, is_net_automounted) {
+          return Some(share);
+        }
+      }
+      OwnedComponent::Parent => {
+        // the parent of the root is the root
+        resolved.pop();
+      }
+      OwnedComponent::Normal(name) => {
+        let next = resolved.join(name);
+        if let Some(share) = get_network_share(&next, is_net_automounted) {
+          return Some(share);
+        }
+        if environment.path_kind(&next) != Some(PathKind::Symlink) {
+          resolved = next;
+          continue;
+        }
+        symlink_count += 1;
+        if symlink_count > MAX_SYMLINKS {
+          // the whole path, which the file it's relative to never matches
+          return Some(path.to_string_lossy().to_lowercase());
+        }
+        match environment.read_link(&next) {
+          Ok(target) => {
+            // a relative target is relative to the symlink's directory, and an absolute one replaces it
+            let target = resolved.join(target);
+            remaining.extend(target.components().rev().filter_map(OwnedComponent::new));
+            resolved = PathBuf::new();
+          }
+          // reading the path fails the same way
+          Err(_) => resolved = next,
+        }
+      }
+    }
+  }
+  None
+}
+
+/// A component of a path that's owned (see `resolve_network_share`).
+enum OwnedComponent {
+  /// A prefix (ex. `C:` or a UNC prefix on Windows) or the root directory.
+  Root(OsString),
+  Parent,
+  Normal(OsString),
+}
+
+impl OwnedComponent {
+  /// Gets the owned component, which is `None` for `.` because it's the same directory.
+  fn new(component: Component<'_>) -> Option<Self> {
+    match component {
+      Component::Prefix(_) | Component::RootDir => Some(OwnedComponent::Root(component.as_os_str().to_os_string())),
+      Component::CurDir => None,
+      Component::ParentDir => Some(OwnedComponent::Parent),
+      Component::Normal(name) => Some(OwnedComponent::Normal(name.to_os_string())),
+    }
+  }
+}
+
 /// Gets where a path that may be on another machine is (ex. the server and
-/// share of a UNC path), lowercased because it's case insensitive.
+/// share of a UNC path), lowercased because it's case insensitive. It's only
+/// from the text of the path, so the path needs to be resolved first (see
+/// `resolve_network_share`).
 ///
 /// IMPORTANT: On Windows, only a path on a drive is known to be local. A UNC
 /// path isn't, and neither is any other kind of prefix because some of them
 /// also reach another machine (ex. `\\.\UNC\server\share` or
 /// `\\?\GLOBALROOT\Device\Mup\server\share`). On macOS, a path in `/net` is on
 /// another machine because the automounter mounts it.
-fn get_network_share(path: &Path) -> Option<String> {
+fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
   match path.components().next()? {
     Component::Prefix(prefix) => match prefix.kind() {
       Prefix::Disk(_) | Prefix::VerbatimDisk(_) => None,
@@ -340,10 +437,13 @@ fn get_network_share(path: &Path) -> Option<String> {
       // the share isn't known, so this is the whole path, which the file it's relative to never matches
       _ => Some(path.to_string_lossy().to_lowercase()),
     },
-    Component::RootDir if cfg!(target_os = "macos") => {
+    Component::RootDir if is_net_automounted => {
       let mut components = path.components().skip(1);
       match (components.next(), components.next()) {
-        (Some(Component::Normal(net)), Some(Component::Normal(host))) if net == "net" => Some(format!("/net/{}", host.to_string_lossy().to_lowercase())),
+        // the file system is case insensitive by default
+        (Some(Component::Normal(net)), Some(Component::Normal(host))) if net.eq_ignore_ascii_case("net") => {
+          Some(format!("/net/{}", host.to_string_lossy().to_lowercase()))
+        }
         _ => None,
       }
     }
@@ -385,37 +485,117 @@ mod test {
     let policy = DownloadPolicy::for_editor(&environment);
     assert!(
       policy
-        .ensure_allows_path(Path::new(r"C:\project\plugin.wasm"), Some(Path::new(r"C:\project")))
+        .ensure_allows_path(&environment, Path::new(r"C:\project\plugin.wasm"), Some(Path::new(r"C:\project")))
         .is_ok()
     );
     let err = policy
-      .ensure_allows_path(Path::new(r"\\server\share\plugin.wasm"), Some(Path::new(r"C:\project")))
+      .ensure_allows_path(&environment, Path::new(r"\\server\share\plugin.wasm"), Some(Path::new(r"C:\project")))
       .unwrap_err();
     assert_eq!(err.download, r"\\server\share\plugin.wasm");
-    assert!(policy.ensure_allows_path(Path::new(r"\\?\UNC\server\share\plugin.wasm"), None).is_err());
-    // other ways of reaching another machine
-    assert!(policy.ensure_allows_path(Path::new(r"\\.\UNC\server\share\plugin.wasm"), None).is_err());
     assert!(
       policy
-        .ensure_allows_path(Path::new(r"\\?\GLOBALROOT\Device\Mup\server\share\plugin.wasm"), Some(Path::new(r"C:\project")))
+        .ensure_allows_path(&environment, Path::new(r"\\?\UNC\server\share\plugin.wasm"), None)
         .is_err()
     );
-    assert!(policy.ensure_allows_path(Path::new(r"\\?\C:\project\plugin.wasm"), None).is_ok());
+    // other ways of reaching another machine
+    assert!(
+      policy
+        .ensure_allows_path(&environment, Path::new(r"\\.\UNC\server\share\plugin.wasm"), None)
+        .is_err()
+    );
+    assert!(
+      policy
+        .ensure_allows_path(
+          &environment,
+          Path::new(r"\\?\GLOBALROOT\Device\Mup\server\share\plugin.wasm"),
+          Some(Path::new(r"C:\project"))
+        )
+        .is_err()
+    );
+    assert!(policy.ensure_allows_path(&environment, Path::new(r"\\?\C:\project\plugin.wasm"), None).is_ok());
     // a config file on the share may use what's on it
     assert!(
       policy
-        .ensure_allows_path(Path::new(r"\\SERVER\share\plugin.wasm"), Some(Path::new(r"\\server\Share\project")))
+        .ensure_allows_path(
+          &environment,
+          Path::new(r"\\SERVER\share\plugin.wasm"),
+          Some(Path::new(r"\\server\Share\project"))
+        )
         .is_ok()
     );
     assert!(
       policy
-        .ensure_allows_path(Path::new(r"\\server\other\plugin.wasm"), Some(Path::new(r"\\server\share\project")))
+        .ensure_allows_path(
+          &environment,
+          Path::new(r"\\server\other\plugin.wasm"),
+          Some(Path::new(r"\\server\share\project"))
+        )
         .is_err()
     );
     policy.allow(&[r"\\server\share\plugin.wasm".to_string()]);
-    assert!(policy.ensure_allows_path(Path::new(r"\\server\share\plugin.wasm"), None).is_ok());
+    assert!(policy.ensure_allows_path(&environment, Path::new(r"\\server\share\plugin.wasm"), None).is_ok());
     // the cli reads anything
-    assert!(DownloadPolicy::All.ensure_allows_path(Path::new(r"\\server\share\plugin.wasm"), None).is_ok());
+    assert!(
+      DownloadPolicy::All
+        .ensure_allows_path(&environment, Path::new(r"\\server\share\plugin.wasm"), None)
+        .is_ok()
+    );
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_not_allow_reading_from_another_machine_through_a_symlink() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/project").unwrap();
+    environment.symlink(r"\\server\share\dir", "/project/link").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let err = policy
+      .ensure_allows_path(&environment, Path::new("/project/link/plugin.wasm"), Some(Path::new("/project")))
+      .unwrap_err();
+    assert_eq!(err.download, Path::new("/project/link/plugin.wasm").display().to_string());
+    // a config file on the share may use what's on it
+    assert!(
+      policy
+        .ensure_allows_path(&environment, Path::new("/project/link/plugin.wasm"), Some(Path::new(r"\\Server\share\project")))
+        .is_ok()
+    );
+    assert!(
+      policy
+        .ensure_allows_path(&environment, Path::new("/project/link/plugin.wasm"), Some(Path::new(r"\\server\other\project")))
+        .is_err()
+    );
+  }
+
+  #[test]
+  fn should_resolve_the_path_to_net_before_reading_it() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/home/me/project").unwrap();
+    environment.mk_dir_all("/a/b").unwrap();
+    let share = |path: &str| resolve_network_share(&environment, Path::new(path), true);
+    assert_eq!(share("/home/me/project/plugin.wasm"), None);
+    assert_eq!(share("/net/host/share/plugin.wasm").as_deref(), Some("/net/host"));
+    // the parent directories
+    assert_eq!(share("/home/me/project/../../../net/host/plugin.wasm").as_deref(), Some("/net/host"));
+    assert_eq!(share("/../../net/host/plugin.wasm").as_deref(), Some("/net/host"));
+    assert_eq!(share("/home/me/./project/../../net/host/plugin.wasm"), None);
+    // the file system is case insensitive
+    assert_eq!(share("/NET/Host/plugin.wasm").as_deref(), Some("/net/host"));
+    assert_eq!(share("/home/me/project/../../../Net/host/plugin.wasm").as_deref(), Some("/net/host"));
+    // a symlink to it
+    environment.symlink("/net", "/home/me/project/net_link").unwrap();
+    assert_eq!(share("/home/me/project/net_link/host/plugin.wasm").as_deref(), Some("/net/host"));
+    environment.symlink("/NET/host", "/home/me/project/host_link").unwrap();
+    assert_eq!(share("/home/me/project/host_link/plugin.wasm").as_deref(), Some("/net/host"));
+    // a parent directory after a symlink is the one of what it points at
+    environment.symlink("/a/b", "/home/me/project/b_link").unwrap();
+    assert_eq!(share("/home/me/project/b_link/../../net/host/plugin.wasm").as_deref(), Some("/net/host"));
+    assert_eq!(share("/home/me/project/b_link/../plugin.wasm"), None);
+    // a symlink loop isn't followed forever
+    environment.symlink("/home/me/project/loop_b", "/home/me/project/loop_a").unwrap();
+    environment.symlink("/home/me/project/loop_a", "/home/me/project/loop_b").unwrap();
+    assert!(share("/home/me/project/loop_a/plugin.wasm").is_some());
+    // only on macOS
+    assert_eq!(resolve_network_share(&environment, Path::new("/net/host/plugin.wasm"), false), None);
   }
 
   #[test]

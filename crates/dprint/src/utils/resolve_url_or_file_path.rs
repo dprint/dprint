@@ -287,7 +287,7 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
             // IMPORTANT: Check this before canonicalizing because that reads it.
             environment
               .download_policy()
-              .ensure_allows_path(&file_path, base.maybe_local_path().map(|path| path.as_ref()))?;
+              .ensure_allows_path(environment, &file_path, base.maybe_local_path().map(|path| path.as_ref()))?;
             return Ok(PathSource::new_local(environment.canonicalize(file_path)?));
           }
           Err(()) => bail!("Problem converting file url `{}` to file path.", url_or_file_path),
@@ -307,7 +307,7 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
           // IMPORTANT: Check this before canonicalizing because that reads it.
           environment
             .download_policy()
-            .ensure_allows_path(&path, base.maybe_local_path().map(|path| path.as_ref()))?;
+            .ensure_allows_path(environment, &path, base.maybe_local_path().map(|path| path.as_ref()))?;
           environment.canonicalize(path)?
         };
         return Ok(PathSource::new_local(path));
@@ -324,7 +324,9 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
     PathSource::Local(local_base) => {
       let path = local_base.path.join(url_or_file_path);
       // IMPORTANT: Check this before canonicalizing because that reads it.
-      environment.download_policy().ensure_allows_path(&path, Some(local_base.path.as_ref()))?;
+      environment
+        .download_policy()
+        .ensure_allows_path(environment, &path, Some(local_base.path.as_ref()))?;
       PathSource::new_local(environment.canonicalize(path)?)
     }
     PathSource::Npm(_) => bail!("Cannot resolve a relative path against an npm specifier"),

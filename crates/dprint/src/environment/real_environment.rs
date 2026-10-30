@@ -481,6 +481,12 @@ impl Environment for RealEnvironment {
     })
   }
 
+  fn read_link(&self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    log_debug!(self, "Reading symlink: {}", path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
+    fs::read_link(path)
+  }
+
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     canonicalize_path(path)
   }
