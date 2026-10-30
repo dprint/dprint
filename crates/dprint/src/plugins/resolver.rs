@@ -20,6 +20,7 @@ use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
 use crate::utils::AsyncCell;
 use crate::utils::PathSource;
+use crate::utils::UntrustedDownloadError;
 
 pub struct PluginWrapper {
   plugin: Box<dyn Plugin>,
@@ -207,22 +208,25 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
   }
 
   /// Gets the url the plugin is downloaded from (see `PluginCache::get_download_url`).
-  pub fn get_download_url(&self, plugin_reference: &PluginSourceReference) -> Option<url::Url> {
+  pub fn get_download_url(&self, plugin_reference: &PluginSourceReference) -> Result<Option<url::Url>, UntrustedDownloadError> {
     self.plugin_cache.get_download_url(plugin_reference)
   }
 
   /// Gets what the plugin needs to download that the download policy doesn't
   /// allow without asking the user (see `UntrustedDownloadError`), which is the
   /// url it's downloaded from and the proxy of an `.npmrc` file that it's
-  /// downloaded through (see `NpmrcProxy`).
+  /// downloaded through (see `NpmrcProxy`), or the `.npmrc` file on another
+  /// machine that needs to be read to know the url (see `NpmrcChain::load`).
   pub fn get_disallowed_downloads(&self, plugin_reference: &PluginSourceReference) -> Vec<String> {
     if self.is_installed(plugin_reference) {
       return Vec::new();
     }
     let download_policy = self.environment.download_policy();
     let mut downloads = Vec::new();
-    if let Some(url) = self.get_download_url(plugin_reference).filter(|url| !download_policy.allows(url)) {
-      downloads.push(url.to_string());
+    match self.get_download_url(plugin_reference) {
+      Ok(Some(url)) if !download_policy.allows(&url) => downloads.push(url.to_string()),
+      Ok(_) => {}
+      Err(err) => downloads.push(err.download),
     }
     if let Some(proxy) = self
       .plugin_cache
@@ -289,6 +293,41 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
 mod test {
   use super::*;
   use crate::environment::TestEnvironmentBuilder;
+
+  #[cfg(windows)]
+  #[test]
+  fn should_need_reading_an_npmrc_on_another_machine_allowed_to_know_where_an_npm_plugin_is_downloaded_from() {
+    use crate::environment::TestEnvironment;
+    use crate::utils::DownloadPolicy;
+    use crate::utils::NpmSpecifier;
+    use std::path::Path;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo").unwrap();
+    // ex. a file that sets a company's registry for its scope, which isn't in the test file system
+    environment.symlink(r"\\server\share\dir\npmrc", "/repo/.npmrc").unwrap();
+    environment.set_download_policy(DownloadPolicy::for_editor(&environment));
+    let resolver = PluginResolver::new(environment.clone(), PluginCache::new(environment.clone()), PluginResolverOptions::default());
+    let reference = PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "@acme/plugin".to_string(),
+          version: Some("1.0.0".to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        Some(environment.canonicalize("/repo").unwrap()),
+      ),
+      checksum: None,
+    };
+    let npmrc_download = format!(r"{} -> \\server\share\dir\npmrc", Path::new("/repo").join(".npmrc").display());
+    // it isn't downloaded from the default registry without reading the file that may set another
+    assert_eq!(resolver.get_disallowed_downloads(&reference), vec![npmrc_download.clone()]);
+    assert_eq!(resolver.get_npm_registry(&reference), None);
+    // and then it's downloaded from the registry the file sets, which is the default one when it doesn't exist
+    environment.download_policy().allow(&[npmrc_download]);
+    assert_eq!(resolver.get_disallowed_downloads(&reference), Vec::<String>::new());
+    assert_eq!(resolver.get_npm_registry(&reference), None);
+    assert_eq!(environment.file_read_count("/repo/.npmrc"), 1);
+  }
 
   #[test]
   fn should_reload_remote_plugin_once_per_process() {

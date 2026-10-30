@@ -737,7 +737,7 @@ fn ensure_download_allowed(specifier: &str, context: &ExtendsContext, environmen
     return Ok(());
   }
   let (url, npmrc_proxy) = if specifier.starts_with("npm:") {
-    match context.npm_resolver.get_download(specifier, &context.base_path, environment) {
+    match context.npm_resolver.get_download(specifier, &context.base_path, environment)? {
       Some((url, npmrc_proxy)) => (Some(url), npmrc_proxy),
       None => (None, None),
     }

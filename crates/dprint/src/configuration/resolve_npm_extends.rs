@@ -20,6 +20,7 @@ use crate::utils::NpmSpecifier;
 use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::ResolvedFilePathWithBytes;
+use crate::utils::UntrustedDownloadError;
 use crate::utils::parse_npm_specifier;
 
 /// File names checked at the root of an npm package when it doesn't otherwise
@@ -151,9 +152,21 @@ impl NpmExtendsResolver {
   /// proxy of an `.npmrc` file that isn't the user's own that it's downloaded
   /// through (see `NpmrcProxy`), which is `None` when it doesn't need to be
   /// downloaded (ex. it's in node_modules or the npm cache).
-  pub fn get_download(&self, text: &str, base: &PathSource, environment: &impl Environment) -> Option<(Url, Option<NpmrcProxy>)> {
-    let parsed = parse_npm_specifier(text).ok()?;
-    let version = parsed.specifier.version?;
+  ///
+  /// It errors when an `.npmrc` file that could set the registry couldn't be
+  /// read without asking the user (see `NpmrcChain::load`).
+  pub fn get_download(
+    &self,
+    text: &str,
+    base: &PathSource,
+    environment: &impl Environment,
+  ) -> Result<Option<(Url, Option<NpmrcProxy>)>, UntrustedDownloadError> {
+    let Ok(parsed) = parse_npm_specifier(text) else {
+      return Ok(None);
+    };
+    let Some(version) = parsed.specifier.version else {
+      return Ok(None);
+    };
     let base_dir = match base {
       PathSource::Local(local) => Some(local.path.clone()),
       PathSource::Npm(npm) => npm.base_dir.clone(),
@@ -162,13 +175,15 @@ impl NpmExtendsResolver {
     let base_dir = base_dir.as_ref().map(|d| -> &Path { d.as_ref() });
     let registry = self
       .npmrc_chain(base_dir, environment)
-      .registry_for_package(&parsed.specifier.name, environment);
+      .registry_for_package(&parsed.specifier.name, environment)?;
     if is_npm_package_extracted(&parsed.specifier.name, &version, &registry, environment) {
-      return None;
+      return Ok(None);
     }
-    let url = Url::parse(&registry.url).ok()?;
+    let Ok(url) = Url::parse(&registry.url) else {
+      return Ok(None);
+    };
     let proxy = registry.npmrc_proxy_for(&url).cloned();
-    Some((url, proxy))
+    Ok(Some((url, proxy)))
   }
 
   /// Resolves a relative path in the `extends` property of a configuration file
@@ -234,7 +249,7 @@ impl NpmExtendsResolver {
         ..package.clone()
       });
     }
-    let registry = self.npmrc_chain(base_dir, environment).registry_for_package(name, environment);
+    let registry = self.npmrc_chain(base_dir, environment).registry_for_package(name, environment)?;
     let package = ensure_npm_package_extracted(name, version, &registry, environment).await?;
     let package = RegistryPackageDir {
       dir: package.dir,
@@ -246,12 +261,16 @@ impl NpmExtendsResolver {
   }
 
   fn npmrc_chain(&self, start_dir: Option<&Path>, environment: &impl Environment) -> Rc<NpmrcChain> {
-    self
-      .npmrc_chains
-      .borrow_mut()
-      .entry(start_dir.map(|d| d.to_path_buf()))
-      .or_insert_with(|| Rc::new(NpmrcChain::load(start_dir, environment)))
-      .clone()
+    let key = start_dir.map(|d| d.to_path_buf());
+    if let Some(chain) = self.npmrc_chains.borrow().get(&key) {
+      return chain.clone();
+    }
+    let chain = Rc::new(NpmrcChain::load(start_dir, environment));
+    // one with a file that wasn't read is loaded again in case reading it was allowed since
+    if !chain.has_unread_files() {
+      self.npmrc_chains.borrow_mut().insert(key, chain.clone());
+    }
+    chain
   }
 
   fn read_package_json(&self, package_dir: &Path, environment: &impl Environment) -> Result<Rc<Option<serde_json::Value>>> {

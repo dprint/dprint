@@ -46,6 +46,7 @@ use crate::utils::NpmSpecifier;
 use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::UntrustedDownloadError;
 use crate::utils::get_sha256_checksum;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
@@ -159,7 +160,12 @@ where
     // concurrent process resolving the same plugin would lock on a different
     // key and we'd race between remove_entry here and setup over there.
     let _setup_guard = self.fs_locks.lock(&cache_source).await;
-    let cache_key = self.compute_cache_key(&cache_source)?;
+    let cache_key = match self.compute_cache_key(&cache_source) {
+      // the registry isn't known until an `.npmrc` file may be read, so there's
+      // no entry it could be found by
+      Err(err) if UntrustedDownloadError::find(&err).is_some() => return Ok(()),
+      result => result?,
+    };
     let hash = entry_hash(&cache_key, &self.environment);
     // also remove the per-platform npm package a process plugin's executable is
     // run from, so that setting the plugin up again gets a fresh copy of it
@@ -173,7 +179,7 @@ where
       && let Some(version) = &npm_source.specifier.version
     {
       let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-      let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
+      let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir)?;
       let registry_segment = npm_resolution::registry_dir_segment(&registry);
       let extract_dir = npm_resolution::get_npm_extract_dir(&registry_segment, &npm_source.specifier.name, version, &self.environment);
       npm_resolution::remove_npm_package_dir(&extract_dir, &self.environment);
@@ -312,7 +318,7 @@ where
     match &source_reference.path_source {
       PathSource::Npm(npm_source) if npm_source.specifier.version.is_some() => {
         let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-        let url = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
+        let url = self.resolve_registry_url(&npm_source.specifier.name, start_dir).ok()?;
         (!npm_resolution::is_default_registry(&url)).then_some(url)
       }
       _ => None,
@@ -321,15 +327,18 @@ where
 
   /// Gets the url the plugin is downloaded from, which is the registry for an
   /// npm package and `None` when it isn't downloaded (ex. it's a file).
-  pub fn get_download_url(&self, source_reference: &PluginSourceReference) -> Option<Url> {
-    match &source_reference.path_source {
+  ///
+  /// It errors when the registry isn't known until an `.npmrc` file that
+  /// can't be read without asking the user is read (see `NpmrcChain::load`).
+  pub fn get_download_url(&self, source_reference: &PluginSourceReference) -> Result<Option<Url>, UntrustedDownloadError> {
+    Ok(match &source_reference.path_source {
       PathSource::Remote(remote_source) => Some(remote_source.url.clone()),
       PathSource::Npm(npm_source) if npm_source.specifier.version.is_some() => {
         let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-        Url::parse(&self.resolve_registry_url(&npm_source.specifier.name, start_dir)).ok()
+        Url::parse(&self.resolve_registry_url(&npm_source.specifier.name, start_dir)?).ok()
       }
       PathSource::Npm(_) | PathSource::Local(_) => None,
-    }
+    })
   }
 
   /// Gets the proxy of an `.npmrc` file that isn't the user's own that an npm
@@ -340,7 +349,7 @@ where
     };
     npm_source.specifier.version.as_ref()?;
     let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-    let registry = self.resolve_registry(&npm_source.specifier.name, start_dir);
+    let registry = self.resolve_registry(&npm_source.specifier.name, start_dir).ok()?;
     let url = Url::parse(&registry.url).ok()?;
     registry.npmrc_proxy_for(&url).cloned()
   }
@@ -382,7 +391,7 @@ where
     let specifier = &npm_source.specifier;
     let checksum = source_reference.checksum.as_deref();
     let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-    let registry = self.resolve_registry(&specifier.name, base_dir);
+    let registry = self.resolve_registry(&specifier.name, base_dir)?;
     let resolved = npm_resolution::resolve_npm_from_registry(
       npm_resolution::ResolveNpmRegistryOptions {
         specifier,
@@ -449,7 +458,7 @@ where
       // through to a full resolve, which re-downloads and re-detects.
     }
 
-    let registry = self.resolve_registry(&specifier.name, base_dir_ref);
+    let registry = self.resolve_registry(&specifier.name, base_dir_ref)?;
     let resolved = npm_resolution::resolve_npm_from_registry(
       npm_resolution::ResolveNpmRegistryOptions {
         specifier,
@@ -872,17 +881,20 @@ where
     }
   }
 
-  pub(super) fn resolve_registry(&self, package_name: &str, start_dir: Option<&Path>) -> npm_resolution::NpmRegistryResolution {
+  /// Resolves the npm registry of a package, which errors when it isn't known
+  /// until an `.npmrc` file that can't be read without asking the user is read
+  /// (see `NpmrcChain::load`).
+  pub(super) fn resolve_registry(&self, package_name: &str, start_dir: Option<&Path>) -> Result<npm_resolution::NpmRegistryResolution, UntrustedDownloadError> {
     let key = RegistryUrlKey {
       package_name: package_name.to_string(),
       start_dir: start_dir.map(|p| p.to_path_buf()),
     };
     if let Some(info) = self.registry_cache.lock().get(&key) {
-      return info.clone();
+      return Ok(info.clone());
     }
-    let info = self.npmrc_chain(start_dir).registry_for_package(package_name, &self.environment);
+    let info = self.npmrc_chain(start_dir).registry_for_package(package_name, &self.environment)?;
     self.registry_cache.lock().insert(key, info.clone());
-    info
+    Ok(info)
   }
 
   fn npmrc_chain(&self, start_dir: Option<&Path>) -> Arc<npm_resolution::NpmrcChain> {
@@ -893,12 +905,15 @@ where
     // loaded outside the lock since it does file I/O. a concurrent caller may
     // load the same files — harmless since the result is deterministic.
     let chain = Arc::new(npm_resolution::NpmrcChain::load(start_dir, &self.environment));
-    self.npmrc_cache.lock().insert(key, chain.clone());
+    // one with a file that wasn't read is loaded again in case reading it was allowed since
+    if !chain.has_unread_files() {
+      self.npmrc_cache.lock().insert(key, chain.clone());
+    }
     chain
   }
 
-  pub(super) fn resolve_registry_url(&self, package_name: &str, start_dir: Option<&Path>) -> String {
-    self.resolve_registry(package_name, start_dir).url
+  pub(super) fn resolve_registry_url(&self, package_name: &str, start_dir: Option<&Path>) -> Result<String, UntrustedDownloadError> {
+    Ok(self.resolve_registry(package_name, start_dir)?.url)
   }
 
   /// The stable cache key string for a source (`remote:<url>`, `local:<path>`,
@@ -930,7 +945,7 @@ where
           );
         };
         let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-        let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
+        let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir)?;
         format!("npm:{}#{}@{}/{}", registry, npm_source.specifier.name, version, npm_source.specifier.path,)
       }
     })
@@ -1496,9 +1511,9 @@ mod test {
 
     let plugin_cache = PluginCache::new(environment.clone());
     let start_dir = Some(std::path::Path::new("/repo/sub"));
-    let typescript = plugin_cache.resolve_registry("@dprint/typescript", start_dir);
-    let json = plugin_cache.resolve_registry("@dprint/json", start_dir);
-    let unscoped = plugin_cache.resolve_registry("some-plugin", start_dir);
+    let typescript = plugin_cache.resolve_registry("@dprint/typescript", start_dir).unwrap();
+    let json = plugin_cache.resolve_registry("@dprint/json", start_dir).unwrap();
+    let unscoped = plugin_cache.resolve_registry("some-plugin", start_dir).unwrap();
     assert_eq!(typescript.url, "https://dprint.example.com");
     assert_eq!(json.url, "https://dprint.example.com");
     assert_eq!(unscoped.url, "https://registry.npmjs.org");
