@@ -119,6 +119,10 @@ pub struct ProcessPluginApproval {
   /// so a change to it (ex. the commands of dprint-plugin-exec) needs to be
   /// decided on again.
   ///
+  /// It starts with the version of how it's made and a colon (ex. `1:` and
+  /// the checksum in hex), so a version of dprint that makes it another way
+  /// can tell it apart from a configuration that changed.
+  ///
   /// It's `None` for the plugin with any configuration, which is only for
   /// denying it because its configuration isn't known until it's set up.
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -268,6 +272,8 @@ impl Permissions {
         && decision.approval.config_file == approval.config_file
         && decision.approval.plugin == approval.plugin
         && decision.approval.config_hash != approval.config_hash
+        // a hash that's made another way (ex. by another version of dprint) doesn't say the configuration changed
+        && get_config_hash_version(&decision.approval) == get_config_hash_version(approval)
     })
   }
 
@@ -632,6 +638,12 @@ fn set_number_property(obj: &CstObject, name: &str, value: u32, index: usize) {
       obj.insert(index, name, value.into());
     }
   }
+}
+
+/// Gets the version of how the config hash of the approval was made (see
+/// `ProcessPluginApproval::config_hash`).
+fn get_config_hash_version(approval: &ProcessPluginApproval) -> Option<&str> {
+  approval.config_hash.as_deref()?.split_once(':').map(|(version, _)| version)
 }
 
 #[cfg(test)]
@@ -1122,6 +1134,19 @@ mod test {
       .is_err()
     );
     assert_eq!(environment.read_file(&file_path).unwrap(), text);
+  }
+
+  #[test]
+  fn should_not_say_the_config_changed_for_a_hash_made_another_way() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    // ex. a version of dprint that hashes the configuration another way allowed it
+    let permissions = read_permissions(
+      &environment,
+      &[decision("/a/dprint.json", "2:a", true), decision("/b/dprint.json", "1:a", true)],
+    );
+    assert!(!permissions.was_allowed_with_other_config(&approval("/a/dprint.json", "1:b")));
+    assert!(permissions.was_allowed_with_other_config(&approval("/b/dprint.json", "1:b")));
   }
 
   #[test]

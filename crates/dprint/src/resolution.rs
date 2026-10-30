@@ -1479,25 +1479,38 @@ fn get_process_plugin_approval(
   config_key: &str,
   environment: &impl Environment,
 ) -> ProcessPluginApproval {
+  // only the trusted config is used for process plugins
+  let config_hash = get_process_plugin_config_hash(
+    get_unpinned_plugin_file_checksum(plugin, environment),
+    config.trusted_config_map.get(config_key),
+  );
+  ProcessPluginApproval {
+    config_file: config.source.display(),
+    plugin: plugin.to_full_string(),
+    config_hash: Some(config_hash),
+  }
+}
+
+/// The version of how the config hash of a process plugin approval is made
+/// (see `ProcessPluginApproval::config_hash`), which is stored with it and
+/// needs to be increased when what's hashed changes (ex. a property is added
+/// to `ApprovedPlugin` or the configuration serializes differently) so that a
+/// decision isn't reported as being for another configuration.
+const PROCESS_PLUGIN_CONFIG_HASH_VERSION: u32 = 1;
+
+/// Gets the hash of what's approved with a process plugin, which starts with
+/// how it's made (see `PROCESS_PLUGIN_CONFIG_HASH_VERSION`).
+fn get_process_plugin_config_hash(plugin_file: Option<String>, config: Option<&ConfigMapValue>) -> String {
   #[derive(serde::Serialize)]
   #[serde(rename_all = "camelCase")]
   struct ApprovedPlugin<'a> {
     /// The checksum of the plugin file when the config file doesn't pin it.
     plugin_file: Option<String>,
-    // only the trusted config is used for process plugins
     config: Option<&'a ConfigMapValue>,
   }
 
-  let approved_plugin = ApprovedPlugin {
-    plugin_file: get_unpinned_plugin_file_checksum(plugin, environment),
-    config: config.trusted_config_map.get(config_key),
-  };
-  let text = serde_json::to_string(&approved_plugin).expect("config should serialize");
-  ProcessPluginApproval {
-    config_file: config.source.display(),
-    plugin: plugin.to_full_string(),
-    config_hash: Some(get_sha256_checksum(text.as_bytes())),
-  }
+  let text = serde_json::to_string(&ApprovedPlugin { plugin_file, config }).expect("config should serialize");
+  format!("{}:{}", PROCESS_PLUGIN_CONFIG_HASH_VERSION, get_sha256_checksum(text.as_bytes()))
 }
 
 /// Gets the checksum of the plugin file when the config file doesn't pin it,
@@ -1739,5 +1752,42 @@ mod test {
     assert_eq!(get(&[Some(true), Some(true)]), RangeFormattingSupport::Supported);
     assert_eq!(get(&[Some(true), None]), RangeFormattingSupport::Unknown);
     assert_eq!(get(&[None, Some(false), Some(true)]), RangeFormattingSupport::NotSupported);
+  }
+
+  #[test]
+  fn should_not_change_the_config_hash_of_a_process_plugin() {
+    use crate::configuration::RawPluginConfig;
+    use crate::configuration::RawPluginConfigOverride;
+    use dprint_core::configuration::ConfigKeyMap;
+
+    // IMPORTANT: The hashes are stored with what the user allowed, so increase
+    // PROCESS_PLUGIN_CONFIG_HASH_VERSION when these change.
+    let config = ConfigMapValue::PluginConfig(RawPluginConfig {
+      associations: Some(vec!["**/*.txt".to_string()]),
+      locked: true,
+      overrides: vec![RawPluginConfigOverride {
+        files: vec!["sub/**".to_string()],
+        properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(80))]),
+      }],
+      properties: ConfigKeyMap::from([
+        (
+          "commands".to_string(),
+          ConfigKeyValue::Array(vec![ConfigKeyValue::Object(ConfigKeyMap::from([
+            ("command".to_string(), ConfigKeyValue::from_str("fmt")),
+            ("exts".to_string(), ConfigKeyValue::Array(vec![ConfigKeyValue::from_str("txt")])),
+          ]))]),
+        ),
+        ("useTabs".to_string(), ConfigKeyValue::from_bool(false)),
+        ("other".to_string(), ConfigKeyValue::Null),
+      ]),
+    });
+    assert_eq!(
+      get_process_plugin_config_hash(Some("checksum".to_string()), Some(&config)),
+      "1:7fb2ae9589f5c2f7e6bde8c7a085905d67ded6856bd76721405273d002d6931f"
+    );
+    assert_eq!(
+      get_process_plugin_config_hash(None, None),
+      "1:b7c29ac8d0482200b6bcc038d421169c8604a546b3fca5b95b5baf3dfb4c1432"
+    );
   }
 }

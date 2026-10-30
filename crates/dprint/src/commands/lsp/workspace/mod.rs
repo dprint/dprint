@@ -1757,11 +1757,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           ApprovalSubject::ProcessPlugins(unapproved) => {
             // the configuration of each plugin is part of what's approved, which is the
             // trusted configuration of the config file for a plugin that isn't set up
-            let mut parts = unapproved
-              .plugins
-              .iter()
-              .map(|plugin| format!("{}\n{:?}", plugin.plugin, plugin.approval.as_ref().map(|approval| &approval.config_hash)))
-              .collect::<Vec<_>>();
+            let mut parts = unapproved.plugins.iter().map(get_process_plugin_id_part).collect::<Vec<_>>();
             if unapproved.plugins.iter().any(|plugin| plugin.approval.is_none()) {
               parts.push(unapproved.trusted_config_hash.clone());
             }
@@ -3227,7 +3223,11 @@ fn get_download_items(urls: &[String], kind: ApprovalItemKind) -> Vec<ApprovalIt
 /// does (ex. what's in them changed).
 const APPROVAL_ID_VERSION: u32 = 1;
 
-/// Gets an id that changes when what's approved does.
+/// Gets an id that changes when what's approved does, which is the hash of
+/// the version of how it's made, the kind, the config key, and the items, each
+/// on its own line. Everything in it is written out (ex. not with `Debug`,
+/// which may change between versions of Rust) so that it's the same in
+/// another server.
 fn get_approval_id(kind: &str, config_key: &str, items: &[String]) -> String {
   let mut text = format!("{}\n{}\n{}", APPROVAL_ID_VERSION, kind, config_key);
   for item in items {
@@ -3236,6 +3236,18 @@ fn get_approval_id(kind: &str, config_key: &str, items: &[String]) -> String {
   }
   // what's approved is only what's identified, so it isn't a hash that can collide
   get_sha256_checksum(text.as_bytes())
+}
+
+/// Gets the item of the approval id of a process plugin, which is the plugin
+/// and the hash of its configuration on the next line, or `notSetUp` when its
+/// configuration isn't known until it's set up.
+fn get_process_plugin_id_part(plugin: &UnapprovedProcessPlugin) -> String {
+  let config = match plugin.approval.as_ref().map(|approval| approval.config_hash.as_deref()) {
+    None => "notSetUp",
+    Some(None) => "anyConfig",
+    Some(Some(config_hash)) => config_hash,
+  };
+  format!("{}\n{}", plugin.plugin, config)
 }
 
 /// Gets the uri of a config file.
@@ -3382,9 +3394,11 @@ fn config_map_value_to_json(value: &ConfigMapValue) -> serde_json::Value {
 
 #[cfg(test)]
 mod test {
+  use pretty_assertions::assert_eq;
   use serde_json::json;
 
   use super::*;
+  use crate::configuration::ProcessPluginApproval;
 
   #[test]
   fn should_show_a_language_client_what_process_plugins_run_with() {
@@ -3424,6 +3438,42 @@ mod test {
     assert_eq!(
       get_language_client_approval_message(&approval),
       r#"Allow them? The plugins that weren't set up before run with this configuration: {"exec":{"commands":[]}}"#
+    );
+  }
+
+  #[test]
+  fn should_not_change_the_approval_ids() {
+    // IMPORTANT: The editor extensions send a decision again for the same id
+    // after the server restarts, so increase APPROVAL_ID_VERSION when these change.
+    let plugin = |config_hash: Option<Option<&str>>| UnapprovedProcessPlugin {
+      plugin: "https://plugins.dprint.dev/exec-0.5.0.json@checksum".to_string(),
+      approval: config_hash.map(|config_hash| ProcessPluginApproval {
+        config_file: "/a/dprint.json".to_string(),
+        plugin: "https://plugins.dprint.dev/exec-0.5.0.json@checksum".to_string(),
+        config_hash: config_hash.map(|config_hash| config_hash.to_string()),
+      }),
+    };
+    let parts = [plugin(Some(Some("1:hash"))), plugin(Some(None)), plugin(None)]
+      .iter()
+      .map(get_process_plugin_id_part)
+      .chain(["trusted".to_string()])
+      .collect::<Vec<_>>();
+    assert_eq!(
+      parts,
+      vec![
+        "https://plugins.dprint.dev/exec-0.5.0.json@checksum\n1:hash",
+        "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nanyConfig",
+        "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nnotSetUp",
+        "trusted",
+      ]
+    );
+    assert_eq!(
+      get_approval_id("processPlugins", "file:///a/dprint.json", &parts),
+      "06556c44b764c57cb038115bcf981ba716bd863ba341d972879bcd1306a71e69"
+    );
+    assert_eq!(
+      get_approval_id("download", "file:///a/dprint.json", &["https://example.com/plugin.wasm".to_string()]),
+      "2ab4d0c7e0fbd9986542b36b33f2be90fd9166a85487acdfbb050927c923c5d5"
     );
   }
 }
