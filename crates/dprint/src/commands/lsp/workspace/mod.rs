@@ -1347,6 +1347,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if !stored.approval.decisions.iter().any(|option| option.id == decision) {
       return Err(InvalidParamsError(format!("The decision {:?} isn't one of the approval's decisions.", decision)).into());
     }
+    // a failure to store a decision for process plugins is only told about
+    // when what this allows sets them up (ex. not one from a while ago)
+    let store_error_mark = self.session_permissions.process_plugin_store_error_mark();
     let mut notice = None;
     match &stored.subject {
       ApprovalSubject::Downloads(urls) => {
@@ -1372,8 +1375,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
       }
       ApprovalSubject::ProcessPlugins(unapproved) => {
-        // a failure from before isn't about this decision
-        self.session_permissions.take_process_plugin_store_error(&unapproved.config_file);
         let title = get_process_plugin_action_title(decision);
         if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, Some(title)).await {
           let message = format!("Failed storing the decision for the process plugins: {:#}", err);
@@ -1392,7 +1393,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if notice.is_none()
       && let Ok(DocumentConfig::Resolved(scope)) = &config
       && let Some(config) = &scope.config
-      && let Some(message) = self.session_permissions.take_process_plugin_store_error(&config.source.display())
+      && let Some(message) = self
+        .session_permissions
+        .take_process_plugin_store_error(&config.source.display(), store_error_mark)
     {
       notice = Some(new_warning_notice(message));
     }

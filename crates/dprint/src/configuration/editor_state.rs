@@ -396,13 +396,28 @@ pub struct SessionPermissions {
   process_plugin_decisions: Mutex<Vec<ProcessPluginDecision>>,
   /// The process plugins the user allowed setting up for the session.
   process_plugin_set_up_grants: Mutex<Vec<ProcessPluginSetUpGrant>>,
-  /// The message of the last failure to store what the user always allowed
-  /// for the process plugins of a config file once they were set up, by
-  /// config file, which approving them takes to tell the user.
-  process_plugin_store_errors: Mutex<HashMap<String, String>>,
+  /// The failures to store what the user always allowed for the process
+  /// plugins of a config file once they were set up, which an approval that
+  /// set them up takes to tell the user.
+  process_plugin_store_errors: Mutex<ProcessPluginStoreErrors>,
   /// The problems with the settings that were logged, which are only logged
   /// once because the settings are read for each request.
   logged_settings_problems: Mutex<HashSet<String>>,
+}
+
+/// Where the failures to store what the user always allowed for process
+/// plugins start for something (see `SessionPermissions::process_plugin_store_error_mark`).
+#[derive(Debug, Clone, Copy)]
+pub struct ProcessPluginStoreErrorMark(u64);
+
+/// The failures to store what the user always allowed for the process plugins
+/// of a config file once they were set up.
+#[derive(Debug, Default)]
+struct ProcessPluginStoreErrors {
+  /// How many failures there were, which numbers them.
+  count: u64,
+  /// The number and message of the last failure of each config file.
+  by_config_file: HashMap<String, (u64, String)>,
 }
 
 impl SessionPermissions {
@@ -495,17 +510,38 @@ impl SessionPermissions {
     self.process_plugin_set_up_grants.lock().retain(|grant| !is_config_file(&grant.config_file));
   }
 
+  /// Marks where the failures to store what the user always allowed for
+  /// process plugins start for something that may set them up (ex. an
+  /// approval), so it only takes the ones that happen after it (see
+  /// `take_process_plugin_store_error`).
+  pub fn process_plugin_store_error_mark(&self) -> ProcessPluginStoreErrorMark {
+    ProcessPluginStoreErrorMark(self.process_plugin_store_errors.lock().count)
+  }
+
   /// Remembers that storing what the user always allowed for the process
   /// plugins of the config file failed once they were set up (see
   /// `record_set_up_process_plugins`), which replaces the previous failure.
   pub fn set_process_plugin_store_error(&self, config_file: String, message: String) {
-    self.process_plugin_store_errors.lock().insert(config_file, message);
+    let mut errors = self.process_plugin_store_errors.lock();
+    errors.count += 1;
+    let number = errors.count;
+    errors.by_config_file.insert(config_file, (number, message));
+  }
+
+  /// Forgets the failure to store what the user always allowed for the
+  /// process plugins of the config file (ex. storing it succeeded since).
+  pub fn clear_process_plugin_store_error(&self, config_file: &str) {
+    self.process_plugin_store_errors.lock().by_config_file.remove(config_file);
   }
 
   /// Takes the message of the last failure to store what the user always
-  /// allowed for the process plugins of the config file once they were set up.
-  pub fn take_process_plugin_store_error(&self, config_file: &str) -> Option<String> {
-    self.process_plugin_store_errors.lock().remove(config_file)
+  /// allowed for the process plugins of the config file once they were set up
+  /// when it happened after the mark. One from before is forgotten because it
+  /// isn't about what was done since (ex. it's from setting them up for
+  /// another request a while ago).
+  pub fn take_process_plugin_store_error(&self, config_file: &str, mark: ProcessPluginStoreErrorMark) -> Option<String> {
+    let (number, message) = self.process_plugin_store_errors.lock().by_config_file.remove(config_file)?;
+    (number > mark.0).then_some(message)
   }
 
   /// Takes the grant for setting up the process plugin of the config file,
@@ -1049,6 +1085,34 @@ mod test {
     let permissions = read_permissions(&environment, &[]);
     assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     assert!(permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash", None));
+  }
+
+  #[test]
+  fn should_only_take_a_failure_to_store_a_decision_that_happened_after_the_mark() {
+    let session_permissions = SessionPermissions::default();
+    // ex. from setting up the process plugins for another request a while ago
+    session_permissions.set_process_plugin_store_error("/a/dprint.json".to_string(), "old".to_string());
+    let mark = session_permissions.process_plugin_store_error_mark();
+    assert_eq!(session_permissions.take_process_plugin_store_error("/a/dprint.json", mark), None);
+    // which is forgotten
+    assert_eq!(
+      session_permissions.take_process_plugin_store_error("/a/dprint.json", ProcessPluginStoreErrorMark(0)),
+      None
+    );
+
+    // one since then is taken once, and only for its config file
+    session_permissions.set_process_plugin_store_error("/a/dprint.json".to_string(), "new".to_string());
+    assert_eq!(session_permissions.take_process_plugin_store_error("/b/dprint.json", mark), None);
+    assert_eq!(
+      session_permissions.take_process_plugin_store_error("/a/dprint.json", mark).as_deref(),
+      Some("new")
+    );
+    assert_eq!(session_permissions.take_process_plugin_store_error("/a/dprint.json", mark), None);
+
+    // and not once storing succeeded since
+    session_permissions.set_process_plugin_store_error("/a/dprint.json".to_string(), "new".to_string());
+    session_permissions.clear_process_plugin_store_error("/a/dprint.json");
+    assert_eq!(session_permissions.take_process_plugin_store_error("/a/dprint.json", mark), None);
   }
 
   #[test]

@@ -2531,6 +2531,55 @@ fn should_set_up_an_allowed_process_plugin_once_what_needs_to_be_downloaded_is_a
 }
 
 #[test]
+fn should_say_when_always_allowing_a_process_plugin_could_not_be_stored_once_what_it_needed_downloaded_is_allowed() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL).add_remote_process_plugin();
+    })
+    .build();
+  disallow_process_plugins(&environment);
+  // writing the approvals file fails when it's a directory
+  environment
+    .mk_dir_all(crate::configuration::get_editor_approvals_file_path(&environment).unwrap())
+    .unwrap();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approve = |id: String, decision: ApprovalDecision| {
+          client.backend.dprint_approve(
+            ApproveParams {
+              id,
+              decision,
+              work_done_token: None,
+            },
+            CancellationToken::new(),
+          )
+        };
+        let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
+        // the process plugins can't be set up until the download is allowed, so nothing failed yet
+        let result = approve(approvals[1].id.clone(), ApprovalDecision::AlwaysAllow).await.unwrap();
+        assert!(result.notice.is_none());
+        // allowing the download sets them up, which is what says it
+        let result = approve(approvals[0].id.clone(), ApprovalDecision::Allow).await.unwrap();
+        assert_eq!(result.config_approvals.status, FormatStatus::ready());
+        let notice = result.notice.unwrap();
+        assert!(
+          notice.message.starts_with("Failed storing the decision for the process plugins: "),
+          "{}",
+          notice.message
+        );
+        environment.take_stderr_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_not_use_a_process_plugin_that_was_denied_while_it_was_set_up() {
   const ZIP_URL: &str = "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip";
   let environment = TestEnvironmentBuilder::new()

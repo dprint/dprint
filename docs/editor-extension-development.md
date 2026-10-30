@@ -628,7 +628,8 @@ interface ApproveResult extends ConfigApprovals {
   /**
    * What to tell the user about the decision (ex. it couldn't be stored, so it's only used until the server stops). An `alwaysAllow`
    * for process plugins that weren't set up is stored once they're set up, which is usually while approving them (or what they
-   * need downloaded), so a failure to store it is in the result of that `dprint/approve`.
+   * need downloaded), so a failure to store it is in the result of the `dprint/approve` that set them up (ex. one that allowed a
+   * download after the `alwaysAllow`) and isn't told about later (it's only logged when something else set them up).
    */
   notice?: Notice;
 }
