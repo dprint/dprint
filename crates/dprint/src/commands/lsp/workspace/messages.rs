@@ -701,9 +701,16 @@ pub struct ApproveResult {
   /// it now.
   #[serde(flatten)]
   pub config_approvals: ConfigApprovals,
-  /// What to tell the user about the decision (ex. it couldn't be stored).
+  /// What to tell the user about the decision or one made before for the
+  /// same config file (ex. it couldn't be stored).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notice: Option<Notice>,
+  /// The `decision_group` of each decision to always use that couldn't be
+  /// stored, which is only used for the session. It may be of a decision made
+  /// before this one for the same config file (ex. an "Always Allow" for
+  /// process plugins that weren't set up is stored once this sets them up).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unstored_decision_groups: Vec<String>,
 }
 
 /// The error code of `dprint/approve` for an approval that isn't pending
@@ -1222,6 +1229,7 @@ mod test {
           status: FormatStatus::ready(),
         },
         notice: None,
+        unstored_decision_groups: Vec::new(),
       })
       .unwrap(),
       json!({ "configFile": null, "approvals": [], "status": { "kind": "ready" } })

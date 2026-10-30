@@ -2542,8 +2542,32 @@ fn should_say_when_always_allowing_a_process_plugin_that_is_not_set_up_could_not
           "{}",
           notice.message
         );
+        // so the editor keeps it as a decision for the session
+        assert_eq!(result.unstored_decision_groups, vec![approval.decision_group.clone()]);
         // it's used for the session
         assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+
+        // a decision for process plugins that are set up fails to be stored right away
+        let text = environment.read_file("/dprint.json").unwrap();
+        environment
+          .write_file("/dprint.json", &text.replacen('{', r#"{ "testProcessPlugin": { "ending": "changed" }, "#, 1))
+          .unwrap();
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        let result = client
+          .backend
+          .dprint_approve(
+            ApproveParams {
+              id: approval.id.clone(),
+              decision: ApprovalDecision::AlwaysDeny,
+              work_done_token: None,
+            },
+            CancellationToken::new(),
+          )
+          .await
+          .unwrap();
+        assert!(result.notice.is_some());
+        assert_eq!(result.unstored_decision_groups, vec![approval.decision_group.clone()]);
+        assert!(result.config_approvals.approvals[0].denied);
         environment.take_stderr_messages();
       }
       .boxed_local()
@@ -2648,6 +2672,7 @@ fn should_say_when_always_allowing_a_process_plugin_could_not_be_stored_once_wha
         // the process plugins can't be set up until the download is allowed, so nothing failed yet
         let result = approve(approvals[1].id.clone(), ApprovalDecision::AlwaysAllow).await.unwrap();
         assert!(result.notice.is_none());
+        assert!(result.unstored_decision_groups.is_empty());
         // allowing the download sets them up, which is what says it
         let result = approve(approvals[0].id.clone(), ApprovalDecision::Allow).await.unwrap();
         assert_eq!(result.config_approvals.status, FormatStatus::ready());
@@ -2657,6 +2682,8 @@ fn should_say_when_always_allowing_a_process_plugin_could_not_be_stored_once_wha
           "{}",
           notice.message
         );
+        // with the group of the decision that wasn't stored, which isn't this one's
+        assert_eq!(result.unstored_decision_groups, vec![approvals[1].decision_group.clone()]);
         environment.take_stderr_messages();
       }
       .boxed_local()

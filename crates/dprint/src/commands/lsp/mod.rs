@@ -865,12 +865,11 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   async fn dprint_approve(&self, params: ApproveParams, _token: CancellationToken) -> LspResult<ApproveResult> {
     self.ensure_editor_extension()?;
     let _progress = self.track_request_progress(params.work_done_token.clone());
-    let (config_approvals, notice) = self
+    self
       .run(move |workspace| async move { workspace.approve(&params.id, params.decision).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(to_lsp_error)?;
-    Ok(ApproveResult { config_approvals, notice })
+      .map_err(to_lsp_error)
   }
 
   /// Takes optional params so that they can be added later, which are `{}` for now.

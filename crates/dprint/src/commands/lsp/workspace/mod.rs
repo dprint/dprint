@@ -114,6 +114,7 @@ use self::messages::ApprovalDecisionOption;
 use self::messages::ApprovalItem;
 use self::messages::ApprovalItemKind;
 use self::messages::ApprovalKind;
+use self::messages::ApproveResult;
 use self::messages::ConfigApprovals;
 use self::messages::ConfigChange;
 use self::messages::ConfigChangedParams;
@@ -1318,8 +1319,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// cancelled while what was allowed is set up.
   ///
   /// It's with what to tell the user about the decision (ex. it couldn't be
-  /// stored).
-  pub async fn approve(self: &Rc<Self>, id: &str, decision: ApprovalDecision) -> Result<(ConfigApprovals, Option<Notice>)> {
+  /// stored), and the decision groups of the decisions to always use that
+  /// couldn't be stored, which may be of a decision made before.
+  pub async fn approve(self: &Rc<Self>, id: &str, decision: ApprovalDecision) -> Result<ApproveResult> {
     let stored = self.approvals.borrow().values().flatten().find(|stored| stored.approval.id == id).cloned();
     let Some(stored) = stored else {
       // say what needs to be approved now when the config file is known
@@ -1351,6 +1353,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     // when what this allows sets them up (ex. not one from a while ago)
     let store_error_mark = self.session_permissions.process_plugin_store_error_mark();
     let mut notice = None;
+    let mut unstored_decision_groups = Vec::new();
     match &stored.subject {
       ApprovalSubject::Downloads(urls) => {
         if decision.is_allowed() {
@@ -1380,6 +1383,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           let message = format!("Failed storing the decision for the process plugins: {:#}", err);
           log_warn!(self.environment, "{}", message);
           notice = Some(new_warning_notice(message));
+          unstored_decision_groups.push(stored.approval.decision_group.clone());
         }
       }
     }
@@ -1398,6 +1402,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         .take_process_plugin_store_error(&config.source.display(), store_error_mark)
     {
       notice = Some(new_warning_notice(message));
+      unstored_decision_groups.push(get_process_plugins_decision_group(&get_config_key(config)));
     }
     let is_download_pending = match &config {
       Ok(DocumentConfig::Resolved(scope)) => !scope.untrusted_downloads.is_empty(),
@@ -1438,12 +1443,15 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       });
     }
     let (config_file, approvals, status) = self.get_approvals_and_status(config, target);
-    let config_approvals = ConfigApprovals {
-      config_file,
-      approvals,
-      status,
-    };
-    Ok((config_approvals, notice))
+    Ok(ApproveResult {
+      config_approvals: ConfigApprovals {
+        config_file,
+        approvals,
+        status,
+      },
+      notice,
+      unstored_decision_groups,
+    })
   }
 
   /// Gets the config file of the target, what needs to be approved for it,
@@ -1939,12 +1947,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           },
         };
         match workspace.approve(&approval.id, decision).await {
-          Ok((result, notice)) => {
+          Ok(result) => {
             // a language client's user is told with a message
-            if let Some(notice) = notice {
+            if let Some(notice) = result.notice {
               workspace.client.show_message(MessageType::WARNING, notice.message);
             }
-            pending.extend(workspace.take_unprompted_approvals(result.approvals.into_iter()));
+            pending.extend(workspace.take_unprompted_approvals(result.config_approvals.approvals.into_iter()));
           }
           Err(err) => {
             let message = format!("Failed setting up what was allowed: {:#}", err);
