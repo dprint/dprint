@@ -86,6 +86,14 @@ impl DownloadPolicy {
     }
   }
 
+  /// Gets what the user allowed downloading this session.
+  pub fn allowed_downloads(&self) -> Vec<String> {
+    match self {
+      DownloadPolicy::All => Vec::new(),
+      DownloadPolicy::TrustedDomains(trusted_downloads) => trusted_downloads.allowed.lock().iter().cloned().collect(),
+    }
+  }
+
   /// Reads the trusted domains from the settings file again (ex. after it changed).
   pub fn reload_trusted_domains(&self, environment: &impl Environment) {
     if let DownloadPolicy::TrustedDomains(trusted_downloads) = self {
