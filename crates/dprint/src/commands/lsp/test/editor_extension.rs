@@ -1391,6 +1391,49 @@ fn should_provide_the_plugins_known_before_for_the_same_config_file_when_they_ne
 }
 
 #[test]
+fn should_only_claim_the_documents_the_last_plugins_formatted_while_a_config_file_has_an_error() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert!(client.config_info("/dprint.json").await.plugins.is_some());
+        // ex. a typo
+        environment.write_file("/dprint.json", "{ nope").unwrap();
+        let status = client.file_info("/file.txt").await.status;
+        assert_eq!(status.reason(), Some(NotFormattedReason::ConfigError));
+        assert!(status.claim());
+        // the plugins it had before didn't format this, so the editor's other formatters are used
+        let status = client.file_info("/README.md").await.status;
+        assert_eq!(status.reason(), Some(NotFormattedReason::ConfigError));
+        assert!(!status.claim());
+        let result = client.format("/README.md", "text").await;
+        assert_eq!(result.not_formatted_reason(), Some(NotFormattedReason::ConfigError));
+        assert!(!result.claim());
+        assert!(client.format("/file.txt", "text").await.claim());
+      }
+      .boxed_local()
+    }
+  });
+  // what the plugins formatted isn't known in a new session
+  run_session(&environment, |client| {
+    async move {
+      let status = client.file_info("/file.txt").await.status;
+      assert_eq!(status.reason(), Some(NotFormattedReason::ConfigError));
+      assert!(!status.claim());
+      assert_eq!(client.config_info("/dprint.json").await.plugins, None);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_only_claim_the_documents_a_config_file_that_needs_approval_formats() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
@@ -3268,6 +3311,7 @@ impl StatusExt for FormatStatus {
 trait FormatResultExt {
   fn not_formatted_reason(&self) -> Option<NotFormattedReason>;
   fn approvals(&self) -> &[PendingApproval];
+  fn claim(&self) -> bool;
 }
 
 impl FormatResultExt for FormatResult {
@@ -3275,6 +3319,14 @@ impl FormatResultExt for FormatResult {
     match self {
       FormatResult::NotFormatted(not_formatted) => Some(not_formatted.reason),
       _ => None,
+    }
+  }
+
+  fn claim(&self) -> bool {
+    match self {
+      FormatResult::NotFormatted(not_formatted) => not_formatted.claim,
+      FormatResult::Failed { claim, .. } => *claim,
+      FormatResult::Formatted { .. } => true,
     }
   }
 

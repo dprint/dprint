@@ -400,6 +400,9 @@ struct LastPluginInfos {
   /// aren't for anymore once a plugin was added or changed.
   plugin_references: Vec<String>,
   plugins: Vec<PluginInfo>,
+  /// The config they were for, which says what they may format while the
+  /// config file has an error (see `get_failure_not_formatted`).
+  config: Rc<ResolvedConfig>,
 }
 
 /// What a config file resolved to.
@@ -909,13 +912,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Remembers the plugins of the config file for when they can't be resolved
   /// (ex. the config file has an error or the user needs to approve them).
-  async fn store_plugin_infos(&self, config: &ResolvedConfig, scope: &PluginsScope<TEnvironment>, plugins: &[PluginInfo]) {
+  async fn store_plugin_infos(&self, config: &Rc<ResolvedConfig>, scope: &PluginsScope<TEnvironment>, plugins: &[PluginInfo]) {
     let config_key = get_config_key(config);
     self.last_plugin_infos.borrow_mut().insert(
       config_key.clone(),
       LastPluginInfos {
         plugin_references: get_plugin_references(config),
         plugins: plugins.to_vec(),
+        config: config.clone(),
       },
     );
     for plugin in config.plugins.iter() {
@@ -2726,18 +2730,29 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   /// Gets why a config file that failed to resolve doesn't format a file.
+  ///
+  /// A file is only claimed when the plugins the config file had the last
+  /// time it was used may format it, so that an error (ex. a typo) doesn't
+  /// change what the editor formats with it, and none are when they aren't
+  /// known (ex. it had the error since the server started).
   fn get_failure_not_formatted(&self, failure: &ConfigFailure, target: &ApprovalTarget) -> NotFormatted {
     let actions = match (&failure.config_file, failure.reason) {
       (Some(config_file), NotFormattedReason::ConfigError) => vec![open_config_file_action(&config_file.uri)],
       _ => Vec::new(),
     };
     let not_formatted = NotFormatted::new(failure.reason, Some(failure.message.clone()), self.get_failure_approvals(failure, target)).with_actions(actions);
-    // what it formats isn't known until what it extends is downloaded
-    if failure.reason == NotFormattedReason::ApprovalRequired {
-      not_formatted.unclaimed()
-    } else {
-      not_formatted
-    }
+    let is_claimed = match (failure.reason, target) {
+      // what it formats isn't known until what it extends is downloaded
+      (NotFormattedReason::ApprovalRequired, _) => false,
+      (_, ApprovalTarget::File { file_path, .. }) => {
+        let last_plugin_infos = self.last_plugin_infos.borrow();
+        let last = failure.config_key.as_ref().and_then(|(key, _)| last_plugin_infos.get(key));
+        last.is_some_and(|last| may_plugins_format(&last.config, &last.plugins, file_path))
+      }
+      // the status of the config file
+      (_, ApprovalTarget::ConfigFile { .. }) => true,
+    };
+    if is_claimed { not_formatted } else { not_formatted.unclaimed() }
   }
 
   /// Gets why there's no config file for a target.
