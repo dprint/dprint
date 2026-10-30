@@ -130,6 +130,10 @@ pub async fn allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>
 /// configuration, which is for when the user ran dprint with it (`dprint fmt`,
 /// `dprint check`, or `dprint config install`) because that's the same as choosing to run
 /// them. The plugins need to be set up.
+///
+/// Nothing is stored when the approvals file can't be read (ex. it's from a
+/// newer version of dprint that this version can't use), which is only logged
+/// in debug mode because it would be on each run.
 pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   environment: &TEnvironment,
   config: &ResolvedConfig,
@@ -142,7 +146,18 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   if approvals.is_empty() {
     return Ok(());
   }
-  let stored_decisions = read_editor_approvals(environment)?.process_plugin_decisions;
+  let stored_decisions = match read_editor_approvals(environment) {
+    Ok(approvals) => approvals.process_plugin_decisions,
+    Err(err) => {
+      log_debug!(
+        environment,
+        "Not allowing the process plugins of {} in editors. {:#}",
+        config.source.display(),
+        err
+      );
+      return Ok(());
+    }
+  };
   let decisions = approvals
     .into_iter()
     // the state file is only written when something changed, which is usually not

@@ -1989,7 +1989,7 @@ fn should_keep_denying_with_the_approvals_of_a_newer_version_of_dprint() {
   // a newer version of dprint wrote it
   let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
   let mut approvals = serde_json::from_str::<serde_json::Value>(&environment.read_file(&file_path).unwrap()).unwrap();
-  approvals["version"] = json!(999);
+  approvals["minVersion"] = json!(999);
   environment.write_file(&file_path, &approvals.to_string()).unwrap();
   run_session(&environment, |client| {
     async move {

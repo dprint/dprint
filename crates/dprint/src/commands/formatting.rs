@@ -916,6 +916,21 @@ mod test {
   }
 
   #[test]
+  fn should_not_warn_when_the_approvals_of_editors_cannot_be_read() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file("/file.txt_ps", "text_formatted_process")
+      .build();
+    // ex. a newer version of dprint wrote it in a format this version can't use
+    let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+    let text = r#"{ "version": 2, "minVersion": 2, "processPluginDecisions": [] }"#;
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    environment.write_file(&file_path, text).unwrap();
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().is_empty());
+    assert_eq!(environment.read_file(&file_path).unwrap(), text);
+  }
+
+  #[test]
   fn should_format_only_dirty_files_while_respecting_includes() {
     let file_path1 = "/file.txt";
     let file_path2 = "/file.txt_ps";
