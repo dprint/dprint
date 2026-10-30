@@ -290,9 +290,10 @@ impl SessionPermissions {
       match read_editor_approvals(environment) {
         Ok(approvals) => approvals.process_plugin_decisions,
         Err(err) => {
-          // IMPORTANT: Don't allow what may not have been allowed.
+          // IMPORTANT: Don't allow what may not have been allowed, but keep denying
+          // what the user denied (ex. the file is from a newer version of dprint).
           self.log_settings_problem(environment, format!("Asking to allow process plugins again in editors. {:#}", err));
-          Vec::new()
+          read_editor_approval_denials(environment)
         }
       }
     } else {
@@ -316,6 +317,16 @@ impl SessionPermissions {
   /// Allows setting up the process plugin for the session.
   pub fn add_process_plugin_set_up_grant(&self, grant: ProcessPluginSetUpGrant) {
     self.process_plugin_set_up_grants.lock().push(grant);
+  }
+
+  /// Forgets what the user decided for the session about the process plugins
+  /// of the config files.
+  pub fn forget_process_plugin_decisions(&self, is_config_file: &impl Fn(&str) -> bool) {
+    self
+      .process_plugin_decisions
+      .lock()
+      .retain(|decision| !is_config_file(&decision.approval.config_file));
+    self.process_plugin_set_up_grants.lock().retain(|grant| !is_config_file(&grant.config_file));
   }
 
   /// Takes the grant for setting up the process plugin of the config file,
@@ -369,6 +380,35 @@ pub fn read_editor_approvals(environment: &impl Environment) -> Result<EditorApp
     bail!("{} is from a newer version of dprint, so it can't be read.", file_path.display());
   }
   Ok(approvals)
+}
+
+/// Reads the decisions that denied a process plugin from a file that can't be
+/// read otherwise (ex. it's from a newer version of dprint), which is empty
+/// when it doesn't parse.
+fn read_editor_approval_denials(environment: &impl Environment) -> Vec<ProcessPluginDecision> {
+  #[derive(Deserialize)]
+  #[serde(rename_all = "camelCase")]
+  struct Decisions {
+    #[serde(default)]
+    process_plugin_decisions: Vec<serde_json::Value>,
+  }
+
+  let Some(file_path) = get_editor_approvals_file_path(environment) else {
+    return Vec::new();
+  };
+  let Ok(Some(text)) = environment.maybe_read_file(&file_path) else {
+    return Vec::new();
+  };
+  let Ok(decisions) = serde_json::from_str::<Decisions>(&text) else {
+    return Vec::new();
+  };
+  decisions
+    .process_plugin_decisions
+    .into_iter()
+    // a decision that's in another format is left out
+    .filter_map(|decision| serde_json::from_value::<ProcessPluginDecision>(decision).ok())
+    .filter(|decision| !decision.allowed)
+    .collect()
 }
 
 pub(crate) fn update_editor_approvals_without_lock(environment: &impl Environment, update: impl FnOnce(&mut EditorApprovals)) -> Result<()> {

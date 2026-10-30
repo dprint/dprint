@@ -65,9 +65,11 @@ use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
 use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
+use crate::configuration::read_editor_approvals;
 use crate::configuration::resolve_global_config_dir;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
+use crate::configuration::update_editor_approvals;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::paths::get_plugin_names_for_file_on_disk;
@@ -90,6 +92,7 @@ use crate::utils::UntrustedDownloadError;
 use crate::utils::get_bytes_hash;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
+use crate::utils::get_sha256_checksum;
 use crate::utils::get_untrusted_download_message;
 
 mod config_diagnostics;
@@ -133,6 +136,8 @@ pub struct ApprovalChangedError {
   id: String,
   /// What needs to be approved for the config file now when it's known.
   pub approvals: Option<Vec<PendingApproval>>,
+  /// Whether the config file is used now when it's known.
+  pub status: Option<FormatStatus>,
 }
 
 /// The error for a document that can't be formatted, which is a reason it
@@ -346,8 +351,9 @@ pub struct Workspace<TEnvironment: Environment> {
   /// The file patterns of each config file uri the last time they were known
   /// (see `last_plugin_infos`).
   last_file_patterns: RefCell<HashMap<String, FilePatterns>>,
-  /// The ids of the downloads the user denied this session.
-  denied_downloads: RefCell<HashSet<String>>,
+  /// The ids of the downloads the user denied this session with the key of
+  /// their config file.
+  denied_downloads: RefCell<HashMap<String, String>>,
   /// The ids of the approvals that a language client's user was asked about
   /// this session.
   prompted_approvals: RefCell<HashSet<String>>,
@@ -356,6 +362,12 @@ pub struct Workspace<TEnvironment: Environment> {
   has_notified_no_config: Cell<bool>,
   /// The files the editor said changed that weren't handled yet.
   pending_config_changes: RefCell<Vec<WatchedFileChange>>,
+  /// Whether the client provided the settings, which changing tells an
+  /// editor extension about.
+  has_settings: Cell<bool>,
+  /// Whether there was a global config file the last time dprint's own files
+  /// were checked, which creating tells an editor extension about.
+  had_global_config: Cell<bool>,
   /// The files outside the workspace that the client was asked to watch for
   /// the `watchFiles` feature, which is `None` when it isn't used.
   registered_watch_files: RefCell<Option<Vec<PathBuf>>>,
@@ -498,6 +510,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       prompted_approvals: Default::default(),
       has_notified_no_config: Default::default(),
       pending_config_changes: Default::default(),
+      has_settings: Default::default(),
+      had_global_config: Default::default(),
       registered_watch_files: Default::default(),
       environment,
       client,
@@ -524,7 +538,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       Some(false) if self.initial_log_level == LogLevel::Debug => LogLevel::Info,
       _ => self.initial_log_level,
     });
-    *self.settings.borrow_mut() = settings;
+    let previous = std::mem::replace(&mut *self.settings.borrow_mut(), settings);
+    // the documents without a config file and the untitled documents may be formatted differently now
+    let settings = self.settings.borrow();
+    if self.has_settings.replace(true) && (previous.use_global_config != settings.use_global_config || previous.workspace_folders != settings.workspace_folders)
+    {
+      self.send_config_changed(new_every_config_changed());
+    }
   }
 
   /// Forgets the config files and stops the plugins, which are set up again
@@ -589,15 +609,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     };
     match change {
       ConfigFileChange::Changed if self.was_resolved(file_path) => {
-        let Some(dir_path) = get_config_file_dir(file_path) else {
-          return;
-        };
-        // a file path in the directory has the config file be found for it, and
-        // an editor extension is told when what it resolves to changed
-        // what needs to be approved may have changed too
-        let target = ApprovalTarget::File {
-          file_path: dir_path.join("file"),
-          use_global_config: false,
+        // an editor extension is told when what it resolves to changed, and what
+        // needs to be approved may have changed too (ex. a process plugin's
+        // configuration), which is for this file even when its directory uses another
+        let target = ApprovalTarget::ConfigFile {
+          file_path: file_path.to_path_buf(),
+          dir_path: None,
         };
         self.get_approvals_for_target(&target).await;
       }
@@ -606,10 +623,18 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         self.publish_diagnostics(uri.clone(), Vec::new());
         self.approvals.borrow_mut().remove(uri.as_str());
         self.forget_config_file(file_path);
-        self.send_config_changed(new_uri_config_changed(uri, ConfigChangeReason::Deleted));
+        self.send_file_config_changed(file_path, ConfigChangeReason::Deleted);
       }
-      ConfigFileChange::Created => self.send_config_changed(new_uri_config_changed(uri, ConfigChangeReason::Created)),
-      ConfigFileChange::Changed => self.send_config_changed(new_uri_config_changed(uri, ConfigChangeReason::Changed)),
+      ConfigFileChange::Created => self.send_file_config_changed(file_path, ConfigChangeReason::Created),
+      ConfigFileChange::Changed => self.send_file_config_changed(file_path, ConfigChangeReason::Changed),
+    }
+  }
+
+  /// Tells an editor extension that a local config file the editor said
+  /// changed did.
+  fn send_file_config_changed(&self, file_path: &Path, reason: ConfigChangeReason) {
+    if let Some(params) = new_file_config_changed(file_path, reason) {
+      self.send_config_changed(params);
     }
   }
 
@@ -886,7 +911,19 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets what needs to be approved for the config files that were used,
   /// which resolves them again in case something changed (ex. the user
   /// allowed a process plugin by running `dprint fmt`).
-  pub async fn pending_approvals(self: &Rc<Self>) -> Vec<PendingApproval> {
+  pub async fn pending_approvals(self: &Rc<Self>, config_file: Option<(Uri, Option<Uri>)>) -> Result<(Vec<PendingApproval>, Option<FormatStatus>)> {
+    // what's pending for one config file says whether it's used
+    if let Some((uri, dir_uri)) = config_file {
+      let (target, config) = match self.resolve_config_target(&ConfigTarget::ConfigFile { uri, dir_uri }, false).await {
+        Ok(result) => result,
+        Err(err) => {
+          let not_formatted = into_unsupported_document(err)?;
+          return Ok((Vec::new(), Some(FormatStatus::NotFormatted(not_formatted))));
+        }
+      };
+      let (approvals, status) = self.get_approvals_and_status(config, &target);
+      return Ok((approvals, Some(status)));
+    }
     let targets = self
       .approvals
       .borrow()
@@ -898,7 +935,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     for target in targets {
       approvals.extend(self.get_approvals_for_target(&target).await);
     }
-    approvals
+    Ok((approvals, None))
   }
 
   /// Resolves the config file of the target and gets what needs to be approved for it.
@@ -906,7 +943,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     match self.resolve_approval_target(target).await {
       Ok(DocumentConfig::Resolved(scope)) => self.get_scope_approvals(&scope, target),
       Ok(DocumentConfig::Failed(failure)) => self.get_failure_approvals(&failure, target),
-      Ok(DocumentConfig::NotFound) | Err(_) => Vec::new(),
+      Ok(DocumentConfig::NotFound) => {
+        self.forget_target_approvals(target, None);
+        Vec::new()
+      }
+      Err(_) => Vec::new(),
     }
   }
 
@@ -925,21 +966,22 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   async fn resolve_config_target(self: &Rc<Self>, target: &ConfigTarget, use_global_config: bool) -> Result<(ApprovalTarget, DocumentConfig<TEnvironment>)> {
     match target {
       ConfigTarget::ConfigFile { uri, dir_uri } => {
-        let Some(config_file_path) = uri_to_file_path(uri).filter(|path| is_config_file_path(path)) else {
-          return Err(UnsupportedDocumentError::unsupported(format!(
-            "Cannot get the information of a file that isn't a config file: {}",
-            uri.as_str()
-          )));
-        };
-        // the server uses one config file for every file (`dprint lsp --config <path>`)
+        // the server uses one config file for every file (`dprint lsp --config <path>`), which may be remote
         if self.scope_container.has_config_override() {
+          let dir_path = match dir_uri.as_ref().and_then(uri_to_file_path) {
+            Some(dir_path) => dir_path,
+            None => self.environment.cwd().into_path_buf(),
+          };
           let target = ApprovalTarget::File {
-            file_path: config_file_path,
+            file_path: dir_path.join("file"),
             use_global_config,
           };
           let config = self.resolve_approval_target(&target).await?;
           return Ok((target, config));
         }
+        let Some(config_file_path) = uri_to_file_path(uri).filter(|path| is_config_file_path(path)) else {
+          return Err(InvalidParamsError(format!("The configFile isn't a config file: {}", uri.as_str())).into());
+        };
         let dir_path = dir_uri.as_ref().and_then(uri_to_file_path);
         let config_file = match self.load_config_file(&config_file_path, dir_path.as_deref()) {
           Ok(Some(config_file)) => config_file,
@@ -986,10 +1028,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
-  pub async fn format(self: &Rc<Self>, request: FormatRequest, token: &Arc<CancellationToken>) -> Result<FormatOutcome> {
+  /// Formats the document, which says the config file that was used.
+  pub async fn format(self: &Rc<Self>, request: FormatRequest, token: &Arc<CancellationToken>) -> Result<(FormatOutcome, Option<ConfigFileInfo>)> {
     let document_file = match self.get_document_file(&request.document) {
       Ok(document_file) => document_file,
-      Err(err) => return Ok(FormatOutcome::NotFormatted(into_unsupported_document(err)?)),
+      Err(err) => return Ok((FormatOutcome::NotFormatted(into_unsupported_document(err)?), None)),
     };
     let use_global_config = self.resolve_global_config_use(request.global_config);
     let is_notebook_cell = document_file.notebook_path.is_some();
@@ -1006,18 +1049,31 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         if request.notify_no_config {
           self.notify_no_config(reason, use_global_config);
         }
-        return Ok(FormatOutcome::NotFormatted(NotFormatted::new(
-          reason,
-          self.get_not_formatted_message(reason, is_notebook_cell, use_global_config),
-          Vec::new(),
-        )));
+        let not_formatted = NotFormatted::new(reason, self.get_not_formatted_message(reason, is_notebook_cell, use_global_config), Vec::new());
+        return Ok((FormatOutcome::NotFormatted(not_formatted), None));
       }
       DocumentConfig::Failed(failure) => {
         let not_formatted = self.get_failure_not_formatted(&failure, &target);
         self.prompt_for_approvals(&not_formatted.approvals);
-        return Ok(FormatOutcome::NotFormatted(not_formatted));
+        return Ok((FormatOutcome::NotFormatted(not_formatted), failure.config_file));
       }
     };
+    let config_file = self.get_config_file_info(&scope);
+    let outcome = self.format_with_scope(scope, request, document_file, target, use_global_config, token).await?;
+    Ok((outcome, config_file))
+  }
+
+  /// Formats the document with the plugins of its config file.
+  async fn format_with_scope(
+    self: &Rc<Self>,
+    scope: Rc<PluginsScope<TEnvironment>>,
+    request: FormatRequest,
+    document_file: DocumentFile,
+    target: ApprovalTarget,
+    use_global_config: bool,
+    token: &Arc<CancellationToken>,
+  ) -> Result<FormatOutcome> {
+    let is_notebook_cell = document_file.notebook_path.is_some();
     let approvals = self.get_scope_approvals(&scope, &target);
     let chosen_file = self.choose_file(&scope, document_file, Some(request.text.as_bytes()));
     // only asked when formatting a file the config file formats because the other
@@ -1167,11 +1223,22 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let Some(stored) = stored else {
       // say what needs to be approved now when the config file is known
       let target = self.approval_files.borrow().get(id).cloned();
-      let approvals = match target {
-        Some(target) => Some(self.get_approvals_for_target(&target).await),
+      let now = match target {
+        Some(target) => {
+          let config = self.resolve_approval_target(&target).await?;
+          Some(self.get_approvals_and_status(config, &target))
+        }
         None => None,
       };
-      return Err(ApprovalChangedError { id: id.to_string(), approvals }.into());
+      let (approvals, status) = now.unzip();
+      return Err(
+        ApprovalChangedError {
+          id: id.to_string(),
+          approvals,
+          status,
+        }
+        .into(),
+      );
     };
     if !stored.approval.decisions.iter().any(|option| option.id == decision) {
       return Err(InvalidParamsError(format!("The decision {:?} isn't one of the approval's decisions.", decision)).into());
@@ -1181,7 +1248,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         if decision.is_allowed() {
           self.environment.download_policy().allow(urls);
         } else {
-          self.denied_downloads.borrow_mut().insert(stored.approval.id.clone());
+          self
+            .denied_downloads
+            .borrow_mut()
+            .insert(stored.approval.id.clone(), stored.approval.config_file.uri.as_str().to_string());
         }
       }
       ApprovalSubject::ProcessPlugins(unapproved) => {
@@ -1206,7 +1276,31 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           .take_process_plugin_set_up_grant(&unapproved.config_file, &plugin.plugin);
       }
     }
-    Ok(match config? {
+    let config = config?;
+    // a config file that still fails didn't resolve to something else, so the editor is told it was denied
+    if let DocumentConfig::Failed(failure) = &config
+      && !decision.is_allowed()
+      && let Some(config_file) = &failure.config_file
+    {
+      self.send_config_changed(ConfigChangedParams {
+        uri: Some(config_file.uri.clone()),
+        dir_uri: Some(config_file.dir_uri.clone()),
+        reason: Some(ConfigChangeReason::Changed),
+        changes: None,
+      });
+    }
+    let result = self.get_approvals_and_status(config, target);
+    // the other config files that were waiting on what was allowed to be downloaded can be used now too
+    if decision.is_allowed() && matches!(stored.subject, ApprovalSubject::Downloads(_)) {
+      self.resolve_used_configs_again().await;
+    }
+    Ok(result)
+  }
+
+  /// Gets what needs to be approved for the config file of the target and
+  /// whether it's used.
+  fn get_approvals_and_status(&self, config: DocumentConfig<TEnvironment>, target: &ApprovalTarget) -> (Vec<PendingApproval>, FormatStatus) {
+    match config {
       DocumentConfig::Resolved(scope) => {
         let approvals = self.get_scope_approvals(&scope, target);
         let status = match approvals.is_empty() {
@@ -1217,21 +1311,73 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
       DocumentConfig::Failed(failure) => {
         let not_formatted = self.get_failure_not_formatted(&failure, target);
-        // a config file that still fails didn't resolve to something else, so the editor is told it was denied
-        if !decision.is_allowed()
-          && let Some(config_file) = &failure.config_file
-        {
-          self.send_config_changed(ConfigChangedParams {
-            uri: Some(config_file.uri.clone()),
-            dir_uri: (config_file.kind == ConfigFileKind::Global).then(|| config_file.dir_uri.clone()),
-            reason: Some(ConfigChangeReason::Changed),
-            changes: None,
-          });
-        }
         (not_formatted.approvals.clone(), FormatStatus::NotFormatted(not_formatted))
       }
-      DocumentConfig::NotFound => (Vec::new(), FormatStatus::NotFormatted(self.get_not_found_not_formatted(target))),
-    })
+      DocumentConfig::NotFound => {
+        self.forget_target_approvals(target, None);
+        (Vec::new(), FormatStatus::NotFormatted(self.get_not_found_not_formatted(target)))
+      }
+    }
+  }
+
+  /// Forgets what needs to be approved for the target, which is kept for the
+  /// config file it's for (ex. it resolves to another config file now).
+  fn forget_target_approvals(&self, target: &ApprovalTarget, config_key_to_keep: Option<&str>) {
+    let mut approvals = self.approvals.borrow_mut();
+    for (config_key, stored) in approvals.iter_mut() {
+      if Some(config_key.as_str()) != config_key_to_keep {
+        stored.retain(|stored| stored.target != *target);
+      }
+    }
+    approvals.retain(|_, stored| !stored.is_empty());
+  }
+
+  /// Forgets what the user decided for the config file, or for every config
+  /// file when `None`, which they're asked about again (ex. to undo allowing
+  /// a process plugin). That includes the "Always" decisions.
+  pub async fn forget_decisions(self: &Rc<Self>, config_file: Option<(Uri, Option<Uri>)>) -> Result<()> {
+    // the config file as process plugin decisions have it and its key
+    let config_file = match config_file {
+      Some((uri, dir_uri)) => {
+        let target = ConfigTarget::ConfigFile { uri, dir_uri };
+        let config_file = match self.resolve_config_target(&target, false).await? {
+          (_, DocumentConfig::Resolved(scope)) => scope.config.as_ref().map(|config| (config.source.display(), get_config_key(config))),
+          (_, DocumentConfig::Failed(failure)) => failure.config_file.map(|config_file| {
+            (
+              uri_to_file_path(&config_file.uri).map(|path| path.display().to_string()).unwrap_or_default(),
+              config_file.uri.as_str().to_string(),
+            )
+          }),
+          (_, DocumentConfig::NotFound) => None,
+        };
+        match config_file {
+          Some(config_file) => Some(config_file),
+          None => return Ok(()),
+        }
+      }
+      None => None,
+    };
+    let is_config_file = |source: &str| config_file.as_ref().is_none_or(|(config_source, _)| config_source == source);
+    self.session_permissions.forget_process_plugin_decisions(&is_config_file);
+    let has_stored = read_editor_approvals(&self.environment)?
+      .process_plugin_decisions
+      .iter()
+      .any(|decision| is_config_file(&decision.approval.config_file));
+    if has_stored {
+      update_editor_approvals(&self.environment, |approvals| {
+        approvals
+          .process_plugin_decisions
+          .retain(|decision| !is_config_file(&decision.approval.config_file));
+      })
+      .await?;
+    }
+    self
+      .denied_downloads
+      .borrow_mut()
+      .retain(|_, config_key| config_file.as_ref().is_some_and(|(_, key)| key != config_key));
+    self.prompted_approvals.borrow_mut().clear();
+    self.resolve_used_configs_again().await;
+    Ok(())
   }
 
   /// Gets what needs to be approved for the scope to format files.
@@ -1299,6 +1445,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     subjects: Vec<(ApprovalSubject, Vec<ApprovalItem>)>,
     target: &ApprovalTarget,
   ) -> Vec<PendingApproval> {
+    // the target may have resolved to another config file before
+    self.forget_target_approvals(target, Some(&config_key));
+    // what can't be shown with its config file isn't approved
+    let Some(config_file) = config_file else {
+      self.approvals.borrow_mut().remove(&config_key);
+      return Vec::new();
+    };
     let permissions = self.session_permissions.read(&self.environment);
     let stored = subjects
       .into_iter()
@@ -1306,38 +1459,43 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         let approval = match &subject {
           ApprovalSubject::Downloads(urls) => {
             let id = get_approval_id("download", &config_key, urls);
-            let denied = self.denied_downloads.borrow().contains(&id);
+            let denied = self.denied_downloads.borrow().contains_key(&id);
             PendingApproval {
               denied,
               // a download is only denied for the session
               previous_decision: denied.then_some(ApprovalDecision::Deny),
               id,
-              kind: ApprovalKind::Download,
+              kind: ApprovalKind::Downloads,
               config_file: config_file.clone(),
               items,
               // a download is only allowed for the session
-              decisions: get_decision_options(&[ApprovalDecision::Allow, ApprovalDecision::Deny]),
+              decisions: get_decision_options(ApprovalKind::Downloads, &[ApprovalDecision::Allow, ApprovalDecision::Deny]),
               message: get_untrusted_download_message(urls),
             }
           }
           ApprovalSubject::ProcessPlugins(unapproved) => {
-            // the configuration of each plugin is part of what's approved
-            let parts = unapproved
+            // the configuration of each plugin is part of what's approved, which is the
+            // trusted configuration of the config file for a plugin that isn't set up
+            let mut parts = unapproved
               .plugins
               .iter()
               .map(|plugin| format!("{}\n{:?}", plugin.plugin, plugin.approval.as_ref().map(|approval| &approval.config_hash)))
               .collect::<Vec<_>>();
+            parts.push(unapproved.trusted_config_hash.clone());
             PendingApproval {
               id: get_approval_id("processPlugins", &config_key, &parts),
               kind: ApprovalKind::ProcessPlugins,
               config_file: config_file.clone(),
               items,
-              decisions: get_decision_options(&[
-                ApprovalDecision::Allow,
-                ApprovalDecision::AlwaysAllow,
-                ApprovalDecision::Deny,
-                ApprovalDecision::AlwaysDeny,
-              ]),
+              decisions: get_decision_options(
+                ApprovalKind::ProcessPlugins,
+                &[
+                  ApprovalDecision::Allow,
+                  ApprovalDecision::AlwaysAllow,
+                  ApprovalDecision::Deny,
+                  ApprovalDecision::AlwaysDeny,
+                ],
+              ),
               denied: unapproved.is_denied(&permissions),
               previous_decision: match unapproved.is_denied(&permissions) {
                 true if unapproved.is_always_denied(&permissions) => Some(ApprovalDecision::AlwaysDeny),
@@ -1384,7 +1542,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if !supports_message_actions {
       for approval in pending {
         let guidance = match approval.kind {
-          ApprovalKind::Download => {
+          ApprovalKind::Downloads => {
             "The client can't ask whether to download them, so run `dprint config install` in the directory of the configuration file to do so.".to_string()
           }
           ApprovalKind::ProcessPlugins => self
@@ -1413,7 +1571,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       while !pending.is_empty() {
         let approval = pending.remove(0);
         let titles = match approval.kind {
-          ApprovalKind::Download => vec![DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
+          ApprovalKind::Downloads => vec![DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
           ApprovalKind::ProcessPlugins => PROCESS_PLUGIN_ACTION_TITLES.to_vec(),
         };
         let Some(title) = workspace.show_message_request(MessageType::WARNING, approval.message.clone(), &titles).await else {
@@ -1421,8 +1579,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           return;
         };
         let decision = match approval.kind {
-          ApprovalKind::Download if title == DOWNLOAD_ACTION_TITLE => ApprovalDecision::Allow,
-          ApprovalKind::Download => ApprovalDecision::Deny,
+          ApprovalKind::Downloads if title == DOWNLOAD_ACTION_TITLE => ApprovalDecision::Allow,
+          ApprovalKind::Downloads => ApprovalDecision::Deny,
           ApprovalKind::ProcessPlugins => match get_process_plugin_decision(&title) {
             Some(decision) => decision,
             // the client responded with an action that wasn't offered
@@ -1761,7 +1919,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       && self
         .denied_downloads
         .borrow()
-        .contains(&get_approval_id("download", &get_config_key(config), &scope.untrusted_downloads));
+        .contains_key(&get_approval_id("download", &get_config_key(config), &scope.untrusted_downloads));
     let is_process_plugins_denied = scope
       .unapproved_process_plugins
       .as_ref()
@@ -1812,6 +1970,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let Some(settings_file_path) = get_settings_file_path(&self.environment) else {
       return;
     };
+    self.had_global_config.set(self.get_global_config_path().is_some());
     let mut file_paths = vec![settings_file_path.clone()];
     file_paths.extend(get_editor_approvals_file_path(&self.environment));
     // the global config file is in another directory when DPRINT_CONFIG_DIR can't be used
@@ -1901,6 +2060,17 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// changed (ex. a domain that was trusted lets a plugin be downloaded).
   async fn handle_dprint_files_change(self: &Rc<Self>) {
     self.environment.download_policy().reload_trusted_domains(&self.environment);
+    self.resolve_used_configs_again().await;
+    // the documents without a config file may use the global config file now
+    let has_global_config = self.get_global_config_path().is_some();
+    if self.had_global_config.replace(has_global_config) != has_global_config {
+      self.send_config_changed(new_every_config_changed());
+    }
+  }
+
+  /// Resolves the config files that were used again, which tells an editor
+  /// extension about the ones whose results changed.
+  async fn resolve_used_configs_again(self: &Rc<Self>) {
     let config_files = self.used_configs.borrow().values().cloned().collect::<Vec<_>>();
     for previous in config_files {
       if self.stopped.is_cancelled() {
@@ -2035,12 +2205,19 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       uri: path_source_to_uri(source)?,
       dir_uri: get_config_dir_uri(source, is_global, base_path)?,
       kind: self.get_config_file_kind(is_global),
+      in_workspace: !is_global && source.maybe_local_path().is_some_and(|path| self.is_in_workspace(path.as_ref())),
     })
+  }
+
+  /// Gets whether the canonicalized path is in a workspace folder.
+  fn is_in_workspace(&self, file_path: &Path) -> bool {
+    let workspace_folders = self.settings.borrow().workspace_folders.clone();
+    workspace_folders.into_iter().any(|folder| file_path.starts_with(self.canonicalize(folder)))
   }
 
   fn get_config_file_kind(&self, is_global: bool) -> ConfigFileKind {
     if self.scope_container.has_config_override() {
-      ConfigFileKind::Override
+      ConfigFileKind::Cli
     } else if is_global {
       ConfigFileKind::Global
     } else {
@@ -2397,7 +2574,7 @@ fn get_file_patterns(config: &ResolvedConfig, plugins: &[PluginInfo]) -> (Vec<Fi
   let mut other_files = Vec::new();
   if let Some(shebangs) = config.shebangs.as_ref().filter(|shebangs| !shebangs.is_empty()) {
     other_files.push(OtherFiles {
-      kind: OtherFilesKind::Shebang,
+      kind: OtherFilesKind::Shebangs,
       values: shebangs.keys().cloned().collect(),
     });
   }
@@ -2410,10 +2587,23 @@ fn get_file_patterns(config: &ResolvedConfig, plugins: &[PluginInfo]) -> (Vec<Fi
   (patterns, other_files)
 }
 
-fn get_decision_options(decisions: &[ApprovalDecision]) -> Vec<ApprovalDecisionOption> {
+fn get_decision_options(kind: ApprovalKind, decisions: &[ApprovalDecision]) -> Vec<ApprovalDecisionOption> {
   decisions
     .iter()
     .map(|decision| ApprovalDecisionOption {
+      description: match (kind, decision) {
+        (ApprovalKind::Downloads, ApprovalDecision::Allow) => "Downloads from these domains until the editor restarts.",
+        (ApprovalKind::Downloads, _) => "Doesn't download, and doesn't ask again until the editor restarts unless you ask for it.",
+        (ApprovalKind::ProcessPlugins, ApprovalDecision::Allow) => {
+          "Runs these process plugins with this configuration for this configuration file until the editor restarts."
+        }
+        (ApprovalKind::ProcessPlugins, ApprovalDecision::AlwaysAllow) => {
+          "Runs these process plugins with this configuration for this configuration file from now on."
+        }
+        (ApprovalKind::ProcessPlugins, ApprovalDecision::Deny) => "Doesn't run them, and doesn't ask again until the editor restarts unless you ask for it.",
+        (ApprovalKind::ProcessPlugins, ApprovalDecision::AlwaysDeny) => "Doesn't run them, and doesn't ask again unless you ask for it.",
+      }
+      .to_string(),
       id: *decision,
       label: match decision {
         ApprovalDecision::Allow => "Allow",
@@ -2428,36 +2618,48 @@ fn get_decision_options(decisions: &[ApprovalDecision]) -> Vec<ApprovalDecisionO
     .collect()
 }
 
-fn new_uri_config_changed(uri: Uri, reason: ConfigChangeReason) -> ConfigChangedParams {
-  ConfigChangedParams {
-    uri: Some(uri),
-    dir_uri: None,
+/// Gets the notification that a local config file the editor said changed did.
+fn new_file_config_changed(file_path: &Path, reason: ConfigChangeReason) -> Option<ConfigChangedParams> {
+  Some(ConfigChangedParams {
+    uri: Some(file_path_to_uri(file_path)?),
+    dir_uri: Some(file_path_to_uri(get_config_file_dir(file_path)?)?),
     reason: Some(reason),
     changes: None,
-  }
+  })
 }
 
-/// Gets the notification that the config changed, which has the directory
-/// it's used for when it's the global config file.
+/// Gets the notification that the config changed with the directory it's used for.
 fn new_config_changed(config: &ResolvedConfig, reason: ConfigChangeReason) -> Option<ConfigChangedParams> {
   Some(ConfigChangedParams {
-    dir_uri: match config.is_global {
-      true => Some(file_path_to_uri(config.base_path.as_ref())?),
-      false => None,
-    },
-    ..new_uri_config_changed(path_source_to_uri(&config.source)?, reason)
+    uri: Some(path_source_to_uri(&config.source)?),
+    dir_uri: Some(get_config_dir_uri(&config.source, config.is_global, config.base_path.as_ref())?),
+    reason: Some(reason),
+    changes: None,
   })
 }
 
 /// Gets the notification that a config file that was found changed.
 fn new_found_config_changed(config_file: &ResolvedConfigPathWithText) -> Option<ConfigChangedParams> {
   Some(ConfigChangedParams {
-    dir_uri: match config_file.is_global_config {
-      true => Some(file_path_to_uri(config_file.base_path.as_ref())?),
-      false => None,
-    },
-    ..new_uri_config_changed(path_source_to_uri(&config_file.source)?, ConfigChangeReason::Changed)
+    uri: Some(path_source_to_uri(&config_file.source)?),
+    dir_uri: Some(get_config_dir_uri(
+      &config_file.source,
+      config_file.is_global_config,
+      config_file.base_path.as_ref(),
+    )?),
+    reason: Some(ConfigChangeReason::Changed),
+    changes: None,
   })
+}
+
+/// Gets the notification that every config file may have changed.
+fn new_every_config_changed() -> ConfigChangedParams {
+  ConfigChangedParams {
+    uri: None,
+    dir_uri: None,
+    reason: None,
+    changes: None,
+  }
 }
 
 /// Gets what identifies the config file of the notification.
@@ -2593,7 +2795,8 @@ fn get_approval_id(kind: &str, config_key: &str, items: &[String]) -> String {
     text.push('\n');
     text.push_str(item);
   }
-  format!("{:x}", get_bytes_hash(text.as_bytes()))
+  // what's approved is only what's identified, so it isn't a hash that can collide
+  get_sha256_checksum(text.as_bytes())
 }
 
 /// Gets the uri of a config file.

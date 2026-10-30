@@ -125,6 +125,7 @@ use self::workspace::messages::ApproveResult;
 use self::workspace::messages::CONFIG_INFO_METHOD;
 use self::workspace::messages::CONFIG_SCHEMA_METHOD;
 use self::workspace::messages::ClientExperimentalCapability;
+use self::workspace::messages::ConfigFileInfo;
 use self::workspace::messages::ConfigInfoResult;
 use self::workspace::messages::ConfigParams;
 use self::workspace::messages::ConfigSchemaResult;
@@ -135,10 +136,14 @@ use self::workspace::messages::EXPERIMENTAL_CAPABILITY_NAME;
 use self::workspace::messages::ErrorData;
 use self::workspace::messages::FILE_INFO_METHOD;
 use self::workspace::messages::FILE_URI_FEATURE;
+use self::workspace::messages::FORGET_DECISIONS_METHOD;
 use self::workspace::messages::FORMAT_METHOD;
 use self::workspace::messages::FileInfoParams;
 use self::workspace::messages::FileInfoResult;
+use self::workspace::messages::ForgetDecisionsParams;
+use self::workspace::messages::ForgetDecisionsResult;
 use self::workspace::messages::FormatParams;
+use self::workspace::messages::FormatResponse;
 use self::workspace::messages::FormatResult;
 use self::workspace::messages::GlobalConfigUse;
 use self::workspace::messages::NotFormatted;
@@ -184,6 +189,9 @@ const MAX_CONCURRENT_MESSAGES: usize = 64;
 /// The configuration files the client tells the server about when they change,
 /// which includes the ones in a `.config` directory.
 const CONFIG_FILE_GLOB: &str = "**/{dprint,.dprint}.{json,jsonc}";
+/// The names of the config files, which are also found in a `.config` directory
+/// (except for the ones starting with a period).
+const CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
 
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
@@ -292,6 +300,7 @@ fn with_dprint_methods<TEnvironment: Environment>(
     .custom_method(APPROVE_METHOD, Backend::dprint_approve)
     .custom_method(RESET_METHOD, Backend::dprint_reset)
     .custom_method(PENDING_APPROVALS_METHOD, Backend::dprint_pending_approvals)
+    .custom_method(FORGET_DECISIONS_METHOD, Backend::dprint_forget_decisions)
 }
 
 /// Starts the task that handles the messages sent by the `Backend`, which
@@ -538,12 +547,12 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       FormatOutcome::Formatted(edits) if edits.is_empty() => None,
       FormatOutcome::Formatted(edits) => Some(to_lsp_edits(edits, &line_index)),
       FormatOutcome::NotFormatted(NotFormatted { reason, message, .. }) => {
-        match (reason, message) {
+        match reason {
           // only logged because a client may format a range without the user asking (ex. on paste)
-          (NotFormattedReason::RangeFormattingNotSupported, Some(message)) => self.client.log_info(message),
+          NotFormattedReason::RangeFormattingNotSupported => self.client.log_info(message),
           // the problems are only shown once, so tell the client each time
-          (NotFormattedReason::ConfigDiagnostics | NotFormattedReason::ConfigError, Some(message)) => self.log_format_failure(uri, &message),
-          (NotFormattedReason::UnsupportedDocument | NotFormattedReason::LanguageRequired, Some(message)) => self.log_format_failure(uri, &message),
+          NotFormattedReason::ConfigDiagnostics | NotFormattedReason::ConfigError => self.log_format_failure(uri, &message),
+          NotFormattedReason::UnsupportedDocument | NotFormattedReason::LanguageRequired => self.log_format_failure(uri, &message),
           _ => {}
         }
         None
@@ -579,7 +588,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
           }
         }
       }
-      Some((_, FormatOutcome::NotFormatted(NotFormatted { message, .. }))) => message.map(|message| (MessageType::INFO, message)),
+      Some((_, FormatOutcome::NotFormatted(NotFormatted { message, .. }))) => Some((MessageType::INFO, message)),
       Some((_, FormatOutcome::Failed { message, .. })) => {
         self.log_format_failure(uri, &message);
         None
@@ -628,7 +637,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       notify_no_config,
     };
     match self.format_request(request, token).await {
-      Ok(outcome) => Some((line_index, outcome)),
+      Ok((outcome, _)) => Some((line_index, outcome)),
       Err(err) => {
         self.log_format_failure(uri, &format!("{:#}", err));
         None
@@ -636,7 +645,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     }
   }
 
-  async fn format_request(&self, request: FormatRequest, token: CancellationToken) -> Result<FormatOutcome> {
+  /// Formats the document, which says the config file that was used.
+  async fn format_request(&self, request: FormatRequest, token: CancellationToken) -> Result<(FormatOutcome, Option<ConfigFileInfo>)> {
     let start_time = std::time::Instant::now();
     let uri = request.document.uri.clone();
     log_debug!(self.environment, "Received format request for {}", uri.as_str());
@@ -732,7 +742,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     }
   }
 
-  async fn dprint_format(&self, params: FormatParams, token: CancellationToken) -> LspResult<FormatResult> {
+  async fn dprint_format(&self, params: FormatParams, token: CancellationToken) -> LspResult<FormatResponse> {
     self.ensure_editor_extension()?;
     let _progress = self.track_request_progress(params.document.work_done_token.clone());
     if let Some(message) = get_override_config_error(&params.override_config) {
@@ -756,8 +766,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       global_config: params.document.global_config,
       notify_no_config: false,
     };
-    let outcome = self.format_request(request, token).await.map_err(to_lsp_error)?;
-    Ok(match outcome {
+    let (outcome, config_file) = self.format_request(request, token).await.map_err(to_lsp_error)?;
+    let result = match outcome {
       FormatOutcome::Formatted(edits) => FormatResult::Formatted {
         edits: to_lsp_edits(edits, &line_index),
       },
@@ -766,9 +776,11 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         reason,
         message,
         show: reason.show(),
+        severity: reason.severity(),
         plugin,
       },
-    })
+    };
+    Ok(FormatResponse { config_file, result })
   }
 
   async fn dprint_file_info(&self, params: FileInfoParams, _token: CancellationToken) -> LspResult<FileInfoResult> {
@@ -824,14 +836,32 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     Ok(ResetResult {})
   }
 
-  /// Takes optional params so that they can be added later, which are `{}` for now.
-  async fn dprint_pending_approvals(&self, _params: Option<PendingApprovalsParams>, _token: CancellationToken) -> LspResult<PendingApprovalsResult> {
+  /// Takes optional params because they were `{}` at first.
+  async fn dprint_pending_approvals(&self, params: Option<PendingApprovalsParams>, _token: CancellationToken) -> LspResult<PendingApprovalsResult> {
     self.ensure_editor_extension()?;
-    let approvals = self
-      .run(|workspace| async move { workspace.pending_approvals().await }.boxed_local())
+    let config_file = params
+      .and_then(|params| params.config_file)
+      .map(|config_file| (config_file.uri, config_file.dir_uri));
+    let (approvals, status) = self
+      .run(|workspace| async move { workspace.pending_approvals(config_file).await }.boxed_local())
       .await
-      .ok_or_else(new_server_stopped_error)?;
-    Ok(PendingApprovalsResult { approvals })
+      .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
+      .map_err(to_lsp_error)?;
+    Ok(PendingApprovalsResult { approvals, status })
+  }
+
+  /// Takes optional params so that the decisions of every config file can be forgotten with `{}`.
+  async fn dprint_forget_decisions(&self, params: Option<ForgetDecisionsParams>, _token: CancellationToken) -> LspResult<ForgetDecisionsResult> {
+    self.ensure_editor_extension()?;
+    let config_file = params
+      .and_then(|params| params.config_file)
+      .map(|config_file| (config_file.uri, config_file.dir_uri));
+    self
+      .run(|workspace| async move { workspace.forget_decisions(config_file).await }.boxed_local())
+      .await
+      .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
+      .map_err(to_lsp_error)?;
+    Ok(ForgetDecisionsResult {})
   }
 
   /// This is used in the test code to ensure there are no pending requests.
@@ -854,6 +884,11 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     }
     // the client is an editor extension when it supports a version of the dprint methods that the server does
     let mut features = serde_json::Map::new();
+    let has_dprint_capability = params
+      .capabilities
+      .experimental
+      .as_ref()
+      .is_some_and(|experimental| experimental.get(EXPERIMENTAL_CAPABILITY_NAME).is_some());
     let methods_version = params
       .capabilities
       .experimental
@@ -882,13 +917,13 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         }
       });
     let is_editor_extension = methods_version.is_some();
-    // the server can only register the files to watch when the client supports it
-    let can_register_watched_files = get_config_file_watcher_registrations(&params.capabilities).len() == 1;
-    if !can_register_watched_files {
+    // the server can only register every file to watch when the client supports registering them by their directory
+    let can_register_watched_files =
+      get_config_file_watcher_registrations(&params.capabilities).len() == 1 && supports_relative_watch_patterns(&params.capabilities);
+    if !can_register_watched_files || !is_editor_extension {
       features.remove(WATCH_FILES_FEATURE);
     }
-    let watches_files_outside_workspace =
-      is_editor_extension && features.contains_key(WATCH_FILES_FEATURE) && supports_relative_watch_patterns(&params.capabilities);
+    let watches_files_outside_workspace = features.contains_key(WATCH_FILES_FEATURE);
     let client_kind = if is_editor_extension {
       ClientKind::EditorExtension
     } else {
@@ -934,15 +969,26 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       .await;
     self.update_workspace_settings().await;
 
-    // a language client doesn't use the dprint methods
-    let experimental = methods_version.map(|version| {
-      serde_json::json!({
-        EXPERIMENTAL_CAPABILITY_NAME: ServerExperimentalCapability {
-          version,
+    // a client that sent the capability is told which versions the server supports
+    // when it doesn't support any of the client's, so it can tell an older dprint apart
+    let experimental = has_dprint_capability.then(|| {
+      let capability = match methods_version {
+        Some(version) => ServerExperimentalCapability {
+          version: Some(version),
+          versions: SUPPORTED_METHOD_VERSIONS.to_vec(),
           features: features.clone(),
-          files: get_dprint_files(&self.environment),
+          files: Some(get_dprint_files(&self.environment)),
+          config_file_globs: CONFIG_FILE_NAMES.iter().map(|name| format!("**/{}", name)).collect(),
         },
-      })
+        None => ServerExperimentalCapability {
+          version: None,
+          versions: SUPPORTED_METHOD_VERSIONS.to_vec(),
+          features: Default::default(),
+          files: None,
+          config_file_globs: Vec::new(),
+        },
+      };
+      serde_json::json!({ EXPERIMENTAL_CAPABILITY_NAME: capability })
     });
     let workspace = Some(WorkspaceServerCapabilities {
       workspace_folders: Some(WorkspaceFoldersServerCapabilities {
@@ -1502,6 +1548,7 @@ fn to_lsp_error(err: anyhow::Error) -> LspError {
     // what needs to be approved changed, which is provided when it's known
     data = serde_json::to_value(ErrorData::ApprovalChanged {
       approvals: err.approvals.clone(),
+      status: err.status.clone(),
     })
     .ok();
     ErrorCode::ServerError(APPROVAL_CHANGED_ERROR_CODE)
