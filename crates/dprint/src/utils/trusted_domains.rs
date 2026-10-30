@@ -369,9 +369,9 @@ impl TrustedDomains {
 
   /// Parses a domain of the `editor.trustedDomains` setting as it's compared
   /// to the host of a url, which is `None` when it isn't a host name (letters,
-  /// digits, hyphens, and dots between them) or an IP address (an IPv6 one in
-  /// brackets). The whitespace and the dots around it are ignored, and so is
-  /// the case.
+  /// digits, hyphens, underscores, and dots between them, like the host of a
+  /// url may have) or an IP address (an IPv6 one in brackets). The whitespace
+  /// and the dots around it are ignored, and so is the case.
   ///
   /// IMPORTANT: Anything else fails instead of being trusted as something that
   /// matches nothing, because it may be a value of a newer version of dprint
@@ -381,7 +381,9 @@ impl TrustedDomains {
     let is_ip_v6 = value.starts_with('[');
     let is_host_name = !value.is_empty()
       && value.split('.').all(|label| !label.is_empty())
-      && value.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.');
+      && value
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'));
     if !is_ip_v6 && !is_host_name {
       return None;
     }
@@ -889,7 +891,7 @@ mod test {
     environment
       .write_file(
         &file_path,
-        r#"{ "editor": { "trustedDomains": ["npm.example.com", " Other.Example.com. ", "[0:0::1]", "127.1"] } }"#,
+        r#"{ "editor": { "trustedDomains": ["npm.example.com", " Other.Example.com. ", "[0:0::1]", "127.1", "npm_registry.corp"] } }"#,
       )
       .unwrap();
     let trusted_domains = TrustedDomains::from_settings(&environment);
@@ -898,6 +900,7 @@ mod test {
     // an IP address is compared like the host of a url
     assert!(trusted_domains.is_trusted(&url("https://[::1]/plugin.wasm")));
     assert!(trusted_domains.is_trusted(&url("https://127.0.0.1/plugin.wasm")));
+    assert!(trusted_domains.is_trusted(&url("https://npm_registry.corp/@scope/package")));
     // the default ones are still trusted
     assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
     assert!(!trusted_domains.is_trusted(&url("https://example.com/plugin.wasm")));
@@ -935,6 +938,8 @@ mod test {
     assert_eq!(TrustedDomains::parse_domain("localhost").as_deref(), Some("localhost"));
     assert_eq!(TrustedDomains::parse_domain("127.1").as_deref(), Some("127.0.0.1"));
     assert_eq!(TrustedDomains::parse_domain("[0:0::1]").as_deref(), Some("[::1]"));
+    // a url's host may have an underscore
+    assert_eq!(TrustedDomains::parse_domain("NPM_registry.corp").as_deref(), Some("npm_registry.corp"));
     // ex. a syntax of a newer version of dprint that trusts less
     for value in [
       "",
@@ -945,7 +950,6 @@ mod test {
       "https://npm.example.com/",
       "npm.example.com:8080",
       "npm..example.com",
-      "npm_example.com",
       "bücher.example",
       "[::1",
       "[example.com]",
