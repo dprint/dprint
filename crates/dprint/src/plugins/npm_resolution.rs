@@ -1395,8 +1395,11 @@ impl NpmrcChain {
       let value = value.to_string_lossy().trim().to_string();
       if value.is_empty() { None } else { Some(value) }
     };
-    if let Some(url) = env_var("NPM_CONFIG_HTTPS_PROXY").or_else(|| env_var("NPM_CONFIG_PROXY"))
-      && let Some(proxy) = to_usable_proxy(url, env_var("NPM_CONFIG_NOPROXY"), environment)
+    let env_proxy = env_var("NPM_CONFIG_HTTPS_PROXY")
+      .map(|url| (url, "NPM_CONFIG_HTTPS_PROXY"))
+      .or_else(|| env_var("NPM_CONFIG_PROXY").map(|url| (url, "NPM_CONFIG_PROXY")));
+    if let Some((url, name)) = env_proxy
+      && let Some(proxy) = to_usable_proxy(url, env_var("NPM_CONFIG_NOPROXY"), name, environment)
     {
       return Some(proxy);
     }
@@ -1439,27 +1442,34 @@ fn resolve_proxy_from_npmrc(file: &NpmrcFile, environment: &impl Environment) ->
     Some((setting, value))
   };
   let (setting, url) = read_value("https-proxy").or_else(|| read_value("proxy"))?;
+  let no_proxy = read_value("noproxy").map(|(_, value)| value);
+  let source = file.path.display().to_string();
+  if file.is_users {
+    return to_usable_proxy(url, no_proxy, &source, environment);
+  }
   // the setting is what's shown (see `is_proxy_url`)
-  if setting.chars().any(char::is_whitespace) {
-    log_debug!(environment, "Ignoring npm's proxy setting because it isn't the url of a proxy.");
+  if setting.chars().any(char::is_whitespace) || !is_proxy_url(&url) {
+    log_warn!(
+      environment,
+      "Ignoring the npm proxy setting in {} because it isn't the url of a proxy (a scheme, a host, and optionally a port and credentials).",
+      source,
+    );
     return None;
   }
-  let mut proxy = to_usable_proxy(url, read_value("noproxy").map(|(_, value)| value), environment)?;
-  if !file.is_users {
-    proxy.npmrc = Some(NpmrcProxy {
-      npmrc_path: file.path.display().to_string(),
-      setting,
-    });
-  }
+  let mut proxy = to_usable_proxy(url, no_proxy, &source, environment)?;
+  proxy.npmrc = Some(NpmrcProxy { npmrc_path: source, setting });
   Some(proxy)
 }
 
-fn to_usable_proxy(url: String, no_proxy: Option<String>, environment: &impl Environment) -> Option<NpmProxy> {
-  if !is_proxy_url(&url) {
-    log_debug!(
-      environment,
-      "Ignoring npm's proxy setting because it isn't the url of a proxy with a supported scheme."
-    );
+/// Gets the proxy of a setting (`source` is the file or environment variable
+/// it's from), which is `None` when its scheme isn't supported.
+fn to_usable_proxy(url: String, no_proxy: Option<String>, source: &str, environment: &impl Environment) -> Option<NpmProxy> {
+  let is_supported = match url.split_once("://") {
+    Some((scheme, _)) => is_supported_proxy_scheme(&scheme.to_ascii_lowercase()),
+    None => true,
+  };
+  if !is_supported {
+    log_warn!(environment, "Ignoring the npm proxy setting in {} because its scheme isn't supported.", source);
     return None;
   }
   Some(NpmProxy { url, no_proxy, npmrc: None })
@@ -1473,7 +1483,9 @@ fn to_usable_proxy(url: String, no_proxy: Option<String>, environment: &impl Env
 /// IMPORTANT: The proxy of an `.npmrc` file other than the user's own is shown
 /// to the user to approve it (see `NpmrcProxy`), so this has the project not
 /// be able to put other text in the message with it (ex. a sentence after the
-/// url, which a url parser would make part of its path).
+/// url, which a url parser would make part of its path). It's only for those
+/// because npm uses a proxy with a path, so the user's own settings may have
+/// one (ex. `http://proxy.corp:3128/squid`).
 fn is_proxy_url(url: &str) -> bool {
   if url.chars().any(char::is_whitespace) {
     return false;
@@ -1485,11 +1497,15 @@ fn is_proxy_url(url: &str) -> bool {
   let Ok(parsed) = parsed else {
     return false;
   };
-  matches!(parsed.scheme(), "http" | "https" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h")
+  is_supported_proxy_scheme(parsed.scheme())
     && parsed.host_str().is_some_and(|host| !host.is_empty())
     && matches!(parsed.path(), "" | "/")
     && parsed.query().is_none()
     && parsed.fragment().is_none()
+}
+
+fn is_supported_proxy_scheme(scheme: &str) -> bool {
+  matches!(scheme, "http" | "https" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h")
 }
 
 /// Replaces `${VAR}` in an .npmrc value with the environment variable's value
@@ -1999,7 +2015,42 @@ mod tests {
       "ftp://proxy.example",
     ] {
       assert_eq!(proxy_url(setting), None, "{}", setting);
+      // which the user is told about
+      assert_eq!(
+        environment.take_stderr_messages(),
+        vec![format!(
+          "Ignoring the npm proxy setting in {} because it isn't the url of a proxy (a scheme, a host, and optionally a port and credentials).",
+          Path::new("/repo").join(".npmrc").display()
+        )],
+        "{}",
+        setting
+      );
     }
+  }
+
+  #[test]
+  fn resolve_registry_uses_a_proxy_with_a_path_from_the_users_own_settings() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo").unwrap();
+    let proxy = || {
+      resolve_registry_for_package("@dprint/typescript", Some(Path::new("/repo")), &environment)
+        .proxy
+        .map(|proxy| (proxy.url, proxy.npmrc))
+    };
+    // npm uses the proxy of a setting with a path, which isn't shown to the user when it's their own
+    environment.mk_dir_all("/home").unwrap();
+    environment.write_file("/home/.npmrc", "https-proxy=http://proxy.corp:3128/squid").unwrap();
+    assert_eq!(proxy(), Some(("http://proxy.corp:3128/squid".to_string(), None)));
+    environment.set_env_var("NPM_CONFIG_HTTPS_PROXY", Some("http://env.corp:3128/squid"));
+    assert_eq!(proxy(), Some(("http://env.corp:3128/squid".to_string(), None)));
+    // but not one with a scheme that isn't supported, which the user is told about
+    environment.set_env_var("NPM_CONFIG_HTTPS_PROXY", Some("ftp://env.corp:3128"));
+    assert_eq!(proxy(), Some(("http://proxy.corp:3128/squid".to_string(), None)));
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Ignoring the npm proxy setting in NPM_CONFIG_HTTPS_PROXY because its scheme isn't supported."]
+    );
   }
 
   #[test]
@@ -2066,6 +2117,7 @@ mod tests {
     environment.set_env_var("NPM_CONFIG_HTTPS_PROXY", Some("ftp://env:8443"));
     assert_eq!(resolve().unwrap().url, "http://outer:8080");
     environment.set_env_var("NPM_CONFIG_HTTPS_PROXY", None);
+    assert_eq!(environment.take_stderr_messages().len(), 3);
     for proxy in ["https://inner:8443", "socks5://inner:1080", "SOCKS5H://inner:1080", "inner:8080"] {
       environment.write_file("/repo/sub/.npmrc", &format!("https-proxy={}", proxy)).unwrap();
       assert_eq!(resolve().unwrap().url, proxy);
