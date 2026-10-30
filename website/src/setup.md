@@ -90,7 +90,7 @@ By default, dprint stores information in the current system user's cache directo
 
 ## Trusted Domains
 
-Opening a project in an editor isn't the same as choosing to download what its configuration file says, and a download can send information to the domain it's from (ex. that the project was opened and from where). To limit that, editors only download plugins and the configuration files that a configuration file extends from these domains and their subdomains without asking you first: `registry.npmjs.org`, `plugins.dprint.dev`, `github.com`, and `githubusercontent.com`. This includes each redirect, and reading a file on another machine (ex. a UNC path on Windows) is asked about like a download. The CLI downloads from any domain because you ran it.
+Opening a project in an editor isn't the same as choosing to download what its configuration file says, and a download can send information to the domain it's from (ex. that the project was opened and from where). To limit that, editors only download plugins and the configuration files that a configuration file extends from these domains and their subdomains without asking you first: `registry.npmjs.org`, `plugins.dprint.dev`, `github.com`, and `githubusercontent.com`. This includes each redirect. The CLI downloads from any domain because you ran it.
 
 These domains are where anyone can publish, so a download from them can still say that a project was opened (ex. a download count), but they're where most plugins are.
 
