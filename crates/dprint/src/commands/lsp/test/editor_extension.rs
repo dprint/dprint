@@ -768,18 +768,152 @@ fn should_resolve_the_config_files_again_when_dprints_own_files_change() {
         environment
           .write_file(&settings_file_path, r#"{ "editor": { "trustedDomains": ["example.com"] } }"#)
           .unwrap();
-        // every config file may have changed
-        let mut changes = Vec::new();
-        for _ in 0..100 {
-          changes.extend(client.take_config_changes());
-          if changes.contains(&uri("/")) {
-            break;
-          }
-          tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-        assert!(changes.contains(&uri("/")), "{:?}", changes);
+        // the config file resolves to something else now
+        assert_eq!(client.wait_for_dprint_files_change().await, vec![uri("/dprint.json")]);
         assert_eq!(client.config_info("/dprint.json").await.status, FormatStatus::Ready);
         assert_eq!(client.pending_approvals().await, Vec::new());
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_not_resolve_a_deleted_config_file_again_when_dprints_own_files_change() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_global_config(|c| {
+      c.add_remote_process_plugin();
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::Ready);
+        environment.remove_file("/a/dprint.json").unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/a/dprint.json"),
+              typ: FileChangeType::DELETED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
+        // the settings change, which doesn't have the global config file be used for the directory
+        let settings_file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+        environment
+          .write_file(&settings_file_path, r#"{ "editor": { "allowProcessPlugins": false, "trustedDomains": [] } }"#)
+          .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        assert_eq!(client.pending_approvals().await, Vec::new());
+        assert_eq!(client.take_config_changes(), Vec::new());
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_approve_what_a_config_file_that_was_asked_about_needs() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.ensure_plugins_section();
+    })
+    .build();
+  environment
+    .write_file("/dprint.jsonc", &format!(r#"{{ "plugins": ["{}"] }}"#, UNTRUSTED_PLUGIN_URL))
+    .unwrap();
+  run_session(&environment, |client| {
+    async move {
+      // the directory uses the dprint.json, but this is about the dprint.jsonc
+      let approval = client.config_info("/dprint.jsonc").await.status.approvals()[0].clone();
+      assert_eq!(client.pending_approvals().await, vec![approval.clone()]);
+      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+      assert_eq!(client.take_config_changes(), vec![uri("/dprint.jsonc")]);
+      assert_eq!(client.config_info("/dprint.jsonc").await.status, FormatStatus::Ready);
+      assert_eq!(client.pending_approvals().await, Vec::new());
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_get_the_global_config_file_when_asked_about_it() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_process_plugin()
+    .with_global_config(|c| {
+      c.add_remote_process_plugin();
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  let global_config_path = crate::configuration::resolve_global_config_path_and_text(&environment)
+    .unwrap()
+    .unwrap()
+    .source
+    .display();
+  run_session(&environment, move |client| {
+    async move {
+      let mut params = config_params("/dprint.json");
+      params.config_file = Some(DocumentIdentifier {
+        uri: file_path_to_uri(Path::new(&global_config_path)).unwrap(),
+      });
+      let config_info = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap();
+      assert_eq!(config_info.config_file.unwrap().kind, ConfigFileKind::Global);
+      // its process plugins don't need to be approved because it's the user's own
+      assert_eq!(config_info.status, FormatStatus::Ready);
+      assert_eq!(client.pending_approvals().await, Vec::new());
+      // a file that isn't a config file
+      let mut params = config_params("/dprint.json");
+      params.config_file = Some(DocumentIdentifier { uri: uri("/package.json") });
+      let config_info = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap();
+      assert_eq!(config_info.status.reason(), Some(NotFormattedReason::UnsupportedDocument));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_ask_again_once_the_always_decisions_are_deleted() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::AlwaysAllow).await, Vec::new());
+        assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::Ready);
+        // the server notices that they were stored, which it checks every couple of seconds
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        client.take_config_changes();
+        // the user deletes them to be asked again
+        environment
+          .remove_file(crate::configuration::get_editor_approvals_file_path(&environment).unwrap())
+          .unwrap();
+        assert_eq!(client.wait_for_dprint_files_change().await, vec![uri("/a/dprint.json")]);
+        assert_eq!(
+          client.config_info("/a/dprint.json").await.status.reason(),
+          Some(NotFormattedReason::ApprovalRequired)
+        );
       }
       .boxed_local()
     }
@@ -1526,6 +1660,19 @@ impl Client {
         return changes;
       }
       tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    Vec::new()
+  }
+
+  /// Waits for the config changes after dprint's own files changed, which
+  /// the server checks every couple of seconds.
+  async fn wait_for_dprint_files_change(&self) -> Vec<Uri> {
+    for _ in 0..100 {
+      let changes = self.take_config_changes();
+      if !changes.is_empty() {
+        return changes;
+      }
+      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     Vec::new()
   }

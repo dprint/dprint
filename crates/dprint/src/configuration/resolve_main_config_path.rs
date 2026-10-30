@@ -27,7 +27,7 @@ pub const DOT_CONFIG_DIR_NAME: &str = ".config";
 /// The config file names searched for within a `.config` directory.
 pub static DOT_CONFIG_FILE_NAMES: [&str; 2] = ["dprint.json", "dprint.jsonc"];
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResolvedConfigPathWithText {
   pub source: PathSource,
   pub is_first_download: bool,

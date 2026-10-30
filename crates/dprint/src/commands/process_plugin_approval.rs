@@ -60,8 +60,7 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
       }
     };
     let decision = ProcessPluginDecision::new(environment, approval, allowed);
-    session_permissions.add_process_plugin_decision(decision.clone());
-    if always && let Err(err) = store_process_plugin_decision(environment, decision).await {
+    if let Err(err) = add_process_plugin_decision(environment, session_permissions, decision, always).await {
       result = Err(err);
     }
   }
@@ -92,10 +91,7 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
       continue;
     }
     let decision = ProcessPluginDecision::new(environment, approval, true);
-    session_permissions.add_process_plugin_decision(decision.clone());
-    if grant.always
-      && let Err(err) = store_process_plugin_decision(environment, decision).await
-    {
+    if let Err(err) = add_process_plugin_decision(environment, session_permissions, decision, grant.always).await {
       result = Err(err);
     }
   }
@@ -187,6 +183,27 @@ const ALLOW_ACTION_TITLE: &str = "Allow";
 const ALWAYS_ALLOW_ACTION_TITLE: &str = "Always Allow";
 const DENY_ACTION_TITLE: &str = "Deny";
 const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
+
+/// Uses the decision, which is stored when it's always used. A decision that's
+/// stored is only read from the approvals file so that changing the file (ex.
+/// deleting it) is used, and the session uses it when storing it fails.
+async fn add_process_plugin_decision<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  session_permissions: &SessionPermissions,
+  decision: ProcessPluginDecision,
+  always: bool,
+) -> Result<()> {
+  if always {
+    let result = store_process_plugin_decision(environment, decision.clone()).await;
+    if result.is_err() {
+      session_permissions.add_process_plugin_decision(decision);
+    }
+    result
+  } else {
+    session_permissions.add_process_plugin_decision(decision);
+    Ok(())
+  }
+}
 
 #[cfg(test)]
 mod test {

@@ -17,6 +17,7 @@ use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::resolve_config_from_path_with_ancestors;
+use crate::configuration::resolve_global_config_path_and_text;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::Environment;
@@ -113,6 +114,15 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 
   /// Loads the config file at the path, which is `None` when it doesn't exist.
   pub fn load_config_file(&self, path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
+    // the global config file is used for any directory, which is the cwd here
+    if let Some(global_config_file) = resolve_global_config_path_and_text(&self.environment)?
+      && global_config_file
+        .source
+        .maybe_local_path()
+        .is_some_and(|global_path| self.environment.canonicalize(path).is_ok_and(|path| path == *global_path))
+    {
+      return Ok(Some(global_config_file));
+    }
     let Some(content) = self.environment.maybe_read_file(path)? else {
       return Ok(None);
     };
