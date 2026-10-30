@@ -226,7 +226,7 @@ impl ProcessPluginApproval {
 
 /// Whether the user allowed or denied running a process plugin of a config
 /// file with its configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessPluginDecision {
   #[serde(flatten)]
@@ -414,10 +414,23 @@ impl Permissions {
 
 /// What an editor integration keeps for its session about what the user
 /// allowed it to do, which is shared by its threads.
+///
+/// A decision for the session is compared with the stored ones by when they
+/// were made, except that a denial that's stored after a decision for the
+/// session was made always wins over it, because the time of a stored
+/// decision may be before it although it was made after it (ex. it's from a
+/// machine whose clock is behind, or the decision from the future that the
+/// time of the session's decision is after was forgotten since). A stored
+/// denial that wasn't stored the last time the permissions were read removes
+/// the session's allows and set-up grants for the plugin (see `read`), which
+/// is always before the user decides, so that's after them.
 #[derive(Debug, Default)]
 pub struct SessionPermissions {
   /// What the user decided about running process plugins for the session.
   process_plugin_decisions: Mutex<Vec<ProcessPluginDecision>>,
+  /// The stored denials the last time the permissions were read, which tells
+  /// apart the ones that were stored since.
+  read_stored_denials: Mutex<HashSet<ProcessPluginDecision>>,
   /// The process plugins the user allowed setting up for the session.
   process_plugin_set_up_grants: Mutex<Vec<ProcessPluginSetUpGrant>>,
   /// The failures to store what the user always allowed for the process
@@ -488,6 +501,7 @@ impl SessionPermissions {
     } else {
       Vec::new()
     };
+    self.remove_allows_denied_since(&process_plugin_decisions);
     let stored_process_plugin_decision_count = process_plugin_decisions.len();
     process_plugin_decisions.extend(self.process_plugin_decisions.lock().iter().cloned());
     Permissions {
@@ -574,6 +588,32 @@ impl SessionPermissions {
     let mut grants = self.process_plugin_set_up_grants.lock();
     let index = grants.iter().position(|grant| grant.config_file == config_file && grant.plugin == plugin)?;
     Some(grants.remove(index))
+  }
+
+  /// Removes the session's allows and set-up grants for the process plugins
+  /// that a denial was stored for since the last time the permissions were
+  /// read (see `SessionPermissions`).
+  fn remove_allows_denied_since(&self, stored_decisions: &[ProcessPluginDecision]) {
+    let stored_denials = stored_decisions.iter().filter(|decision| !decision.allowed).cloned().collect::<HashSet<_>>();
+    let mut read_stored_denials = self.read_stored_denials.lock();
+    let new_denials = stored_denials.difference(&read_stored_denials).collect::<Vec<_>>();
+    if !new_denials.is_empty() {
+      let is_denied = |config_file: &str, plugin: &str| {
+        new_denials
+          .iter()
+          .any(|denial| denial.approval.config_file == config_file && denial.approval.plugin == plugin)
+      };
+      // IMPORTANT: The denial is more recent than them whatever its time says.
+      self
+        .process_plugin_decisions
+        .lock()
+        .retain(|decision| !decision.allowed || !is_denied(&decision.approval.config_file, &decision.approval.plugin));
+      self
+        .process_plugin_set_up_grants
+        .lock()
+        .retain(|grant| !is_denied(&grant.config_file, &grant.plugin));
+    }
+    *read_stored_denials = stored_denials;
   }
 
   fn log_settings_problem(&self, environment: &impl Environment, message: String) {
@@ -1139,6 +1179,8 @@ mod test {
 
   fn read_permissions(environment: &TestEnvironment, session_decisions: &[ProcessPluginDecision]) -> Permissions {
     let session_permissions = SessionPermissions::default();
+    // the user decides after the permissions are read
+    session_permissions.read(environment);
     for decision in session_decisions {
       session_permissions.add_process_plugin_decision(decision.clone());
     }
@@ -1453,6 +1495,66 @@ mod test {
     let permissions = session_permissions.read(&environment);
     assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash", None));
     assert!(permissions.is_denied_since(&grant(2)));
+  }
+
+  #[test]
+  fn should_let_a_denial_stored_after_a_session_allow_win() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let session_permissions = SessionPermissions::default();
+    let plugin = "https://plugins.dprint.dev/plugin.json@checksum".to_string();
+    // ex. the time of a decision from the future that was forgotten since
+    let session_allow = ProcessPluginDecision {
+      decided_at: 1000,
+      ..decision("/a/dprint.json", "1:a", true)
+    };
+    assert!(
+      !session_permissions
+        .read(&environment)
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
+    );
+    session_permissions.add_process_plugin_decision(session_allow.clone());
+    session_permissions.add_process_plugin_decision(ProcessPluginDecision {
+      decided_at: 1000,
+      ..decision("/b/dprint.json", "1:b", true)
+    });
+    session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant {
+      config_file: "/a/dprint.json".to_string(),
+      plugin: plugin.clone(),
+      trusted_config_hash: "hash".to_string(),
+      unpinned_file_checksum: None,
+      always: false,
+      decided_at: 1000,
+    });
+    let permissions = session_permissions.read(&environment);
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash", None));
+
+    // ex. "Always Deny" on a machine whose clock is behind
+    update_editor_approvals_without_lock(&environment, |approvals| {
+      approvals.add_process_plugin_decision(ProcessPluginDecision {
+        approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin.clone()),
+        allowed: false,
+        decided_at: 10,
+      })
+    })
+    .unwrap();
+    let permissions = session_permissions.read(&environment);
+    assert!(permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1:a")));
+    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash", None));
+    // the decisions for other plugins are kept
+    assert!(permissions.is_process_plugin_allowed(&approval("/b/dprint.json", "1:b")));
+
+    // a denial that was read before is compared by when it was made
+    session_permissions.add_process_plugin_decision(ProcessPluginDecision {
+      decided_at: 11,
+      ..session_allow
+    });
+    assert!(
+      session_permissions
+        .read(&environment)
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
+    );
   }
 
   #[test]
