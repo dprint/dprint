@@ -175,7 +175,10 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     } else {
       // the configuration of a process plugin that the user allowed setting up is known now
       if let Err(err) = record_set_up_process_plugins(&self.environment, &self.session_permissions, &config, &self.plugin_resolver).await {
-        log_warn!(self.environment, "Failed storing the decision for the process plugins: {:#}", err);
+        let message = format!("Failed storing the decision for the process plugins: {:#}", err);
+        log_warn!(self.environment, "{}", message);
+        // approving them tells the user, which is usually what set them up
+        self.session_permissions.set_process_plugin_store_error(config.source.display(), message);
       }
       let permissions = self.session_permissions.read(&self.environment);
       // IMPORTANT: The scope is cached with these permissions, so check its process

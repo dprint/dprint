@@ -2359,6 +2359,55 @@ fn should_provide_the_id_of_a_process_plugin_approval_before_it_was_set_up() {
 }
 
 #[test]
+fn should_say_when_always_allowing_a_process_plugin_that_is_not_set_up_could_not_be_stored() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build(); // not initialized, so the process plugin is only set up when it's allowed
+  disallow_process_plugins(&environment);
+  // writing the approvals file fails when it's a directory
+  environment
+    .mk_dir_all(crate::configuration::get_editor_approvals_file_path(&environment).unwrap())
+    .unwrap();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
+        // it's stored once it's set up, which approving it does
+        let result = client
+          .backend
+          .dprint_approve(
+            ApproveParams {
+              id: approval.id.clone(),
+              decision: ApprovalDecision::AlwaysAllow,
+              work_done_token: None,
+            },
+            CancellationToken::new(),
+          )
+          .await
+          .unwrap();
+        assert_eq!(result.config_approvals.status, FormatStatus::ready());
+        let notice = result.notice.unwrap();
+        assert!(
+          notice.message.starts_with("Failed storing the decision for the process plugins: "),
+          "{}",
+          notice.message
+        );
+        // it's used for the session
+        assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+        environment.take_stderr_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_change_the_id_of_an_unpinned_npm_process_plugin_approval_when_its_file_changes() {
   let environment = TestEnvironmentBuilder::new()
     .with_local_config("/dprint.json", |c| {

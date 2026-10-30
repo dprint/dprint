@@ -1364,6 +1364,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
       }
       ApprovalSubject::ProcessPlugins(unapproved) => {
+        // a failure from before isn't about this decision
+        self.session_permissions.take_process_plugin_store_error(&unapproved.config_file);
         let title = get_process_plugin_action_title(decision);
         if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, Some(title)).await {
           let message = format!("Failed storing the decision for the process plugins: {:#}", err);
@@ -1377,6 +1379,15 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     // approval even when a document it was for uses another one now
     let target = &stored.config_target;
     let config = self.resolve_approval_target(target).await;
+    // what the user always allowed for a process plugin that wasn't set up is stored once it's set up,
+    // which is usually while resolving it here (ex. after allowing it or what it needed downloaded)
+    if notice.is_none()
+      && let Ok(DocumentConfig::Resolved(scope)) = &config
+      && let Some(config) = &scope.config
+      && let Some(message) = self.session_permissions.take_process_plugin_store_error(&config.source.display())
+    {
+      notice = Some(new_warning_notice(message));
+    }
     let is_download_pending = match &config {
       Ok(DocumentConfig::Resolved(scope)) => !scope.untrusted_downloads.is_empty(),
       Ok(DocumentConfig::Failed(failure)) => !failure.downloads.is_empty(),

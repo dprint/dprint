@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -395,6 +396,10 @@ pub struct SessionPermissions {
   process_plugin_decisions: Mutex<Vec<ProcessPluginDecision>>,
   /// The process plugins the user allowed setting up for the session.
   process_plugin_set_up_grants: Mutex<Vec<ProcessPluginSetUpGrant>>,
+  /// The message of the last failure to store what the user always allowed
+  /// for the process plugins of a config file once they were set up, by
+  /// config file, which approving them takes to tell the user.
+  process_plugin_store_errors: Mutex<HashMap<String, String>>,
   /// The problems with the settings that were logged, which are only logged
   /// once because the settings are read for each request.
   logged_settings_problems: Mutex<HashSet<String>>,
@@ -488,6 +493,19 @@ impl SessionPermissions {
       .lock()
       .retain(|decision| !is_config_file(&decision.approval.config_file));
     self.process_plugin_set_up_grants.lock().retain(|grant| !is_config_file(&grant.config_file));
+  }
+
+  /// Remembers that storing what the user always allowed for the process
+  /// plugins of the config file failed once they were set up (see
+  /// `record_set_up_process_plugins`), which replaces the previous failure.
+  pub fn set_process_plugin_store_error(&self, config_file: String, message: String) {
+    self.process_plugin_store_errors.lock().insert(config_file, message);
+  }
+
+  /// Takes the message of the last failure to store what the user always
+  /// allowed for the process plugins of the config file once they were set up.
+  pub fn take_process_plugin_store_error(&self, config_file: &str) -> Option<String> {
+    self.process_plugin_store_errors.lock().remove(config_file)
   }
 
   /// Takes the grant for setting up the process plugin of the config file,
