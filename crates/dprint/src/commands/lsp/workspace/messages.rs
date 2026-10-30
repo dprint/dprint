@@ -543,7 +543,7 @@ pub struct PendingApproval {
   pub title: String,
   /// The config file that needs it, which is what the user approves for.
   pub config_file: ConfigFileInfo,
-  /// What's downloaded for `download` or run for `processPlugins`.
+  /// What's downloaded for `downloads` or run for `processPlugins`.
   pub items: Vec<ApprovalItem>,
   /// The decisions the user can make in the order to show them.
   pub decisions: Vec<ApprovalDecisionOption>,
@@ -886,7 +886,8 @@ pub struct ConfigFileIdentifier {
   /// The directory the config file is used for (see `ConfigFileInfo::dir_uri`),
   /// which together with the uri identifies it. It's the directory the
   /// global config file is used for, which is the root of the current
-  /// directory when `None`.
+  /// directory when `None`, and the directory to find the config file the
+  /// server was started with from (`kind: "cli"`).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub dir_uri: Option<Uri>,
 }
@@ -981,7 +982,8 @@ pub enum RangeFormatting {
 pub struct ConfigFileInfo {
   pub uri: Uri,
   /// The directory whose files it formats, which is the directory it's in
-  /// unless that's a `.config` directory and the directory it's used for when
+  /// unless that's a `.config` directory (other than the home directory's),
+  /// and the directory it's used for when
   /// it's the global config file (ex. the root of a drive). It's the directory
   /// its patterns are relative to for a remote or npm config file.
   pub dir_uri: Uri,
