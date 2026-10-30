@@ -1063,7 +1063,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       serde_json::json!({ EXPERIMENTAL_CAPABILITY_NAME: capability })
     });
     // an editor extension that isn't supported isn't advertised anything
-    let workspace = (!is_unsupported_editor_extension).then(|| WorkspaceServerCapabilities {
+    let workspace = (!is_unsupported_editor_extension).then_some(WorkspaceServerCapabilities {
       workspace_folders: Some(WorkspaceFoldersServerCapabilities {
         supported: Some(true),
         change_notifications: Some(OneOf::Left(true)),
