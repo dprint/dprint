@@ -2078,6 +2078,42 @@ fn should_provide_the_most_recent_decision_of_a_process_plugin() {
 }
 
 #[test]
+fn should_provide_the_id_of_a_process_plugin_approval_before_it_was_set_up() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build(); // not initialized, so the process plugin is only set up when it's allowed
+  disallow_process_plugins(&environment);
+  let id_before = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+  run_session(&environment, {
+    let id_before = id_before.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        assert_eq!(approval.id_before_set_up, None);
+        *id_before.borrow_mut() = approval.id.clone();
+        // allowing it for the session sets it up
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+      }
+      .boxed_local()
+    }
+  });
+  // a server that's started again asks about the plugin with its configuration, which was
+  // allowed with the same trusted configuration before it was set up
+  run_session(&environment, move |client| {
+    async move {
+      let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+      assert_ne!(approval.id, *id_before.borrow());
+      assert_eq!(approval.id_before_set_up.as_deref(), Some(id_before.borrow().as_str()));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_set_up_an_allowed_process_plugin_once_what_needs_to_be_downloaded_is_allowed() {
   const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
   let environment = TestEnvironmentBuilder::new()

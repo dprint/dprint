@@ -1774,6 +1774,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               // a download is only allowed for the session
               decisions: get_decision_options(ApprovalKind::Downloads, &[ApprovalDecision::Allow, ApprovalDecision::Deny]),
               message: get_untrusted_download_message(urls),
+              id_before_set_up: None,
             }
           }
           ApprovalSubject::ProcessPlugins(unapproved) => {
@@ -1784,8 +1785,25 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             if unapproved.plugins.iter().any(|plugin| plugin.approval.is_none()) {
               parts.push(unapproved.trusted_config_hash.clone());
             }
+            // a server started before may have provided it before the plugins were set up, which
+            // allowed running them with the same trusted configuration
+            let id_before_set_up = unapproved.plugins.iter().any(|plugin| plugin.approval.is_some()).then(|| {
+              let mut parts = unapproved
+                .plugins
+                .iter()
+                .map(|plugin| {
+                  get_process_plugin_id_part(&UnapprovedProcessPlugin {
+                    approval: None,
+                    ..plugin.clone()
+                  })
+                })
+                .collect::<Vec<_>>();
+              parts.push(unapproved.trusted_config_hash.clone());
+              get_approval_id("processPlugins", &config_key, &parts)
+            });
             PendingApproval {
               id: get_approval_id("processPlugins", &config_key, &parts),
+              id_before_set_up,
               kind: ApprovalKind::ProcessPlugins,
               title: "Run process plugins".to_string(),
               config_file: config_file.clone(),
@@ -3464,6 +3482,7 @@ mod test {
       denied: false,
       previous_decision: None,
       message: "Allow them?".to_string(),
+      id_before_set_up: None,
       trusted_configuration: None,
     };
     assert_eq!(

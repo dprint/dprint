@@ -556,6 +556,12 @@ pub struct PendingApproval {
   pub previous_decision: Option<ApprovalDecision>,
   /// The message to show the user when asking.
   pub message: String,
+  /// The id the approval had before its process plugins were set up (ex. in
+  /// a server that was started before), which is for the same trusted
+  /// configuration, so a decision the user made for that id is sent again
+  /// with `id`. It's `None` when none of them is set up.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub id_before_set_up: Option<String>,
   /// The trusted configuration of the config file that the process plugins
   /// that aren't set up run with once they're allowed, which is what the user
   /// approves for them because what each one runs with isn't known until it's
@@ -1114,6 +1120,7 @@ mod test {
         denied: false,
         previous_decision: None,
         message: "message".to_string(),
+        id_before_set_up: None,
         trusted_configuration: None,
       }],
     ));
