@@ -2998,7 +2998,7 @@ fn get_decision_options(kind: ApprovalKind, decisions: &[ApprovalDecision]) -> V
     .iter()
     .map(|decision| ApprovalDecisionOption {
       description: match (kind, decision) {
-        (ApprovalKind::Downloads, ApprovalDecision::Allow) => "Downloads from these domains until the editor restarts.",
+        (ApprovalKind::Downloads, ApprovalDecision::Allow) => "Allows these downloads (and proxies) until the editor restarts.",
         (ApprovalKind::Downloads, _) => "Doesn't download, and doesn't ask again until the editor restarts unless you ask for it.",
         (ApprovalKind::ProcessPlugins, ApprovalDecision::Allow) => {
           "Runs these process plugins with this configuration for this configuration file until the editor restarts."
