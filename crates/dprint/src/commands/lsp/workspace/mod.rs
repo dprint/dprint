@@ -1696,6 +1696,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     ApprovalItem {
       specifier: unapproved_plugin.plugin.clone(),
       kind: ApprovalItemKind::Plugin,
+      registry: unapproved_plugin.registry.clone(),
       configuration,
       plugin: info.as_ref().map(get_file_plugin),
     }
@@ -1756,7 +1757,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           }
           ApprovalSubject::ProcessPlugins(unapproved) => {
             // the configuration of each plugin is part of what's approved, which is the
-            // trusted configuration of the config file for a plugin that isn't set up
+            // trusted configuration of the config file for a plugin that isn't set up,
+            // and so is the registry an npm plugin is from when it isn't the default one
             let mut parts = unapproved.plugins.iter().map(get_process_plugin_id_part).collect::<Vec<_>>();
             if unapproved.plugins.iter().any(|plugin| plugin.approval.is_none()) {
               parts.push(unapproved.trusted_config_hash.clone());
@@ -3213,6 +3215,7 @@ fn get_download_items(urls: &[String], kind: ApprovalItemKind) -> Vec<ApprovalIt
     .map(|url| ApprovalItem {
       specifier: url.clone(),
       kind,
+      registry: None,
       plugin: None,
       configuration: None,
     })
@@ -3240,14 +3243,18 @@ fn get_approval_id(kind: &str, config_key: &str, items: &[String]) -> String {
 
 /// Gets the item of the approval id of a process plugin, which is the plugin
 /// and the hash of its configuration on the next line, or `notSetUp` when its
-/// configuration isn't known until it's set up.
+/// configuration isn't known until it's set up, followed by the registry an
+/// npm plugin is from on another line when it isn't the default one.
 fn get_process_plugin_id_part(plugin: &UnapprovedProcessPlugin) -> String {
   let config = match plugin.approval.as_ref().map(|approval| approval.config_hash.as_deref()) {
     None => "notSetUp",
     Some(None) => "anyConfig",
     Some(Some(config_hash)) => config_hash,
   };
-  format!("{}\n{}", plugin.plugin, config)
+  match &plugin.registry {
+    Some(registry) => format!("{}\n{}\nregistry: {}", plugin.plugin, config, registry),
+    None => format!("{}\n{}", plugin.plugin, config),
+  }
 }
 
 /// Gets the uri of a config file.
@@ -3415,6 +3422,7 @@ mod test {
       items: vec![ApprovalItem {
         specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
         kind: ApprovalItemKind::Plugin,
+        registry: None,
         plugin: Some(FilePlugin {
           name: "dprint-plugin-exec".to_string(),
           version: "0.5.0".to_string(),
@@ -3447,6 +3455,7 @@ mod test {
     // after the server restarts, so increase APPROVAL_ID_VERSION when these change.
     let plugin = |config_hash: Option<Option<&str>>| UnapprovedProcessPlugin {
       plugin: "https://plugins.dprint.dev/exec-0.5.0.json@checksum".to_string(),
+      registry: None,
       approval: config_hash.map(|config_hash| ProcessPluginApproval {
         config_file: "/a/dprint.json".to_string(),
         plugin: "https://plugins.dprint.dev/exec-0.5.0.json@checksum".to_string(),

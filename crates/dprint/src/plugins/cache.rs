@@ -275,6 +275,20 @@ where
     write_meta(&hash, &meta, &self.environment)
   }
 
+  /// Gets the npm registry the plugin is downloaded from when it's an npm
+  /// package and the registry isn't the default one (ex. an `.npmrc` sets
+  /// another one for its scope).
+  pub fn get_npm_registry(&self, source_reference: &PluginSourceReference) -> Option<String> {
+    match &source_reference.path_source {
+      PathSource::Npm(npm_source) if npm_source.specifier.version.is_some() => {
+        let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+        let url = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
+        (!npm_resolution::is_default_registry(&url)).then_some(url)
+      }
+      _ => None,
+    }
+  }
+
   /// Gets the url the plugin is downloaded from, which is the registry for an
   /// npm package and `None` when it isn't downloaded (ex. it's a file).
   pub fn get_download_url(&self, source_reference: &PluginSourceReference) -> Option<Url> {

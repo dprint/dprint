@@ -254,6 +254,7 @@ mod test {
       trusted_config_hash: "hash".to_string(),
       plugins: vec![UnapprovedProcessPlugin {
         plugin: PLUGIN.to_string(),
+        registry: None,
         approval,
       }],
     }

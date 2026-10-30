@@ -1722,6 +1722,61 @@ fn should_change_the_id_of_a_process_plugin_that_is_not_set_up_when_the_configur
 }
 
 #[test]
+fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one() {
+  const PLUGIN: &str = "npm:@dprint/exec@0.5.0/plugin.json@abc123";
+  // gets the approval of the process plugin when the project's .npmrc has the text
+  fn get_approval(npmrc: Option<&str>) -> PendingApproval {
+    let mut builder = TestEnvironmentBuilder::new();
+    builder.with_local_config("/project/dprint.json", |c| {
+      c.add_plugin(PLUGIN);
+    });
+    if let Some(npmrc) = npmrc {
+      builder.write_file("/project/.npmrc", npmrc);
+    }
+    let environment = builder.build();
+    disallow_process_plugins(&environment);
+    let approval = Rc::new(std::cell::RefCell::new(None));
+    run_session(&environment, {
+      let approval = approval.clone();
+      move |client| {
+        async move {
+          let approvals = client.config_info("/project/dprint.json").await.status.approvals().to_vec();
+          assert_eq!(approvals.len(), 1, "{:#?}", approvals);
+          *approval.borrow_mut() = Some(approvals[0].clone());
+        }
+        .boxed_local()
+      }
+    });
+    approval.take().unwrap()
+  }
+
+  // a trusted domain doesn't need a download approval, so this is what the user sees of where it's from
+  let approval = get_approval(Some("@dprint:registry=https://raw.githubusercontent.com/other/registry/main/"));
+  assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
+  assert_eq!(approval.items[0].specifier, PLUGIN);
+  assert_eq!(
+    approval.items[0].registry.as_deref(),
+    Some("https://raw.githubusercontent.com/other/registry/main")
+  );
+  assert!(
+    approval
+      .message
+      .contains(&format!("({} from https://raw.githubusercontent.com/other/registry/main)", PLUGIN)),
+    "{}",
+    approval.message
+  );
+  // what was shown is part of the id
+  let other_registry = get_approval(Some("@dprint:registry=https://raw.githubusercontent.com/another/registry/main/"));
+  assert_ne!(other_registry.id, approval.id);
+  // the default registry isn't shown
+  let default_registry = get_approval(None);
+  assert_eq!(default_registry.items[0].registry, None);
+  assert!(default_registry.message.contains(&format!("({})", PLUGIN)), "{}", default_registry.message);
+  assert_ne!(default_registry.id, approval.id);
+  assert_eq!(get_approval(Some("registry=https://registry.npmjs.org/")).id, default_registry.id);
+}
+
+#[test]
 fn should_tell_the_editor_when_the_settings_change_what_is_formatted() {
   let environment = TestEnvironmentBuilder::new().build();
   run_session(&environment, |client| {

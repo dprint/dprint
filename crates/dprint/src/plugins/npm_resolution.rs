@@ -1236,6 +1236,12 @@ pub fn resolve_registry_for_package(package_name: &str, start_dir: Option<&Path>
   NpmrcChain::load(start_dir, environment).registry_for_package(package_name, environment)
 }
 
+/// Gets whether the registry url is npm's default registry, which a package
+/// is resolved from unless something configures another one.
+pub fn is_default_registry(url: &str) -> bool {
+  url.trim_end_matches('/') == deno_npmrc::NPM_DEFAULT_REGISTRY.trim_end_matches('/')
+}
+
 /// The `.npmrc` files that apply to a directory, nearest first: those found
 /// walking up from the start directory, then the user-level `~/.npmrc`.
 ///

@@ -1227,9 +1227,23 @@ pub struct UnapprovedProcessPlugins {
 pub struct UnapprovedProcessPlugin {
   /// The plugin as the config file specifies it (ex. its url and checksum).
   pub plugin: String,
+  /// The npm registry it's from when it isn't the default one, which is
+  /// shown with it because an `.npmrc` (ex. the project's) can make an npm
+  /// specifier that looks familiar come from somewhere else.
+  pub registry: Option<String>,
   /// What allowing it approves, which is `None` when it isn't set up because
   /// its configuration isn't known until then.
   pub approval: Option<ProcessPluginApproval>,
+}
+
+impl UnapprovedProcessPlugin {
+  /// Gets the plugin with the registry it's from when it isn't the default one.
+  pub fn display(&self) -> String {
+    match &self.registry {
+      Some(registry) => format!("{} from {}", self.plugin, registry),
+      None => self.plugin.clone(),
+    }
+  }
 }
 
 impl UnapprovedProcessPlugins {
@@ -1254,7 +1268,7 @@ impl UnapprovedProcessPlugins {
   /// Gets the message that says dprint isn't formatting with the config file
   /// because its process plugins weren't allowed.
   pub fn message(&self, permissions: &Permissions) -> String {
-    let plugins = self.plugins.iter().map(|plugin| plugin.plugin.as_str()).collect::<Vec<_>>().join(", ");
+    let plugins = self.plugins.iter().map(|plugin| plugin.display()).collect::<Vec<_>>().join(", ");
     let was_allowed_with_other_config = self
       .plugins
       .iter()
@@ -1314,6 +1328,7 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
     })
     .map(|(plugin, approval)| UnapprovedProcessPlugin {
       plugin: plugin.to_full_string(),
+      registry: plugin_resolver.get_npm_registry(&plugin),
       approval,
     })
     .collect::<Vec<_>>();

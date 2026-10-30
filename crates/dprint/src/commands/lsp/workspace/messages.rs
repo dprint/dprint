@@ -570,6 +570,10 @@ pub struct ApprovalItem {
   /// The url, path, or npm specifier (ex. of a plugin with its checksum).
   pub specifier: String,
   pub kind: ApprovalItemKind,
+  /// The npm registry an npm plugin is from when it isn't the default one
+  /// (ex. a project's `.npmrc` sets another one for its scope).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub registry: Option<String>,
   /// The plugin when it was set up before.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub plugin: Option<FilePlugin>,
@@ -1066,6 +1070,7 @@ mod test {
         items: vec![ApprovalItem {
           specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
           kind: ApprovalItemKind::Plugin,
+          registry: None,
           plugin: Some(FilePlugin {
             name: "dprint-plugin-exec".to_string(),
             version: "0.5.0".to_string(),

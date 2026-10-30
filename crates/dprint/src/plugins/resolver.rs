@@ -200,6 +200,12 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     Some(plugin.info().clone())
   }
 
+  /// Gets the npm registry the plugin is from when it isn't the default one
+  /// (see `PluginCache::get_npm_registry`).
+  pub fn get_npm_registry(&self, plugin_reference: &PluginSourceReference) -> Option<String> {
+    self.plugin_cache.get_npm_registry(plugin_reference)
+  }
+
   /// Gets the url the plugin is downloaded from (see `PluginCache::get_download_url`).
   pub fn get_download_url(&self, plugin_reference: &PluginSourceReference) -> Option<url::Url> {
     self.plugin_cache.get_download_url(plugin_reference)
