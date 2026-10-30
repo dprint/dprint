@@ -567,13 +567,17 @@ pub struct PendingApproval {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalItem {
-  /// The url, path, or npm specifier (ex. of a plugin with its checksum).
+  /// The url, path, or npm specifier (ex. of a plugin with its checksum), or
+  /// the text of the setting of an `npmrcProxy`.
   pub specifier: String,
   pub kind: ApprovalItemKind,
   /// The npm registry an npm plugin is from when it isn't the default one
   /// (ex. a project's `.npmrc` sets another one for its scope).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub registry: Option<String>,
+  /// The path of the `.npmrc` file that sets an `npmrcProxy`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub npmrc: Option<String>,
   /// The plugin when it was set up before.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub plugin: Option<FilePlugin>,
@@ -589,6 +593,9 @@ pub enum ApprovalItemKind {
   Plugin,
   /// A config file that a config file extends.
   Config,
+  /// A proxy that an `.npmrc` file other than the user's own sets (ex. the
+  /// project's), which downloads are sent through once it's allowed.
+  NpmrcProxy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1071,6 +1078,7 @@ mod test {
           specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
           kind: ApprovalItemKind::Plugin,
           registry: None,
+          npmrc: None,
           plugin: Some(FilePlugin {
             name: "dprint-plugin-exec".to_string(),
             version: "0.5.0".to_string(),

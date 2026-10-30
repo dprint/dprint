@@ -86,10 +86,12 @@ use crate::resolution::get_cant_ask_message;
 use crate::utils::CANCEL_DOWNLOAD_ACTION_TITLE;
 use crate::utils::DOWNLOAD_ACTION_TITLE;
 use crate::utils::LogLevel;
+use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::Semaphore;
 use crate::utils::UntrustedDownloadError;
 use crate::utils::get_bytes_hash;
+use crate::utils::get_download_display;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
 use crate::utils::get_sha256_checksum;
@@ -1576,7 +1578,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         decisions.push(Decision {
           kind: ApprovalKind::Downloads,
           config_file: Some(denied.config_file.clone()),
-          specifiers: denied.urls.clone(),
+          specifiers: denied.urls.iter().map(|download| get_download_display(download)).collect(),
           allows: false,
           always: false,
         });
@@ -1588,7 +1590,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     decisions.extend(allowed_downloads.into_iter().map(|url| Decision {
       kind: ApprovalKind::Downloads,
       config_file: None,
-      specifiers: vec![url],
+      specifiers: vec![get_download_display(&url)],
       allows: true,
       always: false,
     }));
@@ -1697,6 +1699,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       specifier: unapproved_plugin.plugin.clone(),
       kind: ApprovalItemKind::Plugin,
       registry: unapproved_plugin.registry.clone(),
+      npmrc: None,
       configuration,
       plugin: info.as_ref().map(get_file_plugin),
     }
@@ -1746,7 +1749,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               previous_decision: denied.then_some(ApprovalDecision::Deny),
               id,
               kind: ApprovalKind::Downloads,
-              title: "Download plugins from domains that aren't trusted".to_string(),
+              title: match urls.iter().all(|download| NpmrcProxy::from_download(download).is_some()) {
+                true => "Download through a proxy that isn't trusted".to_string(),
+                false => "Download plugins from domains that aren't trusted".to_string(),
+              },
               config_file: config_file.clone(),
               trusted_configuration: None,
               items,
@@ -2078,7 +2084,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
         // not an error because it resolves once the user allows downloading what it extends
         if let Some(err) = UntrustedDownloadError::find(&err) {
-          let downloads = vec![err.url.clone()];
+          let downloads = vec![err.download.clone()];
           return Ok(failed(
             NotFormattedReason::ApprovalRequired,
             get_untrusted_download_message(&downloads),
@@ -3208,16 +3214,28 @@ fn get_found_config_key(config_file: &ResolvedConfigPathWithText) -> Option<(Str
   Some((key, uri))
 }
 
-/// Gets the items of urls or paths to download.
-fn get_download_items(urls: &[String], kind: ApprovalItemKind) -> Vec<ApprovalItem> {
-  urls
+/// Gets the items of what to download (see `UntrustedDownloadError`), which
+/// are of the kind except for the proxies of `.npmrc` files.
+fn get_download_items(downloads: &[String], kind: ApprovalItemKind) -> Vec<ApprovalItem> {
+  downloads
     .iter()
-    .map(|url| ApprovalItem {
-      specifier: url.clone(),
-      kind,
-      registry: None,
-      plugin: None,
-      configuration: None,
+    .map(|download| match NpmrcProxy::from_download(download) {
+      Some(proxy) => ApprovalItem {
+        specifier: proxy.setting,
+        kind: ApprovalItemKind::NpmrcProxy,
+        registry: None,
+        npmrc: Some(proxy.npmrc_path),
+        plugin: None,
+        configuration: None,
+      },
+      None => ApprovalItem {
+        specifier: download.clone(),
+        kind,
+        registry: None,
+        npmrc: None,
+        plugin: None,
+        configuration: None,
+      },
     })
     .collect()
 }
@@ -3423,6 +3441,7 @@ mod test {
         specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
         kind: ApprovalItemKind::Plugin,
         registry: None,
+        npmrc: None,
         plugin: Some(FilePlugin {
           name: "dprint-plugin-exec".to_string(),
           version: "0.5.0".to_string(),

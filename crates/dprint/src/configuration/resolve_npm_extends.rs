@@ -17,6 +17,7 @@ use crate::plugins::find_package_in_node_modules;
 use crate::plugins::is_npm_package_extracted;
 use crate::utils::NpmPathSource;
 use crate::utils::NpmSpecifier;
+use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::ResolvedFilePathWithBytes;
 use crate::utils::parse_npm_specifier;
@@ -146,10 +147,11 @@ impl NpmExtendsResolver {
     }
   }
 
-  /// Gets the registry an npm specifier needs to be downloaded from, which is
-  /// `None` when it doesn't need to be (ex. it's in node_modules or the npm
-  /// cache).
-  pub fn get_download_url(&self, text: &str, base: &PathSource, environment: &impl Environment) -> Option<Url> {
+  /// Gets the registry an npm specifier needs to be downloaded from with the
+  /// proxy of an `.npmrc` file that isn't the user's own that it's downloaded
+  /// through (see `NpmrcProxy`), which is `None` when it doesn't need to be
+  /// downloaded (ex. it's in node_modules or the npm cache).
+  pub fn get_download(&self, text: &str, base: &PathSource, environment: &impl Environment) -> Option<(Url, Option<NpmrcProxy>)> {
     let parsed = parse_npm_specifier(text).ok()?;
     let version = parsed.specifier.version?;
     let base_dir = match base {
@@ -164,7 +166,9 @@ impl NpmExtendsResolver {
     if is_npm_package_extracted(&parsed.specifier.name, &version, &registry, environment) {
       return None;
     }
-    Url::parse(&registry.url).ok()
+    let url = Url::parse(&registry.url).ok()?;
+    let proxy = registry.npmrc_proxy_for(&url).cloned();
+    Some((url, proxy))
   }
 
   /// Resolves a relative path in the `extends` property of a configuration file
@@ -716,6 +720,31 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let err = resolve_config("/dprint.json", &environment).await.unwrap_err().to_string();
       assert!(err.starts_with("Expected a checksum for 'https://dprint.dev/other.json'"), "{err}");
+    });
+  }
+
+  #[test]
+  fn should_need_the_proxy_of_a_project_npmrc_to_be_allowed_by_the_editors() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/dprint.json", r#"{ "extends": "npm:config@1.0.0" }"#)
+      .write_file("/.npmrc", "https-proxy=https://${TOKEN}@proxy.example")
+      .build();
+    environment.set_env_var("TOKEN", Some("secret"));
+    add_registry_package(&environment, "config", "1.0.0", &[("package/dprint.json", r#"{ "prop1": 1 }"#)]);
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    let npmrc_proxy = crate::utils::NpmrcProxy {
+      npmrc_path: Path::new("/").join(".npmrc").display().to_string(),
+      setting: "https://${TOKEN}@proxy.example".to_string(),
+    };
+
+    environment.clone().run_in_runtime(async move {
+      // the registry is trusted, but not the proxy
+      let err = resolve_config("/dprint.json", &environment).await.unwrap_err();
+      assert_eq!(crate::utils::UntrustedDownloadError::find(&err).unwrap().download, npmrc_proxy.to_download());
+      assert_eq!(environment.remote_file_request_count("https://registry.npmjs.org/config"), 0);
+      environment.download_policy().allow(&[npmrc_proxy.to_download()]);
+      let result = resolve_config("/dprint.json", &environment).await.unwrap();
+      assert_eq!(get_number(&result, "prop1"), 1);
     });
   }
 

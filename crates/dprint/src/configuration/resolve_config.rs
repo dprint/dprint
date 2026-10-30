@@ -736,18 +736,24 @@ fn ensure_download_allowed(specifier: &str, context: &ExtendsContext, environmen
   if matches!(download_policy, DownloadPolicy::All) {
     return Ok(());
   }
-  let url = if specifier.starts_with("npm:") {
-    context.npm_resolver.get_download_url(specifier, &context.base_path, environment)
+  let (url, npmrc_proxy) = if specifier.starts_with("npm:") {
+    match context.npm_resolver.get_download(specifier, &context.base_path, environment) {
+      Some((url, npmrc_proxy)) => (Some(url), npmrc_proxy),
+      None => (None, None),
+    }
   } else {
     match resolve_url_or_file_path_to_path_source(specifier, &context.base_path, environment) {
-      Ok(PathSource::Remote(remote)) if !is_url_cached(&remote.url, environment) => Some(remote.url),
-      _ => None,
+      Ok(PathSource::Remote(remote)) if !is_url_cached(&remote.url, environment) => (Some(remote.url), None),
+      _ => (None, None),
     }
   };
-  match url {
-    Some(url) if !download_policy.allows(&url) => Err(UntrustedDownloadError { url: url.to_string() }.into()),
-    _ => Ok(()),
+  if let Some(url) = url {
+    download_policy.ensure_allows(&url)?;
   }
+  if let Some(npmrc_proxy) = npmrc_proxy {
+    download_policy.ensure_allows_npmrc_proxy(&npmrc_proxy)?;
+  }
+  Ok(())
 }
 
 fn is_http_url(specifier: &str) -> bool {

@@ -98,7 +98,7 @@ The editor extension decides what the server is started with, so a project can't
 
 - Use the `dprint` executable the user configured, or otherwise the one on the path. Find the one on the path yourself and start it by its absolute path, only looking in the absolute directories of the path, because starting a bare `dprint` may run one in the current directory first (ex. Node's `child_process` and Neovim on Windows look for a `dprint.exe` in the current directory, which is the workspace folder).
 - An editor extension may also use the one a project installed with npm (ex. `node_modules/@dprint/<platform package>/dprint` found from the workspace folder and its ancestors, which includes the root of an npm workspace when a package of it is opened) so that the project's version of dprint is used. That executable is from the repository, so running it is the same as running code from the repository. Only do this in an editor that has workspace trust (ex. VS Code's Restricted Mode) once the user trusts the workspace.
-- Only take the executable, its arguments, and its environment variables from the user's or the machine's settings, or from the workspace's settings once the user trusts the workspace. A project could otherwise point `DPRINT_CONFIG_DIR`, `XDG_CONFIG_HOME`, `HOME`, or `APPDATA` at a directory in the repository with a settings file that allows process plugins (`editor.allowProcessPlugins`) or a global configuration file whose process plugins run without asking, or point `DPRINT_CACHE_DIR` at plugins it compiled. Keep in mind that the editor's environment may come from the project (ex. direnv, or opening the editor from its directory).
+- Only take the executable, its arguments, and its environment variables from the user's or the machine's settings, or from the workspace's settings once the user trusts the workspace. A project could otherwise point `DPRINT_CONFIG_DIR`, `XDG_CONFIG_HOME`, `HOME`, or `APPDATA` at a directory in the repository with a settings file that allows process plugins (`editor.allowProcessPlugins`) or a global configuration file whose process plugins run without asking, or point `DPRINT_CACHE_DIR` at plugins it compiled. A proxy in the environment (ex. `HTTPS_PROXY` or `NPM_CONFIG_HTTPS_PROXY`) is used without asking, so the project could also have every download sent to a server of its choosing. Keep in mind that the editor's environment may come from the project (ex. direnv, or opening the editor from its directory).
 - Show where a configuration file is when asking about it, and that it's outside the workspace when its `inWorkspace` is `false`, because a configuration file in an ancestor directory (ex. in `/tmp` or the root of a drive) may not be the project's.
 - Show the server's messages, labels, and descriptions as plain text, because they may have text from a configuration file (ex. a plugin's URL or configuration). An editor that renders Markdown or HTML in a notification may otherwise show a link from the project, which may run an editor command (ex. VS Code's `[label](command:...)` links in notifications), so escape it (ex. break up the `](` of a Markdown link).
 
@@ -229,7 +229,7 @@ A configuration file is identified by its `uri` and the directory it's used for 
 
 Opening a project isn't the same as choosing to run what its configuration file says, so the server only uses a configuration file once the user approves what it needs:
 
-- **Downloads** - A download sends a request to the domain it's from, which a configuration file could use to send information to a server of its choosing (ex. that the project was opened and from where). To limit that, the server only downloads plugins and the configuration files that a configuration file extends from these trusted domains (and their subdomains) without the user approving it: `registry.npmjs.org`, `plugins.dprint.dev`, `github.com`, `githubusercontent.com`, and the ones the user added to the `editor.trustedDomains` setting in dprint's settings file. This includes each redirect. What's in dprint's cache doesn't need to be downloaded (ex. from running `dprint fmt` or `dprint config install`), and neither does a plugin that's a file (ex. in `node_modules`). Allowing a download allows each of its exact urls for the rest of the session, including for the other configuration files that need them (the url of an npm registry allows every package from it), which are then used too. A decision that isn't `always` is only for the server that received it, so another editor window asks again.
+- **Downloads** - A download sends a request to the domain it's from, which a configuration file could use to send information to a server of its choosing (ex. that the project was opened and from where). To limit that, the server only downloads plugins and the configuration files that a configuration file extends from these trusted domains (and their subdomains) without the user approving it: `registry.npmjs.org`, `plugins.dprint.dev`, `github.com`, `githubusercontent.com`, and the ones the user added to the `editor.trustedDomains` setting in dprint's settings file. This includes each redirect. A download is also only sent through a proxy that an `.npmrc` file sets for npm packages (`https-proxy` or `proxy`) once the user approves it, unless the file is the user's own `~/.npmrc`. That includes the files in the configuration file's directory and every ancestor directory, because they may be the project's, and the project would otherwise choose a server that receives every download along with the credentials in the setting, which may have the values of the user's environment variables (ex. `https://${GITHUB_TOKEN}@proxy.example`). Until then, a download that would go through it needs approval instead of going another way. What's in dprint's cache doesn't need to be downloaded (ex. from running `dprint fmt` or `dprint config install`), and neither does a plugin that's a file (ex. in `node_modules`). Allowing a download allows each of its exact urls for the rest of the session, including for the other configuration files that need them (the url of an npm registry allows every package from it), which are then used too. Allowing a proxy allows the text of its setting in that `.npmrc` file, so the user is asked again when the setting changes. A decision that isn't `always` is only for the server that received it, so another editor window asks again.
 - **Process plugins** - They aren't sandboxed, so running them needs to be approved for the configuration file with each plugin's configuration, unless the user set `editor.allowProcessPlugins` to `true` in dprint's settings file (see [the language server docs](../website/src/lsp.md)). Running dprint with the configuration file (`dprint fmt`, `dprint check`, or `dprint config install`) approves them because the user ran it.
 
 Nothing is formatted with the configuration file until then, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The results of `dprint/format`, `dprint/fileInfo`, and `dprint/configInfo` then have the `approvalRequired` reason and what needs to be approved (see "Which documents dprint formats" for which documents). The `approvals` of any result are what to ask about, whatever its reason, but only ask when the user wants to format with the configuration file (see below):
@@ -266,15 +266,23 @@ interface PendingApproval {
 }
 
 interface ApprovalItem {
-  /** The url, path, or npm specifier (ex. of a plugin with its checksum). */
+  /**
+   * The url, path, or npm specifier (ex. of a plugin with its checksum). For an `npmrcProxy`, it's the text of the setting before its
+   * environment variables are replaced (ex. `https://${GITHUB_TOKEN}@proxy.example`), which shows what would be sent to the proxy.
+   */
   specifier: string;
-  /** A config file is one that a config file extends. Show a kind that isn't known by its specifier. */
-  kind: "plugin" | "config" | (string & {});
+  /**
+   * A config file is one that a config file extends, and an npmrcProxy is a proxy that an `.npmrc` file sets, which downloads are sent
+   * through once it's allowed. Show a kind that isn't known by its specifier.
+   */
+  kind: "plugin" | "config" | "npmrcProxy" | (string & {});
   /**
    * The npm registry an npm plugin is from when it isn't the default one (`https://registry.npmjs.org/`), which an `.npmrc` file
    * can set (ex. the project's for a scope). Show it with the specifier because the specifier doesn't say where the plugin is from.
    */
   registry?: string;
+  /** The path of the `.npmrc` file of an `npmrcProxy`, which is shown with it. */
+  npmrc?: string;
   /** The plugin when it was set up before. */
   plugin?: FilePlugin;
   /** The configuration a process plugin that was set up before runs with (ex. the commands of dprint-plugin-exec). */
@@ -669,7 +677,7 @@ interface Decision {
    * for (ex. the global configuration file).
    */
   configFile?: ConfigFileIdentifier;
-  /** The urls, paths, or specifiers it's for, like the `specifier` of an approval's items (ex. the process plugins). */
+  /** The urls, paths, or specifiers it's for, like the `specifier` of an approval's items (ex. the process plugins), or the setting of an `.npmrc` proxy followed by its path in parentheses. */
   specifiers: string[];
   allows: boolean;
   /** Whether it's remembered after the server stops, which includes running dprint with the configuration file (ex. `dprint fmt`). */
@@ -724,5 +732,6 @@ These are kept here for the maintainers and aren't part of the protocol.
 - `-32803` (RequestFailed) is used for an approval that changed instead of a code in JSON-RPC's reserved range, which a client library may use for its own errors.
 - A configuration file that's asked about is resolved even when another one in its directory is what dprint uses for the directory (ex. a `dprint.jsonc` beside a `dprint.json`). Detecting that isn't worth maintaining for a mistake that's rare and obvious to the user.
 - A file on another machine that's reachable like a local file (ex. a UNC path on Windows, a network share, or a drive mounted in `/net`) is read like a local file instead of being approved like a download. The user chose to make it reachable that way, so they trust it, and asking about it would only get in the way of a project that's on one.
+- A proxy that an `.npmrc` file other than `~/.npmrc` sets is approved like a download instead of being ignored, so a project that needs its proxy (ex. on a company's network) works once the user allows it, and a download never silently goes another way than npm would send it. Only `~/.npmrc` is trusted because the files in the ancestor directories may be the project's (ex. the root of a monorepo) or anyone's (ex. in `/tmp`), and dprint doesn't read npm's global configuration file. What's allowed is the file with the text of its setting before its environment variables are replaced, which is what the user saw, so a changed setting is asked about again, while a changed value of an environment variable isn't. Like a download, it's only allowed for the session.
 - A decision isn't remembered by url or domain beyond the session, and allowing a download only allows its urls, because a broader scope (ex. trusting a domain) is the settings file's `editor.trustedDomains`, which the user edits on purpose.
 -->

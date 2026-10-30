@@ -42,6 +42,7 @@ use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
 use crate::utils::NpmSpecifier;
+use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::get_sha256_checksum;
@@ -300,6 +301,19 @@ where
       }
       PathSource::Npm(_) | PathSource::Local(_) => None,
     }
+  }
+
+  /// Gets the proxy of an `.npmrc` file that isn't the user's own that an npm
+  /// plugin is downloaded from its registry through (see `NpmrcProxy`).
+  pub fn get_download_npmrc_proxy(&self, source_reference: &PluginSourceReference) -> Option<NpmrcProxy> {
+    let PathSource::Npm(npm_source) = &source_reference.path_source else {
+      return None;
+    };
+    npm_source.specifier.version.as_ref()?;
+    let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+    let registry = self.resolve_registry(&npm_source.specifier.name, start_dir);
+    let url = Url::parse(&registry.url).ok()?;
+    registry.npmrc_proxy_for(&url).cloned()
   }
 
   pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {

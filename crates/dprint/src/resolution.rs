@@ -1307,10 +1307,9 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   // resolved because formatting with only some of them would format differently
   // than the CLI.
   let mut untrusted_downloads = Vec::new();
-  for url in config.plugins.iter().filter_map(|plugin| plugin_resolver.get_disallowed_download_url(plugin)) {
-    let url = url.to_string();
-    if !untrusted_downloads.contains(&url) {
-      untrusted_downloads.push(url);
+  for download in config.plugins.iter().flat_map(|plugin| plugin_resolver.get_disallowed_downloads(plugin)) {
+    if !untrusted_downloads.contains(&download) {
+      untrusted_downloads.push(download);
     }
   }
   // IMPORTANT: This needs to be checked before resolving the plugins because

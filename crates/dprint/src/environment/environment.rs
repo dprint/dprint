@@ -28,6 +28,7 @@ use crate::plugins::CompilationResult;
 use crate::utils::BasicShowConfirmStrategy;
 use crate::utils::DownloadPolicy;
 use crate::utils::LogLevel;
+use crate::utils::NpmrcProxy;
 use crate::utils::OutputSink;
 use crate::utils::ProgressBars;
 use crate::utils::PromptTerminal;
@@ -118,6 +119,10 @@ pub enum DownloadProxy<'a> {
   Environment,
   /// This proxy instead of the one found in the environment.
   Url(&'a str),
+  /// This proxy instead of the one found in the environment, which is from
+  /// an `.npmrc` file that the download policy needs to allow sending
+  /// downloads through (see `NpmrcProxy`).
+  Npmrc { url: &'a str, source: &'a NpmrcProxy },
   /// No proxy, even when the environment has one.
   Direct,
 }

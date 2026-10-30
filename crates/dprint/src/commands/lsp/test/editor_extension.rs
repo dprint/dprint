@@ -1564,6 +1564,87 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
 }
 
 #[test]
+fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
+  use crate::test_helpers::WASM_PLUGIN_BYTES;
+  use crate::test_helpers::create_test_npm_tarball;
+
+  const PACKUMENT_URL: &str = "https://registry.npmjs.org/test-plugin";
+  const TARBALL_URL: &str = "https://registry.npmjs.org/test-plugin/-/test-plugin-1.0.0.tgz";
+  const PROXY_SETTING: &str = "https://${GITHUB_TOKEN}@proxy.example";
+  let environment = TestEnvironmentBuilder::new()
+    .with_local_config("/project/dprint.json", |c| {
+      c.add_plugin("npm:test-plugin@1.0.0");
+    })
+    .write_file("/project/.npmrc", format!("https-proxy={}", PROXY_SETTING))
+    .build();
+  environment.set_env_var("GITHUB_TOKEN", Some("secret"));
+  let packument = json!({ "versions": { "1.0.0": { "dist": { "tarball": TARBALL_URL } } } });
+  environment.add_remote_file_bytes(PACKUMENT_URL, packument.to_string().into_bytes());
+  environment.add_remote_file_bytes(TARBALL_URL, create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]));
+  let npmrc_path = Path::new("/project").join(".npmrc").display().to_string();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // the registry is trusted, but the project chose the proxy and what's sent to it
+        let config_info = client.config_info("/project/dprint.json").await;
+        assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ApprovalRequired));
+        let approvals = config_info.status.approvals();
+        assert_eq!(approvals.len(), 1);
+        let approval = approvals[0].clone();
+        assert_eq!(approval.kind, ApprovalKind::Downloads);
+        assert_eq!(approval.title, "Download through a proxy that isn't trusted");
+        assert_eq!(approval.items.len(), 1);
+        // the setting is shown before its environment variables are replaced
+        assert_eq!(approval.items[0].specifier, PROXY_SETTING);
+        assert_eq!(approval.items[0].kind, ApprovalItemKind::NpmrcProxy);
+        assert_eq!(approval.items[0].npmrc.as_deref(), Some(npmrc_path.as_str()));
+        assert!(
+          approval.message.starts_with(&format!(
+            "dprint needs to download through the proxy {} that {} sets,",
+            PROXY_SETTING, npmrc_path
+          )),
+          "{}",
+          approval.message
+        );
+        assert_eq!(environment.remote_file_request_count(PACKUMENT_URL), 0);
+
+        // allowing it downloads through it
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+        assert_eq!(environment.remote_file_request_count(PACKUMENT_URL), 1);
+        assert_eq!(
+          environment.take_remote_file_proxy(PACKUMENT_URL).unwrap(),
+          format!(
+            "{:?}",
+            crate::environment::DownloadProxy::Npmrc {
+              url: "https://secret@proxy.example",
+              source: &crate::utils::NpmrcProxy {
+                npmrc_path: npmrc_path.clone(),
+                setting: PROXY_SETTING.to_string(),
+              },
+            }
+          )
+        );
+        assert_eq!(client.take_config_changes(), vec![uri("/project/dprint.json")]);
+        assert_eq!(client.format("/project/file.txt", "text").await, formatted("text", "text_formatted"));
+
+        // the user can see what they allowed
+        let decisions = client
+          .backend
+          .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
+          .await
+          .unwrap();
+        assert_eq!(decisions.decisions.len(), 1);
+        assert_eq!(decisions.decisions[0].kind, ApprovalKind::Downloads);
+        assert_eq!(decisions.decisions[0].specifiers, vec![format!("{} ({})", PROXY_SETTING, npmrc_path)]);
+        assert!(decisions.decisions[0].allows);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_approve_what_an_allowed_config_file_extends() {
   const UNTRUSTED_CONFIG_URL: &str = "https://example.com/dprint.json";
   const UNTRUSTED_BASE_CONFIG_URL: &str = "https://other.example.com/base.json";

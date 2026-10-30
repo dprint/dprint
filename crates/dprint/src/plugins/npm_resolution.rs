@@ -24,6 +24,7 @@ use crate::utils::MinimumDependencyAge;
 use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::NoProxy;
 use crate::utils::NpmSpecifier;
+use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::get_sha256_checksum;
@@ -61,6 +62,16 @@ impl NpmRegistryResolution {
     }
   }
 
+  /// Gets the proxy of an `.npmrc` file that isn't the user's own that a
+  /// request of the url is sent through, which the download policy needs to
+  /// allow (see `NpmrcProxy`).
+  pub fn npmrc_proxy_for(&self, url: &url::Url) -> Option<&NpmrcProxy> {
+    match self.proxy_for(url) {
+      DownloadProxy::Npmrc { source, .. } => Some(source),
+      DownloadProxy::Environment | DownloadProxy::Url(_) | DownloadProxy::Direct => None,
+    }
+  }
+
   fn proxy_for(&self, url: &url::Url) -> DownloadProxy<'_> {
     let Some(proxy) = &self.proxy else {
       return DownloadProxy::Environment;
@@ -70,7 +81,13 @@ impl NpmRegistryResolution {
       _ => false,
     };
     // npm connects directly to a host it's told not to proxy
-    if is_excluded { DownloadProxy::Direct } else { DownloadProxy::Url(&proxy.url) }
+    if is_excluded {
+      DownloadProxy::Direct
+    } else if let Some(source) = &proxy.npmrc {
+      DownloadProxy::Npmrc { url: &proxy.url, source }
+    } else {
+      DownloadProxy::Url(&proxy.url)
+    }
   }
 }
 
@@ -80,6 +97,10 @@ pub struct NpmProxy {
   pub url: String,
   /// Hosts to not use the proxy for (npm's `noproxy` setting).
   pub no_proxy: Option<String>,
+  /// The setting of the `.npmrc` file it's from when that isn't the user's
+  /// own (ex. the project's), which the download policy needs to allow
+  /// sending downloads through (see `NpmrcProxy`).
+  pub npmrc: Option<NpmrcProxy>,
 }
 
 /// The result of resolving an npm plugin specifier.
@@ -1243,7 +1264,9 @@ pub fn is_default_registry(url: &str) -> bool {
 }
 
 /// The `.npmrc` files that apply to a directory, nearest first: those found
-/// walking up from the start directory, then the user-level `~/.npmrc`.
+/// walking up from the start directory, then the user-level `~/.npmrc`. Only
+/// the user-level one is the user's own, which is what a proxy is trusted
+/// from (see `NpmrcProxy`).
 ///
 /// Each file is read once on load so the registry, proxy and `min-release-age`
 /// lookups share the reads instead of each walking the directory tree, and so
@@ -1254,6 +1277,10 @@ pub struct NpmrcChain {
 }
 
 struct NpmrcFile {
+  path: PathBuf,
+  /// Whether it's the user-level `~/.npmrc`, which is the user's own, unlike
+  /// one in the project or another of its ancestor directories.
+  is_users: bool,
   text: String,
   /// `None` when the file couldn't be parsed, in which case the settings that
   /// go through the parser treat the file as not setting them.
@@ -1262,11 +1289,18 @@ struct NpmrcFile {
 
 impl NpmrcChain {
   pub fn load(start_dir: Option<&Path>, environment: &impl Environment) -> Self {
+    let home_dir = environment.get_home_dir();
     let mut files = Vec::new();
     let mut load_dir = |dir: &Path| {
-      if let Ok(text) = environment.read_file(dir.join(".npmrc")) {
+      let path = dir.join(".npmrc");
+      if let Ok(text) = environment.read_file(&path) {
         let parsed = deno_npmrc::NpmRc::parse(environment, &text).ok();
-        files.push(NpmrcFile { text, parsed });
+        files.push(NpmrcFile {
+          path,
+          is_users: home_dir.as_ref().is_some_and(|home_dir| dir == home_dir.as_ref()),
+          text,
+          parsed,
+        });
       }
     };
     if let Some(start) = start_dir {
@@ -1276,7 +1310,7 @@ impl NpmrcChain {
     }
     // the user-level file is only a fallback, so when the walk already went
     // through the home directory there's nothing more it could set
-    if let Some(home_dir) = environment.get_home_dir()
+    if let Some(home_dir) = &home_dir
       && !start_dir.is_some_and(|start| start.ancestors().any(|dir| dir == home_dir.as_ref()))
     {
       load_dir(home_dir.as_ref());
@@ -1339,6 +1373,10 @@ impl NpmrcChain {
   /// like any other request dprint makes. The same goes for a proxy that can't
   /// be used (ex. one with an unknown scheme), since failing every request
   /// because of an npm setting would be worse than not following it.
+  ///
+  /// A proxy from an `.npmrc` file other than `~/.npmrc` has its setting so
+  /// that the editors only send downloads through it once the user allows it
+  /// (see `NpmrcProxy`).
   fn proxy(&self, environment: &impl Environment) -> Option<NpmProxy> {
     // npm matches these regardless of their casing
     let env_var = |name: &str| {
@@ -1352,7 +1390,7 @@ impl NpmrcChain {
       return Some(proxy);
     }
 
-    self.files.iter().find_map(|file| resolve_proxy_from_npmrc(&file.text, environment))
+    self.files.iter().find_map(|file| resolve_proxy_from_npmrc(file, environment))
   }
 }
 
@@ -1381,12 +1419,23 @@ fn resolve_registry_from_npmrc(package_name: &str, npmrc: &deno_npmrc::NpmRc, en
   Some(NpmRegistryResolution { url, auth_header, proxy: None })
 }
 
-/// Reads the proxy from the text of a single .npmrc file, or `None` when it
-/// doesn't set one (so the caller keeps walking).
-fn resolve_proxy_from_npmrc(text: &str, environment: &impl Environment) -> Option<NpmProxy> {
-  let read_value = |key: &str| expand_npmrc_env_vars(&read_npmrc_value(text, key)?, environment);
-  let url = read_value("https-proxy").or_else(|| read_value("proxy"))?;
-  to_usable_proxy(url, read_value("noproxy"), environment)
+/// Reads the proxy from a single .npmrc file, or `None` when it doesn't set
+/// one (so the caller keeps walking).
+fn resolve_proxy_from_npmrc(file: &NpmrcFile, environment: &impl Environment) -> Option<NpmProxy> {
+  let read_value = |key: &str| {
+    let setting = read_npmrc_value(&file.text, key)?;
+    let value = expand_npmrc_env_vars(&setting, environment)?;
+    Some((setting, value))
+  };
+  let (setting, url) = read_value("https-proxy").or_else(|| read_value("proxy"))?;
+  let mut proxy = to_usable_proxy(url, read_value("noproxy").map(|(_, value)| value), environment)?;
+  if !file.is_users {
+    proxy.npmrc = Some(NpmrcProxy {
+      npmrc_path: file.path.display().to_string(),
+      setting,
+    });
+  }
+  Some(proxy)
 }
 
 fn to_usable_proxy(url: String, no_proxy: Option<String>, environment: &impl Environment) -> Option<NpmProxy> {
@@ -1401,7 +1450,7 @@ fn to_usable_proxy(url: String, no_proxy: Option<String>, environment: &impl Env
     log_debug!(environment, "Ignoring npm's proxy setting because its scheme is not supported.");
     return None;
   }
-  Some(NpmProxy { url, no_proxy })
+  Some(NpmProxy { url, no_proxy, npmrc: None })
 }
 
 /// Replaces `${VAR}` in an .npmrc value with the environment variable's value
@@ -1792,6 +1841,10 @@ mod tests {
       Some(NpmProxy {
         url: "http://user:pass@secure:8080/".to_string(),
         no_proxy: Some("internal.example.com,localhost".to_string()),
+        npmrc: Some(NpmrcProxy {
+          npmrc_path: Path::new("/repo").join(".npmrc").display().to_string(),
+          setting: "http://user:pass@secure:8080/".to_string(),
+        }),
       })
     );
 
@@ -1805,6 +1858,10 @@ mod tests {
       Some(NpmProxy {
         url: "http://nearer:8080".to_string(),
         no_proxy: None,
+        npmrc: Some(NpmrcProxy {
+          npmrc_path: Path::new("/repo/sub").join(".npmrc").display().to_string(),
+          setting: "http://nearer:8080".to_string(),
+        }),
       })
     );
 
@@ -1821,8 +1878,50 @@ mod tests {
       Some(NpmProxy {
         url: "http://env-secure:8080".to_string(),
         no_proxy: Some("env.example.com".to_string()),
+        npmrc: None,
       })
     );
+  }
+
+  #[test]
+  fn resolve_registry_only_trusts_the_proxy_of_the_users_npmrc() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let resolve = |dir: &str| {
+      resolve_registry_for_package("foo", Some(std::path::Path::new(dir)), &environment)
+        .proxy
+        .unwrap()
+    };
+    environment.mk_dir_all("/home/repo").unwrap();
+    environment.mk_dir_all("/other/repo").unwrap();
+    environment
+      .write_file("/home/.npmrc", "https-proxy=https://${USER_TOKEN}@user.example")
+      .unwrap();
+    environment.set_env_var("USER_TOKEN", Some("user-token"));
+    environment.set_env_var("REPO_TOKEN", Some("repo-token"));
+
+    // the user's own, whether it's found walking up or it's the fallback
+    for dir in ["/home/repo", "/other/repo"] {
+      let proxy = resolve(dir);
+      assert_eq!(proxy.url, "https://user-token@user.example");
+      assert_eq!(proxy.npmrc, None);
+    }
+
+    // one in the project or another ancestor directory has the setting the user is shown
+    for (npmrc_dir, dir) in [("/home/repo", "/home/repo"), ("/other", "/other/repo"), ("/", "/other/repo")] {
+      let npmrc_path = Path::new(npmrc_dir).join(".npmrc");
+      environment.write_file(&npmrc_path, "https-proxy=https://${REPO_TOKEN}@repo.example").unwrap();
+      let proxy = resolve(dir);
+      assert_eq!(proxy.url, "https://repo-token@repo.example");
+      assert_eq!(
+        proxy.npmrc,
+        Some(NpmrcProxy {
+          npmrc_path: npmrc_path.display().to_string(),
+          setting: "https://${REPO_TOKEN}@repo.example".to_string(),
+        })
+      );
+      environment.remove_file(&npmrc_path).unwrap();
+    }
   }
 
   #[test]
@@ -1896,8 +1995,27 @@ mod tests {
     };
 
     add_package(tarball_url);
+    // the editors only download through it once the user allows it, even from a trusted domain
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    let err = resolve().await.err().unwrap();
+    let npmrc_proxy = registry.proxy.as_ref().unwrap().npmrc.clone().unwrap();
+    assert_eq!(crate::utils::UntrustedDownloadError::find(&err).unwrap().download, npmrc_proxy.to_download());
+    assert_eq!(environment.remote_file_request_count(packument_url), 0);
+    environment.download_policy().allow(&[npmrc_proxy.to_download()]);
     resolve().await.unwrap();
-    let npm_proxy = r#"Url("http://proxy.corp:8080")"#;
+    environment.set_download_policy(crate::utils::DownloadPolicy::All);
+    // the project's .npmrc set it, so the editors need to allow it
+    let npm_proxy = format!(
+      "{:?}",
+      DownloadProxy::Npmrc {
+        url: "http://proxy.corp:8080",
+        source: &NpmrcProxy {
+          npmrc_path: Path::new("/repo").join(".npmrc").display().to_string(),
+          setting: "http://proxy.corp:8080".to_string(),
+        },
+      }
+    );
+    let npm_proxy = npm_proxy.as_str();
     assert_eq!(environment.take_remote_file_proxy(packument_url).as_deref(), Some(npm_proxy));
     assert_eq!(environment.take_remote_file_proxy(tarball_url).as_deref(), Some(npm_proxy));
 

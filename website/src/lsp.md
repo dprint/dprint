@@ -54,6 +54,8 @@ Documents with other schemes that aren't files on the file system are not format
 
 The server only downloads plugins and the configuration files that a configuration file extends from [trusted domains](/setup#trusted-domains) without asking. This includes each redirect. When formatting needs something from another domain, the server asks whether to download it with a message that has `Download` and `Cancel` actions, which is once per session for the same download. Allowing it only allows what the message says, so you may be asked about something else it leads to (ex. a configuration file that the downloaded one extends). Nothing is formatted with the configuration file until then. In a client that can't show the actions of a message, run `dprint config install` in the directory of the configuration file to download them.
 
+The same goes for downloading through a proxy that an `.npmrc` file other than your own `~/.npmrc` sets (ex. the project's), because the proxy receives every download and the credentials in the setting, which may have the values of your environment variables. The message shows the setting as it's in the file (ex. `https://${GITHUB_TOKEN}@proxy.example`), and allowing it allows that setting for the session.
+
 ## Configuration File Resolution
 
 The server doesn't use a single configuration file for a workspace. On each request it resolves the configuration file for the file being formatted:

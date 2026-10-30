@@ -211,15 +211,27 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     self.plugin_cache.get_download_url(plugin_reference)
   }
 
-  /// Gets the url the plugin needs to be downloaded from when the download
-  /// policy doesn't allow downloading it without asking the user.
-  pub fn get_disallowed_download_url(&self, plugin_reference: &PluginSourceReference) -> Option<url::Url> {
+  /// Gets what the plugin needs to download that the download policy doesn't
+  /// allow without asking the user (see `UntrustedDownloadError`), which is the
+  /// url it's downloaded from and the proxy of an `.npmrc` file that it's
+  /// downloaded through (see `NpmrcProxy`).
+  pub fn get_disallowed_downloads(&self, plugin_reference: &PluginSourceReference) -> Vec<String> {
     if self.is_installed(plugin_reference) {
-      return None;
+      return Vec::new();
     }
-    self
-      .get_download_url(plugin_reference)
-      .filter(|url| !self.environment.download_policy().allows(url))
+    let download_policy = self.environment.download_policy();
+    let mut downloads = Vec::new();
+    if let Some(url) = self.get_download_url(plugin_reference).filter(|url| !download_policy.allows(url)) {
+      downloads.push(url.to_string());
+    }
+    if let Some(proxy) = self
+      .plugin_cache
+      .get_download_npmrc_proxy(plugin_reference)
+      .filter(|proxy| !download_policy.allows_npmrc_proxy(proxy))
+    {
+      downloads.push(proxy.to_download());
+    }
+    downloads
   }
 
   pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Rc<PluginWrapper>> {

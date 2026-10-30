@@ -273,7 +273,7 @@ impl<TProxyUrlProvider: ProxyProvider> ClientStore<TProxyUrlProvider> {
   pub fn resolve_proxy(&self, kind: UrlKind, url: &Url, proxy: DownloadProxy<'_>) -> Option<String> {
     let proxy = match proxy {
       DownloadProxy::Environment => self.proxy_url_provider.get_proxy(kind),
-      DownloadProxy::Url(proxy) => Some(proxy),
+      DownloadProxy::Url(proxy) | DownloadProxy::Npmrc { url: proxy, .. } => Some(proxy),
       DownloadProxy::Direct => None,
     };
     let proxy = proxy.filter(|_| match url.host_str() {

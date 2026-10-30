@@ -263,7 +263,7 @@ impl SystemTimeNow for RealEnvironment {
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
   async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
-    self.download_policy.lock().ensure_allows(url)?;
+    self.download_policy.lock().ensure_allows_download(url, options.proxy)?;
     log_debug!(self, "Downloading url: {}", url);
 
     self.url_downloader.download(url, options).await
