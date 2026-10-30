@@ -13,11 +13,11 @@ use serde::Serialize;
 /// The name of the experimental capability that a client provides to use the
 /// `dprint/*` methods and that the server provides when it supports them.
 pub const EXPERIMENTAL_CAPABILITY_NAME: &str = "dprint";
-/// The version of the `dprint/*` methods, which is increased when something is
-/// added to them that a client needs to know about. A server supports the
-/// versions before it, so a client checks that the server's is at least the one
-/// it needs. A change that breaks a client uses a new capability name instead.
-pub const EXPERIMENTAL_CAPABILITY_VERSION: u32 = 1;
+/// The versions of the `dprint/*` methods the server supports, where the
+/// server uses the highest one that the client also supports. A version is
+/// added for a change that a client needs to know about (ex. one that would
+/// break it), and fields and values may be added within a version.
+pub const SUPPORTED_METHOD_VERSIONS: [u32; 1] = [1];
 
 pub const FORMAT_METHOD: &str = "dprint/format";
 pub const FILE_INFO_METHOD: &str = "dprint/fileInfo";
@@ -28,31 +28,41 @@ pub const RESET_METHOD: &str = "dprint/reset";
 pub const PENDING_APPROVALS_METHOD: &str = "dprint/pendingApprovals";
 pub const CONFIG_CHANGED_NOTIFICATION: &str = "dprint/configChanged";
 
-/// The capability that the client and server provide in the experimental
-/// capabilities, which is the version of the `dprint/*` methods they support.
-/// The server only sends what was added at or below the client's version.
+/// The capability that an editor extension provides in the experimental
+/// capabilities, which has the versions of the `dprint/*` methods it supports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExperimentalCapability {
-  #[serde(default = "default_capability_version")]
-  pub version: u32,
+pub struct ClientExperimentalCapability {
+  pub versions: Vec<u32>,
   /// Optional behavior that's opted into, where a feature that isn't known is
   /// ignored. There aren't any yet.
   #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
   pub features: serde_json::Map<String, serde_json::Value>,
 }
 
-impl Default for ExperimentalCapability {
-  fn default() -> Self {
-    Self {
-      version: default_capability_version(),
-      features: Default::default(),
-    }
+impl ClientExperimentalCapability {
+  /// Gets the version of the `dprint/*` methods to use, which is the highest
+  /// one that both support and `None` when there isn't one.
+  pub fn negotiate_version(&self) -> Option<u32> {
+    self
+      .versions
+      .iter()
+      .copied()
+      .filter(|version| SUPPORTED_METHOD_VERSIONS.contains(version))
+      .max()
   }
 }
 
-fn default_capability_version() -> u32 {
-  1
+/// The capability that the server provides in the experimental capabilities
+/// when it uses the `dprint/*` methods with the client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerExperimentalCapability {
+  /// The version of the `dprint/*` methods it uses.
+  pub version: u32,
+  /// The optional behavior it uses of what the client opted into.
+  #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+  pub features: serde_json::Map<String, serde_json::Value>,
 }
 
 /// What identifies a document, which is formatted as a file.

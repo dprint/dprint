@@ -446,10 +446,12 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   merge_config_map_into(&mut config.trusted_config_map, parent.trusted_config_map.clone())?;
 
   // what the ancestor was resolved from changes this one too
-  if let Some(path) = parent.source.maybe_local_path() {
-    config.local_dependencies.push(path.as_ref().to_path_buf());
+  let parent_dependencies = parent.source.maybe_local_path().map(|path| path.as_ref()).into_iter();
+  for path in parent_dependencies.chain(parent.local_dependencies.iter().map(|path| path.as_path())) {
+    if !config.local_dependencies.iter().any(|dependency| dependency == path) {
+      config.local_dependencies.push(path.to_path_buf());
+    }
   }
-  config.local_dependencies.extend(parent.local_dependencies.iter().cloned());
 
   Ok(config)
 }
@@ -552,7 +554,9 @@ fn resolve_extends<TEnvironment: Environment>(
     for (specifier, extended_file) in extends.iter().zip(resolved_files) {
       let ExtendedConfigFile { file, pinning } = extended_file?;
       let resolved_file = file.into_text()?;
-      if let Some(path) = resolved_file.source.maybe_local_path() {
+      if let Some(path) = resolved_file.source.maybe_local_path()
+        && !resolved_config.local_dependencies.iter().any(|dependency| dependency == path.as_ref())
+      {
         resolved_config.local_dependencies.push(path.as_ref().to_path_buf());
       }
       if context.ancestors.contains(&resolved_file.source) {

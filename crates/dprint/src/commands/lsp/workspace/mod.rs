@@ -21,6 +21,7 @@ use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
+use indexmap::IndexMap;
 use tokio_util::sync::CancellationToken;
 
 use crate::commands::lsp::client::ClientWrapper;
@@ -66,6 +67,7 @@ use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::paths::get_plugin_names_for_file_on_disk;
+use crate::patterns::to_dir_relative_globs;
 use crate::plugins::PluginConfigDiagnostic;
 use crate::resolution::GetPluginResult;
 use crate::resolution::PluginConfigDiagnosticsError;
@@ -156,6 +158,9 @@ fn into_unsupported_document(err: anyhow::Error) -> Result<NotFormatted> {
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct InvalidParamsError(String);
+
+/// How many of the files of the approvals that were provided to keep.
+const MAX_APPROVAL_FILES: usize = 256;
 
 /// How long to wait for more config files to change before handling the ones
 /// that did.
@@ -291,7 +296,17 @@ pub struct Workspace<TEnvironment: Environment> {
   approvals: RefCell<HashMap<String, Vec<StoredApproval>>>,
   /// A file that each approval that was provided is for, which says what
   /// needs to be approved now for an approval that isn't pending anymore.
-  approval_files: RefCell<HashMap<String, (PathBuf, bool)>>,
+  /// Only the most recent ones are kept.
+  approval_files: RefCell<IndexMap<String, (PathBuf, bool)>>,
+  /// The keys of the config files that failed to resolve, which tells the
+  /// editor extension once they resolve again.
+  failed_configs: RefCell<HashSet<String>>,
+  /// The path of each config file uri and the local files it was resolved
+  /// from the last time it resolved, which are kept when it fails to resolve
+  /// so that fixing one of them resolves it again.
+  config_dependencies: RefCell<HashMap<String, (PathBuf, Vec<PathBuf>)>>,
+  /// The config file uris whose plugin schemas are being waited on.
+  schema_waits: RefCell<HashSet<String>>,
   /// The file patterns of each config file uri the last time they were known
   /// (see `last_plugin_infos`).
   last_file_patterns: RefCell<HashMap<String, Vec<String>>>,
@@ -414,6 +429,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       last_plugin_infos: Default::default(),
       approvals: Default::default(),
       approval_files: Default::default(),
+      failed_configs: Default::default(),
+      config_dependencies: Default::default(),
+      schema_waits: Default::default(),
       last_file_patterns: Default::default(),
       denied_downloads: Default::default(),
       prompted_approvals: Default::default(),
@@ -499,11 +517,25 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         };
         // a file path in the directory has the config file be found for it, and
         // an editor extension is told when what it resolves to changed
-        let _ = self.resolve_scope(&dir_path.join("file"), false).await;
+        let file_path = dir_path.join("file");
+        // what needs to be approved may have changed too
+        match self.resolve_scope(&file_path, false).await {
+          Ok(DocumentConfig::Resolved(scope)) => {
+            self.get_scope_approvals(&scope, &file_path, false);
+          }
+          Ok(DocumentConfig::Failed(failure)) => {
+            self.get_failure_approvals(&failure, &file_path, false);
+          }
+          Ok(DocumentConfig::NotFound) | Err(_) => {}
+        }
       }
       ConfigFileChange::Deleted => {
-        // a deleted config file doesn't have problems anymore
+        // a deleted config file doesn't have problems or need anything approved anymore
         self.publish_diagnostics(uri.clone(), Vec::new());
+        // the approvals are by the uri of the canonicalized path
+        if let Some(config_uri) = file_path_to_uri(&self.canonicalize(file_path.to_path_buf())) {
+          self.approvals.borrow_mut().remove(config_uri.as_str());
+        }
         self.send_config_changed(uri, ConfigChangeReason::Deleted);
       }
       ConfigFileChange::Created => self.send_config_changed(uri, ConfigChangeReason::Created),
@@ -516,14 +548,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   fn get_dependent_config_files(&self, file_path: &Path) -> Vec<PathBuf> {
     let file_path = self.canonicalize(file_path.to_path_buf());
     let mut config_file_paths = Vec::new();
-    for state in self.resolved_configs.borrow().values() {
-      if state.config.local_dependencies.contains(&file_path)
-        && let Some(config_file_path) = state.config.source.maybe_local_path()
-      {
-        let config_file_path = config_file_path.as_ref().to_path_buf();
-        if !config_file_paths.contains(&config_file_path) {
-          config_file_paths.push(config_file_path);
-        }
+    for (config_file_path, dependencies) in self.config_dependencies.borrow().values() {
+      if dependencies.contains(&file_path) && !config_file_paths.contains(config_file_path) {
+        config_file_paths.push(config_file_path.clone());
       }
     }
     config_file_paths
@@ -537,6 +564,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .borrow()
       .keys()
       .chain(self.config_errors.borrow().keys())
+      .chain(self.failed_configs.borrow().iter())
       .any(|key| key.split('\n').next() == Some(file_path.as_str()))
   }
 
@@ -656,8 +684,15 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           .as_ref()
           .and_then(|uri| self.last_file_patterns.borrow().get(uri).cloned())
           .unwrap_or_default();
+        // what it was resolved from is still watched so that fixing it is noticed
+        let watch_uris = config_uri
+          .as_ref()
+          .and_then(|uri| self.config_dependencies.borrow().get(uri).cloned())
+          .map(|(_, dependencies)| dependencies.iter().filter_map(|path| file_path_to_uri(path)).collect())
+          .unwrap_or_default();
         return Ok(ConfigInfoResult {
           file_patterns,
+          watch_uris,
           status: FormatStatus::NotFormatted(NotFormatted {
             reason: failure.reason,
             approvals: self.get_failure_approvals(&failure, &file_path, use_global_config),
@@ -762,9 +797,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let use_global_config = self.resolve_global_config_use(global_config);
     // a config file that fails to resolve was shown to the user, so its plugins are only left out
     let mut is_resolved = false;
+    let mut config_uri = None;
     if let Ok(file_path) = self.get_uri_file_path(uri)
       && let Ok(DocumentConfig::Resolved(scope)) = self.resolve_scope(&file_path, use_global_config).await
     {
+      config_uri = scope.config.as_ref().and_then(|config| path_source_to_uri(&config.source));
       // the plugins aren't known while they need to be approved
       is_resolved = scope.untrusted_downloads.is_empty() && scope.unapproved_process_plugins.is_none();
       plugins.extend(scope.plugins.values().map(|plugin| PluginSchemaUrl {
@@ -773,13 +810,20 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }));
     }
     let schema = self.config_schema_builder.build(&plugins).await;
-    if schema.is_downloading {
+    // only wait on the downloads once for the config file
+    if schema.is_downloading
+      && let Some(config_uri) = config_uri
+      && self.schema_waits.borrow_mut().insert(config_uri.as_str().to_string())
+    {
       let workspace = self.clone();
-      let uri = uri.clone();
       dprint_core::async_runtime::spawn(async move {
         let urls = plugins.iter().map(|plugin| plugin.url.as_str()).collect::<Vec<_>>();
         workspace.config_schema_builder.wait_for_downloads(&urls).await;
-        workspace.send_config_changed(uri, ConfigChangeReason::Changed);
+        workspace.schema_waits.borrow_mut().remove(config_uri.as_str());
+        // a schema that failed to download doesn't change it
+        if workspace.config_schema_builder.is_any_downloaded(&urls) {
+          workspace.send_config_changed(config_uri, ConfigChangeReason::Changed);
+        }
       });
     }
     (schema.schema, is_resolved && schema.is_complete)
@@ -1142,12 +1186,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       })
       .collect::<Vec<_>>();
     let approvals = stored.iter().map(|stored| stored.approval.clone()).collect();
+    let mut approval_files = self.approval_files.borrow_mut();
     for stored in &stored {
-      self
-        .approval_files
-        .borrow_mut()
-        .insert(stored.approval.id.clone(), (stored.file_path.clone(), stored.use_global_config));
+      approval_files.insert(stored.approval.id.clone(), (stored.file_path.clone(), stored.use_global_config));
     }
+    while approval_files.len() > MAX_APPROVAL_FILES {
+      approval_files.shift_remove_index(0);
+    }
+    drop(approval_files);
     if stored.is_empty() {
       self.approvals.borrow_mut().remove(&config_key);
     } else {
@@ -1396,6 +1442,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let scope = match self.scope_container.resolve_config_file(&config_file).await {
       Ok(scope) => scope,
       Err(err) => {
+        self.failed_configs.borrow_mut().insert(key.clone());
         // what it formats changed when it resolved before
         if self.resolved_configs.borrow_mut().remove(&key).is_some()
           && let Some(uri) = path_source_to_uri(&config_file.source)
@@ -1420,11 +1467,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.check_config_diagnostics(&key, &config_file, &scope);
     if let Err(err) = scope.ensure_no_global_config_diagnostics() {
       let err = anyhow::Error::from(err);
+      self.failed_configs.borrow_mut().insert(key.clone());
       self.show_config_error(key, &err);
       return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err), Vec::new()));
     }
     self.config_errors.borrow_mut().remove(&key);
-    self.notify_if_config_changed(key, &config_file, &scope);
+    let was_failing = self.failed_configs.borrow_mut().remove(&key);
+    self.notify_if_config_changed(key, &config_file, &scope, was_failing);
     Ok(DocumentConfig::Resolved(scope))
   }
 
@@ -1508,17 +1557,24 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// config than before because what it formats may have changed in a way the
   /// editor can't see (ex. a config file that it extends changed or what
   /// needed to be approved was approved).
-  fn notify_if_config_changed(&self, key: String, config_file: &ResolvedConfigPathWithText, scope: &PluginsScope<TEnvironment>) {
+  fn notify_if_config_changed(&self, key: String, config_file: &ResolvedConfigPathWithText, scope: &PluginsScope<TEnvironment>, was_failing: bool) {
     let Some(config) = &scope.config else {
       return;
     };
+    if let (Some(uri), Some(config_file_path)) = (path_source_to_uri(&config_file.source), config_file.source.maybe_local_path()) {
+      self.config_dependencies.borrow_mut().insert(
+        uri.as_str().to_string(),
+        (config_file_path.as_ref().to_path_buf(), config.local_dependencies.clone()),
+      );
+    }
     let state = ResolvedConfigState {
       config: config.clone(),
       untrusted_downloads: scope.untrusted_downloads.clone(),
       process_plugins_allowed: scope.unapproved_process_plugins.is_none(),
     };
     let previous = self.resolved_configs.borrow_mut().insert(key, state.clone());
-    if previous.is_some_and(|previous| previous != state)
+    // it resolves again after it failed (ex. what it extends was fixed or allowed to be downloaded)
+    if (was_failing || previous.is_some_and(|previous| previous != state))
       && let Some(uri) = path_source_to_uri(&config_file.source)
     {
       self.send_config_changed(uri, ConfigChangeReason::Changed);
@@ -1837,9 +1893,9 @@ fn get_file_patterns(config: &ResolvedConfig, plugins: &[PluginInfo]) -> Vec<Str
     }
     if let Some(ConfigMapValue::PluginConfig(plugin_config)) = config.config_map.get(&plugin.config_key) {
       for association in plugin_config.associations.iter().flatten() {
-        // an association that excludes files is in the includes and excludes, which aren't in the patterns
-        if !association.starts_with('!') {
-          add(association.clone());
+        // the associations are matched like the includes and excludes, so they're made relative to the directory
+        for pattern in to_dir_relative_globs(association, config.pattern_bases(), config.base_path.as_ref()) {
+          add(pattern);
         }
       }
     }

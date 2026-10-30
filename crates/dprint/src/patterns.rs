@@ -478,6 +478,45 @@ fn is_floating_pattern(non_negated_pattern: &str) -> bool {
   !name.contains('/') && !matches!(name, "" | "." | "..")
 }
 
+/// Gets globs relative to the directory that match the files the config
+/// pattern matches (ex. for an editor to know which files are formatted). A
+/// pattern that matches at any depth gets a `**/` prefix like it's matched, and
+/// what can't be expressed relative to the directory is left out (ex. a
+/// negated pattern or one in an ancestor directory).
+pub fn to_dir_relative_globs(pattern: &str, config_bases: ConfigPatternBases, dir_path: &Path) -> Vec<String> {
+  process_config_pattern(pattern)
+    .filter_map(|pattern| {
+      if is_negated_glob(&pattern) {
+        return None;
+      }
+      if is_floating_pattern(&pattern) {
+        let relative_dir = config_bases.floating.as_ref().strip_prefix(dir_path).ok()?;
+        let pattern = if pattern.starts_with("**") { pattern } else { format!("**/{}", pattern) };
+        return Some(join_relative_glob(relative_dir, &pattern));
+      }
+      let pattern = pattern.strip_prefix("./").unwrap_or(&pattern);
+      if pattern.starts_with("../") {
+        return None;
+      }
+      let relative_dir = config_bases.anchored.as_ref().strip_prefix(dir_path).ok()?;
+      Some(join_relative_glob(relative_dir, pattern))
+    })
+    .collect()
+}
+
+fn join_relative_glob(relative_dir: &Path, pattern: &str) -> String {
+  let dir = relative_dir
+    .components()
+    .map(|component| component.as_os_str().to_string_lossy())
+    .collect::<Vec<_>>()
+    .join("/");
+  if dir.is_empty() {
+    pattern.to_string()
+  } else {
+    format!("{}/{}", dir, pattern)
+  }
+}
+
 pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item = String> + '_ {
   file_patterns.iter().flat_map(|p| process_config_pattern(p))
 }

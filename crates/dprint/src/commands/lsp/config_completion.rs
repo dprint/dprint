@@ -252,6 +252,11 @@ impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
     }
   }
 
+  /// Gets whether the schema at any of the urls was downloaded.
+  pub fn is_any_downloaded(&self, urls: &[&str]) -> bool {
+    self.plugin_schemas.is_any_ready(urls)
+  }
+
   fn build_schema(&self, plugins: &[PluginSchemaUrl], plugin_schemas: Vec<Option<Rc<Value>>>) -> Value {
     let mut schema = self.base_schema.clone();
     let plugin_config_schema = schema.get("additionalProperties").cloned();
@@ -434,6 +439,12 @@ impl<TEnvironment: Environment> PluginSchemas<TEnvironment> {
       schemas.push(self.wait_for(url.trim(), deadline).await);
     }
     schemas
+  }
+
+  /// Gets whether the schema at any of the provided urls was downloaded.
+  fn is_any_ready(&self, urls: &[&str]) -> bool {
+    let entries = self.entries.borrow();
+    urls.iter().any(|url| matches!(entries.get(url.trim()), Some(SchemaEntry::Ready(_))))
   }
 
   /// Gets whether the schema at any of the provided urls is being downloaded.

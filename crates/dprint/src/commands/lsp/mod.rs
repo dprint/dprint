@@ -118,14 +118,13 @@ use self::workspace::messages::ApproveParams;
 use self::workspace::messages::ApproveResult;
 use self::workspace::messages::CONFIG_INFO_METHOD;
 use self::workspace::messages::CONFIG_SCHEMA_METHOD;
+use self::workspace::messages::ClientExperimentalCapability;
 use self::workspace::messages::ConfigInfoResult;
 use self::workspace::messages::ConfigParams;
 use self::workspace::messages::ConfigSchemaResult;
 use self::workspace::messages::DocumentLanguage;
 use self::workspace::messages::DocumentParams;
 use self::workspace::messages::EXPERIMENTAL_CAPABILITY_NAME;
-use self::workspace::messages::EXPERIMENTAL_CAPABILITY_VERSION;
-use self::workspace::messages::ExperimentalCapability;
 use self::workspace::messages::FILE_INFO_METHOD;
 use self::workspace::messages::FORMAT_METHOD;
 use self::workspace::messages::FileInfoParams;
@@ -141,6 +140,8 @@ use self::workspace::messages::PendingApprovalsParams;
 use self::workspace::messages::PendingApprovalsResult;
 use self::workspace::messages::RESET_METHOD;
 use self::workspace::messages::ResetParams;
+use self::workspace::messages::SUPPORTED_METHOD_VERSIONS;
+use self::workspace::messages::ServerExperimentalCapability;
 
 mod client;
 pub(super) mod config_completion;
@@ -779,30 +780,35 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if let Some(parent_id) = params.process_id {
       start_parent_process_checker_task(parent_id);
     }
-    let extension_capability = params
+    // the client is an editor extension when it supports a version of the dprint methods that the server does
+    let methods_version = params
       .capabilities
       .experimental
       .as_ref()
       .and_then(|experimental| experimental.get(EXPERIMENTAL_CAPABILITY_NAME))
-      .filter(|capability| capability.is_object())
-      .map(|capability| {
-        serde_json::from_value::<ExperimentalCapability>(capability.clone()).unwrap_or_else(|err| {
-          // it's still an editor extension, which supports the first version
-          log_warn!(self.environment, "Failed reading the dprint capability of the editor extension: {:#}", err);
-          ExperimentalCapability::default()
-        })
+      .and_then(|capability| match serde_json::from_value::<ClientExperimentalCapability>(capability.clone()) {
+        Ok(capability) => {
+          let version = capability.negotiate_version();
+          if version.is_none() {
+            log_warn!(
+              self.environment,
+              "The editor extension supports versions {:?} of the dprint methods and the server supports versions {:?}, so it's handled like a language client.",
+              capability.versions,
+              SUPPORTED_METHOD_VERSIONS
+            );
+          }
+          version
+        }
+        Err(err) => {
+          log_warn!(
+            self.environment,
+            "Failed reading the dprint capability of the editor extension, so it's handled like a language client: {:#}",
+            err
+          );
+          None
+        }
       });
-    if let Some(capability) = &extension_capability {
-      // A newer client only uses what this version supports, and the server
-      // only sends what was added at or below the client's version.
-      log_debug!(
-        self.environment,
-        "The editor extension supports version {} of the dprint methods and the server supports version {}.",
-        capability.version,
-        EXPERIMENTAL_CAPABILITY_VERSION
-      );
-    }
-    let is_editor_extension = extension_capability.is_some();
+    let is_editor_extension = methods_version.is_some();
     let client_kind = if is_editor_extension {
       ClientKind::EditorExtension
     } else {
@@ -842,11 +848,14 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       .await;
     self.update_workspace_settings().await;
 
-    let experimental = serde_json::json!({
-      EXPERIMENTAL_CAPABILITY_NAME: ExperimentalCapability {
-        version: EXPERIMENTAL_CAPABILITY_VERSION,
-        features: Default::default(),
-      },
+    // a language client doesn't use the dprint methods
+    let experimental = methods_version.map(|version| {
+      serde_json::json!({
+        EXPERIMENTAL_CAPABILITY_NAME: ServerExperimentalCapability {
+          version,
+          features: Default::default(),
+        },
+      })
     });
     let workspace = Some(WorkspaceServerCapabilities {
       workspace_folders: Some(WorkspaceFoldersServerCapabilities {
@@ -860,7 +869,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       // so the server doesn't need to keep the documents
       ServerCapabilities {
         workspace,
-        experimental: Some(experimental),
+        experimental: experimental.clone(),
         position_encoding: Some(PositionEncodingKind::UTF16),
         ..ServerCapabilities::default()
       }
@@ -889,7 +898,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           work_done_progress_options: Default::default(),
         }),
         workspace,
-        experimental: Some(experimental),
+        experimental,
         ..ServerCapabilities::default()
       }
     };
@@ -1114,6 +1123,53 @@ enum OutputEvent {
   RequestFinished(NumberOrString),
 }
 
+/// Something that's being done, which is reported on the tokens of requests.
+struct ActiveProgress {
+  id: usize,
+  title: String,
+  percentage: Option<u32>,
+}
+
+/// The progress of everything that's being done.
+struct TotalProgress {
+  message: String,
+  percentage: Option<u32>,
+}
+
+impl TotalProgress {
+  /// Gets the progress for a request, which begins it when it wasn't begun.
+  fn for_request(&self, is_begun: bool) -> WorkDoneProgress {
+    if is_begun {
+      WorkDoneProgress::Report(WorkDoneProgressReport {
+        cancellable: Some(false),
+        message: Some(self.message.clone()),
+        percentage: self.percentage,
+      })
+    } else {
+      WorkDoneProgress::Begin(WorkDoneProgressBegin {
+        title: self.message.clone(),
+        cancellable: Some(false),
+        message: None,
+        percentage: self.percentage,
+      })
+    }
+  }
+}
+
+/// Gets the progress of everything that's being done, which is the most recent
+/// thing with how many others there are and the average percentage when each
+/// one's is known.
+fn get_total_progress(active_progress: &[ActiveProgress]) -> Option<TotalProgress> {
+  let latest = active_progress.last()?;
+  let message = match active_progress.len() {
+    1 => latest.title.clone(),
+    count => format!("{} (and {} more)", latest.title, count - 1),
+  };
+  let percentages = active_progress.iter().map(|active| active.percentage).collect::<Option<Vec<_>>>();
+  let percentage = percentages.map(|percentages| percentages.iter().sum::<u32>() / percentages.len() as u32);
+  Some(TotalProgress { message, percentage })
+}
+
 /// Reports the progress of what's done while a request is handled until it's
 /// dropped (see `Backend::track_request_progress`).
 struct RequestProgress {
@@ -1135,26 +1191,33 @@ impl LspOutputSink {
     dprint_core::async_runtime::spawn(async move {
       // the requests with a progress token and whether their progress was begun
       let mut requests: Vec<(NumberOrString, bool)> = Vec::new();
+      // what's being done, which a request reports the total of
+      let mut active_progress: Vec<ActiveProgress> = Vec::new();
       while let Some(event) = receiver.recv().await {
         match event {
           OutputEvent::Log(message_type, message) => client.send_log(message_type, message).await,
           OutputEvent::Progress(id, progress) => {
+            match &progress {
+              WorkDoneProgress::Begin(begin) => active_progress.push(ActiveProgress {
+                id,
+                title: begin.title.clone(),
+                percentage: begin.percentage,
+              }),
+              WorkDoneProgress::Report(report) => {
+                if let Some(active) = active_progress.iter_mut().find(|active| active.id == id) {
+                  active.percentage = report.percentage;
+                }
+              }
+              WorkDoneProgress::End(_) => active_progress.retain(|active| active.id != id),
+            }
             // what's done is for the requests that are being handled (ex. a
-            // download that a format waits on)
-            for (token, is_begun) in &mut requests {
-              let request_progress = match (&progress, *is_begun) {
-                (WorkDoneProgress::Begin(begin), false) => WorkDoneProgress::Begin(begin.clone()),
-                (WorkDoneProgress::Begin(begin), true) => WorkDoneProgress::Report(WorkDoneProgressReport {
-                  cancellable: Some(false),
-                  message: Some(begin.title.clone()),
-                  percentage: begin.percentage,
-                }),
-                (WorkDoneProgress::Report(report), true) => WorkDoneProgress::Report(report.clone()),
-                // the request's progress ends when it's handled
-                (WorkDoneProgress::Report(_), false) | (WorkDoneProgress::End(_), _) => continue,
-              };
-              *is_begun = true;
-              client.send_progress(token.clone(), request_progress).await;
+            // download that a format waits on), which end their progress once
+            // they're handled
+            if let Some(total) = get_total_progress(&active_progress) {
+              for (token, is_begun) in &mut requests {
+                client.send_progress(token.clone(), total.for_request(*is_begun)).await;
+                *is_begun = true;
+              }
             }
             if !supports_progress {
               continue;
@@ -1166,7 +1229,17 @@ impl LspOutputSink {
             }
             client.send_progress(token, progress).await;
           }
-          OutputEvent::RequestStarted(token) => requests.push((token, false)),
+          OutputEvent::RequestStarted(token) => {
+            // a request may wait on what's already being done
+            let is_begun = match get_total_progress(&active_progress) {
+              Some(total) => {
+                client.send_progress(token.clone(), total.for_request(false)).await;
+                true
+              }
+              None => false,
+            };
+            requests.push((token, is_begun));
+          }
           OutputEvent::RequestFinished(token) => {
             if let Some(index) = requests.iter().position(|(request_token, _)| *request_token == token) {
               let (token, is_begun) = requests.remove(index);
@@ -4479,6 +4552,31 @@ mod test {
   }
 
   /// Requires the user to approve running process plugins.
+  #[test]
+  fn gets_the_total_progress_of_what_is_being_done() {
+    assert!(get_total_progress(&[]).is_none());
+    let download = ActiveProgress {
+      id: 1,
+      title: "Downloading a".to_string(),
+      percentage: Some(20),
+    };
+    let total = get_total_progress(std::slice::from_ref(&download)).unwrap();
+    assert_eq!((total.message.as_str(), total.percentage), ("Downloading a", Some(20)));
+    let compile = ActiveProgress {
+      id: 2,
+      title: "Compiling b".to_string(),
+      percentage: Some(60),
+    };
+    let total = get_total_progress(&[download, compile]).unwrap();
+    assert_eq!((total.message.as_str(), total.percentage), ("Compiling b (and 1 more)", Some(40)));
+    let unknown = ActiveProgress {
+      id: 3,
+      title: "Setting up c".to_string(),
+      percentage: None,
+    };
+    assert_eq!(get_total_progress(&[unknown]).unwrap().percentage, None);
+  }
+
   fn disallow_process_plugins(environment: &TestEnvironment) {
     ensure_global_config_dir(environment);
     let file_path = get_settings_file_path(environment).unwrap();

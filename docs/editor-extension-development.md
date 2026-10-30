@@ -12,7 +12,7 @@ Run `dprint lsp` in the workspace folder and send the `initialize` request with 
 {
   "processId": 1234,
   "capabilities": {
-    "experimental": { "dprint": { "version": 1 } },
+    "experimental": { "dprint": { "versions": [1] } },
     "window": { "workDoneProgress": true }
   },
   "workspaceFolders": [{ "uri": "file:///home/user/project", "name": "project" }],
@@ -20,13 +20,13 @@ Run `dprint lsp` in the workspace folder and send the `initialize` request with 
 }
 ```
 
-The server supports the `dprint/*` methods when the `capabilities` of its result have the `dprint` experimental capability:
+`versions` are the versions of the `dprint/*` methods the editor extension supports. The server uses the highest one that it also supports, which is the `version` in the `dprint` experimental capability of the `capabilities` of its result:
 
 ```json
 { "experimental": { "dprint": { "version": 1 } }, "positionEncoding": "utf-16" }
 ```
 
-When they don't (ex. an older version of dprint), shut the server down and fall back to [schema version 5](./editor-extension-development-schema-5.md). The result's `serverInfo.version` is the version of dprint (ex. to log it or to tell apart the servers of different executables).
+When its result doesn't have the capability, the server doesn't support any of the versions (ex. it's an older version of dprint) and handles the client like a language client, so shut it down and fall back to [schema version 5](./editor-extension-development-schema-5.md) or a newer editor extension. The result's `serverInfo.version` is the version of dprint (ex. to log it or to tell apart the servers of different executables).
 
 One server formats the files of a whole workspace. For each file, the server finds the configuration file in an ancestor directory, or uses the global configuration file when that's allowed. The configuration is read again for each request, so an edited configuration file is used for the next request without restarting the server. Specifying `dprint lsp --config <path>` uses that configuration file for every file instead.
 
@@ -34,12 +34,11 @@ With the `dprint` capability, the server doesn't sync documents, register the te
 
 ### Compatibility
 
-The client and the server each send the version of the `dprint/*` methods they support, and may also send `features`, an object of optional behavior that's opted into where a feature that isn't known is ignored (there aren't any yet):
+The editor extension says the versions of the `dprint/*` methods it supports and the server responds with the one it uses, so a server can support an old version alongside a new one:
 
-- The version is increased when something is added that an editor extension needs to know about (ex. a method, or a field it should handle). A server supports the versions before its own, so check that the server's version is at least the one the editor extension needs, and don't use what was added after the server's version. The server only sends what was added at or below the client's version.
-- A change that would break an editor extension uses a new capability name instead of `dprint`, so the editor extension treats a server without `dprint` like an older version of dprint.
-- Fields may be added to results and params, and values to the string unions (ex. kinds and reasons), without increasing the version. Ignore fields that aren't known and handle values that aren't known like the methods below say.
-- A capability that's an object is an editor extension's even when it can't be read (ex. `"version": "1"`), which uses version 1.
+- A version is added for a change that an editor extension needs to know about (ex. one that would break it). Fields may be added to results and params, and values to the string unions (ex. kinds and reasons), within a version, so ignore fields that aren't known and handle values that aren't known like the methods below say.
+- A capability that can't be read (ex. `"versions": "1"`) or that doesn't have a version the server supports has the server handle the client like a language client and leave the capability out of its result.
+- Both may also send `features`, an object of optional behavior that's opted into, where a feature that isn't known is ignored and the server responds with the ones it uses. There aren't any yet.
 
 ### Finding the executable
 
@@ -50,7 +49,7 @@ Use the `dprint` executable the user configured, or otherwise the one on the pat
 - The server exits when the process of the `processId` of the `initialize` request exits, when the `exit` notification is received, or when its stdin is closed.
 - Send `shutdown` and then `exit` to stop it, which stops the plugins. Clear the diagnostics it published once it exits, because they aren't published again until a configuration file is used.
 - Keep the server running for as long as the editor uses it. It reads a configuration file again for each request that uses it, so there's no need to start it again when one is created, changed, or deleted, or when the workspace folders change (send `workspace/didChangeWorkspaceFolders`).
-- The server doesn't watch the file system. Send `workspace/didChangeWatchedFiles` when a configuration file (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, or one of them in a `.config` directory) is created, changed, or deleted, and when one of the `watchUris` of `dprint/configInfo` changes (ex. a configuration file it extends). The server resolves a configuration file that it resolved before again to publish its diagnostics, and sends `dprint/configChanged` when what a configuration file formats may have changed. It doesn't resolve one that wasn't used yet because that would download and set up its plugins without the user doing anything. A configuration file in `node_modules` is ignored, so leave those out of the file watcher. The server doesn't register to be told about them for an editor extension.
+- The server doesn't watch the file system. Send `workspace/didChangeWatchedFiles` when a configuration file (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, or `dprint.json` or `dprint.jsonc` in a `.config` directory) is created, changed, or deleted, and when one of the `watchUris` of `dprint/configInfo` changes (ex. a configuration file it extends). The server resolves a configuration file that it resolved before again to publish its diagnostics, and sends `dprint/configChanged` when what a configuration file formats may have changed. It doesn't resolve one that wasn't used yet because that would download and set up its plugins without the user doing anything. A configuration file in `node_modules` is ignored, so leave those out of the file watcher. The server doesn't register to be told about them for an editor extension.
 - Starting it again forgets what the user decided for the session (ex. denying a download), which is what a restart command is for. Use `dprint/reset` instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
 - A notification that changes the server's state (ex. `workspace/didChangeConfiguration`) applies to the requests sent after it.
 
@@ -166,7 +165,7 @@ The server responds with an error to a request that can't be handled, which has 
 - `-32602` (InvalidParams) - The params can't be handled (ex. an `overrideConfig` property that can't be overridden or a decision the approval doesn't have).
 - `-32801` (ContentModified) - What `dprint/approve` was sent for isn't pending anymore because what needs to be approved changed (ex. the configuration file changed). The error's `data` has what needs to be approved now when it's known (`{ approvals: PendingApproval[] }`), which is what to ask about, and otherwise get what's pending again (ex. format again).
 - `-32800` (RequestCancelled) - The request was cancelled with `$/cancelRequest`, which isn't shown to the user.
-- `-32601` (MethodNotFound) - The method isn't known (ex. one that was added after the server's version).
+- `-32601` (MethodNotFound) - The method isn't known (ex. one that's newer than the server).
 - `-32603` (InternalError) - Anything else (ex. the server stopped). Treat a code that isn't known like this.
 
 The methods that take params take an object that may have fields added later, so a method without params yet takes `{}`.
@@ -386,7 +385,7 @@ The server also uses these, which an editor extension should handle:
 
 - `window/logMessage` - What the server logs, which isn't written to stderr. Stderr only has what isn't (ex. a crash).
 - `window/showMessage` - Something to show the user that isn't in the result of a request (ex. failing to store an approval).
-- `window/workDoneProgress/create` and `$/progress` - What's being done that may take a while (ex. downloading a plugin), when the client supports it. What's done while a request with a `workDoneToken` is handled is also reported on its token. Don't time out a request while there's progress because the first request for a configuration file may download and set up its plugins.
+- `window/workDoneProgress/create` and `$/progress` - What's being done that may take a while (ex. downloading a plugin), when the client supports it. What's done while a request with a `workDoneToken` is handled is also reported on its token, which is the total of everything that's being done (ex. a download that started before the request). Don't time out a request while there's progress because the first request for a configuration file may download and set up its plugins.
 - `textDocument/publishDiagnostics` - The problems with a configuration file (ex. an unknown property), which replace the ones published before. A problem without a known position is at the start of the file.
 - `$/cancelRequest` - Cancels a request (ex. a format the editor doesn't need anymore).
 - `workspace/didChangeWatchedFiles` - See "Lifecycle".
