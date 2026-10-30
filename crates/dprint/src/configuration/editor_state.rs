@@ -131,12 +131,11 @@ pub struct ProcessPluginDecision {
 impl ProcessPluginDecision {
   /// Creates the decision the user made now.
   pub fn new(environment: &impl Environment, approval: ProcessPluginApproval, allowed: bool) -> Self {
-    let decided_at = environment
-      .sys_time_now()
-      .duration_since(UNIX_EPOCH)
-      .map(|duration| duration.as_millis() as u64)
-      .unwrap_or(0);
-    Self { approval, allowed, decided_at }
+    Self {
+      approval,
+      allowed,
+      decided_at: get_decided_at(environment),
+    }
   }
 }
 
@@ -154,6 +153,22 @@ pub struct ProcessPluginSetUpGrant {
   /// Whether to remember the decision once the plugin is set up instead of
   /// only using it for the session.
   pub always: bool,
+  /// When the user allowed it, in milliseconds since the Unix epoch, so that
+  /// denying it since (ex. in another window) wins.
+  pub decided_at: u64,
+}
+
+impl ProcessPluginSetUpGrant {
+  /// Creates what the user allowed now.
+  pub fn new(environment: &impl Environment, config_file: String, plugin: String, trusted_config_hash: String, always: bool) -> Self {
+    Self {
+      config_file,
+      plugin,
+      trusted_config_hash,
+      always,
+      decided_at: get_decided_at(environment),
+    }
+  }
 }
 
 /// What the user allowed the editor integrations to do.
@@ -189,10 +204,20 @@ impl Permissions {
   /// its configuration is known.
   pub fn may_set_up_process_plugin(&self, config_file: &str, plugin: &str, trusted_config_hash: &str) -> bool {
     !self.requires_process_plugin_approval()
-      || self
-        .process_plugin_set_up_grants
-        .iter()
-        .any(|grant| grant.config_file == config_file && grant.plugin == plugin && grant.trusted_config_hash == trusted_config_hash)
+      || self.process_plugin_set_up_grants.iter().any(|grant| {
+        grant.config_file == config_file && grant.plugin == plugin && grant.trusted_config_hash == trusted_config_hash && !self.is_denied_since(grant)
+      })
+  }
+
+  /// Gets whether the user denied running the process plugin of the grant
+  /// after allowing it to be set up (ex. "Always Deny" in another window).
+  pub fn is_denied_since(&self, grant: &ProcessPluginSetUpGrant) -> bool {
+    self.process_plugin_decisions.iter().any(|decision| {
+      !decision.allowed
+        && decision.approval.config_file == grant.config_file
+        && decision.approval.plugin == grant.plugin
+        && decision.decided_at > grant.decided_at
+    })
   }
 
   /// Gets whether the user denied running the process plugin, which means
@@ -353,6 +378,16 @@ impl SessionPermissions {
       log_warn!(environment, "{}", message);
     }
   }
+}
+
+/// Gets the time of a decision the user made now, in milliseconds since the
+/// Unix epoch.
+fn get_decided_at(environment: &impl Environment) -> u64 {
+  environment
+    .sys_time_now()
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0)
 }
 
 /// Remembers the user's decision for running a process plugin of a config
@@ -676,6 +711,7 @@ mod test {
       plugin: plugin.clone(),
       trusted_config_hash: "hash".to_string(),
       always: true,
+      decided_at: 1,
     });
     let permissions = session_permissions.read(&environment);
     assert!(permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash"));
@@ -690,6 +726,42 @@ mod test {
         .read(&environment)
         .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash")
     );
+  }
+
+  #[test]
+  fn should_not_set_up_a_process_plugin_that_was_denied_since_it_was_allowed() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let session_permissions = SessionPermissions::default();
+    let plugin = approval("/a/dprint.json", "1").plugin;
+    let grant = |decided_at| ProcessPluginSetUpGrant {
+      config_file: "/a/dprint.json".to_string(),
+      plugin: plugin.clone(),
+      trusted_config_hash: "hash".to_string(),
+      always: true,
+      decided_at,
+    };
+    session_permissions.add_process_plugin_set_up_grant(grant(2));
+    // denied before it was allowed
+    session_permissions.add_process_plugin_decision(ProcessPluginDecision {
+      approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin.clone()),
+      allowed: false,
+      decided_at: 1,
+    });
+    assert!(
+      session_permissions
+        .read(&environment)
+        .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash")
+    );
+    // denied after (ex. in another window)
+    session_permissions.add_process_plugin_decision(ProcessPluginDecision {
+      approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin.clone()),
+      allowed: false,
+      decided_at: 3,
+    });
+    let permissions = session_permissions.read(&environment);
+    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash"));
+    assert!(permissions.is_denied_since(&grant(2)));
   }
 
   #[test]

@@ -1793,7 +1793,13 @@ fn should_forget_the_decisions_of_a_config_file() {
         assert!(!decisions.allow_process_plugins);
         assert_eq!(decisions.decisions.len(), 1);
         assert_eq!(decisions.decisions[0].kind, ApprovalKind::ProcessPlugins);
-        assert_eq!(decisions.decisions[0].config_file, Some(uri("/a/dprint.json")));
+        assert_eq!(
+          decisions.decisions[0].config_file,
+          Some(ConfigFileIdentifier {
+            uri: uri("/a/dprint.json"),
+            dir_uri: Some(uri("/a")),
+          })
+        );
         assert!(!decisions.decisions[0].allows);
         assert!(decisions.decisions[0].always);
 
@@ -1826,6 +1832,51 @@ fn should_forget_the_decisions_of_a_config_file() {
           work_done_token: None,
         };
         client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_provide_the_most_recent_decision_of_a_process_plugin() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        environment.set_fs_time(1);
+        let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+        let denied = client.approve(&approval.id, ApprovalDecision::Deny).await;
+        assert!(denied[0].denied);
+        // it's allowed after (ex. by running `dprint fmt`), which is stored
+        environment.set_fs_time(2);
+        let decision = crate::configuration::ProcessPluginDecision::new(
+          &environment,
+          crate::configuration::ProcessPluginApproval {
+            config_file: "/a/dprint.json".to_string(),
+            plugin: approval.items[0].specifier.clone(),
+            config_hash: Some("hash".to_string()),
+          },
+          true,
+        );
+        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
+        let decisions = client
+          .backend
+          .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
+          .await
+          .unwrap();
+        assert_eq!(decisions.decisions.len(), 1);
+        assert!(decisions.decisions[0].allows);
+        assert!(decisions.decisions[0].always);
       }
       .boxed_local()
     }

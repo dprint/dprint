@@ -410,7 +410,7 @@ struct DeniedDownload {
   /// The key of the config file (see `get_config_key`).
   config_key: String,
   /// The config file the user was shown.
-  config_file: Uri,
+  config_file: ConfigFileIdentifier,
   urls: Vec<String>,
 }
 
@@ -1301,7 +1301,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             stored.approval.id.clone(),
             DeniedDownload {
               config_key: stored.config_key.clone(),
-              config_file: stored.approval.config_file.uri.clone(),
+              config_file: ConfigFileIdentifier {
+                uri: stored.approval.config_file.uri.clone(),
+                dir_uri: Some(stored.approval.config_file.dir_uri.clone()),
+              },
               urls: urls.clone(),
             },
           );
@@ -1476,43 +1479,70 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .map(|approvals| approvals.process_plugin_decisions)
       .unwrap_or_default();
     let session = self.session_permissions.session_process_plugin_decisions();
-    let mut plugin_decisions: Vec<(String, String, bool, bool)> = Vec::new();
-    for (decision, always) in stored
+    // allowing a plugin that isn't set up is a grant until it's set up
+    let grants = self.session_permissions.process_plugin_set_up_grants();
+    let candidates = stored
       .iter()
-      .map(|decision| (decision, true))
-      .chain(session.iter().map(|decision| (decision, false)))
-    {
-      if !is_config_file(&decision.approval.config_file) {
+      .map(|decision| {
+        (
+          &decision.approval.config_file,
+          &decision.approval.plugin,
+          decision.allowed,
+          true,
+          decision.decided_at,
+        )
+      })
+      .chain(session.iter().map(|decision| {
+        (
+          &decision.approval.config_file,
+          &decision.approval.plugin,
+          decision.allowed,
+          false,
+          decision.decided_at,
+        )
+      }))
+      .chain(
+        grants
+          .iter()
+          .map(|grant| (&grant.config_file, &grant.plugin, true, grant.always, grant.decided_at)),
+      );
+    // the most recent decision for a plugin of a config file is what's used, which is the
+    // session's or a grant on a tie like when formatting
+    let mut plugin_decisions: Vec<(String, String, bool, bool, u64)> = Vec::new();
+    for (config_file, plugin, allows, always, decided_at) in candidates {
+      if !is_config_file(config_file) {
         continue;
       }
-      // the most recent decision for a plugin of a config file is what's used
-      plugin_decisions.retain(|(config_file, plugin, _, _)| *config_file != decision.approval.config_file || *plugin != decision.approval.plugin);
-      plugin_decisions.push((
-        decision.approval.config_file.clone(),
-        decision.approval.plugin.clone(),
-        decision.allowed,
-        always,
-      ));
-    }
-    // allowing a plugin that isn't set up is a grant until it's set up
-    for grant in self.session_permissions.process_plugin_set_up_grants() {
-      if is_config_file(&grant.config_file) {
-        plugin_decisions.retain(|(config_file, plugin, _, _)| *config_file != grant.config_file || *plugin != grant.plugin);
-        plugin_decisions.push((grant.config_file.clone(), grant.plugin.clone(), true, grant.always));
+      let existing = plugin_decisions.iter().position(|(c, p, ..)| c == config_file && p == plugin);
+      if let Some(index) = existing {
+        if plugin_decisions[index].4 > decided_at {
+          continue;
+        }
+        plugin_decisions.remove(index);
       }
+      plugin_decisions.push((config_file.clone(), plugin.clone(), allows, always, decided_at));
     }
+    let global_config_path = self.get_global_config_path();
     let mut decisions = Vec::new();
-    for (config_file, plugin, allows, always) in plugin_decisions {
+    for (config_file, plugin, allows, always, _) in plugin_decisions {
       // it's a path unless it's a remote or npm config file
       let is_remote = ["http://", "https://", "npm:"].iter().any(|prefix| config_file.starts_with(prefix));
-      let config_file_uri = match is_remote {
-        true => config_file.parse().ok(),
-        false => self.editor_uri(Path::new(&config_file)),
+      let config_file = match is_remote {
+        true => config_file.parse().ok().map(|uri| ConfigFileIdentifier { uri, dir_uri: None }),
+        false => {
+          let path = Path::new(&config_file);
+          // the decisions of the global config file are for each directory it's used for
+          let dir_uri = match global_config_path.as_deref() == Some(path) {
+            true => None,
+            false => get_config_file_dir(path).and_then(|dir_path| self.editor_uri(dir_path)),
+          };
+          self.editor_uri(path).map(|uri| ConfigFileIdentifier { uri, dir_uri })
+        }
       };
       decisions.push(Decision {
         kind: ApprovalKind::ProcessPlugins,
-        config_file: config_file_uri,
-        items: vec![plugin],
+        config_file,
+        specifiers: vec![plugin],
         allows,
         always,
       });
@@ -1522,7 +1552,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         decisions.push(Decision {
           kind: ApprovalKind::Downloads,
           config_file: Some(denied.config_file.clone()),
-          items: denied.urls.clone(),
+          specifiers: denied.urls.clone(),
           allows: false,
           always: false,
         });
@@ -1534,7 +1564,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     decisions.extend(allowed_downloads.into_iter().map(|url| Decision {
       kind: ApprovalKind::Downloads,
       config_file: None,
-      items: vec![url],
+      specifiers: vec![url],
       allows: true,
       always: false,
     }));

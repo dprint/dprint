@@ -763,11 +763,13 @@ pub struct DecisionsResult {
 pub struct Decision {
   pub kind: ApprovalKind,
   /// The config file it's for, which is `None` for a download that's allowed
-  /// for every config file.
+  /// for every config file. It doesn't have a `dir_uri` when it's for each
+  /// directory the config file is used for (ex. the global config file).
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub config_file: Option<Uri>,
-  /// The urls, paths, or specifiers it's for (ex. the process plugins).
-  pub items: Vec<String>,
+  pub config_file: Option<ConfigFileIdentifier>,
+  /// The urls, paths, or specifiers it's for like the `specifier`s of an
+  /// approval's items (ex. the process plugins).
+  pub specifiers: Vec<String>,
   pub allows: bool,
   /// Whether it's remembered after the server stops, which includes running
   /// dprint with the config file (ex. `dprint fmt`).

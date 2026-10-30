@@ -47,15 +47,20 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
   let mut result = Ok(());
   for plugin in &unapproved.plugins {
     let approval = match &plugin.approval {
-      _ if !allowed => ProcessPluginApproval::any_config(unapproved.config_file.clone(), plugin.plugin.clone()),
+      _ if !allowed => {
+        // it's not set up once it's denied
+        session_permissions.take_process_plugin_set_up_grant(&unapproved.config_file, &plugin.plugin);
+        ProcessPluginApproval::any_config(unapproved.config_file.clone(), plugin.plugin.clone())
+      }
       Some(approval) => approval.clone(),
       None => {
-        session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant {
-          config_file: unapproved.config_file.clone(),
-          plugin: plugin.plugin.clone(),
-          trusted_config_hash: unapproved.trusted_config_hash.clone(),
+        session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant::new(
+          environment,
+          unapproved.config_file.clone(),
+          plugin.plugin.clone(),
+          unapproved.trusted_config_hash.clone(),
           always,
-        });
+        ));
         continue;
       }
     };
@@ -78,6 +83,7 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
 ) -> Result<()> {
   let mut result = Ok(());
   let trusted_config_hash = get_trusted_config_hash(config);
+  let permissions = session_permissions.read(environment);
   for (_, approval) in get_process_plugin_approvals(config, plugin_resolver, environment) {
     let Some(approval) = approval else {
       continue;
@@ -88,6 +94,10 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
     // IMPORTANT: The plugin may have been set up elsewhere (ex. by another
     // config file), so only allow it with the configuration the user saw.
     if grant.trusted_config_hash != trusted_config_hash {
+      continue;
+    }
+    // IMPORTANT: Don't replace what the user denied since (ex. "Always Deny" in another window).
+    if permissions.is_denied_since(&grant) {
       continue;
     }
     let decision = ProcessPluginDecision::new(environment, approval, true);

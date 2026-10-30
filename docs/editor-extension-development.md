@@ -619,7 +619,7 @@ interface ForgetDecisionsResult {
 
 ### `dprint/decisions` (request)
 
-Gets what the user decided about the approvals of a configuration file, or of every configuration file (ex. for a command that shows them).
+Gets what the user decided about the approvals of a configuration file, or of every configuration file (ex. for a command that shows them). A process plugin of a configuration file has the decision that's used for it, which is the most recent one. A decision may be for an earlier configuration of the plugin, which is asked about again when it's used.
 
 ```ts
 interface DecisionsParams {
@@ -634,11 +634,16 @@ interface DecisionsResult {
 }
 
 interface Decision {
+  /** Show a kind that isn't known with its `specifiers`. */
   kind: "downloads" | "processPlugins" | (string & {});
-  /** The configuration file it's for, which is missing for a download that's allowed for every configuration file. */
-  configFile?: string;
-  /** The urls, paths, or specifiers it's for (ex. the process plugins). */
-  items: string[];
+  /**
+   * The configuration file it's for, which can be sent to `dprint/forgetDecisions`. It's missing for a download that's allowed
+   * for every configuration file, and its `dirUri` is missing when it's for every directory the configuration file is used
+   * for (ex. the global configuration file).
+   */
+  configFile?: ConfigFileIdentifier;
+  /** The urls, paths, or specifiers it's for, like the `specifier` of an approval's items (ex. the process plugins). */
+  specifiers: string[];
   allows: boolean;
   /** Whether it's remembered after the server stops, which includes running dprint with the configuration file (ex. `dprint fmt`). */
   always: boolean;
