@@ -31,6 +31,7 @@ use thiserror::Error;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::FilePatternArgs;
+use crate::configuration::ConfigMap;
 use crate::configuration::ConfigMapValue;
 use crate::configuration::GlobalConfigDiagnostic;
 use crate::configuration::Permissions;
@@ -1317,14 +1318,8 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   let mut plugin_references = if untrusted_downloads.is_empty() { config.plugins.clone() } else { Vec::new() };
   let config_file = config.source.display();
   let trusted_config_hash = get_trusted_config_hash(&config);
-  let unapproved_plugins = get_process_plugin_approvals(&config, plugin_resolver, environment)
+  let unapproved_plugins = get_unapproved_process_plugins(&config, plugin_resolver, environment, permissions)
     .into_iter()
-    .filter(|(plugin, approval)| match approval {
-      Some(approval) => !permissions.is_process_plugin_allowed(approval),
-      // a plugin the user allowed setting up is allowed with its configuration
-      // once it's set up, which the editor records after resolving it
-      None => !permissions.may_set_up_process_plugin(&config_file, &plugin.to_full_string(), &trusted_config_hash),
-    })
     .map(|(plugin, approval)| UnapprovedProcessPlugin {
       plugin: plugin.to_full_string(),
       registry: plugin_resolver.get_npm_registry(&plugin),
@@ -1460,12 +1455,42 @@ pub fn get_process_plugin_approvals<TEnvironment: Environment>(
     .collect()
 }
 
+/// Gets the process plugins of the config file that the permissions don't
+/// allow running with their configuration (see `get_process_plugin_approvals`),
+/// or setting up when they aren't set up, which is empty when using its
+/// plugins is approved.
+pub fn get_unapproved_process_plugins<TEnvironment: Environment>(
+  config: &ResolvedConfig,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+  environment: &TEnvironment,
+  permissions: &Permissions,
+) -> Vec<(PluginSourceReference, Option<ProcessPluginApproval>)> {
+  let config_file = config.source.display();
+  let trusted_config_hash = get_trusted_config_hash(config);
+  get_process_plugin_approvals(config, plugin_resolver, environment)
+    .into_iter()
+    .filter(|(plugin, approval)| match approval {
+      Some(approval) => !permissions.is_process_plugin_allowed(approval),
+      // a plugin the user allowed setting up is allowed with its configuration
+      // once it's set up, which the editor records after resolving it
+      None => !permissions.may_set_up_process_plugin(&config_file, &plugin.to_full_string(), &trusted_config_hash),
+    })
+    .collect()
+}
+
 /// Gets the hash of the trusted configuration of the config file, which is
 /// what the user allows a process plugin that isn't set up with because the
-/// configuration of the plugin isn't known until then.
+/// configuration of the plugin isn't known until then. It starts with the
+/// version of how it's made and a colon like the config hash of a process
+/// plugin approval (see `TRUSTED_CONFIG_HASH_VERSION`).
 pub fn get_trusted_config_hash(config: &ResolvedConfig) -> String {
-  let text = serde_json::to_string(&config.trusted_config_map).expect("config should serialize");
-  get_sha256_checksum(text.as_bytes())
+  get_trusted_config_map_hash(&config.trusted_config_map)
+}
+
+/// Gets the hash of a trusted configuration like `get_trusted_config_hash`.
+pub(crate) fn get_trusted_config_map_hash(trusted_config_map: &ConfigMap) -> String {
+  let text = serde_json::to_string(trusted_config_map).expect("config should serialize");
+  format!("{}:{}", TRUSTED_CONFIG_HASH_VERSION, get_sha256_checksum(text.as_bytes()))
 }
 
 /// Gets the message that says how to have the process plugins of a config file
@@ -1511,6 +1536,13 @@ fn get_process_plugin_approval(
 /// to `ApprovedPlugin` or the configuration serializes differently) so that a
 /// decision isn't reported as being for another configuration.
 const PROCESS_PLUGIN_CONFIG_HASH_VERSION: u32 = 1;
+
+/// The version of how the hash of the trusted configuration of a config file
+/// is made (see `get_trusted_config_hash`), which needs to be increased when
+/// what's hashed changes (ex. the configuration serializes differently). The
+/// hash is part of the approval ids of process plugins that aren't set up, so
+/// that changes them too.
+const TRUSTED_CONFIG_HASH_VERSION: u32 = 1;
 
 /// Gets the hash of what's approved with a process plugin, which starts with
 /// how it's made (see `PROCESS_PLUGIN_CONFIG_HASH_VERSION`).
@@ -1802,6 +1834,38 @@ mod test {
     assert_eq!(
       get_process_plugin_config_hash(None, None),
       "1:b7c29ac8d0482200b6bcc038d421169c8604a546b3fca5b95b5baf3dfb4c1432"
+    );
+  }
+
+  #[test]
+  fn should_not_change_the_trusted_config_hash() {
+    use crate::configuration::RawPluginConfig;
+    use dprint_core::configuration::ConfigKeyMap;
+
+    // IMPORTANT: The hash is part of the approval ids that the editor extensions
+    // send a decision again for after the server restarts, so increase
+    // TRUSTED_CONFIG_HASH_VERSION when these change.
+    let config_map = ConfigMap::from([
+      ("lineWidth".to_string(), ConfigMapValue::from_i32(80)),
+      ("useTabs".to_string(), ConfigMapValue::from_bool(true)),
+      ("excludes".to_string(), ConfigMapValue::Vec(vec!["**/target".to_string()])),
+      (
+        "exec".to_string(),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          associations: None,
+          locked: false,
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::from([("cwd".to_string(), ConfigKeyValue::from_str("sub"))]),
+        }),
+      ),
+    ]);
+    assert_eq!(
+      get_trusted_config_map_hash(&config_map),
+      "1:b446ed44effe92b6f8491f311559164f69b32f8c7fae77308f680d264749ccac"
+    );
+    assert_eq!(
+      get_trusted_config_map_hash(&ConfigMap::new()),
+      "1:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
     );
   }
 }

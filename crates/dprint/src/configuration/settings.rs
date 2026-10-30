@@ -38,6 +38,16 @@ pub struct Settings {
   pub unknown_properties: Vec<String>,
 }
 
+impl Settings {
+  /// Gets whether `editor` has a property dprint doesn't know, which the
+  /// editors treat like settings that can't be read because it may be a
+  /// setting of a newer version of dprint that narrows what's allowed (ex.
+  /// trusting fewer domains). A misspelled property is treated that way too.
+  pub fn has_unknown_editor_properties(&self) -> bool {
+    self.unknown_properties.iter().any(|name| name.starts_with("editor."))
+  }
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorSettings {

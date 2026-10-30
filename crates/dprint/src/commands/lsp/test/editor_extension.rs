@@ -2346,6 +2346,57 @@ fn should_set_up_an_allowed_process_plugin_once_what_needs_to_be_downloaded_is_a
 }
 
 #[test]
+fn should_not_use_a_process_plugin_that_was_denied_while_it_was_set_up() {
+  const ZIP_URL: &str = "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build(); // not initialized, so the plugins aren't set up
+  disallow_process_plugins(&environment);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        environment.set_fs_time(1);
+        let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+        let plugin = approval.items[0].specifier.clone();
+        // setting it up takes a while
+        environment.add_unresponsive_remote_file(ZIP_URL);
+        let deny = async {
+          while environment.remote_file_request_count(ZIP_URL) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+          }
+          // ex. "Always Deny" in another window
+          environment.set_fs_time(2);
+          let decision = crate::configuration::ProcessPluginDecision::new(
+            &environment,
+            crate::configuration::ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin),
+            false,
+          );
+          crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
+          environment.remove_unresponsive_remote_file(ZIP_URL);
+        };
+        let (remaining, _) = tokio::join!(client.approve(&approval.id, ApprovalDecision::Allow), deny);
+        // it isn't used even though it was set up
+        assert_eq!(remaining.len(), 1);
+        assert!(remaining[0].denied);
+        let result = client.format("/a/file.txt_ps", "text").await;
+        assert_eq!(result.not_formatted_reason(), Some(NotFormattedReason::ApprovalRequired));
+        assert!(result.approvals()[0].denied);
+        // and the allow isn't stored over the denial
+        let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
+        assert_eq!(decisions.len(), 1);
+        assert!(!decisions[0].allowed);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_only_forget_the_decisions_of_the_config_file() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()

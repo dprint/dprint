@@ -100,7 +100,13 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
     if permissions.is_denied_since(&grant) {
       continue;
     }
-    let decision = ProcessPluginDecision::new(environment, approval, true);
+    // it's when the user allowed it, so a denial since then (ex. one stored
+    // after the permissions were read) is more recent and wins
+    let decision = ProcessPluginDecision {
+      approval,
+      allowed: true,
+      decided_at: grant.decided_at,
+    };
     if let Err(err) = add_process_plugin_decision(environment, session_permissions, decision, grant.always).await {
       result = Err(err);
     }

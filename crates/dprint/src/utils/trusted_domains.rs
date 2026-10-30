@@ -282,8 +282,13 @@ impl TrustedDomains {
   /// may come from the project (ex. a terminal in the project's directory).
   pub fn from_settings(environment: &impl Environment) -> Self {
     let mut domains = DEFAULT_TRUSTED_DOMAINS.iter().map(|domain| domain.to_string()).collect::<Vec<_>>();
-    // a warning that the settings can't be read is logged when reading the permissions
-    if let Ok(Some(settings)) = read_settings(environment) {
+    // IMPORTANT: A property in `editor` this version doesn't know may be a setting
+    // of a newer version that trusts less, so only the default domains are trusted
+    // then, like when the settings can't be read. A warning for either is logged
+    // when reading the permissions.
+    if let Ok(Some(settings)) = read_settings(environment)
+      && !settings.has_unknown_editor_properties()
+    {
       for domain in settings.editor.trusted_domains {
         let domain = domain.trim().trim_matches('.').to_ascii_lowercase();
         if !domain.is_empty() && !domains.contains(&domain) {
@@ -519,5 +524,27 @@ mod test {
     // the environment doesn't change them
     environment.set_env_var("DPRINT_TRUSTED_DOMAINS", Some("example.com"));
     assert!(!TrustedDomains::from_settings(&environment).is_trusted(&url("https://example.com/plugin.wasm")));
+  }
+
+  #[test]
+  fn should_only_trust_the_default_domains_with_an_unknown_editor_setting() {
+    let environment = TestEnvironment::new();
+    let file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    // ex. a setting of a newer version of dprint that trusts less
+    environment
+      .write_file(
+        &file_path,
+        r#"{ "editor": { "trustedDomains": ["npm.example.com"], "trustDefaultDomains": false } }"#,
+      )
+      .unwrap();
+    let trusted_domains = TrustedDomains::from_settings(&environment);
+    assert!(!trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
+    assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
+    // an unknown property outside of "editor" doesn't change them
+    environment
+      .write_file(&file_path, r#"{ "editor": { "trustedDomains": ["npm.example.com"] }, "other": 1 }"#)
+      .unwrap();
+    assert!(TrustedDomains::from_settings(&environment).is_trusted(&url("https://npm.example.com/@scope/package")));
   }
 }

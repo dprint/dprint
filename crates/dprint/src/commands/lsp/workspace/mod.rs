@@ -3352,7 +3352,10 @@ fn get_download_specifier(download: &str) -> String {
 }
 
 /// The version of how the approval ids are made, which changes them when it
-/// does (ex. what's in them changed).
+/// does (ex. what's in them changed). What's in them is part of it, which
+/// includes the item of a process plugin (see `get_process_plugin_id_part`),
+/// the hash of the trusted configuration (see `get_trusted_config_hash`), and
+/// the text of a download (ex. `NpmrcProxy::to_download`).
 const APPROVAL_ID_VERSION: u32 = 1;
 
 /// Gets an id that changes when what's approved does, which is the hash of
@@ -3534,7 +3537,10 @@ mod test {
   use serde_json::json;
 
   use super::*;
+  use crate::configuration::ConfigMap;
+  use crate::configuration::ConfigMapValue;
   use crate::configuration::ProcessPluginApproval;
+  use crate::resolution::get_trusted_config_map_hash;
 
   #[test]
   fn should_show_a_language_client_what_process_plugins_run_with() {
@@ -3593,10 +3599,16 @@ mod test {
         config_hash: config_hash.map(|config_hash| config_hash.to_string()),
       }),
     };
-    let parts = [plugin(Some(Some("1:hash"))), plugin(Some(None)), plugin(None)]
+    let from_registry = UnapprovedProcessPlugin {
+      plugin: "npm:@dprint/exec@0.5.0".to_string(),
+      registry: Some("https://npm.example.com/".to_string()),
+      approval: None,
+    };
+    let trusted_config_map = ConfigMap::from([("lineWidth".to_string(), ConfigMapValue::from_i32(80))]);
+    let parts = [plugin(Some(Some("1:hash"))), plugin(Some(None)), plugin(None), from_registry]
       .iter()
       .map(get_process_plugin_id_part)
-      .chain(["trusted".to_string()])
+      .chain([get_trusted_config_map_hash(&trusted_config_map)])
       .collect::<Vec<_>>();
     assert_eq!(
       parts,
@@ -3604,12 +3616,13 @@ mod test {
         "https://plugins.dprint.dev/exec-0.5.0.json@checksum\n1:hash",
         "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nanyConfig",
         "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nnotSetUp",
-        "trusted",
+        "npm:@dprint/exec@0.5.0\nnotSetUp\nregistry: https://npm.example.com/",
+        "1:2fa6774bc8dbe963c51fb07f6539189e5d272df1e4b048319a3cd9b093e6fd48",
       ]
     );
     assert_eq!(
       get_approval_id("processPlugins", "file:///a/dprint.json", &parts),
-      "06556c44b764c57cb038115bcf981ba716bd863ba341d972879bcd1306a71e69"
+      "d38ae5893a98161365bed9043499c95b7e4e3949aaa0d3151c94e9cc9a985743"
     );
     assert_eq!(
       get_approval_id("download", "file:///a/dprint.json", &["https://example.com/plugin.wasm".to_string()]),

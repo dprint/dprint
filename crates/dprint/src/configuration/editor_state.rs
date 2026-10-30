@@ -7,6 +7,7 @@ use std::time::UNIX_EPOCH;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
+use jsonc_parser::cst::CstNode;
 use jsonc_parser::cst::CstObject;
 use jsonc_parser::cst::CstRootNode;
 use parking_lot::Mutex;
@@ -34,8 +35,11 @@ const APPROVALS_FILE_NAME: &str = "editor-approvals.json";
 const APPROVALS_FILE_VERSION: u32 = 1;
 /// The oldest version of the format whose readers may use what this version
 /// of dprint writes, which is only raised by a change that an older reader
-/// would apply too broadly (see `EditorApprovals`).
+/// would apply too broadly and that can't be made to each decision with its
+/// own `minVersion` (see `EditorApprovals`).
 const APPROVALS_FILE_MIN_VERSION: u32 = 1;
+/// The property of the approvals file with the process plugin decisions.
+const PROCESS_PLUGIN_DECISIONS_PROPERTY: &str = "processPluginDecisions";
 /// The most process plugin decisions to remember, where the oldest are
 /// forgotten first, which only means the user is asked again.
 const MAX_PROCESS_PLUGIN_DECISIONS: usize = 5000;
@@ -63,14 +67,36 @@ pub struct EditorState {
 ///   (it's `version` when it's not there). A reader only refuses the file when
 ///   `minVersion` is greater than the version it supports, and otherwise
 ///   ignores what it doesn't know: properties and decisions it can't parse.
+/// - A decision may have its own `minVersion`, which is the oldest version of
+///   the format whose readers may use it. A reader whose version is lower
+///   skips it when it allows, still applies it when it denies (because denying
+///   more than the user did is safe), and keeps it when it writes the file.
+/// - A change only raises a `minVersion` when a reader that ignores it would
+///   allow too much (ex. a property that narrows what a decision allows). That
+///   raises the `minVersion` of each decision it's in, so an older reader only
+///   skips those, and only raises the file's `minVersion` for a change that
+///   can't be made to each decision (ex. to the structure of the file). A
+///   change that a reader can ignore (ex. a property that's only informational)
+///   keeps them.
 /// - A writer edits the file in place, so it keeps the properties and
 ///   decisions it doesn't know, and it never lowers `version` or `minVersion`.
 ///   It writes its decisions in its own format, so a reader needs to handle the
-///   decisions of any version from `minVersion` on.
-/// - A change only raises `minVersion` when a reader that ignores it would
-///   allow too much (ex. a property that narrows what a decision allows). A
-///   change that a reader can ignore (ex. a property that's only informational)
-///   keeps it.
+///   decisions of any version from `minVersion` on. It removes the decisions in
+///   an older format for what it decides about (ex. the same plugin of the same
+///   config file), so an older reader doesn't keep using one the user replaced.
+/// - Decisions are only in the top-level arrays whose names end with
+///   `Decisions` (ex. `processPluginDecisions`), and each one is an object with
+///   a top-level `configFile` string in the form of `PathSource::display` (ex.
+///   `/home/user/project/dprint.json`), so that any version can forget them.
+///   Forgetting the decisions of config files removes the ones with their
+///   `configFile` from each of those arrays, and forgetting every decision
+///   empties each of them, including the decisions in a format it doesn't
+///   know. The other top-level properties don't have decisions.
+/// - `processPluginDecisions` stays an array even when the file's `minVersion`
+///   is raised, and a decision that denies a process plugin is always also
+///   written in the format of version 1 (ex. without a `configHash` to deny it
+///   with any configuration), because a reader that refuses the file still
+///   applies the denials in it.
 /// - A writer never writes over a file it refuses to read, because that would
 ///   lose what the user denied.
 #[derive(Debug, Default)]
@@ -82,11 +108,23 @@ pub struct EditorApprovals {
 
 impl EditorApprovals {
   /// Remembers the decision for a process plugin of a config file, which
-  /// replaces the one for a previous configuration of it.
+  /// replaces the one for a previous configuration of it. An allow isn't
+  /// remembered when the user denied the plugin after it was made.
   pub fn add_process_plugin_decision(&mut self, decision: ProcessPluginDecision) {
     let decisions = &mut self.process_plugin_decisions;
+    let is_same_plugin =
+      |existing: &ProcessPluginDecision| existing.approval.config_file == decision.approval.config_file && existing.approval.plugin == decision.approval.plugin;
+    // IMPORTANT: Don't replace what the user denied since (ex. "Always Deny" in
+    // another window while the plugin they allowed was being set up).
+    if decision.allowed
+      && decisions
+        .iter()
+        .any(|existing| is_same_plugin(existing) && !existing.allowed && existing.decided_at > decision.decided_at)
+    {
+      return;
+    }
     // the decision for a previous configuration isn't needed anymore
-    decisions.retain(|existing| existing.approval.config_file != decision.approval.config_file || existing.approval.plugin != decision.approval.plugin);
+    decisions.retain(|existing| !is_same_plugin(existing));
     decisions.push(decision);
     while decisions.len() > MAX_PROCESS_PLUGIN_DECISIONS {
       // forget the oldest decision that allowed a plugin first so that what
@@ -264,13 +302,11 @@ impl Permissions {
       .is_some_and(|decision| !decision.allowed && stored_decisions.contains(decision))
   }
 
-  /// Gets whether the process plugin of the config file was allowed when it
-  /// had a different configuration.
+  /// Gets whether the most recent decision for the process plugin of the
+  /// config file allowed it when it had a different configuration.
   pub fn was_allowed_with_other_config(&self, approval: &ProcessPluginApproval) -> bool {
-    self.process_plugin_decisions.iter().any(|decision| {
+    self.get_latest_decision(approval).is_some_and(|decision| {
       decision.allowed
-        && decision.approval.config_file == approval.config_file
-        && decision.approval.plugin == approval.plugin
         && decision.approval.config_hash != approval.config_hash
         // a hash that's made another way (ex. by another version of dprint) doesn't say the configuration changed
         && get_config_hash_version(&decision.approval) == get_config_hash_version(approval)
@@ -287,16 +323,30 @@ impl Permissions {
     self.get_winning_decision(approval).map(|decision| decision.allowed)
   }
 
+  /// Gets the decision that's used for the approval, which is the most recent
+  /// one for the process plugin of the config file when it's for the
+  /// approval's configuration or denies the plugin with any configuration.
+  /// When the most recent one is for another configuration, there's no
+  /// decision, so the user is asked instead of an older one being used (ex.
+  /// a denial from before the plugin was allowed with its previous
+  /// configuration).
   fn get_winning_decision(&self, approval: &ProcessPluginApproval) -> Option<&ProcessPluginDecision> {
+    let decision = self.get_latest_decision(approval)?;
+    let is_for_approval = match decision.allowed {
+      // IMPORTANT: Only allow it with the configuration that was allowed.
+      true => decision.approval.config_hash.is_some() && decision.approval.config_hash == approval.config_hash,
+      false => decision.approval.config_hash.is_none() || decision.approval.config_hash == approval.config_hash,
+    };
+    is_for_approval.then_some(decision)
+  }
+
+  /// Gets the most recent decision for the process plugin of the config file
+  /// of the approval with any configuration.
+  fn get_latest_decision(&self, approval: &ProcessPluginApproval) -> Option<&ProcessPluginDecision> {
     self
       .process_plugin_decisions
       .iter()
-      .filter(|decision| {
-        decision.approval.config_file == approval.config_file
-          && decision.approval.plugin == approval.plugin
-          // IMPORTANT: Only allow it with the configuration that was allowed.
-          && (decision.approval.config_hash == approval.config_hash || (decision.approval.config_hash.is_none() && !decision.allowed))
-      })
+      .filter(|decision| decision.approval.config_file == approval.config_file && decision.approval.plugin == approval.plugin)
       // the last one wins a tie, which is the one for the session
       .max_by_key(|decision| decision.decided_at)
   }
@@ -321,11 +371,28 @@ impl SessionPermissions {
   pub fn read(&self, environment: &impl Environment) -> Permissions {
     let allow_process_plugins = match read_settings(environment) {
       Ok(Some(settings)) => {
+        let file_path = get_settings_file_path(environment).map(|path| path.display().to_string()).unwrap_or_default();
         for property_name in &settings.unknown_properties {
-          let file_path = get_settings_file_path(environment).map(|path| path.display().to_string()).unwrap_or_default();
           self.log_settings_problem(environment, format!("Unknown property in {}: {}", file_path, property_name));
         }
-        settings.editor.allow_process_plugins
+        if settings.has_unknown_editor_properties() {
+          // IMPORTANT: A property this version doesn't know may be a setting of a
+          // newer version that narrows what's allowed, so don't allow more than
+          // the defaults (the trusted domains do the same).
+          self.log_settings_problem(
+            environment,
+            format!(
+              concat!(
+                "Requiring approval to run process plugins and only trusting the default domains in editors ",
+                "because {} has a property in \"editor\" that this version of dprint doesn't know."
+              ),
+              file_path
+            ),
+          );
+          Some(false)
+        } else {
+          settings.editor.allow_process_plugins
+        }
       }
       Ok(None) => None,
       Err(err) => {
@@ -438,9 +505,10 @@ pub async fn update_editor_approvals<TEnvironment: Environment>(environment: &TE
 
 /// Forgets the stored decisions of the config files, which includes the ones
 /// in a format this version doesn't know (ex. from a newer version of dprint)
-/// so that forgetting them doesn't leave one that allows a plugin behind. A
-/// decision like that without a config file this version can read is only
-/// forgotten with every config file.
+/// and the ones of other kinds (see `EditorApprovals`) so that forgetting them
+/// doesn't leave one that allows something behind. A decision like that
+/// without a config file this version can read is only forgotten with every
+/// config file.
 pub async fn forget_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment, is_config_file: impl Fn(&str) -> bool) -> Result<()> {
   let _flag = lock_editor_approvals(environment).await;
   let Some(file_path) = get_editor_approvals_file_path(environment) else {
@@ -452,7 +520,7 @@ pub async fn forget_editor_approvals<TEnvironment: Environment>(environment: &TE
   };
   // the file isn't written when there's nothing to forget (ex. it doesn't exist)
   match read_approvals_file(environment, &file_path)? {
-    Some((_, file)) if file.process_plugin_decisions.iter().any(is_forgotten) => {}
+    Some((_, file)) if file.decisions().any(is_forgotten) => {}
     _ => return Ok(()),
   }
   edit_editor_approvals(
@@ -477,7 +545,11 @@ pub fn read_editor_approvals(environment: &impl Environment) -> Result<EditorApp
     return Ok(Default::default());
   };
   Ok(EditorApprovals {
-    process_plugin_decisions: file.process_plugin_decisions.into_iter().filter_map(parse_process_plugin_decision).collect(),
+    process_plugin_decisions: file
+      .process_plugin_decisions
+      .into_iter()
+      .filter_map(|value| parse_process_plugin_decision(value).into_applied())
+      .collect(),
   })
 }
 
@@ -498,17 +570,19 @@ pub(crate) fn read_editor_approval_denials(environment: &impl Environment) -> Ve
     .process_plugin_decisions
     .into_iter()
     // a decision that's in another format is left out
-    .filter_map(parse_process_plugin_decision)
+    .filter_map(|value| parse_process_plugin_decision(value).into_applied())
     .collect::<Vec<_>>();
-  // a denial that a later decision replaced (they're the most recent last) isn't used
+  // a denial that a more recent decision replaced isn't used, which is a later one on a tie
   decisions
     .iter()
     .enumerate()
     .filter(|(index, decision)| {
       !decision.allowed
-        && !decisions[index + 1..]
-          .iter()
-          .any(|later| later.approval.config_file == decision.approval.config_file && later.approval.plugin == decision.approval.plugin)
+        && !decisions.iter().enumerate().any(|(later_index, later)| {
+          later.approval.config_file == decision.approval.config_file
+            && later.approval.plugin == decision.approval.plugin
+            && (later.decided_at > decision.decided_at || (later.decided_at == decision.decided_at && later_index > *index))
+        })
     })
     .map(|(_, decision)| decision.clone())
     .collect()
@@ -519,7 +593,8 @@ pub(crate) fn update_editor_approvals_without_lock(environment: &impl Environmen
 }
 
 /// Updates the decisions of the approvals file in place, which removes the
-/// decisions in a format this version doesn't know that `remove_unknown` says to.
+/// decisions in a format this version doesn't know, or of another kind, that
+/// `remove_unknown` says to.
 fn edit_editor_approvals(
   environment: &impl Environment,
   update: impl FnOnce(&mut EditorApprovals),
@@ -537,17 +612,18 @@ fn edit_editor_approvals(
   // never lower the versions because another version of dprint may have written what needs them
   set_number_property(&root_obj, "version", file.version.max(APPROVALS_FILE_VERSION), 0);
   set_number_property(&root_obj, "minVersion", file.min_version().max(APPROVALS_FILE_MIN_VERSION), 1);
-  let decisions_array = root_obj.array_value_or_set("processPluginDecisions");
+  remove_other_decisions(&root_obj, &remove_unknown);
+  let decisions_array = root_obj.array_value_or_set(PROCESS_PLUGIN_DECISIONS_PROPERTY);
   let mut known_decisions = Vec::new();
   for element in decisions_array.elements() {
-    // the file was already read as JSON, so its text is JSON
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&element.to_string()) else {
+    let Some(value) = to_json_value(&element) else {
       continue;
     };
     match parse_process_plugin_decision(value.clone()) {
-      Some(decision) => known_decisions.push((element, decision)),
-      None if remove_unknown(&value) => element.remove(),
-      None => {}
+      StoredDecision::Known(decision) => known_decisions.push((element, decision)),
+      // a denial for a newer version is kept as it is like the decisions this version doesn't know
+      StoredDecision::NewerDenial(_) | StoredDecision::Unknown if remove_unknown(&value) => element.remove(),
+      StoredDecision::NewerDenial(_) | StoredDecision::Unknown => {}
     }
   }
   let mut approvals = EditorApprovals {
@@ -656,6 +732,9 @@ struct ApprovalsFile {
   min_version: Option<u32>,
   #[serde(default)]
   process_plugin_decisions: Vec<serde_json::Value>,
+  /// The other properties, which may have decisions of other kinds.
+  #[serde(flatten)]
+  other: serde_json::Map<String, serde_json::Value>,
 }
 
 impl ApprovalsFile {
@@ -663,6 +742,43 @@ impl ApprovalsFile {
   /// which is its version when it doesn't say.
   fn min_version(&self) -> u32 {
     self.min_version.unwrap_or(self.version)
+  }
+
+  /// Gets each decision in the file as it is, which includes the ones of the
+  /// kinds this version doesn't know (see `EditorApprovals`). A property for
+  /// decisions that isn't an array is a decision.
+  fn decisions(&self) -> impl Iterator<Item = &serde_json::Value> {
+    let other_decisions = self
+      .other
+      .iter()
+      .filter(|(name, _)| is_decisions_property(name))
+      .flat_map(|(_, value)| match value {
+        serde_json::Value::Array(elements) => elements.as_slice(),
+        value => std::slice::from_ref(value),
+      });
+    self.process_plugin_decisions.iter().chain(other_decisions)
+  }
+}
+
+/// How this version of dprint uses a process plugin decision of the
+/// approvals file.
+enum StoredDecision {
+  /// A decision in a format this version knows, which it may replace.
+  Known(ProcessPluginDecision),
+  /// A denial with a `minVersion` that's newer than this version, which this
+  /// version applies but keeps as it is like an unknown decision.
+  NewerDenial(ProcessPluginDecision),
+  /// A decision this version doesn't use, which it keeps as it is.
+  Unknown,
+}
+
+impl StoredDecision {
+  /// Gets the decision when this version applies it.
+  fn into_applied(self) -> Option<ProcessPluginDecision> {
+    match self {
+      StoredDecision::Known(decision) | StoredDecision::NewerDenial(decision) => Some(decision),
+      StoredDecision::Unknown => None,
+    }
   }
 }
 
@@ -680,10 +796,64 @@ fn read_approvals_file(environment: &impl Environment, file_path: &Path) -> Resu
   Ok(Some((text, file)))
 }
 
-/// Parses a decision of the approvals file, which is `None` when it's in a
-/// format this version of dprint doesn't know.
-fn parse_process_plugin_decision(value: serde_json::Value) -> Option<ProcessPluginDecision> {
-  serde_json::from_value(value).ok()
+/// Parses a process plugin decision of the approvals file (see
+/// `EditorApprovals` for its `minVersion`).
+fn parse_process_plugin_decision(value: serde_json::Value) -> StoredDecision {
+  // a `minVersion` that isn't a number this version knows is for a newer version
+  let is_for_newer_version = value
+    .get("minVersion")
+    .is_some_and(|min_version| min_version.as_u64().is_none_or(|min_version| min_version > APPROVALS_FILE_VERSION as u64));
+  match serde_json::from_value::<ProcessPluginDecision>(value) {
+    Ok(decision) if !is_for_newer_version => StoredDecision::Known(decision),
+    // IMPORTANT: Don't allow what a newer version may allow less of, but
+    // denying more than the user did is safe.
+    Ok(decision) if !decision.allowed => StoredDecision::NewerDenial(decision),
+    Ok(_) | Err(_) => StoredDecision::Unknown,
+  }
+}
+
+/// Removes the decisions of the kinds other than process plugin decisions
+/// that `remove` says to, which are in a format this version doesn't know
+/// (see `EditorApprovals`).
+fn remove_other_decisions(root_obj: &CstObject, remove: &impl Fn(&serde_json::Value) -> bool) {
+  for prop in root_obj.properties() {
+    let Some(name) = prop.name().and_then(|name| name.decoded_value().ok()) else {
+      continue;
+    };
+    if name == PROCESS_PLUGIN_DECISIONS_PROPERTY || !is_decisions_property(&name) {
+      continue;
+    }
+    let Some(value) = prop.value() else {
+      continue;
+    };
+    match value.as_array() {
+      Some(array) => {
+        for element in array.elements() {
+          if to_json_value(&element).is_some_and(|value| remove(&value)) {
+            element.remove();
+          }
+        }
+      }
+      // a property for decisions that isn't an array is a decision
+      None => {
+        if to_json_value(&value).is_some_and(|value| remove(&value)) {
+          prop.remove();
+        }
+      }
+    }
+  }
+}
+
+/// Gets whether a top-level property of the approvals file has decisions
+/// (see `EditorApprovals`).
+fn is_decisions_property(name: &str) -> bool {
+  name.ends_with("Decisions")
+}
+
+/// Gets the value of a node of the approvals file, which was already read as
+/// JSON, so its text is JSON.
+fn to_json_value(node: &CstNode) -> Option<serde_json::Value> {
+  serde_json::from_str(&node.to_string()).ok()
 }
 
 /// Sets a number property of the object, which is inserted at the index when
@@ -782,8 +952,72 @@ mod test {
     assert!(permissions.is_process_plugin_allowed(&approval("/c/dprint.json", "1")));
     assert!(!permissions.is_process_plugin_allowed(&approval("/d/dprint.json", "1")));
     assert!(!permissions.is_process_plugin_denied(&approval("/d/dprint.json", "1")));
-    assert!(permissions.was_allowed_with_other_config(&approval("/a/dprint.json", "3")));
+    assert!(permissions.was_allowed_with_other_config(&approval("/c/dprint.json", "3")));
+    // the most recent decision denied it
+    assert!(!permissions.was_allowed_with_other_config(&approval("/a/dprint.json", "3")));
     assert!(!permissions.was_allowed_with_other_config(&approval("/b/dprint.json", "3")));
+  }
+
+  #[test]
+  fn should_ask_again_when_the_most_recent_decision_is_for_another_config() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let plugin = approval("/a/dprint.json", "1:a").plugin;
+    // ex. denied for the session, then allowed by running `dprint fmt`
+    let denied = ProcessPluginDecision {
+      approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin.clone()),
+      allowed: false,
+      decided_at: 1,
+    };
+    let allowed = ProcessPluginDecision {
+      decided_at: 2,
+      ..decision("/a/dprint.json", "1:a", true)
+    };
+    let permissions = read_permissions(&environment, &[denied.clone(), allowed.clone()]);
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    // the configuration changed since, so the older denial isn't used and the user is asked
+    let changed = approval("/a/dprint.json", "1:b");
+    assert!(!permissions.is_process_plugin_allowed(&changed));
+    assert!(!permissions.is_process_plugin_denied(&changed));
+    assert!(!permissions.is_process_plugin_always_denied(&changed));
+    assert!(permissions.was_allowed_with_other_config(&changed));
+    assert!(!permissions.is_process_plugin_denied(&ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin.clone())));
+
+    // denying it after it was allowed denies it with each configuration
+    let denied_since = ProcessPluginDecision { decided_at: 3, ..denied };
+    let permissions = read_permissions(&environment, &[allowed, denied_since]);
+    assert!(permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1:a")));
+    assert!(permissions.is_process_plugin_denied(&changed));
+    assert!(!permissions.was_allowed_with_other_config(&changed));
+  }
+
+  #[test]
+  fn should_not_replace_a_more_recent_denial_with_an_allow() {
+    let mut approvals = EditorApprovals::default();
+    let plugin = approval("/a/dprint.json", "1").plugin;
+    let denied = ProcessPluginDecision {
+      approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin),
+      allowed: false,
+      decided_at: 2,
+    };
+    approvals.add_process_plugin_decision(denied.clone());
+    // ex. allowed setting it up before it was denied in another window
+    approvals.add_process_plugin_decision(ProcessPluginDecision {
+      decided_at: 1,
+      ..decision("/a/dprint.json", "1", true)
+    });
+    assert_eq!(approvals.process_plugin_decisions, vec![denied.clone()]);
+    // a more recent one replaces it
+    let allowed = ProcessPluginDecision {
+      decided_at: 3,
+      ..decision("/a/dprint.json", "1", true)
+    };
+    approvals.add_process_plugin_decision(allowed.clone());
+    assert_eq!(approvals.process_plugin_decisions, vec![allowed]);
+    // and a denial always does
+    let denied = ProcessPluginDecision { decided_at: 0, ..denied };
+    approvals.add_process_plugin_decision(denied.clone());
+    assert_eq!(approvals.process_plugin_decisions, vec![denied]);
   }
 
   #[test]
@@ -964,8 +1198,35 @@ mod test {
       vec![
         format!("Unknown property in {}: editor.allowProcessPlugin", file_path.display()),
         format!("Unknown property in {}: other", file_path.display()),
+        format!(
+          "Requiring approval to run process plugins and only trusting the default domains in editors because {} has a property in \"editor\" that this version of dprint doesn't know.",
+          file_path.display()
+        ),
       ]
     );
+  }
+
+  #[test]
+  fn should_not_allow_process_plugins_with_an_unknown_editor_setting() {
+    let environment = TestEnvironment::new();
+    let file_path = get_settings_file_path(&environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    // ex. a setting of a newer version of dprint that narrows what's allowed
+    environment
+      .write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": true, "processPluginExceptions": [] } }"#)
+      .unwrap();
+    let permissions = read_permissions(&environment, &[]);
+    assert_eq!(permissions.allow_process_plugins, Some(false));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    // what was decided is still used
+    let permissions = read_permissions(&environment, &[decision("/a/dprint.json", "1", true)]);
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    // an unknown property outside of "editor" is only logged
+    environment
+      .write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": true }, "other": 1 }"#)
+      .unwrap();
+    assert!(read_permissions(&environment, &[]).is_process_plugin_allowed(&approval("/a/dprint.json", "1")));
+    environment.take_stderr_messages();
   }
 
   #[test]
@@ -1227,6 +1488,142 @@ mod test {
       .is_err()
     );
     assert_eq!(environment.read_file(&file_path).unwrap(), text);
+  }
+
+  #[test]
+  fn should_only_apply_the_denials_of_decisions_with_a_newer_min_version() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let file_path = get_editor_approvals_file_path(&environment).unwrap();
+    // ex. a newer version of dprint narrowed what some decisions allow
+    let text = r#"{
+  "version": 2,
+  "minVersion": 1,
+  "processPluginDecisions": [
+    { "configFile": "/a/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:a", "allowed": true, "decidedAt": 0, "minVersion": 2, "workspace": "/a" },
+    { "configFile": "/b/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "allowed": false, "decidedAt": 0, "minVersion": 2 },
+    { "configFile": "/c/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:c", "allowed": true, "decidedAt": 0, "minVersion": 1 },
+    { "configFile": "/d/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:d", "allowed": true, "decidedAt": 0, "minVersion": "2" }
+  ]
+}
+"#;
+    environment.write_file(&file_path, text).unwrap();
+    let permissions = read_permissions(&environment, &[]);
+    // IMPORTANT: An allow for a newer version isn't used because it would allow too much.
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/d/dprint.json", "1:d")));
+    // but denying more than the user did is safe
+    assert!(permissions.is_process_plugin_denied(&approval("/b/dprint.json", "1:b")));
+    assert!(permissions.is_process_plugin_allowed(&approval("/c/dprint.json", "1:c")));
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+
+    // they're kept as they are when writing the file, even when deciding about the same plugin
+    update_editor_approvals_without_lock(&environment, |approvals| {
+      approvals.add_process_plugin_decision(ProcessPluginDecision {
+        decided_at: 1,
+        ..decision("/b/dprint.json", "1:b", true)
+      })
+    })
+    .unwrap();
+    let new_text = environment.read_file(&file_path).unwrap();
+    for element in text.lines().filter(|line| line.contains("configFile")) {
+      assert!(new_text.contains(element.trim_end_matches(',')), "{}", new_text);
+    }
+    // the more recent decision is used
+    assert!(read_permissions(&environment, &[]).is_process_plugin_allowed(&approval("/b/dprint.json", "1:b")));
+
+    // a denial is still applied when the file can't be read otherwise
+    environment
+      .write_file(&file_path, &text.replace(r#""minVersion": 1,"#, r#""minVersion": 2,"#))
+      .unwrap();
+    let permissions = read_permissions(&environment, &[]);
+    assert!(permissions.is_process_plugin_denied(&approval("/b/dprint.json", "1:b")));
+    assert!(!permissions.is_process_plugin_allowed(&approval("/c/dprint.json", "1:c")));
+    environment.take_stderr_messages();
+
+    // and they're forgotten by their config file
+    environment.write_file(&file_path, text).unwrap();
+    environment.clone().run_in_runtime(async move {
+      forget_editor_approvals(&environment, |config_file| config_file == "/a/dprint.json" || config_file == "/b/dprint.json")
+        .await
+        .unwrap();
+      let text = environment.read_file(&file_path).unwrap();
+      assert!(!text.contains("/a/dprint.json"), "{}", text);
+      assert!(!text.contains("/b/dprint.json"), "{}", text);
+      assert!(text.contains("/c/dprint.json"), "{}", text);
+      assert!(text.contains("/d/dprint.json"), "{}", text);
+    });
+  }
+
+  #[test]
+  fn should_forget_the_decisions_of_other_kinds() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let file_path = get_editor_approvals_file_path(&environment).unwrap();
+    // ex. a newer version of dprint stores decisions of another kind
+    environment
+      .write_file(
+        &file_path,
+        r#"{
+  "version": 3,
+  "minVersion": 1,
+  "other": { "configFile": "/a/dprint.json" },
+  "processPluginDecisions": [],
+  "downloadDecisions": [
+    { "configFile": "/a/dprint.json", "allowed": true },
+    { "configFile": "/b/dprint.json", "allowed": true },
+    { "allowed": true }
+  ],
+  "otherDecisions": { "allowed": true }
+}
+"#,
+      )
+      .unwrap();
+    environment.clone().run_in_runtime(async move {
+      // writing a decision keeps them
+      update_editor_approvals_without_lock(&environment, |approvals| {
+        approvals.add_process_plugin_decision(decision("/a/dprint.json", "1:a", true))
+      })
+      .unwrap();
+      let text = environment.read_file(&file_path).unwrap();
+      assert_eq!(text.matches(r#""allowed": true"#).count(), 5, "{}", text);
+
+      // the ones of the config file
+      forget_editor_approvals(&environment, |config_file| config_file == "/a/dprint.json")
+        .await
+        .unwrap();
+      let text = environment.read_file(&file_path).unwrap();
+      assert_eq!(
+        text,
+        r#"{
+  "version": 3,
+  "minVersion": 1,
+  "other": { "configFile": "/a/dprint.json" },
+  "processPluginDecisions": [],
+  "downloadDecisions": [
+    { "configFile": "/b/dprint.json", "allowed": true },
+    { "allowed": true }
+  ],
+  "otherDecisions": { "allowed": true }
+}
+"#
+      );
+
+      // and every one, which keeps the properties that don't have decisions
+      forget_editor_approvals(&environment, |_| true).await.unwrap();
+      let text = environment.read_file(&file_path).unwrap();
+      assert_eq!(
+        text,
+        r#"{
+  "version": 3,
+  "minVersion": 1,
+  "other": { "configFile": "/a/dprint.json" },
+  "processPluginDecisions": [],
+  "downloadDecisions": []
+}
+"#
+      );
+    });
   }
 
   #[test]

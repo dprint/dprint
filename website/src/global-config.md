@@ -119,7 +119,7 @@ dprint's settings that aren't formatting configuration go in a `settings.json` f
 - `editor.allowProcessPlugins` (default: `false`) - Whether editors run [process plugins](/lsp#process-plugins) without you allowing them. Editors don't format with a configuration file that has process plugins until you allow them unless this is `true`.
 - `editor.trustedDomains` - The domains editors download from without asking you in addition to the [default ones](/setup#trusted-domains).
 
-dprint warns about a property it doesn't know (ex. a misspelled one). When the file can't be read or parsed, editors use the defaults.
+dprint warns about a property it doesn't know (ex. a misspelled one). When the file can't be read or parsed, or `editor` has a property dprint doesn't know (ex. a setting of a newer version of dprint that a project's older dprint is used with), editors use the defaults of the `editor` settings: process plugins need to be allowed and only the default domains are trusted. That way a setting that allows less isn't ignored.
 
 What you always allow or deny in an editor is stored in an `editor-approvals.json` file next to it.
 

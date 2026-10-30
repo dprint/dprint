@@ -23,6 +23,7 @@ use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::Environment;
 use crate::plugins;
 use crate::resolution::PluginsScope;
+use crate::resolution::get_unapproved_process_plugins;
 use crate::resolution::resolve_plugins_scope_with_approval;
 use crate::utils::AsyncMutex;
 use crate::utils::PathSource;
@@ -168,7 +169,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     // configuration. The user opening a file (ex. in a cloned repository or in
     // node_modules) isn't the same as choosing to run dprint there.
     let config = Rc::new(config);
-    let new_scope = Rc::new(resolve_plugins_scope_with_approval(config.clone(), &self.environment, &self.plugin_resolver, &permissions).await?);
+    let mut new_scope = Rc::new(resolve_plugins_scope_with_approval(config.clone(), &self.environment, &self.plugin_resolver, &permissions).await?);
     let permissions = if new_scope.plugins.is_empty() {
       permissions
     } else {
@@ -176,7 +177,15 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       if let Err(err) = record_set_up_process_plugins(&self.environment, &self.session_permissions, &config, &self.plugin_resolver).await {
         log_warn!(self.environment, "Failed storing the decision for the process plugins: {:#}", err);
       }
-      self.session_permissions.read(&self.environment)
+      let permissions = self.session_permissions.read(&self.environment);
+      // IMPORTANT: The scope is cached with these permissions, so check its process
+      // plugins with them because the user may have denied or forgotten one while
+      // it was set up (ex. "Always Deny" in another window), and then resolve it
+      // again with them so that it's not used. Its plugins are shut down below.
+      if !get_unapproved_process_plugins(&config, &self.plugin_resolver, &self.environment, &permissions).is_empty() {
+        new_scope = Rc::new(resolve_plugins_scope_with_approval(config.clone(), &self.environment, &self.plugin_resolver, &permissions).await?);
+      }
+      permissions
     };
     let _ = cell.insert(CachedScope {
       scope: new_scope.clone(),
