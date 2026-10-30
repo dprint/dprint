@@ -1055,10 +1055,10 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           features: features.clone(),
           files: Some(get_dprint_files(&self.environment)),
           // the config file the server was started with is the only one
-          config_file_globs: match self.has_config_override {
+          config_file_globs: Some(match self.has_config_override {
             true => Vec::new(),
             false => CONFIG_FILE_NAMES.iter().map(|name| format!("**/{}", name)).collect(),
-          },
+          }),
           message: None,
         },
         None => ServerExperimentalCapability {
@@ -1066,7 +1066,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           versions: SUPPORTED_METHOD_VERSIONS.to_vec(),
           features: Default::default(),
           files: None,
-          config_file_globs: Vec::new(),
+          config_file_globs: None,
           message: Some(get_unsupported_versions_message(&client_versions, &self.environment.cli_version())),
         },
       };

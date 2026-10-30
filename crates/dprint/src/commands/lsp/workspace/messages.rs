@@ -113,9 +113,10 @@ pub struct ServerExperimentalCapability {
   /// Where dprint's own files are (ex. for a command that opens them).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub files: Option<DprintFiles>,
-  /// The globs of the config files to watch in the workspace folders.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub config_file_globs: Vec<String>,
+  /// The globs of the config files to watch in the workspace folders, which
+  /// are empty for `dprint lsp --config` and `None` without a `version`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub config_file_globs: Option<Vec<String>>,
   /// What to tell the user when there isn't a `version` (ex. that dprint or
   /// the editor extension needs to be updated).
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1058,6 +1059,23 @@ mod test {
   use serde_json::json;
 
   use super::*;
+
+  #[test]
+  fn should_serialize_empty_config_file_globs() {
+    // `dprint lsp --config` has no config files to watch, which isn't the same as an older server that doesn't say
+    let capability = ServerExperimentalCapability {
+      version: Some(1),
+      versions: vec![1],
+      features: Default::default(),
+      files: None,
+      config_file_globs: Some(Vec::new()),
+      message: None,
+    };
+    assert_eq!(
+      serde_json::to_value(&capability).unwrap(),
+      json!({ "version": 1, "versions": [1], "configFileGlobs": [] })
+    );
+  }
 
   #[test]
   fn should_serialize_a_format_result_that_needs_approval() {
