@@ -63,13 +63,15 @@ use crate::configuration::DOT_CONFIG_DIR_NAME;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
+use crate::configuration::forget_editor_approvals;
 use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
+use crate::configuration::is_dot_config_dir;
+use crate::configuration::read_editor_approval_denials;
 use crate::configuration::read_editor_approvals;
 use crate::configuration::resolve_global_config_dir;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
-use crate::configuration::update_editor_approvals;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::paths::get_plugin_names_for_file_on_disk;
@@ -621,8 +623,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         for config_file_path in workspace.get_dependent_config_files(&change.file_path) {
           workspace.handle_config_file_change(&config_file_path, ConfigFileChange::Changed).await;
         }
-        // the config file the server was started with is the only one, which it's resolved from
-        if change.is_config_file && !workspace.scope_container.has_config_override() {
+        // the config file the server was started with is the only one
+        if workspace.scope_container.has_config_override() {
+          if workspace.is_config_override_path(&change.file_path) {
+            workspace.handle_config_override_change(&change.file_path, change.change).await;
+          }
+        } else if change.is_config_file {
           workspace.handle_config_file_change(&change.file_path, change.change).await;
         }
       }
@@ -667,6 +673,21 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       ConfigFileChange::Created => self.send_file_config_changed(file_path, ConfigChange::Created),
       ConfigFileChange::Changed => self.send_file_config_changed(file_path, ConfigChange::Changed),
     }
+  }
+
+  /// Resolves what the config file the server was started with is used for
+  /// again after it changed, which publishes its diagnostics, and tells an
+  /// editor extension that every config file may have changed because it's
+  /// used for every file.
+  async fn handle_config_override_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange) {
+    let file_path = self.canonicalize(file_path.to_path_buf());
+    if change == ConfigFileChange::Deleted
+      && let (Some(uri), Some(editor_uri)) = (file_path_to_uri(&file_path), self.editor_uri(&file_path))
+    {
+      self.publish_diagnostics(&uri, editor_uri, Vec::new());
+    }
+    self.resolve_used_configs_again().await;
+    self.send_config_changed(new_every_config_changed());
   }
 
   /// Tells an editor extension that a local config file the editor said
@@ -1027,7 +1048,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           let config = self.resolve_approval_target(&target).await?;
           return Ok((target, config));
         }
-        let Some(config_file_path) = uri_to_file_path(uri).filter(|path| is_config_file_path(path)) else {
+        let Some(config_file_path) = uri_to_file_path(uri).filter(|path| is_config_file_path(&self.environment, path)) else {
           return Err(InvalidParamsError(format!("The configFile isn't a config file: {}", uri.as_str())).into());
         };
         let dir_path = dir_uri.as_ref().and_then(uri_to_file_path);
@@ -1081,9 +1102,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets whether the uri is of the config file the server was started with,
   /// which may not exist right now.
   fn is_config_override_uri(&self, uri: &Uri) -> bool {
-    match (self.scope_container.config_override_path(), uri_to_file_path(uri)) {
-      (Some(override_path), Some(uri_path)) => self.canonicalize(uri_path) == self.canonicalize(override_path),
-      _ => false,
+    uri_to_file_path(uri).is_some_and(|path| self.is_config_override_path(&path))
+  }
+
+  /// Gets whether the path is of the config file the server was started with.
+  fn is_config_override_path(&self, path: &Path) -> bool {
+    match self.scope_container.config_override_path() {
+      Some(override_path) => self.canonicalize(path.to_path_buf()) == self.canonicalize(override_path),
+      None => false,
     }
   }
 
@@ -1501,9 +1527,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   fn get_decisions(&self, config_file: Option<&(String, String)>) -> Vec<Decision> {
     let is_config_file = |source: &str| config_file.is_none_or(|(config_source, _)| config_source == source);
     // the stored decisions are read even when the settings allow every process plugin
+    // the denials of a file that can't be read are still used, so they're provided too
     let stored = read_editor_approvals(&self.environment)
       .map(|approvals| approvals.process_plugin_decisions)
-      .unwrap_or_default();
+      .unwrap_or_else(|_| read_editor_approval_denials(&self.environment));
     let session = self.session_permissions.session_process_plugin_decisions();
     // allowing a plugin that isn't set up is a grant until it's set up
     let grants = self.session_permissions.process_plugin_set_up_grants();
@@ -1600,19 +1627,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Forgets the process plugin decisions of the config files that are
   /// stored (ex. "Always Allow").
   async fn forget_stored_decisions(&self, is_config_file: &impl Fn(&str) -> bool) -> Result<()> {
-    let has_stored = read_editor_approvals(&self.environment)?
-      .process_plugin_decisions
-      .iter()
-      .any(|decision| is_config_file(&decision.approval.config_file));
-    if has_stored {
-      update_editor_approvals(&self.environment, |approvals| {
-        approvals
-          .process_plugin_decisions
-          .retain(|decision| !is_config_file(&decision.approval.config_file));
-      })
-      .await?;
-    }
-    Ok(())
+    forget_editor_approvals(&self.environment, is_config_file).await
   }
 
   /// Gets the config file the decisions of a config file are for as the
@@ -1626,7 +1641,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       let dir_path = dir_path.unwrap_or_else(|| self.environment.cwd().into_path_buf());
       self.scope_container.find_config_file(&dir_path, false)?
     } else {
-      let Some(file_path) = uri_to_file_path(uri).filter(|path| is_config_file_path(path)) else {
+      let Some(file_path) = uri_to_file_path(uri).filter(|path| is_config_file_path(&self.environment, path)) else {
         return Err(InvalidParamsError(format!("The configFile isn't a config file: {}", uri.as_str())).into());
       };
       match self.load_config_file(&file_path, dir_path.as_deref())? {
@@ -3159,19 +3174,15 @@ fn get_config_dir_path(source: &PathSource, is_global: bool, base_path: &Path) -
   }
 }
 
-/// Gets whether the file is a config file that's found for a directory,
-/// which is by its name and isn't one in `node_modules` (that's only used
-/// when it's extended).
-pub fn is_config_file_path(file_path: &Path) -> bool {
+/// Gets whether the file is a config file that's found for a directory by
+/// its name, like dprint finds them for a file.
+pub fn is_config_file_path(environment: &impl Environment, file_path: &Path) -> bool {
   let Some(file_name) = file_path.file_name().and_then(|name| name.to_str()) else {
     return false;
   };
-  if file_path.components().any(|component| component.as_os_str() == "node_modules") {
-    return false;
-  }
-  match file_path.parent().and_then(|dir| dir.file_name()) {
-    // only these are found in a `.config` directory
-    Some(dir_name) if dir_name == DOT_CONFIG_DIR_NAME => matches!(file_name, "dprint.json" | "dprint.jsonc"),
+  match file_path.parent() {
+    // only these are found in a `.config` directory, which isn't the home directory's
+    Some(dir_path) if is_dot_config_dir(environment, dir_path) => matches!(file_name, "dprint.json" | "dprint.jsonc"),
     _ => matches!(file_name, "dprint.json" | "dprint.jsonc" | ".dprint.json" | ".dprint.jsonc"),
   }
 }

@@ -206,14 +206,14 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     self.plugin_resolver.shutdown_unused(&used_plugins).await;
   }
 
-  /// Gets whether the server uses one config file for every file
-  /// (`dprint lsp --config <path>`).
   /// Gets the path of the config file the server was started with, which is
   /// relative to the current directory.
   pub fn config_override_path(&self) -> Option<PathBuf> {
     self.config_override.as_ref().map(|path| self.environment.cwd().as_ref().join(path))
   }
 
+  /// Gets whether the server uses one config file for every file
+  /// (`dprint lsp --config <path>`).
   pub fn has_config_override(&self) -> bool {
     self.config_override.is_some()
   }

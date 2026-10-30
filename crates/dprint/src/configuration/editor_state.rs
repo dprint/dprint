@@ -370,8 +370,12 @@ impl SessionPermissions {
   }
 
   /// Allows setting up the process plugin for the session.
+  /// It replaces the one for the plugin of the config file (ex. for a trusted
+  /// configuration that changed since), which would otherwise be taken first.
   pub fn add_process_plugin_set_up_grant(&self, grant: ProcessPluginSetUpGrant) {
-    self.process_plugin_set_up_grants.lock().push(grant);
+    let mut grants = self.process_plugin_set_up_grants.lock();
+    grants.retain(|existing| existing.config_file != grant.config_file || existing.plugin != grant.plugin);
+    grants.push(grant);
   }
 
   /// Gets what the user decided for the session about running process
@@ -428,17 +432,38 @@ pub async fn store_process_plugin_decision(environment: &impl Environment, decis
 
 /// Updates the process plugin decisions the user said to always use.
 pub async fn update_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment, update: impl FnOnce(&mut EditorApprovals)) -> Result<()> {
-  // prevent another process from storing something between the read and
-  // write of the file, which would lose one of the two
-  let lock_dir = environment.get_cache_dir().join("locks");
-  let _ignore = environment.mk_dir_all(&lock_dir);
-  let _flag = LaxSingleProcessFsFlag::lock(
-    environment,
-    lock_dir.join(".editor-approvals.lock"),
-    "Waiting for file lock for the editor approvals...",
-  )
-  .await;
+  let _flag = lock_editor_approvals(environment).await;
   update_editor_approvals_without_lock(environment, update)
+}
+
+/// Forgets the stored decisions of the config files, which includes the ones
+/// in a format this version doesn't know (ex. from a newer version of dprint)
+/// so that forgetting them doesn't leave one that allows a plugin behind. A
+/// decision like that without a config file this version can read is only
+/// forgotten with every config file.
+pub async fn forget_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment, is_config_file: impl Fn(&str) -> bool) -> Result<()> {
+  let _flag = lock_editor_approvals(environment).await;
+  let Some(file_path) = get_editor_approvals_file_path(environment) else {
+    return Ok(());
+  };
+  let is_forgotten = |value: &serde_json::Value| match value.get("configFile").and_then(|config_file| config_file.as_str()) {
+    Some(config_file) => is_config_file(config_file),
+    None => is_config_file(""),
+  };
+  // the file isn't written when there's nothing to forget (ex. it doesn't exist)
+  match read_approvals_file(environment, &file_path)? {
+    Some((_, file)) if file.process_plugin_decisions.iter().any(is_forgotten) => {}
+    _ => return Ok(()),
+  }
+  edit_editor_approvals(
+    environment,
+    |approvals| {
+      approvals
+        .process_plugin_decisions
+        .retain(|decision| !is_config_file(&decision.approval.config_file));
+    },
+    is_forgotten,
+  )
 }
 
 /// Reads the process plugin decisions the user said to always use, which
@@ -459,7 +484,7 @@ pub fn read_editor_approvals(environment: &impl Environment) -> Result<EditorApp
 /// Reads the decisions that denied a process plugin from a file that can't be
 /// read otherwise (ex. it's from a newer version of dprint), which is empty
 /// when it doesn't parse.
-fn read_editor_approval_denials(environment: &impl Environment) -> Vec<ProcessPluginDecision> {
+pub(crate) fn read_editor_approval_denials(environment: &impl Environment) -> Vec<ProcessPluginDecision> {
   let Some(file_path) = get_editor_approvals_file_path(environment) else {
     return Vec::new();
   };
@@ -490,6 +515,16 @@ fn read_editor_approval_denials(environment: &impl Environment) -> Vec<ProcessPl
 }
 
 pub(crate) fn update_editor_approvals_without_lock(environment: &impl Environment, update: impl FnOnce(&mut EditorApprovals)) -> Result<()> {
+  edit_editor_approvals(environment, update, |_| false)
+}
+
+/// Updates the decisions of the approvals file in place, which removes the
+/// decisions in a format this version doesn't know that `remove_unknown` says to.
+fn edit_editor_approvals(
+  environment: &impl Environment,
+  update: impl FnOnce(&mut EditorApprovals),
+  remove_unknown: impl Fn(&serde_json::Value) -> bool,
+) -> Result<()> {
   let Some(file_path) = get_editor_approvals_file_path(environment) else {
     bail!("Could not find the directory of the settings file to store the decision in.");
   };
@@ -503,15 +538,18 @@ pub(crate) fn update_editor_approvals_without_lock(environment: &impl Environmen
   set_number_property(&root_obj, "version", file.version.max(APPROVALS_FILE_VERSION), 0);
   set_number_property(&root_obj, "minVersion", file.min_version().max(APPROVALS_FILE_MIN_VERSION), 1);
   let decisions_array = root_obj.array_value_or_set("processPluginDecisions");
-  let known_decisions = decisions_array
-    .elements()
-    .into_iter()
-    .filter_map(|element| {
-      // the file was already read as JSON, so its text is JSON
-      let decision = parse_process_plugin_decision(serde_json::from_str(&element.to_string()).ok()?)?;
-      Some((element, decision))
-    })
-    .collect::<Vec<_>>();
+  let mut known_decisions = Vec::new();
+  for element in decisions_array.elements() {
+    // the file was already read as JSON, so its text is JSON
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&element.to_string()) else {
+      continue;
+    };
+    match parse_process_plugin_decision(value.clone()) {
+      Some(decision) => known_decisions.push((element, decision)),
+      None if remove_unknown(&value) => element.remove(),
+      None => {}
+    }
+  }
   let mut approvals = EditorApprovals {
     process_plugin_decisions: known_decisions.iter().map(|(_, decision)| decision.clone()).collect(),
   };
@@ -539,6 +577,19 @@ pub(crate) fn update_editor_approvals_without_lock(environment: &impl Environmen
   }
   environment.atomic_write_file_bytes(file_path, text.as_bytes())?;
   Ok(())
+}
+
+/// Prevents another process from storing something between the read and
+/// write of the approvals file, which would lose one of the two.
+async fn lock_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment) -> LaxSingleProcessFsFlag<TEnvironment> {
+  let lock_dir = environment.get_cache_dir().join("locks");
+  let _ignore = environment.mk_dir_all(&lock_dir);
+  LaxSingleProcessFsFlag::lock(
+    environment,
+    lock_dir.join(".editor-approvals.lock"),
+    "Waiting for file lock for the editor approvals...",
+  )
+  .await
 }
 
 pub(crate) fn get_editor_approvals_file_path(environment: &impl Environment) -> Option<PathBuf> {
@@ -1070,6 +1121,42 @@ mod test {
 }
 "#
     );
+  }
+
+  #[test]
+  fn should_forget_the_decisions_in_a_format_this_version_does_not_know() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let file_path = get_editor_approvals_file_path(&environment).unwrap();
+    environment
+      .write_file(
+        &file_path,
+        r#"{
+  "version": 3,
+  "minVersion": 1,
+  "processPluginDecisions": [
+    { "kind": "other", "allowed": true },
+    { "configFile": "/a/dprint.json", "kind": "other", "allowed": true },
+    { "configFile": "/b/dprint.json", "kind": "other", "allowed": true }
+  ]
+}
+"#,
+      )
+      .unwrap();
+    environment.clone().run_in_runtime(async move {
+      // the one of the config file
+      forget_editor_approvals(&environment, |config_file| config_file == "/a/dprint.json")
+        .await
+        .unwrap();
+      let text = environment.read_file(&file_path).unwrap();
+      assert!(!text.contains("/a/dprint.json"), "{}", text);
+      assert!(text.contains("/b/dprint.json"), "{}", text);
+      assert!(text.contains(r#"{ "kind": "other", "allowed": true }"#), "{}", text);
+      // and every one
+      forget_editor_approvals(&environment, |_| true).await.unwrap();
+      let text = environment.read_file(&file_path).unwrap();
+      assert!(!text.contains("allowed"), "{}", text);
+    });
   }
 
   #[test]

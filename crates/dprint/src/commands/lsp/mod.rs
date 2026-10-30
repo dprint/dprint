@@ -1152,8 +1152,10 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       .iter()
       .filter_map(|change| {
         let file_path = uri_to_file_path(&change.uri)?;
+        // a config file in node_modules isn't resolved again for a change (it's usually installed)
+        let is_in_node_modules = file_path.components().any(|component| component.as_os_str() == "node_modules");
         Some(WatchedFileChange {
-          is_config_file: is_config_file_path(&file_path),
+          is_config_file: is_config_file_path(&self.environment, &file_path) && !is_in_node_modules,
           change: match change.typ {
             FileChangeType::CREATED => ConfigFileChange::Created,
             FileChangeType::DELETED => ConfigFileChange::Deleted,

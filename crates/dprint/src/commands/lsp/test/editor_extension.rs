@@ -715,6 +715,47 @@ fn should_report_progress_on_the_token_of_a_request() {
 }
 
 #[test]
+fn should_tell_the_editor_when_the_config_file_the_server_was_started_with_changed() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/config/my-config.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session_with_config(&environment, editor_extension_params(), Some(PathBuf::from("/config/my-config.json")), {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let mut params = config_params("/dprint.json");
+        params.config_file = Some(ConfigFileIdentifier {
+          uri: uri("/config/my-config.json"),
+          dir_uri: None,
+        });
+        let config_info = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap();
+        assert_eq!(config_info.status, FormatStatus::ready());
+        let change = |path: &str| DidChangeWatchedFilesParams {
+          changes: vec![FileEvent {
+            uri: uri(path),
+            typ: FileChangeType::CHANGED,
+          }],
+        };
+        // another config file isn't one to the server
+        environment.mk_dir_all("/project").unwrap();
+        environment.write_file("/project/dprint.json", "{}").unwrap();
+        client.backend.did_change_watched_files(change("/project/dprint.json")).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(client.take_config_changes(), Vec::new());
+        // a change to it is a change to every config file because it's used for every file
+        client.backend.did_change_watched_files(change("/config/my-config.json")).await;
+        assert!(client.wait_for_config_changes().await.contains(&uri("/")));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_resolve_a_config_file_again_when_a_file_it_extends_changed() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
@@ -937,15 +978,13 @@ fn should_get_the_global_config_file_when_asked_about_it() {
       });
       let err = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap_err();
       assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
-      // or one in node_modules, which is only used when it's extended
-      for path in ["/node_modules/pkg/dprint.json", "/.config/.dprint.json"] {
-        let err = client
-          .backend
-          .dprint_config_info(config_params(path), CancellationToken::new())
-          .await
-          .unwrap_err();
-        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams, "{}", path);
-      }
+      // or a name that isn't found in a .config directory
+      let err = client
+        .backend
+        .dprint_config_info(config_params("/project/.config/.dprint.json"), CancellationToken::new())
+        .await
+        .unwrap_err();
+      assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
     }
     .boxed_local()
   });
@@ -2467,8 +2506,19 @@ fn run_session(environment: &TestEnvironment, action: impl FnOnce(Client) -> Loc
 
 /// Runs a session of an editor extension that's initialized with the params.
 fn run_session_with(environment: &TestEnvironment, params: InitializeParams, action: impl FnOnce(Client) -> LocalBoxFuture<'static, ()> + 'static) {
+  run_session_with_config(environment, params, None, action);
+}
+
+/// Runs a session of an editor extension of a server that was started with
+/// the config file (`dprint lsp --config <path>`).
+fn run_session_with_config(
+  environment: &TestEnvironment,
+  params: InitializeParams,
+  config_override: Option<PathBuf>,
+  action: impl FnOnce(Client) -> LocalBoxFuture<'static, ()> + 'static,
+) {
   environment.clone().run_in_runtime(async move {
-    let (backend, recv_task, test_client) = setup_backend(environment.clone());
+    let (backend, recv_task, test_client) = setup_backend_with_config(environment.clone(), config_override);
     let backend = Rc::new(backend);
     let run_test_task = dprint_core::async_runtime::spawn({
       let test_client = test_client.clone();
