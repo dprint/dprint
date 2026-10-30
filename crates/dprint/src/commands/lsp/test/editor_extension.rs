@@ -2214,7 +2214,7 @@ fn should_provide_the_most_recent_decision_of_a_process_plugin() {
           crate::configuration::ProcessPluginApproval {
             config_file: "/a/dprint.json".to_string(),
             plugin: approval.items[0].specifier.clone(),
-            config_hash: Some("hash".to_string()),
+            config_hash: Some("1:hash".to_string()),
           },
           true,
           &[],
