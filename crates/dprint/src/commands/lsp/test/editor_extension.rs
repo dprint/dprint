@@ -15,11 +15,14 @@ use crate::commands::lsp::workspace::messages::ConfigFileInfo;
 use crate::commands::lsp::workspace::messages::ConfigFileKind;
 use crate::commands::lsp::workspace::messages::DocumentIdentifier;
 use crate::commands::lsp::workspace::messages::FileInfoParams;
+use crate::commands::lsp::workspace::messages::FilePattern;
 use crate::commands::lsp::workspace::messages::FilePlugin;
 use crate::commands::lsp::workspace::messages::FormatFailedReason;
 use crate::commands::lsp::workspace::messages::FormatStatus;
 use crate::commands::lsp::workspace::messages::GlobalConfigUse;
 use crate::commands::lsp::workspace::messages::NotFormatted;
+use crate::commands::lsp::workspace::messages::OtherFiles;
+use crate::commands::lsp::workspace::messages::OtherFilesKind;
 use crate::commands::lsp::workspace::messages::PendingApproval;
 use crate::commands::lsp::workspace::messages::PendingApprovalsParams;
 use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
@@ -46,14 +49,16 @@ fn should_say_it_supports_the_dprint_methods() {
 
   // the client is handled like a language client when it doesn't support a
   // version the server does or its capability can't be read
-  for experimental in [
-    None,
-    Some(json!({ "dprint": { "versions": [1, 2] } })),
-    Some(json!({ "dprint": { "versions": [99] } })),
-    Some(json!({ "dprint": { "version": 1 } })),
-    Some(json!({ "dprint": null })),
+  for (experimental, is_editor_extension) in [
+    (None, false),
+    (Some(json!({ "dprint": { "versions": [1, 2] } })), true),
+    // what can't be read is ignored
+    (Some(json!({ "dprint": { "versions": [1, "2"], "features": [] } })), true),
+    (Some(json!({ "dprint": { "versions": [99] } })), false),
+    (Some(json!({ "dprint": { "versions": [] } })), false),
+    (Some(json!({ "dprint": { "version": 1 } })), false),
+    (Some(json!({ "dprint": null })), false),
   ] {
-    let is_editor_extension = experimental == Some(json!({ "dprint": { "versions": [1, 2] } }));
     let environment = TestEnvironmentBuilder::new().build();
     environment.clone().run_in_runtime({
       let environment = environment.clone();
@@ -156,7 +161,9 @@ fn should_send_and_receive_the_dprint_methods_as_json() {
       json!("unsupportedDocument")
     );
     assert_eq!(
-      connection.request(4, "dprint/configInfo", json!({ "uri": "file:///dprint.json" })).await["result"],
+      connection
+        .request(4, "dprint/configInfo", json!({ "configFile": { "uri": "file:///dprint.json" } }))
+        .await["result"],
       json!({
         "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///", "kind": "local" },
         "plugins": [{
@@ -166,19 +173,19 @@ fn should_send_and_receive_the_dprint_methods_as_json() {
           "fileExtensions": ["txt"],
           "fileNames": [],
           "additive": false,
-          "supportsRangeFormatting": null,
+          "rangeFormatting": "wholeLines",
           "helpUrl": "https://dprint.dev/plugins/test",
           "updateUrl": "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         }],
-        "formatsOtherFiles": false,
-        "filePatterns": ["**/*.[tT][xX][tT]"],
+        "filePatterns": [{ "glob": "**/*.[tT][xX][tT]", "configKeys": ["test-plugin"] }],
+        "otherFiles": [],
         "watchUris": [],
         "status": { "kind": "ready" },
       })
     );
     assert_eq!(
       connection.request(5, "dprint/approve", json!({ "id": "unknown", "decision": "allow" })).await["error"]["code"],
-      json!(-32801)
+      json!(-32001)
     );
     assert_eq!(
       connection
@@ -195,7 +202,7 @@ fn should_send_and_receive_the_dprint_methods_as_json() {
       connection.request(8, "dprint/pendingApprovals", json!({})).await["result"],
       json!({ "approvals": [] })
     );
-    assert_eq!(connection.request(9, "dprint/reset", json!({})).await["result"], json!(null));
+    assert_eq!(connection.request(9, "dprint/reset", json!({})).await["result"], json!({}));
 
     assert_eq!(connection.request(7, "shutdown", json!(null)).await["result"], json!(null));
     connection.notify("exit", json!(null)).await;
@@ -340,9 +347,15 @@ fn should_format_files_with_the_config_file_of_each() {
       let plugins = config_info.plugins.unwrap();
       assert_eq!(plugins.iter().map(|plugin| plugin.name.as_str()).collect::<Vec<_>>(), vec!["test-plugin"]);
       assert_eq!(plugins[0].file_extensions, vec!["txt"]);
-      // the associations format other files, which the file info says
-      assert!(config_info.formats_other_files);
-      assert!(!client.config_info("/a/dprint.json").await.formats_other_files);
+      // the associations are in the patterns
+      assert_eq!(
+        config_info.file_patterns,
+        vec![
+          file_pattern("**/*.[tT][xX][tT]", &["test-plugin"]),
+          file_pattern("**/*.other", &["test-plugin"])
+        ]
+      );
+      assert!(config_info.other_files.is_empty());
       assert_eq!(config_info.status, FormatStatus::Ready);
     }
     .boxed_local()
@@ -438,7 +451,7 @@ fn should_provide_the_directory_a_config_file_is_for() {
     async move {
       let config_file = client.config_info("/a/file.txt").await.config_file.unwrap();
       assert_eq!(config_file, local_config("/a/.config/dprint.json"));
-      assert_eq!(config_file.dir_uri, Some(uri("/a")));
+      assert_eq!(config_file.dir_uri, uri("/a"));
     }
     .boxed_local()
   });
@@ -714,10 +727,95 @@ fn should_provide_the_associations_relative_to_the_directory_of_the_config_file(
     .build();
   run_session(&environment, |client| {
     async move {
+      let config_info = client.config_info("/a/dprint.json").await;
       assert_eq!(
-        client.config_info("/a/dprint.json").await.file_patterns,
+        config_info.file_patterns.iter().map(|pattern| pattern.glob.as_str()).collect::<Vec<_>>(),
         vec!["**/*.[tT][xX][tT]", "**/*.foo", "src/*.bar", "b/*.baz"]
       );
+      // what can't be made relative to the directory
+      assert_eq!(
+        config_info.other_files,
+        vec![OtherFiles {
+          kind: OtherFilesKind::Associations,
+          values: vec!["../c/*.qux".to_string()],
+        }]
+      );
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_resolve_the_config_files_again_when_dprints_own_files_change() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(
+          client.config_info("/dprint.json").await.status.reason(),
+          Some(NotFormattedReason::ApprovalRequired)
+        );
+        // the user trusts the domain in dprint's settings file, which the editor doesn't watch
+        let settings_file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+        environment.mk_dir_all(settings_file_path.parent().unwrap()).unwrap();
+        environment
+          .write_file(&settings_file_path, r#"{ "editor": { "trustedDomains": ["example.com"] } }"#)
+          .unwrap();
+        // every config file may have changed
+        let mut changes = Vec::new();
+        for _ in 0..100 {
+          changes.extend(client.take_config_changes());
+          if changes.contains(&uri("/")) {
+            break;
+          }
+          tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(changes.contains(&uri("/")), "{:?}", changes);
+        assert_eq!(client.config_info("/dprint.json").await.status, FormatStatus::Ready);
+        assert_eq!(client.pending_approvals().await, Vec::new());
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_get_the_config_file_of_a_config_file_or_a_document() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  environment.write_file("/dprint.jsonc", r#"{ "plugins": [] }"#).unwrap();
+  run_session(&environment, |client| {
+    async move {
+      // the config file that's asked about, which isn't the one the directory uses
+      let config_info = client.config_info("/dprint.jsonc").await;
+      assert_eq!(config_info.config_file.unwrap().uri, uri("/dprint.jsonc"));
+      assert_eq!(config_info.plugins, Some(Vec::new()));
+      // the config file of an untitled document
+      let mut params = config_params("untitled:Untitled-1");
+      params.language = Some(DocumentLanguage {
+        id: "plaintext".to_string(),
+        file_extensions: vec![".txt".to_string()],
+        file_names: Vec::new(),
+      });
+      let config_info = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap();
+      assert_eq!(config_info.config_file.unwrap().uri, uri("/dprint.json"));
+      // only one of them
+      let mut params = config_params("/dprint.json");
+      params.text_document = Some(DocumentIdentifier { uri: uri("/file.txt") });
+      let err = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap_err();
+      assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
     }
     .boxed_local()
   });
@@ -918,7 +1016,7 @@ fn should_provide_the_plugins_known_before_in_another_session_when_they_need_to_
       assert_eq!(plugins[1].config_key, "testProcessPlugin");
       assert_eq!(plugins[1].file_extensions, vec!["txt_ps".to_string()]);
       // the associations are known without the plugins
-      assert!(config_info.formats_other_files);
+      assert!(config_info.file_patterns.iter().any(|pattern| pattern.glob == "**/*.other"));
     }
     .boxed_local()
   });
@@ -948,7 +1046,10 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(specifiers(&approval), vec![UNTRUSTED_PLUGIN_URL]);
         assert_eq!(approval.items[0].kind, Some(ApprovalItemKind::Plugin));
         // a download is only allowed for the session
-        assert_eq!(approval.decisions, vec![ApprovalDecision::Allow, ApprovalDecision::Deny]);
+        assert_eq!(
+          approval.decisions.iter().map(|option| (option.id, option.label.as_str())).collect::<Vec<_>>(),
+          vec![(ApprovalDecision::Allow, "Allow"), (ApprovalDecision::Deny, "Deny")]
+        );
         assert!(!approval.denied);
         assert!(
           approval
@@ -1013,8 +1114,8 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
           )
           .await
           .unwrap_err();
-        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ContentModified);
-        assert_eq!(err.data, Some(json!({ "approvals": [] })));
+        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32001));
+        assert_eq!(err.data, Some(json!({ "kind": "approvalChanged", "approvals": [] })));
 
         // an approval that isn't pending anymore says what's needed changed
         let err = client
@@ -1029,7 +1130,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
           )
           .await
           .unwrap_err();
-        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ContentModified);
+        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32001));
       }
       .boxed_local()
     }
@@ -1185,7 +1286,7 @@ fn should_forget_what_a_deleted_config_file_needed_approved() {
           )
           .await
           .unwrap_err();
-        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ContentModified);
+        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32001));
       }
       .boxed_local()
     }
@@ -1246,14 +1347,7 @@ fn should_provide_the_config_schema_of_a_config_file() {
     async move {
       let result = client
         .backend
-        .dprint_config_schema(
-          ConfigParams {
-            uri: uri("/dprint.json"),
-            global_config: None,
-            work_done_token: None,
-          },
-          CancellationToken::new(),
-        )
+        .dprint_config_schema(config_params("/dprint.json"), CancellationToken::new())
         .await
         .unwrap();
       assert!(result.complete);
@@ -1282,14 +1376,7 @@ fn should_not_download_a_plugin_schema_from_a_domain_that_is_not_trusted() {
       async move {
         let result = client
           .backend
-          .dprint_config_schema(
-            ConfigParams {
-              uri: uri("/dprint.json"),
-              global_config: None,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
+          .dprint_config_schema(config_params("/dprint.json"), CancellationToken::new())
           .await
           .unwrap();
         // it doesn't have the plugin's schema
@@ -1396,14 +1483,7 @@ impl Client {
   async fn config_info(&self, path_or_uri: &str) -> ConfigInfoResult {
     self
       .backend
-      .dprint_config_info(
-        ConfigParams {
-          uri: uri(path_or_uri),
-          global_config: None,
-          work_done_token: None,
-        },
-        CancellationToken::new(),
-      )
+      .dprint_config_info(config_params(path_or_uri), CancellationToken::new())
       .await
       .unwrap()
   }
@@ -1607,8 +1687,29 @@ fn local_config(path: &str) -> ConfigFileInfo {
   let dir_path = dir_path.strip_suffix("/.config").unwrap_or(dir_path);
   ConfigFileInfo {
     uri: uri(path),
-    dir_uri: Some(uri(if dir_path.is_empty() { "/" } else { dir_path })),
+    dir_uri: uri(if dir_path.is_empty() { "/" } else { dir_path }),
     kind: ConfigFileKind::Local,
+  }
+}
+
+/// Gets the params for a config file, or a document when it isn't a config file's path.
+fn config_params(path_or_uri: &str) -> ConfigParams {
+  let identifier = DocumentIdentifier { uri: uri(path_or_uri) };
+  let is_config_file = path_or_uri.ends_with("dprint.json") || path_or_uri.ends_with("dprint.jsonc");
+  ConfigParams {
+    config_file: is_config_file.then(|| identifier.clone()),
+    text_document: (!is_config_file).then_some(identifier),
+    language: None,
+    notebook_document: None,
+    global_config: None,
+    work_done_token: None,
+  }
+}
+
+fn file_pattern(glob: &str, config_keys: &[&str]) -> FilePattern {
+  FilePattern {
+    glob: glob.to_string(),
+    config_keys: config_keys.iter().map(|key| key.to_string()).collect(),
   }
 }
 

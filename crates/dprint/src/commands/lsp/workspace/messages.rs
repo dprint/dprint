@@ -41,6 +41,24 @@ pub struct ClientExperimentalCapability {
 }
 
 impl ClientExperimentalCapability {
+  /// Reads the capability, which ignores the versions and features that can't
+  /// be read and is `None` when it isn't an object with versions.
+  pub fn from_value(value: &serde_json::Value) -> Option<Self> {
+    let capability = value.as_object()?;
+    let versions = capability
+      .get("versions")?
+      .as_array()?
+      .iter()
+      .filter_map(|version| version.as_u64().and_then(|version| u32::try_from(version).ok()))
+      .collect::<Vec<_>>();
+    let features = capability
+      .get("features")
+      .and_then(|features| features.as_object())
+      .cloned()
+      .unwrap_or_default();
+    Some(Self { versions, features })
+  }
+
   /// Gets the version of the `dprint/*` methods to use, which is the highest
   /// one that both support and `None` when there isn't one.
   pub fn negotiate_version(&self) -> Option<u32> {
@@ -255,7 +273,7 @@ pub struct PendingApproval {
   /// What's downloaded for `download` or run for `processPlugins`.
   pub items: Vec<ApprovalItem>,
   /// The decisions the user can make in the order to show them.
-  pub decisions: Vec<ApprovalDecision>,
+  pub decisions: Vec<ApprovalDecisionOption>,
   /// Whether the user denied it, which means they shouldn't be asked unless
   /// they ask for it (ex. a command).
   pub denied: bool,
@@ -307,6 +325,15 @@ pub enum ApprovalKind {
   ProcessPlugins,
 }
 
+/// A decision the user can make about an approval.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalDecisionOption {
+  pub id: ApprovalDecision,
+  /// What to show the user, which is for a decision the client doesn't know.
+  pub label: String,
+}
+
 /// The params of `dprint/approve`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -346,13 +373,27 @@ pub struct ApproveResult {
   pub approvals: Vec<PendingApproval>,
 }
 
-/// The data of the error for an approval that isn't pending anymore.
+/// The error code of `dprint/approve` for an approval that isn't pending
+/// anymore because what needs to be approved changed.
+pub const APPROVAL_CHANGED_ERROR_CODE: i64 = -32001;
+
+/// The data of an error, which is tagged by its kind.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApprovalChangedErrorData {
-  /// What needs to be approved for the config file now.
-  pub approvals: Vec<PendingApproval>,
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ErrorData {
+  /// An approval isn't pending anymore.
+  #[serde(rename_all = "camelCase")]
+  ApprovalChanged {
+    /// What needs to be approved for the config file now when it's known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    approvals: Option<Vec<PendingApproval>>,
+  },
 }
+
+/// The result of `dprint/reset`, which doesn't have anything yet.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetResult {}
 
 /// The params of `dprint/pendingApprovals`, which don't have anything yet.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -405,8 +446,19 @@ pub struct FilePlugin {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigParams {
-  /// The config file or a document that it's used for.
-  pub uri: Uri,
+  /// The config file, which is provided instead of a document.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub config_file: Option<DocumentIdentifier>,
+  /// A document the config file is used for, which is provided instead of
+  /// the config file.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub text_document: Option<DocumentIdentifier>,
+  /// The language of the document (see `DocumentParams`).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub language: Option<DocumentLanguage>,
+  /// The notebook when the document is one of its cells.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub notebook_document: Option<DocumentIdentifier>,
   /// Whether to use the global config file when there's no config file in an
   /// ancestor directory, which is what the setting says when `None`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -424,18 +476,46 @@ pub struct ConfigInfoResult {
   /// The plugins of the config file, which is `None` when they aren't known
   /// (ex. they need to be approved and weren't set up before).
   pub plugins: Option<Vec<PluginInfo>>,
-  /// Whether the config file formats files other than the ones with the file
-  /// extensions and names of its plugins (ex. with `associations` or
-  /// `shebangs`), which `dprint/fileInfo` says.
-  pub formats_other_files: bool,
-  /// Globs of the files the plugins may format, which are relative to the
-  /// directory of the config file (`dirUri`) and match the file extensions case
-  /// insensitively. They're empty when the plugins aren't known.
-  pub file_patterns: Vec<String>,
+  /// The files the plugins may format, which are empty when the plugins
+  /// aren't known.
+  pub file_patterns: Vec<FilePattern>,
+  /// The other files the config file formats, which `filePatterns` can't
+  /// match and only `dprint/fileInfo` says.
+  pub other_files: Vec<OtherFiles>,
   /// The local files besides the config file that it was resolved from (ex.
   /// a config file it extends), which the editor watches for changes too.
   pub watch_uris: Vec<Uri>,
   pub status: FormatStatus,
+}
+
+/// Files that plugins may format.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilePattern {
+  /// A glob relative to the directory of the config file (`dirUri`), which
+  /// matches file extensions and names case insensitively.
+  pub glob: String,
+  /// The config keys of the plugins that format the files.
+  pub config_keys: Vec<String>,
+}
+
+/// Files that a config file formats which a glob can't match.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtherFiles {
+  pub kind: OtherFilesKind,
+  /// The shebangs or the associations that can't be made relative to the
+  /// directory of the config file.
+  pub values: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OtherFilesKind {
+  /// Extensionless files with these shebangs.
+  Shebang,
+  /// The files of these associations of the plugins.
+  Associations,
 }
 
 /// A plugin of a config file.
@@ -453,13 +533,24 @@ pub struct PluginInfo {
   /// instead of formatting it on its own (ex. sorting the keys of a
   /// `package.json`).
   pub additive: bool,
-  /// Whether it formats a range, which is `None` when it formats the lines of
-  /// the range.
-  pub supports_range_formatting: Option<bool>,
+  /// How it formats a range.
+  pub range_formatting: RangeFormatting,
   pub help_url: String,
   /// Where its newer version is said to be.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub update_url: Option<String>,
+}
+
+/// How a plugin formats a range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RangeFormatting {
+  /// It decides what to format around the range.
+  Supported,
+  /// It formats the whole lines of the range.
+  WholeLines,
+  /// It doesn't format a range.
+  Unsupported,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -467,10 +558,10 @@ pub struct PluginInfo {
 pub struct ConfigFileInfo {
   pub uri: Uri,
   /// The directory whose files it formats, which is the directory it's in
-  /// unless that's a `.config` directory, and the directory it's used for when
-  /// it's the global config file. It's `None` for a remote config file.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub dir_uri: Option<Uri>,
+  /// unless that's a `.config` directory and the directory it's used for when
+  /// it's the global config file (ex. the root of a drive). It's the directory
+  /// its patterns are relative to for a remote or npm config file.
+  pub dir_uri: Uri,
   pub kind: ConfigFileKind,
 }
 
@@ -507,9 +598,23 @@ pub struct ResetParams {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigChangedParams {
-  pub uri: Uri,
+  /// The config file, which is `None` when every config file may have changed
+  /// (ex. dprint's settings file changed).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub uri: Option<Uri>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reason: Option<ConfigChangeReason>,
+  /// What changed, which is `None` when anything may have.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub changes: Option<Vec<ConfigChange>>,
+}
+
+/// What changed about a config file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConfigChange {
+  /// Only its schema (ex. a plugin's schema downloaded).
+  Schema,
 }
 
 /// How a config file changed.
@@ -547,7 +652,10 @@ mod test {
           config_key: Some("exec".to_string()),
           configuration: Some(json!({ "commands": [] })),
         }],
-        decisions: vec![ApprovalDecision::Allow, ApprovalDecision::Deny],
+        decisions: vec![ApprovalDecisionOption {
+          id: ApprovalDecision::Allow,
+          label: "Allow".to_string(),
+        }],
         denied: false,
         previous_decision: None,
         message: "message".to_string(),
@@ -571,7 +679,7 @@ mod test {
             "configKey": "exec",
             "configuration": { "commands": [] },
           }],
-          "decisions": ["allow", "deny"],
+          "decisions": [{ "id": "allow", "label": "Allow" }],
           "denied": false,
           "message": "message",
         }],
@@ -584,12 +692,12 @@ mod test {
     let result = ConfigInfoResult {
       config_file: Some(ConfigFileInfo {
         uri: "file:///a/.config/dprint.json".parse().unwrap(),
-        dir_uri: Some("file:///a".parse().unwrap()),
+        dir_uri: "file:///a".parse().unwrap(),
         kind: ConfigFileKind::Local,
       }),
       plugins: None,
-      formats_other_files: false,
       file_patterns: Vec::new(),
+      other_files: Vec::new(),
       watch_uris: Vec::new(),
       status: FormatStatus::NotFormatted(NotFormatted {
         reason: NotFormattedReason::ConfigError,
@@ -602,8 +710,8 @@ mod test {
       json!({
         "configFile": { "uri": "file:///a/.config/dprint.json", "dirUri": "file:///a", "kind": "local" },
         "plugins": null,
-        "formatsOtherFiles": false,
         "filePatterns": [],
+        "otherFiles": [],
         "watchUris": [],
         "status": { "kind": "notFormatted", "reason": "configError", "message": "message" },
       })

@@ -111,6 +111,22 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     })
   }
 
+  /// Loads the config file at the path, which is `None` when it doesn't exist.
+  pub fn load_config_file(&self, path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
+    let Some(content) = self.environment.maybe_read_file(path)? else {
+      return Ok(None);
+    };
+    let dirs = resolve_local_config_file_dirs(&self.environment, path)?;
+    Ok(Some(ResolvedConfigPathWithText {
+      base_path: dirs.base_path,
+      anchored_patterns_base_path: dirs.anchored_patterns_base_path,
+      source: PathSource::new_local(self.environment.canonicalize(path)?),
+      is_first_download: false,
+      content,
+      is_global_config: false,
+    }))
+  }
+
   /// Resolves the plugins of the config file found by `find_config_file`.
   pub async fn resolve_config_file(&self, config_file: &ResolvedConfigPathWithText) -> Result<Rc<PluginsScope<TEnvironment>>> {
     let cell = {

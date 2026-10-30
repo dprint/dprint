@@ -38,7 +38,7 @@ impl DownloadPolicy {
   /// Gets the policy of the editors, which only download from the trusted domains.
   pub fn for_editor(environment: &impl Environment) -> Self {
     DownloadPolicy::TrustedDomains(Arc::new(TrustedDownloads {
-      trusted_domains: TrustedDomains::from_settings(environment),
+      trusted_domains: Mutex::new(TrustedDomains::from_settings(environment)),
       allowed: Default::default(),
     }))
   }
@@ -47,7 +47,7 @@ impl DownloadPolicy {
   pub fn allows(&self, url: &Url) -> bool {
     match self {
       DownloadPolicy::All => true,
-      DownloadPolicy::TrustedDomains(downloads) => downloads.trusted_domains.is_trusted(url) || downloads.is_allowed(url.as_str()),
+      DownloadPolicy::TrustedDomains(downloads) => downloads.trusted_domains.lock().is_trusted(url) || downloads.is_allowed(url.as_str()),
     }
   }
 
@@ -85,12 +85,19 @@ impl DownloadPolicy {
       trusted_downloads.allowed.lock().extend(downloads.iter().cloned());
     }
   }
+
+  /// Reads the trusted domains from the settings file again (ex. after it changed).
+  pub fn reload_trusted_domains(&self, environment: &impl Environment) {
+    if let DownloadPolicy::TrustedDomains(trusted_downloads) = self {
+      *trusted_downloads.trusted_domains.lock() = TrustedDomains::from_settings(environment);
+    }
+  }
 }
 
 /// What may be downloaded with the `TrustedDomains` download policy.
 #[derive(Debug)]
 pub struct TrustedDownloads {
-  trusted_domains: TrustedDomains,
+  trusted_domains: Mutex<TrustedDomains>,
   /// The urls and paths the user allowed downloading this session, which are
   /// only the exact ones they were shown. A url ending with a slash allows
   /// what's under it (ex. an npm registry).

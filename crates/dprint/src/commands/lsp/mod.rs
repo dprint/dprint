@@ -104,6 +104,7 @@ use self::untitled::is_untitled_uri;
 use self::workspace::ApprovalChangedError;
 use self::workspace::ClientKind;
 use self::workspace::ConfigFileChange;
+use self::workspace::ConfigTarget;
 use self::workspace::DocumentInfo;
 use self::workspace::FormatOutcome;
 use self::workspace::FormatRequest;
@@ -112,8 +113,8 @@ use self::workspace::UnsupportedDocumentError;
 use self::workspace::WatchedFileChange;
 use self::workspace::Workspace;
 use self::workspace::WorkspaceSettings;
+use self::workspace::messages::APPROVAL_CHANGED_ERROR_CODE;
 use self::workspace::messages::APPROVE_METHOD;
-use self::workspace::messages::ApprovalChangedErrorData;
 use self::workspace::messages::ApproveParams;
 use self::workspace::messages::ApproveResult;
 use self::workspace::messages::CONFIG_INFO_METHOD;
@@ -125,6 +126,7 @@ use self::workspace::messages::ConfigSchemaResult;
 use self::workspace::messages::DocumentLanguage;
 use self::workspace::messages::DocumentParams;
 use self::workspace::messages::EXPERIMENTAL_CAPABILITY_NAME;
+use self::workspace::messages::ErrorData;
 use self::workspace::messages::FILE_INFO_METHOD;
 use self::workspace::messages::FORMAT_METHOD;
 use self::workspace::messages::FileInfoParams;
@@ -140,6 +142,7 @@ use self::workspace::messages::PendingApprovalsParams;
 use self::workspace::messages::PendingApprovalsResult;
 use self::workspace::messages::RESET_METHOD;
 use self::workspace::messages::ResetParams;
+use self::workspace::messages::ResetResult;
 use self::workspace::messages::SUPPORTED_METHOD_VERSIONS;
 use self::workspace::messages::ServerExperimentalCapability;
 
@@ -721,8 +724,9 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
 
   async fn dprint_config_info(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigInfoResult> {
     let _progress = self.track_request_progress(params.work_done_token.clone());
+    let target = get_config_target(&params)?;
     self
-      .run(move |workspace| async move { workspace.config_info(&params.uri, params.global_config).await }.boxed_local())
+      .run(move |workspace| async move { workspace.config_info(&target, params.global_config).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
       .map_err(to_lsp_error)
@@ -730,8 +734,9 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
 
   async fn dprint_config_schema(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigSchemaResult> {
     let _progress = self.track_request_progress(params.work_done_token.clone());
+    let target = get_config_target(&params)?;
     let (schema, complete) = self
-      .run(move |workspace| async move { workspace.config_schema(&params.uri, params.global_config).await }.boxed_local())
+      .run(move |workspace| async move { workspace.config_schema(&target, params.global_config).await }.boxed_local())
       .await
       .ok_or_else(new_server_stopped_error)?;
     Ok(ConfigSchemaResult { schema, complete })
@@ -748,15 +753,15 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   }
 
   /// Takes optional params so that they can be added later, which are `{}` for now.
-  async fn dprint_reset(&self, _params: Option<ResetParams>, _token: CancellationToken) -> LspResult<()> {
+  async fn dprint_reset(&self, _params: Option<ResetParams>, _token: CancellationToken) -> LspResult<ResetResult> {
     self.run(|workspace| async move { workspace.reset().await }.boxed_local()).await;
-    Ok(())
+    Ok(ResetResult {})
   }
 
   /// Takes optional params so that they can be added later, which are `{}` for now.
   async fn dprint_pending_approvals(&self, _params: Option<PendingApprovalsParams>, _token: CancellationToken) -> LspResult<PendingApprovalsResult> {
     let approvals = self
-      .run(|workspace| async move { workspace.pending_approvals() }.boxed_local())
+      .run(|workspace| async move { workspace.pending_approvals().await }.boxed_local())
       .await
       .ok_or_else(new_server_stopped_error)?;
     Ok(PendingApprovalsResult { approvals })
@@ -786,8 +791,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       .experimental
       .as_ref()
       .and_then(|experimental| experimental.get(EXPERIMENTAL_CAPABILITY_NAME))
-      .and_then(|capability| match serde_json::from_value::<ClientExperimentalCapability>(capability.clone()) {
-        Ok(capability) => {
+      .and_then(|capability| match ClientExperimentalCapability::from_value(capability) {
+        Some(capability) => {
           let version = capability.negotiate_version();
           if version.is_none() {
             log_warn!(
@@ -799,11 +804,10 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           }
           version
         }
-        Err(err) => {
+        None => {
           log_warn!(
             self.environment,
-            "Failed reading the dprint capability of the editor extension, so it's handled like a language client: {:#}",
-            err
+            "The dprint capability of the editor extension isn't an object with versions, so it's handled like a language client."
           );
           None
         }
@@ -1388,11 +1392,11 @@ fn to_lsp_error(err: anyhow::Error) -> LspError {
     ErrorCode::InvalidParams
   } else if let Some(err) = err.downcast_ref::<ApprovalChangedError>() {
     // what needs to be approved changed, which is provided when it's known
-    data = err
-      .approvals
-      .clone()
-      .and_then(|approvals| serde_json::to_value(ApprovalChangedErrorData { approvals }).ok());
-    ErrorCode::ContentModified
+    data = serde_json::to_value(ErrorData::ApprovalChanged {
+      approvals: err.approvals.clone(),
+    })
+    .ok();
+    ErrorCode::ServerError(APPROVAL_CHANGED_ERROR_CODE)
   } else {
     ErrorCode::InternalError
   };
@@ -1400,6 +1404,22 @@ fn to_lsp_error(err: anyhow::Error) -> LspError {
     code,
     message: format!("{:#}", err).into(),
     data,
+  }
+}
+
+/// Gets what `dprint/configInfo` and `dprint/configSchema` are for, which is a
+/// config file or a document it's used for.
+fn get_config_target(params: &ConfigParams) -> LspResult<ConfigTarget> {
+  match (&params.config_file, &params.text_document) {
+    (Some(config_file), None) => Ok(ConfigTarget::ConfigFile(config_file.uri.clone())),
+    (None, Some(text_document)) => Ok(ConfigTarget::Document(DocumentInfo {
+      uri: text_document.uri.clone(),
+      language: params.language.clone(),
+      notebook_uri: params.notebook_document.as_ref().map(|notebook| notebook.uri.clone()),
+    })),
+    _ => Err(to_lsp_error(
+      InvalidParamsError("Provide either the configFile or the textDocument.".to_string()).into(),
+    )),
   }
 }
 
@@ -4705,8 +4725,9 @@ mod test {
       self.published_diagnostics.lock().push((uri, diagnostics));
     }
 
-    fn send_config_changed(&self, uri: Uri, _reason: workspace::messages::ConfigChangeReason) {
-      self.config_changes.lock().push(uri);
+    fn send_config_changed(&self, params: workspace::messages::ConfigChangedParams) {
+      // every config file may have changed without a uri
+      self.config_changes.lock().push(params.uri.unwrap_or_else(|| "file:///".parse().unwrap()));
     }
 
     fn send_log(&self, message_type: MessageType, message: String) -> LocalBoxFuture<'static, ()> {

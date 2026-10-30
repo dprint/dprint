@@ -104,6 +104,8 @@ To trust other domains (ex. a private npm registry), add them to `editor.trusted
 }
 ```
 
+A running editor uses the change after a couple of seconds, without needing to restart it.
+
 ## Proxy
 
 You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the `HTTPS_PROXY`/`https_proxy` and `HTTP_PROXY`/`http_proxy` environment variables. `http://`, `https://`, and `socks` proxies are supported.

@@ -21,7 +21,6 @@ use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 
 use super::workspace::messages::CONFIG_CHANGED_NOTIFICATION;
-use super::workspace::messages::ConfigChangeReason;
 use super::workspace::messages::ConfigChangedParams;
 
 pub trait ClientTrait: std::fmt::Debug + Send + Sync {
@@ -38,7 +37,7 @@ pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   fn apply_edit(&self, edit: WorkspaceEdit) -> LocalBoxFuture<'static, Result<()>>;
   fn publish_diagnostics(&self, uri: Uri, diagnostics: Vec<Diagnostic>);
   /// Sends the `dprint/configChanged` notification.
-  fn send_config_changed(&self, uri: Uri, reason: ConfigChangeReason);
+  fn send_config_changed(&self, params: ConfigChangedParams);
   /// Logs the message, which resolves once it's sent so that the messages
   /// are sent in order.
   fn send_log(&self, message_type: MessageType, message: String) -> LocalBoxFuture<'static, ()>;
@@ -119,12 +118,10 @@ impl ClientTrait for Client {
     });
   }
 
-  fn send_config_changed(&self, uri: Uri, reason: ConfigChangeReason) {
+  fn send_config_changed(&self, params: ConfigChangedParams) {
     let client = self.clone();
     dprint_core::async_runtime::spawn(async move {
-      client
-        .send_notification::<ConfigChangedNotification>(ConfigChangedParams { uri, reason: Some(reason) })
-        .await;
+      client.send_notification::<ConfigChangedNotification>(params).await;
     });
   }
 
@@ -203,8 +200,8 @@ impl ClientWrapper {
     self.0.publish_diagnostics(uri, diagnostics)
   }
 
-  pub fn send_config_changed(&self, uri: Uri, reason: ConfigChangeReason) {
-    self.0.send_config_changed(uri, reason)
+  pub fn send_config_changed(&self, params: ConfigChangedParams) {
+    self.0.send_config_changed(params)
   }
 
   pub fn send_log(&self, message_type: MessageType, message: String) -> LocalBoxFuture<'static, ()> {
