@@ -172,6 +172,8 @@ pub struct TestEnvironment {
   remote_file_request_counts: Arc<Mutex<HashMap<String, usize>>>,
   /// Number of times each file was read (whether or not it existed).
   file_read_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
+  /// How many times the kind of a path was gotten (see `Environment::path_kind`).
+  path_kind_count: Arc<Mutex<usize>>,
   /// URLs whose requests never get a response.
   unresponsive_remote_files: Arc<Mutex<Vec<String>>>,
   selection_result: Arc<Mutex<usize>>,
@@ -229,6 +231,7 @@ impl TestEnvironment {
       remote_file_proxies: Default::default(),
       remote_file_request_counts: Default::default(),
       file_read_counts: Default::default(),
+      path_kind_count: Default::default(),
       unresponsive_remote_files: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       prompt_terminal: Default::default(),
@@ -337,6 +340,11 @@ impl TestEnvironment {
   /// Gets the number of times the file was read, whether or not it existed.
   pub fn file_read_count(&self, path: impl AsRef<Path>) -> usize {
     self.file_read_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
+  }
+
+  /// Gets the number of times the kind of any path was gotten.
+  pub fn path_kind_count(&self) -> usize {
+    *self.path_kind_count.lock()
   }
 
   /// Makes requests of the URL not get a response, which models a host
@@ -805,6 +813,7 @@ impl Environment for TestEnvironment {
   }
 
   fn path_kind(&self, file_path: impl AsRef<Path>) -> Option<PathKind> {
+    *self.path_kind_count.lock() += 1;
     let path = self.clean_path(file_path);
     let metadata = self.sys.fs_symlink_metadata(path).ok()?;
     Some(match metadata.file_type() {

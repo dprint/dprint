@@ -1295,7 +1295,7 @@ struct NpmrcFile {
 impl NpmrcChain {
   pub fn load(start_dir: Option<&Path>, environment: &impl Environment) -> Self {
     let home_dir = environment.get_home_dir();
-    let download_policy = environment.download_policy();
+    let ancestor_paths = start_dir.map(|start_dir| environment.download_policy().ancestor_paths(start_dir));
     let mut files = Vec::new();
     let mut load_dir = |dir: &Path| {
       let path = dir.join(".npmrc");
@@ -1305,7 +1305,10 @@ impl NpmrcChain {
       // download policy doesn't allow reading without asking, because reading
       // it contacts the machine. One on the same share as the start directory
       // is read.
-      if !is_users && !download_policy.allows_path(environment, &path, start_dir) {
+      if !is_users
+        && let Some(ancestor_paths) = &ancestor_paths
+        && ancestor_paths.ensure_allows(environment, &path, start_dir).is_err()
+      {
         log_debug!(environment, "Ignoring {} because it's on another machine.", path.display());
         return;
       }
@@ -1646,10 +1649,10 @@ fn get_tarball_url_from_packument(packument: &serde_json::Value, version: &str, 
 /// which is checked before anything there is read because reading it contacts
 /// the machine. A package on the same share as the start directory is allowed.
 pub fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Result<Option<PathBuf>> {
-  let download_policy = environment.download_policy();
+  let ancestor_paths = environment.download_policy().ancestor_paths(start_dir);
   for dir in start_dir.ancestors() {
     let candidate = dir.join("node_modules").join(package_name);
-    download_policy.ensure_allows_path(environment, &candidate, Some(start_dir))?;
+    ancestor_paths.ensure_allows(environment, &candidate, Some(start_dir))?;
     if environment.path_exists(&candidate) {
       return Ok(Some(candidate));
     }
