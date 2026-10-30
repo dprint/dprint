@@ -442,7 +442,7 @@ interface FileInfoResult {
 }
 
 /** Treat a kind that isn't known like "notFormatted" with the fields it has, which doesn't claim the document without `claim`. */
-type FormatStatus = { kind: "ready"; notice?: Notice } | ({ kind: "notFormatted" } & NotFormatted);
+type FormatStatus = { kind: "ready" } | ({ kind: "notFormatted" } & NotFormatted);
 
 interface FilePlugin {
   name: string;

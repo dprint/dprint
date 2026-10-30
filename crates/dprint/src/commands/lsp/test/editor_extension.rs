@@ -2403,7 +2403,7 @@ trait StatusExt {
 impl StatusExt for FormatStatus {
   fn claim(&self) -> bool {
     match self {
-      FormatStatus::Ready { .. } => true,
+      FormatStatus::Ready => true,
       FormatStatus::NotFormatted(not_formatted) => not_formatted.claim,
     }
   }
@@ -2411,21 +2411,21 @@ impl StatusExt for FormatStatus {
   fn reason(&self) -> Option<NotFormattedReason> {
     match self {
       FormatStatus::NotFormatted(not_formatted) => Some(not_formatted.reason),
-      FormatStatus::Ready { .. } => None,
+      FormatStatus::Ready => None,
     }
   }
 
   fn message(&self) -> Option<&str> {
     match self {
       FormatStatus::NotFormatted(not_formatted) => Some(&not_formatted.message),
-      FormatStatus::Ready { .. } => None,
+      FormatStatus::Ready => None,
     }
   }
 
   fn approvals(&self) -> &[PendingApproval] {
     match self {
       FormatStatus::NotFormatted(not_formatted) => &not_formatted.approvals,
-      FormatStatus::Ready { .. } => &[],
+      FormatStatus::Ready => &[],
     }
   }
 }

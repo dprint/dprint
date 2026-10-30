@@ -397,12 +397,7 @@ pub enum ShowPolicy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum FormatStatus {
-  #[serde(rename_all = "camelCase")]
-  Ready {
-    /// Something to tell the user about it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    notice: Option<Notice>,
-  },
+  Ready,
   NotFormatted(NotFormatted),
 }
 
@@ -414,7 +409,7 @@ impl Default for FormatStatus {
 
 impl FormatStatus {
   pub fn ready() -> Self {
-    Self::Ready { notice: None }
+    Self::Ready
   }
 }
 
