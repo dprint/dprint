@@ -566,7 +566,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     true
   }
 
-  fn matches_editor_file_patterns(&self, file_path: &Path) -> bool {
+  /// Gets whether the config file's includes and excludes (and the
+  /// gitignore files) match the file, which doesn't need the plugins.
+  pub fn matches_editor_file_patterns(&self, file_path: &Path) -> bool {
     let mut file_matcher_borrow = self.cached_editor_file_matcher.borrow_mut();
     if file_matcher_borrow.is_none() {
       let Some(config) = &self.config else {

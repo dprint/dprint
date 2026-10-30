@@ -1,15 +1,22 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 use anyhow::bail;
 use deno_tower_lsp::Client;
 use deno_tower_lsp::lsp_types::Diagnostic;
+use deno_tower_lsp::lsp_types::DidChangeWatchedFilesRegistrationOptions;
+use deno_tower_lsp::lsp_types::FileSystemWatcher;
+use deno_tower_lsp::lsp_types::GlobPattern;
 use deno_tower_lsp::lsp_types::MessageActionItem;
 use deno_tower_lsp::lsp_types::MessageType;
 use deno_tower_lsp::lsp_types::NumberOrString;
+use deno_tower_lsp::lsp_types::OneOf;
 use deno_tower_lsp::lsp_types::ProgressParams;
 use deno_tower_lsp::lsp_types::ProgressParamsValue;
 use deno_tower_lsp::lsp_types::Registration;
+use deno_tower_lsp::lsp_types::RelativePattern;
+use deno_tower_lsp::lsp_types::Unregistration;
 use deno_tower_lsp::lsp_types::Uri;
 use deno_tower_lsp::lsp_types::WorkDoneProgress;
 use deno_tower_lsp::lsp_types::WorkDoneProgressCreateParams;
@@ -20,12 +27,21 @@ use deno_tower_lsp::lsp_types::request::WorkDoneProgressCreate;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 
+use super::file_path_to_uri;
 use super::workspace::messages::CONFIG_CHANGED_NOTIFICATION;
 use super::workspace::messages::ConfigChangedParams;
+
+/// The id of the registration of the files outside the workspace that the
+/// client is asked to watch (see `ClientWrapper::register_watched_files`).
+const WATCHED_FILES_REGISTRATION_ID: &str = "dprint-watched-files";
+const DID_CHANGE_WATCHED_FILES_METHOD: &str = "workspace/didChangeWatchedFiles";
 
 pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   fn log(&self, message_type: MessageType, message: String);
   fn register_capabilities(&self, registrations: Vec<Registration>);
+  /// Unregisters the capability with the id of the registration, which is
+  /// then registered again when it's provided.
+  fn replace_capability(&self, unregistration: Unregistration, registration: Option<Registration>);
   fn show_message(&self, message_type: MessageType, message: String);
   /// Shows a message with actions, resolving to the one the user selected.
   fn show_message_request(
@@ -66,6 +82,21 @@ impl ClientTrait for Client {
     let client = self.clone();
     dprint_core::async_runtime::spawn(async move {
       if let Err(err) = client.register_capability(registrations).await {
+        client
+          .log_message(MessageType::WARNING, format!("Failed registering capabilities: {:#}", err))
+          .await;
+      }
+    });
+  }
+
+  fn replace_capability(&self, unregistration: Unregistration, registration: Option<Registration>) {
+    let client = self.clone();
+    dprint_core::async_runtime::spawn(async move {
+      // it fails when it wasn't registered before, which is fine
+      let _ = client.unregister_capability(vec![unregistration]).await;
+      if let Some(registration) = registration
+        && let Err(err) = client.register_capability(vec![registration]).await
+      {
         client
           .log_message(MessageType::WARNING, format!("Failed registering capabilities: {:#}", err))
           .await;
@@ -179,6 +210,37 @@ impl ClientWrapper {
     self.0.register_capabilities(registrations)
   }
 
+  /// Asks the client to tell the server when the files change with
+  /// `workspace/didChangeWatchedFiles`, which replaces the files it was asked
+  /// to watch before.
+  pub fn register_watched_files(&self, file_paths: &[PathBuf]) {
+    let watchers = file_paths
+      .iter()
+      .filter_map(|file_path| {
+        // each file is watched in its directory because a glob is relative to the workspace
+        let dir_uri = file_path_to_uri(file_path.parent()?)?;
+        let file_name = file_path.file_name()?.to_str()?;
+        Some(FileSystemWatcher {
+          glob_pattern: GlobPattern::Relative(RelativePattern {
+            base_uri: OneOf::Right(dir_uri),
+            pattern: escape_glob(file_name),
+          }),
+          kind: None,
+        })
+      })
+      .collect::<Vec<_>>();
+    let registration = (!watchers.is_empty()).then(|| Registration {
+      id: WATCHED_FILES_REGISTRATION_ID.to_string(),
+      method: DID_CHANGE_WATCHED_FILES_METHOD.to_string(),
+      register_options: Some(serde_json::to_value(DidChangeWatchedFilesRegistrationOptions { watchers }).expect("options should serialize")),
+    });
+    let unregistration = Unregistration {
+      id: WATCHED_FILES_REGISTRATION_ID.to_string(),
+      method: DID_CHANGE_WATCHED_FILES_METHOD.to_string(),
+    };
+    self.0.replace_capability(unregistration, registration)
+  }
+
   pub fn show_message(&self, message_type: MessageType, message: String) {
     self.0.show_message(message_type, message)
   }
@@ -219,4 +281,19 @@ impl ClientWrapper {
   fn log(&self, message_type: MessageType, message: String) {
     self.0.log(message_type, message)
   }
+}
+
+/// Escapes the characters of the text that a glob treats specially.
+fn escape_glob(text: &str) -> String {
+  let mut glob = String::with_capacity(text.len());
+  for c in text.chars() {
+    if matches!(c, '*' | '?' | '[' | '{' | '}') {
+      glob.push('[');
+      glob.push(c);
+      glob.push(']');
+    } else {
+      glob.push(c);
+    }
+  }
+  glob
 }
