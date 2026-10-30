@@ -234,7 +234,11 @@ fn should_send_and_receive_the_dprint_methods_as_json() {
       connection
         .request(10, "dprint/pendingApprovals", json!({ "configFile": { "uri": "file:///dprint.json" } }))
         .await["result"],
-      json!({ "approvals": [], "status": { "kind": "ready" } })
+      json!({
+        "approvals": [],
+        "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///", "kind": "local", "inWorkspace": false },
+        "status": { "kind": "ready" },
+      })
     );
     assert_eq!(
       connection.request(11, "dprint/forgetDecisions", json!({})).await["result"],
@@ -1079,7 +1083,7 @@ fn should_publish_the_diagnostics_of_config_files() {
         assert_eq!(
           not_formatted.actions,
           vec![Action::OpenUri {
-            title: "Open Configuration File".to_string(),
+            label: "Open Configuration File".to_string(),
             uri: uri("/dprint.json"),
           }]
         );
@@ -1500,8 +1504,9 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
           )
           .await
           .unwrap();
-        assert_eq!(result.approvals, Vec::new());
-        assert_eq!(result.status, FormatStatus::ready());
+        assert_eq!(result.config_approvals.approvals, Vec::new());
+        assert_eq!(result.config_approvals.status, FormatStatus::ready());
+        assert_eq!(result.notice, None);
         assert_eq!(client.pending_approvals().await, Vec::new());
         assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 1);
         // the editor is told the config file formats files now
@@ -1525,9 +1530,9 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32803));
         let data = err.data.unwrap();
         assert_eq!(data["kind"], json!("approvalChanged"));
-        assert_eq!(data["approvals"], json!([]));
-        assert_eq!(data["status"], json!({ "kind": "ready" }));
-        assert_eq!(data["configFile"]["uri"], json!(uri("/dprint.json").as_str()));
+        assert_eq!(data["current"]["approvals"], json!([]));
+        assert_eq!(data["current"]["status"], json!({ "kind": "ready" }));
+        assert_eq!(data["current"]["configFile"]["uri"], json!(uri("/dprint.json").as_str()));
 
         // an approval that isn't pending anymore says what's needed changed
         let err = client
@@ -2253,6 +2258,7 @@ impl Client {
       )
       .await
       .unwrap()
+      .config_approvals
       .approvals
   }
 

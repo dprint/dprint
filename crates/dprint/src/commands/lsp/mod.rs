@@ -859,16 +859,12 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   async fn dprint_approve(&self, params: ApproveParams, _token: CancellationToken) -> LspResult<ApproveResult> {
     self.ensure_editor_extension()?;
     let _progress = self.track_request_progress(params.work_done_token.clone());
-    let (config_file, approvals, status) = self
+    let (config_approvals, notice) = self
       .run(move |workspace| async move { workspace.approve(&params.id, params.decision).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
       .map_err(to_lsp_error)?;
-    Ok(ApproveResult {
-      config_file,
-      approvals,
-      status,
-    })
+    Ok(ApproveResult { config_approvals, notice })
   }
 
   /// Takes optional params so that they can be added later, which are `{}` for now.
@@ -884,12 +880,17 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let params = params.unwrap_or_default();
     let _progress = self.track_request_progress(params.work_done_token.clone());
     let config_file = params.config_file.map(|config_file| (config_file.uri, config_file.dir_uri));
-    let (approvals, status) = self
+    let (approvals, config) = self
       .run(|workspace| async move { workspace.pending_approvals(config_file).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
       .map_err(to_lsp_error)?;
-    Ok(PendingApprovalsResult { approvals, status })
+    let (config_file, status) = config.unzip();
+    Ok(PendingApprovalsResult {
+      approvals,
+      config_file,
+      status,
+    })
   }
 
   /// Takes optional params so that the decisions of every config file can be forgotten with `{}`.
@@ -898,12 +899,12 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let params = params.unwrap_or_default();
     let _progress = self.track_request_progress(params.work_done_token.clone());
     let config_file = params.config_file.map(|config_file| (config_file.uri, config_file.dir_uri));
-    let decisions = self
+    let (decisions, notice) = self
       .run(|workspace| async move { workspace.forget_decisions(config_file).await }.boxed_local())
       .await
       .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
       .map_err(to_lsp_error)?;
-    Ok(ForgetDecisionsResult { decisions })
+    Ok(ForgetDecisionsResult { decisions, notice })
   }
 
   /// Takes optional params so that the decisions of every config file can be gotten with `{}`.
@@ -1623,12 +1624,7 @@ fn to_lsp_error(err: anyhow::Error) -> LspError {
     ErrorCode::InvalidParams
   } else if let Some(err) = err.downcast_ref::<ApprovalChangedError>() {
     // what needs to be approved changed, which is provided when it's known
-    data = serde_json::to_value(ErrorData::ApprovalChanged {
-      config_file: err.config_file.clone(),
-      approvals: err.approvals.clone(),
-      status: err.status.clone(),
-    })
-    .ok();
+    data = serde_json::to_value(ErrorData::ApprovalChanged { current: err.current.clone() }).ok();
     ErrorCode::ServerError(APPROVAL_CHANGED_ERROR_CODE)
   } else {
     ErrorCode::InternalError

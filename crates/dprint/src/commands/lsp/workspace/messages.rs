@@ -308,7 +308,7 @@ pub struct Notice {
 pub enum Action {
   /// Opens a file in the editor (ex. the config file that has an error).
   #[serde(rename_all = "camelCase")]
-  OpenUri { title: String, uri: Uri },
+  OpenUri { label: String, uri: Uri },
 }
 
 /// Why a document isn't formatted, which is the same for each method.
@@ -645,21 +645,37 @@ impl ApprovalDecision {
   }
 }
 
-/// The result of `dprint/approve`.
+/// What needs to be approved for a config file now and whether it's used,
+/// which is what `dprint/approve`, `dprint/pendingApprovals` for a config
+/// file, and an approval that changed (`-32803`) provide.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ApproveResult {
-  /// The config file the approval was for, which is `None` when it can't be
-  /// resolved anymore (ex. it was deleted).
+pub struct ConfigApprovals {
+  /// The config file, which is `None` when it can't be resolved anymore (ex.
+  /// it was deleted).
   pub config_file: Option<ConfigFileInfo>,
   /// What needs to be approved now for the config file, which is empty when
-  /// nothing does. It has what was denied when the decision was to deny it,
-  /// and otherwise what else needs to be approved (ex. a config file that a
-  /// downloaded one extends or a process plugin the user denied before).
+  /// nothing does. After a decision, it has what was denied when the decision
+  /// was to deny it, and otherwise what else needs to be approved (ex. a
+  /// config file that a downloaded one extends or a process plugin the user
+  /// denied before).
   pub approvals: Vec<PendingApproval>,
   /// Whether the config file is used now, which isn't `ready` when it has an
   /// error or was deleted even when nothing needs to be approved.
   pub status: FormatStatus,
+}
+
+/// The result of `dprint/approve`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApproveResult {
+  /// The config file the approval was for and what needs to be approved for
+  /// it now.
+  #[serde(flatten)]
+  pub config_approvals: ConfigApprovals,
+  /// What to tell the user about the decision (ex. it couldn't be stored).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub notice: Option<Notice>,
 }
 
 /// The error code of `dprint/approve` for an approval that isn't pending
@@ -674,15 +690,11 @@ pub enum ErrorData {
   /// An approval isn't pending anymore.
   #[serde(rename_all = "camelCase")]
   ApprovalChanged {
-    /// The config file the approval was for when it's known.
+    /// The config file the approval was for and what needs to be approved for
+    /// it now, which is `None` when that isn't known (ex. the id isn't of an
+    /// approval the server provided).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    config_file: Option<ConfigFileInfo>,
-    /// What needs to be approved for the config file now when it's known.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    approvals: Option<Vec<PendingApproval>>,
-    /// Whether the config file is used now when it's known.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    status: Option<FormatStatus>,
+    current: Option<ConfigApprovals>,
   },
 }
 
@@ -705,12 +717,16 @@ pub struct PendingApprovalsParams {
 }
 
 /// The result of `dprint/pendingApprovals`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingApprovalsResult {
   /// What needs to be approved for the config files, which includes what the
   /// user denied.
   pub approvals: Vec<PendingApproval>,
+  /// The config file, which is only for one config file and is `Some(None)`
+  /// when it can't be resolved (see `ConfigApprovals`).
+  #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_some")]
+  pub config_file: Option<Option<ConfigFileInfo>>,
   /// Whether the config file is used, which is only for one config file.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub status: Option<FormatStatus>,
@@ -735,6 +751,10 @@ pub struct ForgetDecisionsParams {
 pub struct ForgetDecisionsResult {
   /// The decisions that were forgotten.
   pub decisions: Vec<Decision>,
+  /// What to tell the user about forgetting them (ex. the stored decisions
+  /// couldn't be forgotten).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub notice: Option<Notice>,
 }
 
 /// The params of `dprint/decisions`.
@@ -989,7 +1009,7 @@ pub struct ConfigChangedParams {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file: Option<ConfigFileIdentifier>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub reason: Option<ConfigChangeReason>,
+  pub change: Option<ConfigChange>,
   /// Whether only its schema changed (ex. a plugin's schema downloaded).
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub schema_only: bool,
@@ -998,12 +1018,22 @@ pub struct ConfigChangedParams {
 /// How a config file changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum ConfigChangeReason {
+pub enum ConfigChange {
   Created,
   /// What it resolves to changed (ex. it was edited, a config file it extends
   /// changed, or something it needed was approved).
   Changed,
   Deleted,
+}
+
+/// Deserializes a field that may be `null` when it's provided, which is
+/// `None` when it isn't.
+fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+  D: serde::Deserializer<'de>,
+  T: Deserialize<'de>,
+{
+  T::deserialize(deserializer).map(Some)
 }
 
 /// Deserializes `null` as the default value (ex. an empty list), which is
@@ -1129,13 +1159,25 @@ mod test {
     assert_eq!(serde_json::to_value(FormatStatus::ready()).unwrap(), json!({ "kind": "ready" }));
     assert_eq!(
       serde_json::to_value(ApproveResult {
-        config_file: None,
-        approvals: Vec::new(),
-        status: FormatStatus::ready(),
+        config_approvals: ConfigApprovals {
+          config_file: None,
+          approvals: Vec::new(),
+          status: FormatStatus::ready(),
+        },
+        notice: None,
       })
       .unwrap(),
       json!({ "configFile": null, "approvals": [], "status": { "kind": "ready" } })
     );
+    let result = PendingApprovalsResult {
+      approvals: Vec::new(),
+      config_file: Some(None),
+      status: Some(FormatStatus::ready()),
+    };
+    let value = serde_json::to_value(&result).unwrap();
+    assert_eq!(value, json!({ "approvals": [], "configFile": null, "status": { "kind": "ready" } }));
+    assert_eq!(serde_json::from_value::<PendingApprovalsResult>(value).unwrap(), result);
+    assert_eq!(serde_json::to_value(PendingApprovalsResult::default()).unwrap(), json!({ "approvals": [] }));
   }
 
   #[test]

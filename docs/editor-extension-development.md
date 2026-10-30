@@ -289,7 +289,7 @@ The editor formats without the user doing anything in between (ex. a "save all" 
 
 Several may need to be approved at once (ex. downloading a plugin and running a process plugin). Ask about them one at a time, or show them together and send the decisions one at a time, sending the next only while its `id` is still in the previous result. Send what the user decided with `dprint/approve` and take what to ask about next from its result, which is what needs to be approved now (ex. a configuration file that a downloaded one extends or the process plugins of a downloaded configuration file). Stop when the result has nothing that isn't denied, and format the document again when its `status` is `ready`.
 
-`-32803` means what was approved changed before the decision was received (ex. the configuration file changed), so the decision wasn't used. Its `data` has what needs to be approved now and whether the configuration file is used when they're known, which is like a result of `dprint/approve` to ask about. For a decision whose option's `allows` is `false`, don't ask again right away: send the same denial for the approval of the same `kind` and `configFile` that replaced it, if there is one, it has that decision, and its items are some of the ones of the approval that was denied (so a plugin added since isn't denied without the user seeing it), and never send an allowing decision that the user didn't make for what's shown. When the request is cancelled or fails otherwise, or `-32803` doesn't say what's pending, the decision may still have been used, so get what's pending for the configuration file with `dprint/pendingApprovals` (with its `configFile`) and continue with its result.
+`-32803` means what was approved changed before the decision was received (ex. the configuration file changed), so the decision wasn't used. Its `data` has what needs to be approved now for the configuration file and whether it's used (`current`) when they're known, which is handled like a result of `dprint/approve`. For a decision whose option's `allows` is `false`, don't ask again right away: send the same denial for the approval of the same `kind` and `configFile` that replaced it, if there is one, it has that decision, and its items are some of the ones of the approval that was denied (so a plugin added since isn't denied without the user seeing it), and never send an allowing decision that the user didn't make for what's shown. When the request is cancelled or fails otherwise, or `-32803` doesn't have `current`, the decision may still have been used, so get what's pending for the configuration file with `dprint/pendingApprovals` (with its `configFile`) and continue with its result.
 
 The decisions that are `always` are stored in an `editor-approvals.json` file next to dprint's settings file (`files.approvalsUri`), which the server notices when it changes (see "Lifecycle"). `dprint/decisions` lists what the user decided (ex. for a command that shows them), and `dprint/forgetDecisions` forgets what the user decided for a configuration file, or for every configuration file, so they're asked again (ex. a command to undo allowing a process plugin).
 
@@ -298,7 +298,7 @@ The decisions that are `always` are stored in an `editor-approvals.json` file ne
 The server responds with an error to a request that can't be handled, which has its message and a code:
 
 - `-32602` (InvalidParams) - The params can't be handled (ex. an `overrideConfig` property that can't be overridden, a decision the approval doesn't have, or a `configFile` that isn't a configuration file).
-- `-32803` (RequestFailed) - What `dprint/approve` was sent for isn't pending anymore because what needs to be approved changed (see "Approving"). The error's `data` is `{ kind: "approvalChanged", configFile?: ConfigFileInfo, approvals?: PendingApproval[], status?: FormatStatus }`. Recognize it by its `data.kind`, and treat it like `-32603` without it.
+- `-32803` (RequestFailed) - What `dprint/approve` was sent for isn't pending anymore because what needs to be approved changed (see "Approving"). The error's `data` is `{ kind: "approvalChanged", current?: ConfigApprovals }`, where `current` is for the configuration file the approval was for and is missing when that isn't known (ex. the id isn't of an approval the server provided). Recognize it by its `data.kind`, and treat it like `-32603` without it.
 - `-32800` (RequestCancelled) - The request was cancelled with `$/cancelRequest`, which isn't shown to the user.
 - `-32601` (MethodNotFound) - The method isn't known (ex. one that's newer than the server), or the server handles the client like a language client.
 - `-32603` (InternalError) - Anything else (ex. a configuration file couldn't be read), which doesn't mean the server stopped. Treat a code that isn't known like this.
@@ -358,8 +358,8 @@ interface Notice {
 /** Something the user can do about a message, which is offered with it. Leave out a kind that isn't known. */
 type Action =
   /** Opens the file in the editor (ex. the configuration file that has an error). */
-  | { kind: "openUri"; title: string; uri: string }
-  | { kind: string & {}; title: string };
+  | { kind: "openUri"; label: string; uri: string }
+  | { kind: string & {}; label: string };
 
 /** Why a document isn't formatted, which is the same for each method. */
 interface NotFormatted {
@@ -564,12 +564,22 @@ interface ApproveParams {
   workDoneToken?: string | number;
 }
 
-interface ApproveResult {
-  /** The configuration file the approval was for, which is `null` when it can't be resolved anymore (ex. it was deleted). */
+/** The configuration file the approval was for and what needs to be approved for it now. */
+interface ApproveResult extends ConfigApprovals {
+  /** What to tell the user about the decision (ex. it couldn't be stored, so it's only used until the server stops). */
+  notice?: Notice;
+}
+
+/**
+ * What needs to be approved for a configuration file now and whether it's used, which is the same for `dprint/approve`,
+ * `dprint/pendingApprovals` with a `configFile`, and the `data` of `-32803`. Handle each of them the same way.
+ */
+interface ConfigApprovals {
+  /** The configuration file, which is `null` when it can't be resolved anymore (ex. it was deleted). */
   configFile: ConfigFileInfo | null;
   /**
-   * What needs to be approved now for the configuration file, which is empty when nothing does. It has what was
-   * denied when the decision was to deny it, and otherwise it may have something else that needs to be approved.
+   * What needs to be approved now for the configuration file, which is empty when nothing does. After a decision, it has
+   * what was denied when the decision was to deny it, and otherwise it may have something else that needs to be approved.
    */
   approvals: PendingApproval[];
   /**
@@ -593,11 +603,8 @@ interface PendingApprovalsParams {
   workDoneToken?: string | number;
 }
 
-interface PendingApprovalsResult {
-  approvals: PendingApproval[];
-  /** Whether the configuration file is used, which is only provided with `configFile`. */
-  status?: FormatStatus;
-}
+/** It's a `ConfigApprovals` with a `configFile`. */
+type PendingApprovalsResult = { approvals: PendingApproval[] } | ConfigApprovals;
 ```
 
 ### `dprint/forgetDecisions` (request)
@@ -614,6 +621,8 @@ interface ForgetDecisionsParams {
 interface ForgetDecisionsResult {
   /** The decisions that were forgotten. */
   decisions: Decision[];
+  /** What to tell the user about forgetting them (ex. the stored decisions couldn't be forgotten). */
+  notice?: Notice;
 }
 ```
 
@@ -660,14 +669,14 @@ Forgets the configuration files and stops the plugins, which are set up again wh
 interface ConfigChangedParams {
   /** The configuration file, which is every configuration file when it's missing. */
   configFile?: ConfigFileIdentifier;
-  /** Treat a reason that isn't known like "changed". */
-  reason?: "created" | "changed" | "deleted" | (string & {});
+  /** How it changed. Treat a change that isn't known like "changed". */
+  change?: "created" | "changed" | "deleted" | (string & {});
   /** Whether only its schema changed (ex. a plugin's schema downloaded), so get the schema again but not the plugins. */
   schemaOnly?: boolean;
 }
 ```
 
-See "Which documents dprint formats". Ignore a configuration file the editor extension doesn't know about unless its `reason` is `created`.
+See "Which documents dprint formats". Ignore a configuration file the editor extension doesn't know about unless its `change` is `created`.
 
 ### Language server protocol methods
 
