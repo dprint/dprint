@@ -17,6 +17,7 @@ use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobMatchesDetail;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
+use crate::utils::expand_all_braces;
 use crate::utils::expand_braces;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
@@ -24,6 +25,7 @@ use crate::utils::non_negated_glob;
 use crate::utils::resolve_global_gitignore_lines;
 use crate::utils::rewrite_literal_arg_pattern;
 use crate::utils::rewrite_literal_arg_patterns;
+use crate::utils::to_exclamation_negated_classes;
 
 pub struct FileMatcherOptions<'a> {
   pub config: &'a ResolvedConfig,
@@ -483,25 +485,42 @@ fn is_floating_pattern(non_negated_pattern: &str) -> bool {
 /// pattern that matches at any depth gets a `**/` prefix like it's matched, and
 /// what can't be expressed relative to the directory is left out (ex. a
 /// negated pattern or one in an ancestor directory).
+///
+/// The globs don't have braces, because each brace group is expanded (ex.
+/// `*.{yml,yaml}` -> `**/*.yml` and `**/*.yaml`), and a negated character
+/// class is written with `!` (ex. `[!.]`). Nothing is provided when the pattern
+/// expands to too many globs.
 pub fn to_dir_relative_globs(pattern: &str, config_bases: ConfigPatternBases, dir_path: &Path) -> Vec<String> {
-  process_config_pattern(pattern)
-    .filter_map(|pattern| {
-      if is_negated_glob(&pattern) {
-        return None;
-      }
-      if is_floating_pattern(&pattern) {
-        let relative_dir = config_bases.floating.as_ref().strip_prefix(dir_path).ok()?;
-        let pattern = if pattern.starts_with("**") { pattern } else { format!("**/{}", pattern) };
-        return Some(join_relative_glob(relative_dir, &pattern));
-      }
-      let pattern = pattern.strip_prefix("./").unwrap_or(&pattern);
-      if pattern.starts_with("../") {
-        return None;
-      }
-      let relative_dir = config_bases.anchored.as_ref().strip_prefix(dir_path).ok()?;
-      Some(join_relative_glob(relative_dir, pattern))
-    })
-    .collect()
+  const MAX_GLOBS: usize = 256;
+  let mut globs = Vec::new();
+  for pattern in process_config_pattern(pattern) {
+    if is_negated_glob(&pattern) {
+      continue;
+    }
+    let Some(expansions) = expand_all_braces(&to_exclamation_negated_classes(&pattern), MAX_GLOBS - globs.len()) else {
+      return Vec::new();
+    };
+    globs.extend(
+      expansions
+        .into_iter()
+        .filter_map(|pattern| to_dir_relative_glob(pattern, config_bases, dir_path)),
+    );
+  }
+  globs
+}
+
+fn to_dir_relative_glob(pattern: String, config_bases: ConfigPatternBases, dir_path: &Path) -> Option<String> {
+  if is_floating_pattern(&pattern) {
+    let relative_dir = config_bases.floating.as_ref().strip_prefix(dir_path).ok()?;
+    let pattern = if pattern.starts_with("**") { pattern } else { format!("**/{}", pattern) };
+    return Some(join_relative_glob(relative_dir, &pattern));
+  }
+  let pattern = pattern.strip_prefix("./").unwrap_or(&pattern);
+  if pattern.starts_with("../") {
+    return None;
+  }
+  let relative_dir = config_bases.anchored.as_ref().strip_prefix(dir_path).ok()?;
+  Some(join_relative_glob(relative_dir, pattern))
 }
 
 fn join_relative_glob(relative_dir: &Path, pattern: &str) -> String {

@@ -897,7 +897,7 @@ fn should_provide_the_associations_relative_to_the_directory_of_the_config_file(
     .with_local_config("/a/dprint.json", |c| {
       c.add_remote_wasm_plugin().add_config_section(
         "test-plugin",
-        r#"{ "associations": ["*.foo", "/src/*.bar", "./b/*.baz", "../c/*.qux", "!*.foo"] }"#,
+        r#"{ "associations": ["*.foo", "/src/*.bar", "./b/*.baz", "../c/*.qux", "!*.foo", "**/*.{yml,yaml}", "d/{e,f/*}.{g,h}", "[^_]*.md", "{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}{o,p}{q,r}.x"] }"#,
       );
     })
     .initialize()
@@ -907,14 +907,27 @@ fn should_provide_the_associations_relative_to_the_directory_of_the_config_file(
       let config_info = client.config_info("/a/dprint.json").await;
       assert_eq!(
         config_info.file_patterns.iter().map(|pattern| pattern.glob.as_str()).collect::<Vec<_>>(),
-        vec!["**/*.[tT][xX][tT]", "**/*.foo", "src/*.bar", "b/*.baz"]
+        vec![
+          "**/*.[tT][xX][tT]",
+          "**/*.foo",
+          "src/*.bar",
+          "b/*.baz",
+          // without braces or a `^` class, which an editor's globs may not have
+          "**/*.yml",
+          "**/*.yaml",
+          "d/e.g",
+          "d/e.h",
+          "d/f/*.g",
+          "d/f/*.h",
+          "**/[!_]*.md",
+        ]
       );
-      // what can't be made relative to the directory
+      // what can't be made relative to the directory or has too many globs
       assert_eq!(
         config_info.other_files,
         vec![OtherFiles {
           kind: OtherFilesKind::Associations,
-          values: vec!["../c/*.qux".to_string()],
+          values: vec!["../c/*.qux".to_string(), "{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}{o,p}{q,r}.x".to_string()],
         }]
       );
     }
