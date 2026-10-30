@@ -14,6 +14,7 @@ use crate::plugins::PluginResolver;
 use crate::resolution::UnapprovedProcessPlugins;
 use crate::resolution::get_process_plugin_approvals;
 use crate::resolution::get_trusted_config_hash;
+use crate::resolution::get_unpinned_plugin_file_checksum;
 
 /// The actions of the message that asks the user whether to allow running the
 /// process plugins of a config file, in the order they're shown.
@@ -61,6 +62,7 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
           unapproved.config_file.clone(),
           plugin.plugin.clone(),
           unapproved.trusted_config_hash.clone(),
+          plugin.unpinned_file_checksum.clone(),
           always,
           &decisions,
         ));
@@ -87,7 +89,7 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
   let mut result = Ok(());
   let trusted_config_hash = get_trusted_config_hash(config);
   let permissions = session_permissions.read(environment);
-  for (_, approval) in get_process_plugin_approvals(config, plugin_resolver, environment) {
+  for (plugin, approval) in get_process_plugin_approvals(config, plugin_resolver, environment) {
     let Some(approval) = approval else {
       continue;
     };
@@ -95,8 +97,10 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
       continue;
     };
     // IMPORTANT: The plugin may have been set up elsewhere (ex. by another
-    // config file), so only allow it with the configuration the user saw.
-    if grant.trusted_config_hash != trusted_config_hash {
+    // config file), so only allow it with the configuration the user saw,
+    // and with the file of an npm plugin without a version they saw (ex. it
+    // wasn't updated since).
+    if grant.trusted_config_hash != trusted_config_hash || grant.unpinned_file_checksum != get_unpinned_plugin_file_checksum(&plugin, environment) {
       continue;
     }
     // IMPORTANT: Don't replace what the user denied since (ex. "Always Deny" in another window).
@@ -304,10 +308,30 @@ mod test {
         .await
         .unwrap();
       let permissions = session_permissions.read(&environment);
-      assert!(permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash"));
+      assert!(permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash", None));
       // its configuration isn't known yet, so nothing is stored
       assert!(!permissions.is_process_plugin_allowed(&approval()));
       assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
+    });
+  }
+
+  #[test]
+  fn should_only_allow_setting_up_the_file_of_an_unpinned_npm_plugin_that_was_allowed() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let session_permissions = SessionPermissions::default();
+
+    environment.clone().run_in_runtime(async move {
+      let mut not_set_up = unapproved(None);
+      not_set_up.plugins[0].unpinned_file_checksum = Some("file".to_string());
+      store_process_plugin_action(&environment, &session_permissions, &not_set_up, Some(ALLOW_ACTION_TITLE))
+        .await
+        .unwrap();
+      let permissions = session_permissions.read(&environment);
+      assert!(permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash", Some("file")));
+      // ex. the package was updated since
+      assert!(!permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash", Some("other")));
+      assert!(!permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash", None));
     });
   }
 
@@ -334,7 +358,7 @@ mod test {
       assert!(not_set_up.is_denied(&permissions));
       // it stays denied once it's set up because what was denied is the plugin
       assert!(unapproved(Some(approval())).is_denied(&permissions));
-      assert!(!permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash"));
+      assert!(!permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash", None));
     });
   }
 
@@ -382,7 +406,11 @@ mod test {
       store_process_plugin_action(&environment, &session_permissions, &unapproved(None), Some(ALWAYS_ALLOW_ACTION_TITLE))
         .await
         .unwrap();
-      assert!(session_permissions.read(&environment).may_set_up_process_plugin("/dprint.json", PLUGIN, "hash"));
+      assert!(
+        session_permissions
+          .read(&environment)
+          .may_set_up_process_plugin("/dprint.json", PLUGIN, "hash", None)
+      );
       store_process_plugin_action(
         &environment,
         &session_permissions,

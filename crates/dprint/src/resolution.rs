@@ -1478,7 +1478,12 @@ pub fn get_unapproved_process_plugins<TEnvironment: Environment>(
       Some(approval) => !permissions.is_process_plugin_allowed(approval),
       // a plugin the user allowed setting up is allowed with its configuration
       // once it's set up, which the editor records after resolving it
-      None => !permissions.may_set_up_process_plugin(&config_file, &plugin.to_full_string(), &trusted_config_hash),
+      None => !permissions.may_set_up_process_plugin(
+        &config_file,
+        &plugin.to_full_string(),
+        &trusted_config_hash,
+        get_unpinned_plugin_file_checksum(plugin, environment).as_deref(),
+      ),
     })
     .collect()
 }
@@ -1572,7 +1577,7 @@ fn get_process_plugin_config_hash(plugin_file: Option<String>, config: Option<&C
 /// (ex. updating the package changes it). Every other process plugin needs a
 /// checksum in the config file, and the plugin file pins the executables with
 /// their checksums.
-fn get_unpinned_plugin_file_checksum(plugin: &PluginSourceReference, environment: &impl Environment) -> Option<String> {
+pub fn get_unpinned_plugin_file_checksum(plugin: &PluginSourceReference, environment: &impl Environment) -> Option<String> {
   let PathSource::Npm(npm_source) = &plugin.path_source else {
     return None;
   };

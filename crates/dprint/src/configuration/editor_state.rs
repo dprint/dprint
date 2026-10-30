@@ -250,6 +250,11 @@ pub struct ProcessPluginSetUpGrant {
   /// The hash of the trusted configuration of the config file the user allowed
   /// it with, so that it's not allowed once that changes.
   pub trusted_config_hash: String,
+  /// The checksum of the plugin's file when the config file doesn't pin it
+  /// (an npm plugin without a version), which the user allowed like the
+  /// approval id says, so that it's not allowed once that changes (ex. the
+  /// package was updated).
+  pub unpinned_file_checksum: Option<String>,
   /// Whether to remember the decision once the plugin is set up instead of
   /// only using it for the session.
   pub always: bool,
@@ -266,6 +271,7 @@ impl ProcessPluginSetUpGrant {
     config_file: String,
     plugin: String,
     trusted_config_hash: String,
+    unpinned_file_checksum: Option<String>,
     always: bool,
     decisions: &[ProcessPluginDecision],
   ) -> Self {
@@ -274,6 +280,7 @@ impl ProcessPluginSetUpGrant {
       config_file,
       plugin,
       trusted_config_hash,
+      unpinned_file_checksum,
       always,
       decided_at,
     }
@@ -309,12 +316,17 @@ impl Permissions {
   }
 
   /// Gets whether the process plugin of the config file may be set up with
-  /// its trusted configuration, which runs it to get its information before
-  /// its configuration is known.
-  pub fn may_set_up_process_plugin(&self, config_file: &str, plugin: &str, trusted_config_hash: &str) -> bool {
+  /// its trusted configuration and the checksum of its file when the config
+  /// file doesn't pin it, which runs it to get its information before its
+  /// configuration is known.
+  pub fn may_set_up_process_plugin(&self, config_file: &str, plugin: &str, trusted_config_hash: &str, unpinned_file_checksum: Option<&str>) -> bool {
     !self.requires_process_plugin_approval()
       || self.process_plugin_set_up_grants.iter().any(|grant| {
-        grant.config_file == config_file && grant.plugin == plugin && grant.trusted_config_hash == trusted_config_hash && !self.is_denied_since(grant)
+        grant.config_file == config_file
+          && grant.plugin == plugin
+          && grant.trusted_config_hash == trusted_config_hash
+          && grant.unpinned_file_checksum.as_deref() == unpinned_file_checksum
+          && !self.is_denied_since(grant)
       })
   }
 
@@ -985,12 +997,12 @@ mod test {
     let permissions = read_permissions(&environment, &[]);
     assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     assert!(!permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1:a")));
-    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash"));
+    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash", None));
     // the user can opt out
     crate::test_helpers::allow_process_plugins_in_editors(&environment);
     let permissions = read_permissions(&environment, &[]);
     assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
-    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash"));
+    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash", None));
   }
 
   #[test]
@@ -1192,27 +1204,28 @@ mod test {
     assert!(
       !session_permissions
         .read(&environment)
-        .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash")
+        .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash", None)
     );
     session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant {
       config_file: "/a/dprint.json".to_string(),
       plugin: plugin.clone(),
       trusted_config_hash: "hash".to_string(),
+      unpinned_file_checksum: None,
       always: true,
       decided_at: 1,
     });
     let permissions = session_permissions.read(&environment);
-    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash"));
-    assert!(!permissions.may_set_up_process_plugin("/b/dprint.json", &plugin, "hash"));
+    assert!(permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash", None));
+    assert!(!permissions.may_set_up_process_plugin("/b/dprint.json", &plugin, "hash", None));
     // it's not allowed once the config file changes
-    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "other"));
+    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "other", None));
     // it's not allowed with any configuration
     assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     assert!(session_permissions.take_process_plugin_set_up_grant("/a/dprint.json", &plugin).unwrap().always);
     assert!(
       !session_permissions
         .read(&environment)
-        .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash")
+        .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash", None)
     );
   }
 
@@ -1226,6 +1239,7 @@ mod test {
       config_file: "/a/dprint.json".to_string(),
       plugin: plugin.clone(),
       trusted_config_hash: "hash".to_string(),
+      unpinned_file_checksum: None,
       always: true,
       decided_at,
     };
@@ -1239,7 +1253,7 @@ mod test {
     assert!(
       session_permissions
         .read(&environment)
-        .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash")
+        .may_set_up_process_plugin("/a/dprint.json", &plugin, "hash", None)
     );
     // denied after (ex. in another window)
     session_permissions.add_process_plugin_decision(ProcessPluginDecision {
@@ -1248,7 +1262,7 @@ mod test {
       decided_at: 3,
     });
     let permissions = session_permissions.read(&environment);
-    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash"));
+    assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", &plugin, "hash", None));
     assert!(permissions.is_denied_since(&grant(2)));
   }
 
@@ -1280,6 +1294,7 @@ mod test {
       "/a/dprint.json".to_string(),
       approval("/a/dprint.json", "1:a").plugin,
       "hash".to_string(),
+      None,
       false,
       &decisions,
     );
@@ -1881,6 +1896,7 @@ mod test {
       config_file: "/a/dprint.json".to_string(),
       plugin,
       trusted_config_hash: "hash".to_string(),
+      unpinned_file_checksum: None,
       always: true,
       decided_at: 2,
     };
