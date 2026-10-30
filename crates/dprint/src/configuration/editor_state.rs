@@ -580,9 +580,15 @@ fn edit_editor_approvals(
 }
 
 /// Prevents another process from storing something between the read and
-/// write of the approvals file, which would lose one of the two.
+/// write of the approvals file, which would lose one of the two. The lock is
+/// next to the file instead of in the cache directory so that each dprint
+/// that uses the file uses it, even with another cache directory (ex.
+/// `DPRINT_CACHE_DIR`).
 async fn lock_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment) -> LaxSingleProcessFsFlag<TEnvironment> {
-  let lock_dir = environment.get_cache_dir().join("locks");
+  let lock_dir = match get_editor_approvals_file_path(environment).as_deref().and_then(|file_path| file_path.parent()) {
+    Some(dir_path) => dir_path.to_path_buf(),
+    None => environment.get_cache_dir().join("locks"),
+  };
   let _ignore = environment.mk_dir_all(&lock_dir);
   LaxSingleProcessFsFlag::lock(
     environment,
