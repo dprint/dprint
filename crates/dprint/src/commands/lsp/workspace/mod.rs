@@ -1346,7 +1346,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         .into(),
       );
     };
-    if !stored.approval.decisions.iter().any(|option| option.id == decision) {
+    if !stored.approval.decisions.iter().any(|option| option.decision == decision) {
       return Err(InvalidParamsError(format!("The decision {:?} isn't one of the approval's decisions.", decision)).into());
     }
     // a failure to store a decision for process plugins is only told about
@@ -3113,7 +3113,7 @@ fn get_decision_options(kind: ApprovalKind, decisions: &[ApprovalDecision]) -> V
         (ApprovalKind::ProcessPlugins, ApprovalDecision::AlwaysDeny) => "Doesn't run them, and doesn't ask again unless you ask for it.",
       }
       .to_string(),
-      id: *decision,
+      decision: *decision,
       label: match decision {
         ApprovalDecision::Allow => "Allow",
         ApprovalDecision::AlwaysAllow => "Always Allow",

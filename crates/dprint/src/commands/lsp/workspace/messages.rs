@@ -633,7 +633,8 @@ pub enum ApprovalKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalDecisionOption {
-  pub id: ApprovalDecision,
+  /// The decision, which is what `dprint/approve` is sent with.
+  pub decision: ApprovalDecision,
   /// What to show the user, which is for a decision the client doesn't know.
   pub label: String,
   /// Whether it allows what's approved, which is otherwise denied.
@@ -649,7 +650,9 @@ pub struct ApprovalDecisionOption {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApproveParams {
+  /// The id of the approval.
   pub id: String,
+  /// The `decision` of one of the approval's decisions.
   pub decision: ApprovalDecision,
   /// The token to report the progress of setting up what was allowed with.
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1141,7 +1144,7 @@ mod test {
           configuration: Some(json!({ "commands": [] })),
         }],
         decisions: vec![ApprovalDecisionOption {
-          id: ApprovalDecision::Allow,
+          decision: ApprovalDecision::Allow,
           label: "Allow".to_string(),
           allows: true,
           always: false,
@@ -1178,7 +1181,7 @@ mod test {
               "plugin": { "name": "dprint-plugin-exec", "version": "0.5.0", "configKey": "exec" },
               "configuration": { "commands": [] },
             }],
-            "decisions": [{ "id": "allow", "label": "Allow", "allows": true, "always": false, "description": "description" }],
+            "decisions": [{ "decision": "allow", "label": "Allow", "allows": true, "always": false, "description": "description" }],
             "denied": false,
             "message": "message",
           }],

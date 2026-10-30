@@ -321,7 +321,8 @@ interface ApprovalItem {
 }
 
 interface ApprovalDecisionOption {
-  id: ApprovalDecision;
+  /** The decision, which is what `dprint/approve` is sent with. */
+  decision: ApprovalDecision;
   /** What to show the user. */
   label: string;
   /** Whether it allows what's approved, which is otherwise denied. */
@@ -619,8 +620,9 @@ Approves what was pending.
 
 ```ts
 interface ApproveParams {
+  /** The `id` of the approval. */
   id: string;
-  /** One of the approval's decisions. */
+  /** The `decision` of one of the approval's `decisions`. */
   decision: ApprovalDecision;
   workDoneToken?: string | number;
 }

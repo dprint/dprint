@@ -1612,7 +1612,11 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(approval.decision_group, approval.id);
         // a download is only allowed for the session
         assert_eq!(
-          approval.decisions.iter().map(|option| (option.id, option.label.as_str())).collect::<Vec<_>>(),
+          approval
+            .decisions
+            .iter()
+            .map(|option| (option.decision, option.label.as_str()))
+            .collect::<Vec<_>>(),
           vec![(ApprovalDecision::Allow, "Allow"), (ApprovalDecision::Deny, "Deny")]
         );
         assert!(!approval.denied);
