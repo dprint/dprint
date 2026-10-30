@@ -68,6 +68,7 @@ fn should_say_it_supports_the_dprint_methods() {
     (Some(json!({ "dprint": { "versions": [99] } })), false),
     (Some(json!({ "dprint": { "versions": [] } })), false),
     (Some(json!({ "dprint": { "version": 1 } })), false),
+    // null is the same as not providing it
     (Some(json!({ "dprint": null })), false),
   ] {
     let environment = TestEnvironmentBuilder::new().build();
@@ -87,7 +88,11 @@ fn should_say_it_supports_the_dprint_methods() {
           if is_editor_extension {
             // the highest version both support
             assert_eq!(result.capabilities.experimental.unwrap()["dprint"]["version"], json!(1));
-          } else if experimental.as_ref().is_some_and(|experimental| experimental.get("dprint").is_some()) {
+          } else if experimental
+            .as_ref()
+            .and_then(|experimental| experimental.get("dprint"))
+            .is_some_and(|capability| !capability.is_null())
+          {
             // the versions it supports, so the client can tell it apart from an older dprint
             let capability = &result.capabilities.experimental.unwrap()["dprint"];
             assert_eq!(capability["versions"], json!([1]), "{:?}", experimental);
@@ -2090,6 +2095,11 @@ fn should_provide_the_config_schema_of_a_config_file() {
         .unwrap();
       assert!(result.complete);
       assert_eq!(result.schema["properties"]["test-plugin"]["$ref"], json!("#/definitions/plugin-test-plugin"));
+      // a file that isn't a config file is invalid like for dprint/configInfo
+      let mut params = config_params("/dprint.json");
+      params.config_file.as_mut().unwrap().uri = uri("/other.json");
+      let err = client.backend.dprint_config_schema(params, CancellationToken::new()).await.unwrap_err();
+      assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
     }
     .boxed_local()
   });

@@ -899,14 +899,21 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Gets the schema of the config file, which says whether it has the
   /// schema of each plugin. The editor extension is told the config file
-  /// changed once the schemas that didn't download in time did.
-  pub async fn config_schema(self: &Rc<Self>, target: &ConfigTarget, global_config: Option<GlobalConfigUse>) -> (serde_json::Value, bool) {
+  /// changed once the schemas that didn't download in time did. It fails like
+  /// `config_info` for params that can't be handled (ex. a file that isn't a
+  /// config file).
+  pub async fn config_schema(self: &Rc<Self>, target: &ConfigTarget, global_config: Option<GlobalConfigUse>) -> Result<(serde_json::Value, bool)> {
     let mut plugins = Vec::new();
     let use_global_config = self.resolve_global_config_use(global_config);
     // a config file that fails to resolve was shown to the user, so its plugins are only left out
     let mut is_resolved = false;
     let mut config_changed = None;
-    if let Ok((_, DocumentConfig::Resolved(scope))) = self.resolve_config_target(target, use_global_config).await {
+    let resolved = match self.resolve_config_target(target, use_global_config).await {
+      Ok((_, config)) => Some(config),
+      Err(err) if err.downcast_ref::<InvalidParamsError>().is_some() => return Err(err),
+      Err(_) => None,
+    };
+    if let Some(DocumentConfig::Resolved(scope)) = resolved {
       config_changed = scope
         .config
         .as_ref()
@@ -939,7 +946,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
       });
     }
-    (schema.schema, is_resolved && schema.is_complete)
+    Ok((schema.schema, is_resolved && schema.is_complete))
   }
 
   /// Gets what needs to be approved for the config files that were used,

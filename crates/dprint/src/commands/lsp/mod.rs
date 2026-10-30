@@ -851,7 +851,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let (schema, complete) = self
       .run(move |workspace| async move { workspace.config_schema(&target, params.global_config).await }.boxed_local())
       .await
-      .ok_or_else(new_server_stopped_error)?;
+      .ok_or_else(new_server_stopped_error)?
+      .map_err(to_lsp_error)?;
     Ok(ConfigSchemaResult { schema, complete })
   }
 
@@ -943,39 +944,37 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     // the client is an editor extension when it supports a version of the dprint methods that the server does
     let mut features = serde_json::Map::new();
     let mut client_versions = Vec::new();
-    let has_dprint_capability = params
-      .capabilities
-      .experimental
-      .as_ref()
-      .is_some_and(|experimental| experimental.get(EXPERIMENTAL_CAPABILITY_NAME).is_some());
-    let methods_version = params
+    // a capability that's null is the same as not providing it
+    let dprint_capability = params
       .capabilities
       .experimental
       .as_ref()
       .and_then(|experimental| experimental.get(EXPERIMENTAL_CAPABILITY_NAME))
-      .and_then(|capability| match ClientExperimentalCapability::from_value(capability) {
-        Some(capability) => {
-          let version = capability.negotiate_version();
-          features = capability.negotiate_features();
-          client_versions = capability.versions.clone();
-          if version.is_none() {
-            log_warn!(
-              self.environment,
-              "The editor extension supports versions {:?} of the dprint methods and the server supports versions {:?}, so it's handled like a language client.",
-              capability.versions,
-              SUPPORTED_METHOD_VERSIONS
-            );
-          }
-          version
-        }
-        None => {
+      .filter(|capability| !capability.is_null());
+    let has_dprint_capability = dprint_capability.is_some();
+    let methods_version = dprint_capability.and_then(|capability| match ClientExperimentalCapability::from_value(capability) {
+      Some(capability) => {
+        let version = capability.negotiate_version();
+        features = capability.negotiate_features();
+        client_versions = capability.versions.clone();
+        if version.is_none() {
           log_warn!(
             self.environment,
-            "The dprint capability of the editor extension isn't an object with versions, so it's handled like a language client."
+            "The editor extension supports versions {:?} of the dprint methods and the server supports versions {:?}, so it's handled like a language client.",
+            capability.versions,
+            SUPPORTED_METHOD_VERSIONS
           );
-          None
         }
-      });
+        version
+      }
+      None => {
+        log_warn!(
+          self.environment,
+          "The dprint capability of the editor extension isn't an object with versions, so it's handled like a language client."
+        );
+        None
+      }
+    });
     let is_editor_extension = methods_version.is_some();
     // an editor extension that doesn't support the server's versions isn't handled like a
     // language client, which its language client library would start using right away
