@@ -118,6 +118,7 @@ use self::workspace::UnsupportedDocumentError;
 use self::workspace::WatchedFileChange;
 use self::workspace::Workspace;
 use self::workspace::WorkspaceSettings;
+use self::workspace::is_config_file_path;
 use self::workspace::messages::APPROVAL_CHANGED_ERROR_CODE;
 use self::workspace::messages::APPROVE_METHOD;
 use self::workspace::messages::ApproveParams;
@@ -255,6 +256,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let (tx, rx) = mpsc::unbounded_channel();
 
   let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
+  let has_config_override = config_path.is_some();
   let session_permissions = Arc::new(SessionPermissions::default());
   let recv_task = start_message_handler(
     environment,
@@ -269,7 +271,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let lsp_task = dprint_core::async_runtime::spawn(async move {
     let (service, socket, pending) = with_dprint_methods(LspService::build(|client| {
       let client = ClientWrapper::new(Arc::new(client));
-      Backend::new(client.clone(), environment.clone(), tx)
+      Backend::new(client.clone(), environment.clone(), tx, has_config_override)
     }))
     .finish();
     Server::new(stdin, stdout, socket, pending)
@@ -427,15 +429,19 @@ struct State<TEnvironment: Environment> {
 struct Backend<TEnvironment: Environment> {
   client: ClientWrapper,
   environment: TEnvironment,
+  /// Whether the server was started with a config file (`--config`), which is
+  /// the only one.
+  has_config_override: bool,
   sender: mpsc::UnboundedSender<ChannelMessage<TEnvironment>>,
   state: Mutex<State<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> Backend<TEnvironment> {
-  pub fn new(client: ClientWrapper, environment: TEnvironment, sender: mpsc::UnboundedSender<ChannelMessage<TEnvironment>>) -> Self {
+  pub fn new(client: ClientWrapper, environment: TEnvironment, sender: mpsc::UnboundedSender<ChannelMessage<TEnvironment>>, has_config_override: bool) -> Self {
     let _ = sender.send(ChannelMessage::SetClient(client.clone()));
     Backend {
       client,
+      has_config_override,
       sender,
       state: Mutex::new(State {
         settings: LspSettings::from_environment(&environment),
@@ -1048,7 +1054,11 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           versions: SUPPORTED_METHOD_VERSIONS.to_vec(),
           features: features.clone(),
           files: Some(get_dprint_files(&self.environment)),
-          config_file_globs: CONFIG_FILE_NAMES.iter().map(|name| format!("**/{}", name)).collect(),
+          // the config file the server was started with is the only one
+          config_file_globs: match self.has_config_override {
+            true => Vec::new(),
+            false => CONFIG_FILE_NAMES.iter().map(|name| format!("**/{}", name)).collect(),
+          },
           message: None,
         },
         None => ServerExperimentalCapability {
@@ -1142,10 +1152,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       .iter()
       .filter_map(|change| {
         let file_path = uri_to_file_path(&change.uri)?;
-        // a config file in node_modules is only used when it's extended
-        let is_in_node_modules = file_path.components().any(|component| component.as_os_str() == "node_modules");
         Some(WatchedFileChange {
-          is_config_file: is_config_uri(&change.uri) && !is_in_node_modules,
+          is_config_file: is_config_file_path(&file_path),
           change: match change.typ {
             FileChangeType::CREATED => ConfigFileChange::Created,
             FileChangeType::DELETED => ConfigFileChange::Deleted,
@@ -4905,6 +4913,7 @@ mod test {
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, Default::default()));
     let (tx, rx) = mpsc::unbounded_channel();
     let session_permissions = Arc::new(SessionPermissions::default());
+    let has_config_override = config_override.is_some();
     let recv_task = start_message_handler(
       &environment,
       &plugin_resolver,
@@ -4914,7 +4923,11 @@ mod test {
       rx,
     );
     let test_client = Arc::new(TestClient::default());
-    (Backend::new(ClientWrapper::new(test_client.clone()), environment, tx), recv_task, test_client)
+    (
+      Backend::new(ClientWrapper::new(test_client.clone()), environment, tx, has_config_override),
+      recv_task,
+      test_client,
+    )
   }
 
   #[derive(Debug, Default)]

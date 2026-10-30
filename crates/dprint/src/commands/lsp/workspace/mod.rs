@@ -619,7 +619,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         for config_file_path in workspace.get_dependent_config_files(&change.file_path) {
           workspace.handle_config_file_change(&config_file_path, ConfigFileChange::Changed).await;
         }
-        if change.is_config_file {
+        // the config file the server was started with is the only one, which it's resolved from
+        if change.is_config_file && !workspace.scope_container.has_config_override() {
           workspace.handle_config_file_change(&change.file_path, change.change).await;
         }
       }
@@ -1617,6 +1618,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   fn get_decisions_config_file(&self, uri: &Uri, dir_uri: Option<&Uri>) -> Result<(String, String)> {
     let dir_path = dir_uri.and_then(uri_to_file_path);
     let config_file = if self.scope_container.has_config_override() {
+      if !self.is_config_override_uri(uri) {
+        return Err(InvalidParamsError(format!("The configFile isn't the config file the server was started with: {}", uri.as_str())).into());
+      }
       let dir_path = dir_path.unwrap_or_else(|| self.environment.cwd().into_path_buf());
       self.scope_container.find_config_file(&dir_path, false)?
     } else {
@@ -1856,7 +1860,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           ApprovalKind::Downloads => vec![DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
           ApprovalKind::ProcessPlugins => PROCESS_PLUGIN_ACTION_TITLES.to_vec(),
         };
-        let Some(title) = workspace.show_message_request(MessageType::WARNING, approval.message.clone(), &titles).await else {
+        let message = get_language_client_approval_message(&approval);
+        let Some(title) = workspace.show_message_request(MessageType::WARNING, message, &titles).await else {
           // not choosing an action leaves it undecided
           return;
         };
@@ -3042,6 +3047,28 @@ fn get_config_changed_key(params: &ConfigChangedParams) -> Option<String> {
   })
 }
 
+/// Gets the message to ask a language client's user about the approval,
+/// which has what the process plugins run with so it can be seen before
+/// deciding (an editor extension shows it itself).
+fn get_language_client_approval_message(approval: &PendingApproval) -> String {
+  let mut message = approval.message.clone();
+  let configuration = approval
+    .items
+    .iter()
+    .filter_map(|item| Some((item.plugin.as_ref()?.config_key.clone(), item.configuration.clone()?)))
+    .collect::<serde_json::Map<_, _>>();
+  if !configuration.is_empty() {
+    message.push_str(&format!(" They run with this configuration: {}", serde_json::Value::Object(configuration)));
+  }
+  if let Some(trusted_configuration) = &approval.trusted_configuration {
+    message.push_str(&format!(
+      " The plugins that weren't set up before run with this configuration: {}",
+      trusted_configuration
+    ));
+  }
+  message
+}
+
 /// Gets a notice that's a warning the user is always told about.
 fn new_warning_notice(message: String) -> Notice {
   Notice {
@@ -3128,11 +3155,16 @@ fn get_config_dir_path(source: &PathSource, is_global: bool, base_path: &Path) -
   }
 }
 
-/// Gets whether the file has the name of a config file.
-fn is_config_file_path(file_path: &Path) -> bool {
+/// Gets whether the file is a config file that's found for a directory,
+/// which is by its name and isn't one in `node_modules` (that's only used
+/// when it's extended).
+pub fn is_config_file_path(file_path: &Path) -> bool {
   let Some(file_name) = file_path.file_name().and_then(|name| name.to_str()) else {
     return false;
   };
+  if file_path.components().any(|component| component.as_os_str() == "node_modules") {
+    return false;
+  }
   match file_path.parent().and_then(|dir| dir.file_name()) {
     // only these are found in a `.config` directory
     Some(dir_name) if dir_name == DOT_CONFIG_DIR_NAME => matches!(file_name, "dprint.json" | "dprint.jsonc"),
@@ -3345,5 +3377,53 @@ fn config_map_value_to_json(value: &ConfigMapValue) -> serde_json::Value {
       }
       serde_json::Value::Object(object)
     }
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use serde_json::json;
+
+  use super::*;
+
+  #[test]
+  fn should_show_a_language_client_what_process_plugins_run_with() {
+    let mut approval = PendingApproval {
+      id: "1".to_string(),
+      kind: ApprovalKind::ProcessPlugins,
+      title: "Run process plugins".to_string(),
+      config_file: ConfigFileInfo {
+        uri: "file:///dprint.json".parse().unwrap(),
+        dir_uri: "file:///".parse().unwrap(),
+        kind: ConfigFileKind::Local,
+        in_workspace: true,
+      },
+      items: vec![ApprovalItem {
+        specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
+        kind: ApprovalItemKind::Plugin,
+        plugin: Some(FilePlugin {
+          name: "dprint-plugin-exec".to_string(),
+          version: "0.5.0".to_string(),
+          config_key: "exec".to_string(),
+        }),
+        configuration: Some(json!({ "commands": [] })),
+      }],
+      decisions: Vec::new(),
+      denied: false,
+      previous_decision: None,
+      message: "Allow them?".to_string(),
+      trusted_configuration: None,
+    };
+    assert_eq!(
+      get_language_client_approval_message(&approval),
+      r#"Allow them? They run with this configuration: {"exec":{"commands":[]}}"#
+    );
+    approval.items[0].plugin = None;
+    approval.items[0].configuration = None;
+    approval.trusted_configuration = Some(json!({ "exec": { "commands": [] } }));
+    assert_eq!(
+      get_language_client_approval_message(&approval),
+      r#"Allow them? The plugins that weren't set up before run with this configuration: {"exec":{"commands":[]}}"#
+    );
   }
 }

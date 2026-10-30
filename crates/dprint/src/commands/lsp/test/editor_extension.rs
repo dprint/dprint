@@ -131,7 +131,7 @@ fn should_send_and_receive_the_dprint_methods_as_json() {
     let (tx, rx) = mpsc::unbounded_channel();
     let recv_task = start_message_handler(&environment, &plugin_resolver, None, RemoteCacheMode::Use, Default::default(), rx);
     let (service, socket, pending) = with_dprint_methods(LspService::build(|client| {
-      Backend::new(ClientWrapper::new(Arc::new(client)), environment.clone(), tx)
+      Backend::new(ClientWrapper::new(Arc::new(client)), environment.clone(), tx, false)
     }))
     .finish();
     let (client_writer, server_reader) = tokio::io::duplex(64 * 1024);
@@ -937,6 +937,15 @@ fn should_get_the_global_config_file_when_asked_about_it() {
       });
       let err = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap_err();
       assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
+      // or one in node_modules, which is only used when it's extended
+      for path in ["/node_modules/pkg/dprint.json", "/.config/.dprint.json"] {
+        let err = client
+          .backend
+          .dprint_config_info(config_params(path), CancellationToken::new())
+          .await
+          .unwrap_err();
+        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams, "{}", path);
+      }
     }
     .boxed_local()
   });
