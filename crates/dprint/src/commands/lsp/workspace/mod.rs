@@ -59,7 +59,6 @@ use crate::commands::process_plugin_approval::store_process_plugin_action;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::ConfigMapValue;
-use crate::configuration::DOT_CONFIG_DIR_NAME;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
@@ -1587,7 +1586,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           // the decisions of the global config file are for each directory it's used for
           let dir_uri = match global_config_path.as_deref() == Some(path) {
             true => None,
-            false => get_config_file_dir(path).and_then(|dir_path| self.editor_uri(dir_path)),
+            false => get_config_file_dir(&self.environment, path).and_then(|dir_path| self.editor_uri(dir_path)),
           };
           self.editor_uri(path).map(|uri| ConfigFileIdentifier { uri, dir_uri })
         }
@@ -2139,6 +2138,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if let Err(err) = scope.ensure_no_global_config_diagnostics() {
       let err = anyhow::Error::from(err);
       self.failed_configs.borrow_mut().insert(key.clone());
+      // what it formats changed when it resolved before, like for an error resolving it
+      if self.resolved_configs.borrow_mut().remove(&key).is_some()
+        && let Some(params) = self.new_found_config_changed(&config_file)
+      {
+        self.send_config_changed(params);
+      }
       self.show_config_error(key, &err);
       return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err), Vec::new()));
     }
@@ -2564,7 +2569,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   fn new_config_file_info(&self, source: &PathSource, is_global: bool, base_path: &Path) -> Option<ConfigFileInfo> {
     Some(ConfigFileInfo {
       uri: self.editor_source_uri(source)?,
-      dir_uri: self.editor_uri(&get_config_dir_path(source, is_global, base_path)?)?,
+      dir_uri: self.editor_uri(&get_config_dir_path(&self.environment, source, is_global, base_path)?)?,
       kind: self.get_config_file_kind(is_global),
       in_workspace: !is_global && source.maybe_local_path().is_some_and(|path| self.is_in_workspace(path.as_ref())),
     })
@@ -2588,7 +2593,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   fn new_file_config_changed(&self, file_path: &Path, change: ConfigChange) -> Option<ConfigChangedParams> {
     Some(new_identified_config_changed(
       self.editor_uri(file_path)?,
-      self.editor_uri(get_config_file_dir(file_path)?)?,
+      self.editor_uri(get_config_file_dir(&self.environment, file_path)?)?,
       change,
     ))
   }
@@ -2597,14 +2602,24 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   fn new_config_changed(&self, config: &ResolvedConfig, change: ConfigChange) -> Option<ConfigChangedParams> {
     Some(new_identified_config_changed(
       self.editor_source_uri(&config.source)?,
-      self.editor_uri(&get_config_dir_path(&config.source, config.is_global, config.base_path.as_ref())?)?,
+      self.editor_uri(&get_config_dir_path(
+        &self.environment,
+        &config.source,
+        config.is_global,
+        config.base_path.as_ref(),
+      )?)?,
       change,
     ))
   }
 
   /// Gets the notification that a config file that was found changed.
   fn new_found_config_changed(&self, config_file: &ResolvedConfigPathWithText) -> Option<ConfigChangedParams> {
-    let dir_path = get_config_dir_path(&config_file.source, config_file.is_global_config, config_file.base_path.as_ref())?;
+    let dir_path = get_config_dir_path(
+      &self.environment,
+      &config_file.source,
+      config_file.is_global_config,
+      config_file.base_path.as_ref(),
+    )?;
     Some(new_identified_config_changed(
       self.editor_source_uri(&config_file.source)?,
       self.editor_uri(&dir_path)?,
@@ -3185,13 +3200,13 @@ fn to_case_insensitive_glob(text: &str) -> String {
 }
 
 /// Gets the directory whose files the config file formats.
-fn get_config_dir_path(source: &PathSource, is_global: bool, base_path: &Path) -> Option<PathBuf> {
+fn get_config_dir_path(environment: &impl Environment, source: &PathSource, is_global: bool, base_path: &Path) -> Option<PathBuf> {
   if is_global {
     // the global config file is used for each root directory (ex. drive)
     return Some(base_path.to_path_buf());
   }
   match source {
-    PathSource::Local(local) => Some(get_config_file_dir(local.path.as_ref())?.to_path_buf()),
+    PathSource::Local(local) => Some(get_config_file_dir(environment, local.path.as_ref())?.to_path_buf()),
     // its patterns are relative to the directory it's used for
     PathSource::Remote(_) | PathSource::Npm(_) => Some(base_path.to_path_buf()),
   }
@@ -3211,12 +3226,13 @@ pub fn is_config_file_path(environment: &impl Environment, file_path: &Path) -> 
 }
 
 /// Gets the directory a local config file is used for, which is the
-/// directory it's in unless that's a `.config` directory.
-fn get_config_file_dir(file_path: &Path) -> Option<&Path> {
+/// directory it's in unless that's a `.config` directory (other than the home
+/// directory's, which is an ordinary directory).
+fn get_config_file_dir<'a>(environment: &impl Environment, file_path: &'a Path) -> Option<&'a Path> {
   let dir_path = file_path.parent()?;
-  Some(match dir_path.file_name() {
-    Some(name) if name == DOT_CONFIG_DIR_NAME => dir_path.parent().unwrap_or(dir_path),
-    _ => dir_path,
+  Some(match is_dot_config_dir(environment, dir_path) {
+    true => dir_path.parent().unwrap_or(dir_path),
+    false => dir_path,
   })
 }
 

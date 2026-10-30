@@ -514,6 +514,26 @@ fn should_provide_the_directory_a_config_file_is_for() {
 }
 
 #[test]
+fn should_provide_the_directory_of_a_config_file_in_the_home_directorys_config_directory() {
+  // the home directory's `.config` is an ordinary directory
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/home/.config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      let config_file = client.config_info("/home/.config/file.txt").await.config_file.unwrap();
+      assert_eq!(config_file.uri, uri("/home/.config/dprint.json"));
+      assert_eq!(config_file.dir_uri, uri("/home/.config"));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_only_override_the_indentation_config() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
@@ -749,6 +769,41 @@ fn should_tell_the_editor_when_the_config_file_the_server_was_started_with_chang
         // a change to it is a change to every config file because it's used for every file
         client.backend.did_change_watched_files(change("/config/my-config.json")).await;
         assert!(client.wait_for_config_changes().await.contains(&uri("/")));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_tell_the_editor_when_a_config_file_starts_failing_because_of_its_global_config() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(client.config_info("/dprint.json").await.status, FormatStatus::ready());
+        let text = environment.read_file("/dprint.json").unwrap();
+        environment
+          .write_file("/dprint.json", &text.replacen('{', r#"{ "lineWidth": "abc","#, 1))
+          .unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/dprint.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/dprint.json")]);
+        assert_eq!(client.config_info("/dprint.json").await.status.reason(), Some(NotFormattedReason::ConfigError));
       }
       .boxed_local()
     }
