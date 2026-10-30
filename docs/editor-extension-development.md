@@ -264,7 +264,8 @@ interface PendingApproval {
   message: string;
   /**
    * The id the approval had before its process plugins were set up (ex. in a server that was started before), which is
-   * for the same trusted configuration. Send a decision the user made for the session for that id again with `id`.
+   * for the same trusted configuration. Treat it like `id` for what's kept about the approval (ex. send a decision the user made
+   * for the session for that id again with `id`, and don't ask about it again when the user was asked about that id).
    */
   idBeforeSetUp?: string;
   /**
@@ -689,8 +690,8 @@ interface Decision {
   /** The urls, paths, or specifiers it's for, like the `specifier` of an approval's items (ex. the process plugins, or the setting of an `.npmrc` proxy). */
   specifiers: string[];
   /**
-   * What it's for, like an approval's items in the order of the `specifiers`, which the server provides for downloads so a proxy can be
-   * told apart from a url and shown with its file (an `npmrcProxy` with its `npmrcUri`). Show the `specifiers` when it's missing.
+   * What it's for, like an approval's items, with one for each of the `specifiers` in the same order. The server provides it for downloads
+   * so a proxy can be told apart from a url and shown with its file (an `npmrcProxy` with its `npmrcUri`). Show the `specifiers` when it's missing.
    */
   items?: ApprovalItem[];
   allows: boolean;
