@@ -67,9 +67,11 @@ pub struct EditorState {
 ///
 /// - `version` is the newest version of the format that wrote to the file, and
 ///   `minVersion` is the oldest version of the format whose readers may use it
-///   (it's `version` when it's not there). A reader only refuses the file when
-///   `minVersion` is greater than the version it supports, and otherwise
-///   ignores what it doesn't know: properties and decisions it can't parse.
+///   (it's `version` when it's not there). Both stay integers, and a reader
+///   treats one that isn't an integer it can read as newer than the version
+///   it supports. A reader only refuses the file when `minVersion` is greater
+///   than the version it supports, and otherwise ignores what it doesn't know:
+///   properties and decisions it can't parse.
 /// - A decision may have its own `minVersion`, which is the oldest version of
 ///   the format whose readers may use it. A reader whose version is lower
 ///   skips it when it allows, still applies it when it denies (because denying
@@ -114,8 +116,12 @@ pub struct EditorState {
 ///   written in the format of version 1 (ex. without a `configHash` to deny it
 ///   with any configuration), because a reader that refuses the file still
 ///   applies the denials in it.
-/// - A writer never writes over a file it refuses to read, because that would
-///   lose what the user denied.
+/// - A writer never rewrites or removes anything in a file it refuses to read
+///   other than the decisions it was asked to forget, because that would lose
+///   what the user denied. It only adds denials to it, in the format of
+///   version 1, and leaves `version` and `minVersion` as they are, so that an
+///   older version can still forget decisions and deny a process plugin, but
+///   never stores an allow that a newer version may apply too broadly.
 #[derive(Debug, Default)]
 pub struct EditorApprovals {
   /// The decisions with the most recent last, which leaves out the ones in a
@@ -610,7 +616,7 @@ pub async fn update_editor_approvals<TEnvironment: Environment>(environment: &TE
 /// and the ones of other kinds (see `EditorApprovals`) so that forgetting them
 /// doesn't leave one that allows something behind. A decision like that
 /// without a config file this version can read is only forgotten with every
-/// config file.
+/// config file. They're forgotten in a file this version refuses to read too.
 pub async fn forget_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment, is_config_file: impl Fn(&str) -> bool) -> Result<()> {
   let _flag = lock_editor_approvals(environment).await;
   let Some(file_path) = get_editor_approvals_file_path(environment) else {
@@ -646,6 +652,7 @@ pub fn read_editor_approvals(environment: &impl Environment) -> Result<EditorApp
   let Some((_, file)) = read_approvals_file(environment, &file_path)? else {
     return Ok(Default::default());
   };
+  file.ensure_readable(&file_path)?;
   Ok(EditorApprovals {
     process_plugin_decisions: file
       .process_plugin_decisions
@@ -657,15 +664,13 @@ pub fn read_editor_approvals(environment: &impl Environment) -> Result<EditorApp
 
 /// Reads the decisions that denied a process plugin from a file that can't be
 /// read otherwise (ex. it's from a newer version of dprint), which is empty
-/// when it doesn't parse.
+/// when it doesn't parse. Only `processPluginDecisions` needs to parse (see
+/// `EditorApprovals`).
 pub(crate) fn read_editor_approval_denials(environment: &impl Environment) -> Vec<ProcessPluginDecision> {
   let Some(file_path) = get_editor_approvals_file_path(environment) else {
     return Vec::new();
   };
-  let Ok(Some(text)) = environment.maybe_read_file(&file_path) else {
-    return Vec::new();
-  };
-  let Ok(file) = serde_json::from_str::<ApprovalsFile>(&text) else {
+  let Ok(Some((_, file))) = read_approvals_file(environment, &file_path) else {
     return Vec::new();
   };
   let decisions = file
@@ -697,6 +702,11 @@ pub(crate) fn update_editor_approvals_without_lock(environment: &impl Environmen
 /// Updates the decisions of the approvals file in place, which removes the
 /// decisions in a format this version doesn't know, or of another kind, that
 /// `remove_unknown` says to.
+///
+/// In a file this version refuses to read (ex. it's from a newer version of
+/// dprint), it only removes what `remove_unknown` says to and adds denials,
+/// because it doesn't know what the decisions there mean, and fails without
+/// writing anything when the update allows something (see `EditorApprovals`).
 fn edit_editor_approvals(
   environment: &impl Environment,
   update: impl FnOnce(&mut EditorApprovals),
@@ -708,12 +718,15 @@ fn edit_editor_approvals(
   // IMPORTANT: Never write over a file that couldn't be read because that
   // would lose what the user denied.
   let (text, file) = read_approvals_file(environment, &file_path)?.unwrap_or_default();
+  let is_refused = file.ensure_readable(&file_path);
   // the file is edited in place so that what this version doesn't know is kept
   let root = CstRootNode::parse(&text, &Default::default()).with_context(|| format!("Failed parsing {}.", file_path.display()))?;
   let root_obj = root.object_value_or_set();
-  // never lower the versions because another version of dprint may have written what needs them
-  set_number_property(&root_obj, "version", file.version.max(APPROVALS_FILE_VERSION), 0);
-  set_number_property(&root_obj, "minVersion", file.min_version().max(APPROVALS_FILE_MIN_VERSION), 1);
+  if is_refused.is_ok() {
+    // never lower the versions because another version of dprint may have written what needs them
+    raise_version_property(&root_obj, "version", APPROVALS_FILE_VERSION, 0);
+    raise_version_property(&root_obj, "minVersion", APPROVALS_FILE_MIN_VERSION, 1);
+  }
   remove_other_decisions(&root_obj, &remove_unknown);
   let decisions_array = root_obj.array_value_or_set(PROCESS_PLUGIN_DECISIONS_PROPERTY);
   let mut known_decisions = Vec::new();
@@ -722,16 +735,21 @@ fn edit_editor_approvals(
       continue;
     };
     match parse_process_plugin_decision(value.clone()) {
-      StoredDecision::Known(decision) => known_decisions.push((element, decision)),
+      // the decisions of a file that's refused are kept as they are like the ones this version doesn't know
+      StoredDecision::Known(decision) if is_refused.is_ok() => known_decisions.push((element, decision)),
       // a denial for a newer version is kept as it is like the decisions this version doesn't know
-      StoredDecision::NewerDenial(_) | StoredDecision::Unknown if remove_unknown(&value) => element.remove(),
-      StoredDecision::NewerDenial(_) | StoredDecision::Unknown => {}
+      StoredDecision::Known(_) | StoredDecision::NewerDenial(_) | StoredDecision::Unknown if remove_unknown(&value) => element.remove(),
+      StoredDecision::Known(_) | StoredDecision::NewerDenial(_) | StoredDecision::Unknown => {}
     }
   }
   let mut approvals = EditorApprovals {
     process_plugin_decisions: known_decisions.iter().map(|(_, decision)| decision.clone()).collect(),
   };
   update(&mut approvals);
+  // IMPORTANT: A newer version may apply an allow in the format of this version too broadly.
+  if is_refused.is_err() && approvals.process_plugin_decisions.iter().any(|decision| decision.allowed) {
+    return is_refused;
+  }
   // keep the elements of the decisions that are still there, which keeps their
   // properties that this version doesn't know, and add the new ones
   let mut decisions = approvals.process_plugin_decisions.into_iter().peekable();
@@ -825,25 +843,64 @@ pub(crate) fn get_editor_state_file_path(environment: &impl Environment) -> Path
 
 /// What's read from the approvals file, where the decisions are kept as they
 /// are because one in a format this version of dprint doesn't know is left out.
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct ApprovalsFile {
-  #[serde(default)]
-  version: u32,
-  #[serde(default)]
-  min_version: Option<u32>,
-  #[serde(default)]
+  /// The oldest version of the format whose readers may use the file, which
+  /// is its version when it doesn't say, and is `None` when it isn't an
+  /// integer this version can read, which means it's newer (see
+  /// `EditorApprovals`).
+  min_version: Option<u64>,
   process_plugin_decisions: Vec<serde_json::Value>,
   /// The other properties, which may have decisions of other kinds.
-  #[serde(flatten)]
   other: serde_json::Map<String, serde_json::Value>,
 }
 
+impl Default for ApprovalsFile {
+  /// Gets what an approvals file that isn't there is like.
+  fn default() -> Self {
+    Self {
+      min_version: Some(0),
+      process_plugin_decisions: Vec::new(),
+      other: Default::default(),
+    }
+  }
+}
+
 impl ApprovalsFile {
-  /// Gets the oldest version of the format whose readers may use the file,
-  /// which is its version when it doesn't say.
-  fn min_version(&self) -> u32 {
-    self.min_version.unwrap_or(self.version)
+  /// Parses the approvals file, which only fails when it isn't an object or
+  /// `processPluginDecisions` isn't an array, so that a reader that refuses it
+  /// still finds the denials in it (see `EditorApprovals`).
+  fn parse(text: &str) -> Result<Self> {
+    let serde_json::Value::Object(mut obj) = serde_json::from_str::<serde_json::Value>(text)? else {
+      bail!("Expected an object.");
+    };
+    let version = match obj.remove("version") {
+      Some(version) => version.as_u64(),
+      None => Some(0),
+    };
+    let min_version = match obj.remove("minVersion") {
+      Some(min_version) => min_version.as_u64(),
+      None => version,
+    };
+    let process_plugin_decisions = match obj.remove(PROCESS_PLUGIN_DECISIONS_PROPERTY) {
+      Some(serde_json::Value::Array(decisions)) => decisions,
+      Some(_) => bail!("Expected \"{}\" to be an array.", PROCESS_PLUGIN_DECISIONS_PROPERTY),
+      None => Vec::new(),
+    };
+    Ok(Self {
+      min_version,
+      process_plugin_decisions,
+      other: obj,
+    })
+  }
+
+  /// Fails when this version of dprint refuses to read the file, which is
+  /// when its `minVersion` is newer than the version this version supports.
+  fn ensure_readable(&self, file_path: &Path) -> Result<()> {
+    if self.min_version.is_none_or(|min_version| min_version > APPROVALS_FILE_VERSION as u64) {
+      bail!("{} is from a newer version of dprint, so it can't be read.", file_path.display());
+    }
+    Ok(())
   }
 
   /// Gets each decision in the file as it is, which includes the ones of the
@@ -885,16 +942,13 @@ impl StoredDecision {
 }
 
 /// Reads the text of the approvals file with what's parsed from it, which is
-/// `None` when there's no file and fails when it's from a version of dprint
-/// that this version can't use.
+/// `None` when there's no file. It doesn't check whether this version can use
+/// it (see `ApprovalsFile::ensure_readable`).
 fn read_approvals_file(environment: &impl Environment, file_path: &Path) -> Result<Option<(String, ApprovalsFile)>> {
   let Some(text) = environment.maybe_read_file(file_path)? else {
     return Ok(None);
   };
-  let file = serde_json::from_str::<ApprovalsFile>(&text).with_context(|| format!("Failed parsing {}.", file_path.display()))?;
-  if file.min_version() > APPROVALS_FILE_VERSION {
-    bail!("{} is from a newer version of dprint, so it can't be read.", file_path.display());
-  }
+  let file = ApprovalsFile::parse(&text).with_context(|| format!("Failed parsing {}.", file_path.display()))?;
   Ok(Some((text, file)))
 }
 
@@ -958,11 +1012,17 @@ fn to_json_value(node: &CstNode) -> Option<serde_json::Value> {
   serde_json::from_str(&node.to_string()).ok()
 }
 
-/// Sets a number property of the object, which is inserted at the index when
-/// it's not there.
-fn set_number_property(obj: &CstObject, name: &str, value: u32, index: usize) {
+/// Raises a version property of the object to the value when it's lower,
+/// which is inserted at the index when it's not there. One that isn't an
+/// integer this version can read is newer, so it's kept as it is.
+fn raise_version_property(obj: &CstObject, name: &str, value: u32, index: usize) {
   match obj.get(name) {
-    Some(prop) => prop.set_value(value.into()),
+    Some(prop) => {
+      let current = prop.value().and_then(|value| to_json_value(&value)).and_then(|value| value.as_u64());
+      if current.is_some_and(|current| current < value as u64) {
+        prop.set_value(value.into());
+      }
+    }
     None => {
       obj.insert(index, name, value.into());
     }
@@ -1769,6 +1829,124 @@ mod test {
       .is_err()
     );
     assert_eq!(environment.read_file(&file_path).unwrap(), text);
+  }
+
+  #[test]
+  fn should_forget_and_deny_in_approvals_with_a_newer_min_version() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let file_path = get_editor_approvals_file_path(&environment).unwrap();
+    // ex. a newer version of dprint changed the structure of the file
+    let text = r#"{
+  "version": 3,
+  "minVersion": 3,
+  "other": { "a": 1 },
+  "processPluginDecisions": [
+    { "configFile": "/a/dprint.json", "kind": "other", "allowed": true },
+    { "configFile": "/b/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:b", "allowed": true, "decidedAt": 0 },
+    { "configFile": "/c/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "allowed": false, "decidedAt": 0 }
+  ],
+  "otherDecisions": [{ "configFile": "/a/dprint.json" }]
+}
+"#;
+    environment.write_file(&file_path, text).unwrap();
+    // an allow isn't stored
+    let err = update_editor_approvals_without_lock(&environment, |approvals| {
+      approvals.add_process_plugin_decision(decision("/d/dprint.json", "1:d", true))
+    })
+    .unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      format!("{} is from a newer version of dprint, so it can't be read.", file_path.display())
+    );
+    assert_eq!(environment.read_file(&file_path).unwrap(), text);
+
+    environment.clone().run_in_runtime(async move {
+      // a denial is added in the format of version 1 without changing the rest
+      store_process_plugin_decision(
+        &environment,
+        ProcessPluginDecision {
+          approval: ProcessPluginApproval::any_config("/b/dprint.json".to_string(), "https://plugins.dprint.dev/plugin.json@checksum".to_string()),
+          allowed: false,
+          decided_at: 1,
+        },
+      )
+      .await
+      .unwrap();
+      // and the decisions of a config file are forgotten
+      forget_editor_approvals(&environment, |config_file| config_file == "/a/dprint.json")
+        .await
+        .unwrap();
+      assert_eq!(
+        environment.read_file(&file_path).unwrap(),
+        r#"{
+  "version": 3,
+  "minVersion": 3,
+  "other": { "a": 1 },
+  "processPluginDecisions": [
+    { "configFile": "/b/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:b", "allowed": true, "decidedAt": 0 },
+    { "configFile": "/c/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "allowed": false, "decidedAt": 0 },
+    {
+      "configFile": "/b/dprint.json",
+      "plugin": "https://plugins.dprint.dev/plugin.json@checksum",
+      "allowed": false,
+      "decidedAt": 1
+    }
+  ],
+  "otherDecisions": []
+}
+"#
+      );
+      // which this version applies
+      let permissions = read_permissions(&environment, &[]);
+      assert!(permissions.is_process_plugin_always_denied(&approval("/b/dprint.json", "1:b")));
+      assert!(permissions.is_process_plugin_always_denied(&approval("/c/dprint.json", "1:c")));
+      assert_eq!(environment.take_stderr_messages().len(), 1);
+    });
+  }
+
+  #[test]
+  fn should_treat_versions_that_are_not_integers_as_newer() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let file_path = get_editor_approvals_file_path(&environment).unwrap();
+    for (version, min_version) in [
+      (r#""3""#, r#""3""#),
+      ("3.0", "3.0"),
+      ("1", "99999999999999999999"),
+      ("1", "-1"),
+      (r#""3""#, "null"),
+    ] {
+      let text = format!(
+        r#"{{
+  "version": {},
+  "minVersion": {},
+  "processPluginDecisions": [
+    {{ "configFile": "/a/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "configHash": "1:a", "allowed": true, "decidedAt": 0 }},
+    {{ "configFile": "/b/dprint.json", "plugin": "https://plugins.dprint.dev/plugin.json@checksum", "allowed": false, "decidedAt": 0 }}
+  ]
+}}
+"#,
+        version, min_version
+      );
+      environment.write_file(&file_path, &text).unwrap();
+      assert!(read_editor_approvals(&environment).is_err(), "{}", text);
+      let permissions = read_permissions(&environment, &[]);
+      assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")), "{}", text);
+      // the denials are still applied
+      assert!(permissions.is_process_plugin_denied(&approval("/b/dprint.json", "1:b")), "{}", text);
+      environment.take_stderr_messages();
+    }
+
+    // a version that isn't an integer is kept as it is when the file is written
+    environment
+      .write_file(&file_path, r#"{ "version": "2.1", "minVersion": 1, "processPluginDecisions": [] }"#)
+      .unwrap();
+    update_editor_approvals_without_lock(&environment, |_| {}).unwrap();
+    assert_eq!(
+      environment.read_file(&file_path).unwrap(),
+      "{ \"version\": \"2.1\", \"minVersion\": 1, \"processPluginDecisions\": [] }\n"
+    );
   }
 
   #[test]
