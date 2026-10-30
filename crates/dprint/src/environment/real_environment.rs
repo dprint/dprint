@@ -40,6 +40,7 @@ use super::DownloadOptions;
 use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
+use super::FilesWatcher;
 use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
@@ -569,6 +570,36 @@ impl Environment for RealEnvironment {
     *self.download_policy.lock() = policy;
   }
 
+  fn watch_files(&self, file_paths: &[PathBuf]) -> io::Result<FilesWatcher> {
+    use notify::Watcher;
+
+    let (sender, changes) = tokio::sync::mpsc::unbounded_channel();
+    let file_names = file_paths
+      .iter()
+      .filter_map(|path| path.file_name().map(|name| name.to_os_string()))
+      .collect::<HashSet<_>>();
+    let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+      // the directories are watched, so only their files with these names are changes
+      if let Ok(event) = result
+        && event.paths.iter().any(|path| path.file_name().is_some_and(|name| file_names.contains(name)))
+      {
+        let _ = sender.send(());
+      }
+    })
+    .map_err(io::Error::other)?;
+    // a file may not exist yet (ex. it's created later), so its directory is watched
+    let mut dir_paths = Vec::new();
+    for dir_path in file_paths.iter().filter_map(|path| path.parent()) {
+      if !dir_paths.contains(&dir_path) {
+        dir_paths.push(dir_path);
+      }
+    }
+    for dir_path in dir_paths {
+      watcher.watch(dir_path, notify::RecursiveMode::NonRecursive).map_err(io::Error::other)?;
+    }
+    Ok(FilesWatcher::new(changes, watcher))
+  }
+
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
     &self,
     message: &str,
@@ -814,6 +845,27 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> io::R
 #[cfg(test)]
 mod test {
   use super::*;
+
+  #[test]
+  fn should_watch_files_that_may_not_exist() {
+    use dprint_core::async_runtime::FutureExt;
+
+    RealEnvironment::run_test_with_real_env(|environment| {
+      async move {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("settings.json");
+        let mut watcher = environment.watch_files(std::slice::from_ref(&file_path)).unwrap();
+        // another file in the directory isn't a change
+        environment.write_file(temp_dir.path().join("other.json"), "{}").unwrap();
+        environment.write_file(&file_path, "{}").unwrap();
+        let change = tokio::time::timeout(std::time::Duration::from_secs(10), watcher.changes.recv()).await;
+        assert!(matches!(change, Ok(Some(()))));
+        // a directory that doesn't exist can't be watched
+        assert!(environment.watch_files(&[temp_dir.path().join("missing").join("settings.json")]).is_err());
+      }
+      .boxed_local()
+    });
+  }
 
   #[test]
   fn should_get_cache_dir_based_on_env_var() {

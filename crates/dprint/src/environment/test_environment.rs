@@ -55,6 +55,7 @@ use super::DownloadOptions;
 use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
+use super::FilesWatcher;
 use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
@@ -201,6 +202,8 @@ pub struct TestEnvironment {
   /// succeeding, independent of any running process. Models a flaky deletion
   /// (e.g. a file briefly locked) that succeeds on retry.
   remove_dir_all_failures: Arc<Mutex<usize>>,
+  /// The files that are watched with what's told when one changes.
+  file_watchers: Arc<Mutex<Vec<(Vec<PathBuf>, tokio::sync::mpsc::UnboundedSender<()>)>>>,
 }
 
 impl TestEnvironment {
@@ -248,6 +251,7 @@ impl TestEnvironment {
       run_command_results: Default::default(),
       running_processes: Default::default(),
       remove_dir_all_failures: Default::default(),
+      file_watchers: Default::default(),
     };
     env.mk_dir_all("/").unwrap();
     env
@@ -495,6 +499,15 @@ impl TestEnvironment {
     rt.block_on(future)
   }
 
+  /// Tells the watchers of the file that it changed, which forgets the ones
+  /// that were dropped.
+  fn notify_file_watchers(&self, file_path: &Path) {
+    self
+      .file_watchers
+      .lock()
+      .retain(|(file_paths, sender)| !file_paths.iter().any(|path| path == file_path) || sender.send(()).is_ok());
+  }
+
   pub fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {
     // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
     let file_path = PathBuf::from(path.as_ref().to_string_lossy().replace("\\", "/"));
@@ -574,13 +587,19 @@ impl BaseFsRead for TestEnvironment {
 
 impl BaseFsRemoveFile for TestEnvironment {
   fn base_fs_remove_file(&self, path: &Path) -> io::Result<()> {
-    (*self.sys).base_fs_remove_file(path)
+    (*self.sys).base_fs_remove_file(path)?;
+    self.notify_file_watchers(&self.clean_path(path));
+    Ok(())
   }
 }
 
 impl BaseFsRename for TestEnvironment {
   fn base_fs_rename(&self, from: &Path, to: &Path) -> io::Result<()> {
-    (*self.sys).base_fs_rename(from, to)
+    (*self.sys).base_fs_rename(from, to)?;
+    // ex. an atomic write
+    self.notify_file_watchers(&self.clean_path(from));
+    self.notify_file_watchers(&self.clean_path(to));
+    Ok(())
   }
 }
 
@@ -682,18 +701,25 @@ impl Environment for TestEnvironment {
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
-    self.sys.fs_write(file_path, bytes)
+    self.sys.fs_write(&file_path, bytes)?;
+    self.notify_file_watchers(&file_path);
+    Ok(())
   }
 
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()> {
     let path_from = self.clean_path(path_from);
     let path_to = self.clean_path(path_to);
-    self.sys.fs_rename(&path_from, &path_to)
+    self.sys.fs_rename(&path_from, &path_to)?;
+    self.notify_file_watchers(&path_from);
+    self.notify_file_watchers(&path_to);
+    Ok(())
   }
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
-    self.sys.fs_remove_file(file_path)
+    self.sys.fs_remove_file(&file_path)?;
+    self.notify_file_watchers(&file_path);
+    Ok(())
   }
 
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
@@ -864,6 +890,13 @@ impl Environment for TestEnvironment {
 
   fn set_download_policy(&self, policy: DownloadPolicy) {
     *self.download_policy.lock() = policy;
+  }
+
+  fn watch_files(&self, file_paths: &[PathBuf]) -> io::Result<FilesWatcher> {
+    let (sender, changes) = tokio::sync::mpsc::unbounded_channel();
+    let file_paths = file_paths.iter().map(|path| self.clean_path(path)).collect();
+    self.file_watchers.lock().push((file_paths, sender));
+    Ok(FilesWatcher::new(changes, ()))
   }
 
   fn log_machine_readable(&self, text: &[u8]) {

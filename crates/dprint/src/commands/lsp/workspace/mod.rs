@@ -170,9 +170,11 @@ fn into_unsupported_document(err: anyhow::Error) -> Result<NotFormatted> {
 #[error("{0}")]
 pub struct InvalidParamsError(pub String);
 
-/// How often to check whether dprint's own files changed (see
-/// `Workspace::watch_dprint_files`).
-const DPRINT_FILES_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+/// How often to check whether dprint's own files changed when they can't be
+/// watched (see `Workspace::watch_dprint_files`).
+const DPRINT_FILES_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long to wait for the other events of a change to dprint's own files.
+const DPRINT_FILES_CHANGE_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// The files a config file's plugins may format and the other files it formats.
 type FilePatterns = (Vec<FilePattern>, Vec<OtherFiles>);
@@ -1706,7 +1708,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// what the config files resolve to (ex. adding a trusted domain in the
   /// settings file, allowing a process plugin by running `dprint fmt`, or
   /// editing the global config file). The editor isn't asked to watch them
-  /// because their location depends on the system.
+  /// because their location depends on the system. They're checked
+  /// periodically instead when they can't be watched.
   fn watch_dprint_files(self: &Rc<Self>) {
     let Some(settings_file_path) = get_settings_file_path(&self.environment) else {
       return;
@@ -1727,6 +1730,18 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
       }
     }
+    // the files are only checked periodically when they can't be watched (ex. their directory doesn't exist)
+    let mut watcher = match self.environment.watch_files(&file_paths) {
+      Ok(watcher) => Some(watcher),
+      Err(err) => {
+        log_debug!(
+          self.environment,
+          "Checking dprint's own files periodically because they can't be watched: {:#}",
+          err
+        );
+        None
+      }
+    };
     let workspace = Rc::downgrade(self);
     let stopped = self.stopped.clone();
     dprint_core::async_runtime::spawn(async move {
@@ -1746,13 +1761,33 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         None => return,
       };
       loop {
-        tokio::select! {
-          _ = tokio::time::sleep(DPRINT_FILES_POLL_INTERVAL) => {}
-          _ = stopped.cancelled() => return,
+        match &mut watcher {
+          Some(files_watcher) => {
+            tokio::select! {
+              change = files_watcher.changes.recv() => {
+                if change.is_none() {
+                  // it stopped watching, so they're checked periodically instead
+                  watcher = None;
+                  continue;
+                }
+              }
+              _ = stopped.cancelled() => return,
+            }
+            // a change may be several events (ex. an atomic write), which are handled together
+            tokio::time::sleep(DPRINT_FILES_CHANGE_DELAY).await;
+            while files_watcher.changes.try_recv().is_ok() {}
+          }
+          None => {
+            tokio::select! {
+              _ = tokio::time::sleep(DPRINT_FILES_POLL_INTERVAL) => {}
+              _ = stopped.cancelled() => return,
+            }
+          }
         }
         let Some(workspace) = workspace.upgrade() else {
           return;
         };
+        // only a change to what's in them matters (ex. not a write of the same text)
         let new_states = read_states(&workspace.environment, Some(&states));
         if new_states != states {
           states = new_states;

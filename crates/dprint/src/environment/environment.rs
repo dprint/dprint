@@ -353,6 +353,9 @@ pub trait Environment:
   /// which includes each redirect. Anything else fails with an
   /// `UntrustedDownloadError`.
   fn set_download_policy(&self, policy: DownloadPolicy);
+  /// Watches the files for changes, which may not exist yet. Their
+  /// directories need to exist.
+  fn watch_files(&self, file_paths: &[PathBuf]) -> io::Result<FilesWatcher>;
   /// Information to force output when the environment is in "machine readable mode".
   fn log_machine_readable(&self, bytes: &[u8]);
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
@@ -452,6 +455,24 @@ fn canonicalize_path_maybe_not_exists(mut path: &Path, canonicalize: impl Fn(&Pa
         };
       }
       Err(err) => return Err(err),
+    }
+  }
+}
+
+/// Watches files for changes (see `Environment::watch_files`), which stops
+/// once it's dropped.
+pub struct FilesWatcher {
+  /// Receives a message when one of the files may have changed, which may be
+  /// several messages for one change (ex. an atomic write).
+  pub changes: tokio::sync::mpsc::UnboundedReceiver<()>,
+  _watcher: Box<dyn std::any::Any>,
+}
+
+impl FilesWatcher {
+  pub fn new(changes: tokio::sync::mpsc::UnboundedReceiver<()>, watcher: impl std::any::Any) -> Self {
+    Self {
+      changes,
+      _watcher: Box::new(watcher),
     }
   }
 }

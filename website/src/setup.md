@@ -104,7 +104,7 @@ To trust other domains (ex. a private npm registry), add them to `editor.trusted
 }
 ```
 
-A running editor uses the change after a couple of seconds, without needing to restart it.
+A running editor uses the change without needing to restart it.
 
 ## Proxy
 

@@ -813,7 +813,7 @@ fn should_not_resolve_a_deleted_config_file_again_when_dprints_own_files_change(
         environment
           .write_file(&settings_file_path, r#"{ "editor": { "allowProcessPlugins": false, "trustedDomains": [] } }"#)
           .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         assert_eq!(client.pending_approvals().await, Vec::new());
         assert_eq!(client.take_config_changes(), Vec::new());
       }
@@ -902,8 +902,8 @@ fn should_ask_again_once_the_always_decisions_are_deleted() {
         let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
         assert_eq!(client.approve(&approval.id, ApprovalDecision::AlwaysAllow).await, Vec::new());
         assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::Ready);
-        // the server notices that they were stored, which it checks every couple of seconds
-        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        // the server notices that they were stored
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         client.take_config_changes();
         // the user deletes them to be asked again
         environment
@@ -1665,7 +1665,7 @@ impl Client {
   }
 
   /// Waits for the config changes after dprint's own files changed, which
-  /// the server checks every couple of seconds.
+  /// the server handles a little after they're watched to change.
   async fn wait_for_dprint_files_change(&self) -> Vec<Uri> {
     for _ in 0..100 {
       let changes = self.take_config_changes();
