@@ -100,7 +100,7 @@ The editor extension decides what the server is started with, so a project can't
 - An editor extension may also use the one a project installed with npm (ex. `node_modules/@dprint/<platform package>/dprint` found from the workspace folder and its ancestors, which includes the root of an npm workspace when a package of it is opened) so that the project's version of dprint is used. That executable is from the repository, so running it is the same as running code from the repository. Only do this in an editor that has workspace trust (ex. VS Code's Restricted Mode) once the user trusts the workspace.
 - Only take the executable, its arguments, and its environment variables from the user's or the machine's settings, or from the workspace's settings once the user trusts the workspace. A project could otherwise point `DPRINT_CONFIG_DIR`, `XDG_CONFIG_HOME`, `HOME`, or `APPDATA` at a directory in the repository with a settings file that allows process plugins (`editor.allowProcessPlugins`) or a global configuration file whose process plugins run without asking, or point `DPRINT_CACHE_DIR` at plugins it compiled. A proxy in the environment (ex. `HTTPS_PROXY` or `NPM_CONFIG_HTTPS_PROXY`) is used without asking, so the project could also have every download sent to a server of its choosing. Keep in mind that the editor's environment may come from the project (ex. direnv, or opening the editor from its directory).
 - Show where a configuration file is when asking about it, and that it's outside the workspace when its `inWorkspace` is `false`, because a configuration file in an ancestor directory (ex. in `/tmp` or the root of a drive) may not be the project's.
-- Show the server's messages, labels, and descriptions as plain text, because they may have text from a configuration file (ex. a plugin's URL or configuration). An editor that renders Markdown or HTML in a notification may otherwise show a link from the project, which may run an editor command (ex. VS Code's `[label](command:...)` links in notifications), so escape it (ex. break up the `](` of a Markdown link).
+- Show every string the server provides as plain text (ex. messages, labels, descriptions, titles, specifiers, uris, and configuration), because they may have text from a configuration file (ex. a plugin's URL or configuration). An editor that renders Markdown or HTML in a notification may otherwise show a link from the project, which may run an editor command (ex. VS Code's `[label](command:...)` links in notifications), so escape it (ex. break up the `](` of a Markdown link).
 
 ### Compatibility
 
@@ -113,7 +113,7 @@ The editor extension says the versions of the `dprint/*` methods it supports and
 - A new notification or request from the server is only sent when the client sent the feature for it, which includes the language server protocol's (ex. `workspace/configuration`), because a client library may answer one by itself. Ignore a notification that isn't known, and respond to a request that isn't known with `-32601`.
 - The server ignores a setting it doesn't know or with a value of the wrong type, so a setting may be sent to an older server. The `initializationOptions` are sent before the version is known, so a new value of a setting that needs a version or a feature is only sent with `workspace/didChangeConfiguration` once the server responded with it.
 - The glob syntax (see "Which documents dprint formats"), the error codes, and the positions being UTF-16 don't change within a version.
-- The messages and labels are plain text, not Markdown.
+- The strings the server provides are plain text, not Markdown (see "Security").
 - Params that are optional may be `null`, which is the same as not providing them. Results provide every field that isn't optional, which may be `null` where the types say so, and leave out an optional field instead of making it `null`.
 
 ### Features
@@ -136,8 +136,8 @@ Optional behavior is opted into with `features`, an object of the features the c
 - The `.gitignore` files also change which documents a configuration file formats. The server reads them again when they change, but doesn't watch them or send `dprint/configChanged` for them, so get the `dprint/fileInfo` of the open documents again when the editor sees one change, if it watches them.
 - The server watches dprint's own files, which are outside the workspace and depend on the system: its settings file (ex. a domain added to `editor.trustedDomains`), its `editor-approvals.json` (ex. the user ran `dprint fmt` or allowed a process plugin in another editor window), and the global configuration file. When one changes, it resolves the configuration files that were used again and sends `dprint/configChanged` for the ones whose results changed.
 - The server doesn't watch dprint's cache, so a plugin that was downloaded outside the editor (ex. by running `dprint config install` in a terminal) is only used once the configuration file is resolved again (ex. when the user approves the download, or with `dprint/reset`).
-- When the server exits unexpectedly, start it again for the next request (with a delay that grows when it keeps exiting) and get `dprint/configInfo` again for each configuration file the editor extension knows about and `dprint/fileInfo` for the open documents, because the new server doesn't know them (ex. the files they were resolved from) or publish their diagnostics until they're used. The new server doesn't know what the user decided for the session (ex. a download they denied or a process plugin they allowed), so keep the session's decisions and send them again with `dprint/approve` instead of asking whenever their approval ids are pending again (the ids are the same in the new server), including an approval that a decision that was sent again revealed, and keep which ids were asked about, so the user isn't asked again. Don't send a decision that allows an approval that's now `denied` (ex. it was denied in another window since), and a command or the status bar item asks about what the user denied for the session again instead of sending the denial. Then get the results again like after any `dprint/approve` (see "Which documents dprint formats").
-- A restart command is for forgetting what the user decided for the session, so forget the session's decisions and which ids were asked about too. Use `dprint/reset` instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
+- When the server exits unexpectedly, start it again for the next request (with a delay that grows when it keeps exiting) and get `dprint/configInfo` again for each configuration file the editor extension knows about and `dprint/fileInfo` for the open documents, because the new server doesn't know them (ex. the files they were resolved from) or publish their diagnostics until they're used. The new server doesn't know what the user decided for the session (ex. a download they denied or a process plugin they allowed), so keep the session's decisions (the ones that aren't `always`, and an `always` one whose result had a `notice` because it couldn't be stored) and send them again with `dprint/approve` instead of asking whenever their approval ids are pending again (the ids are the same in the new server, and an approval of process plugins that were set up since has the id it had before in `idBeforeSetUp`), including an approval that a decision that was sent again revealed, and keep which ids were asked about, so the user isn't asked again. Don't send a decision that allows an approval that's now `denied` (ex. it was denied in another window since), and a command or the status bar item asks about what the user denied for the session again instead of sending the denial. Then get the results again like after any `dprint/approve` (see "Which documents dprint formats").
+- A restart command is for forgetting what the user decided for the session, so forget the session's decisions and which ids were asked about too. So does `dprint/forgetDecisions` (for its configuration file, or every one), because sending a session's decision again would otherwise undo it. Use `dprint/reset` instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
 - A notification that changes the server's state (ex. `workspace/didChangeConfiguration`) applies to the requests sent after it.
 
 ### Which requests set up plugins
@@ -256,8 +256,17 @@ interface PendingApproval {
   denied: boolean;
   /** What the user decided before, which is "deny" or "alwaysDeny" when it's denied. */
   previousDecision?: ApprovalDecision;
-  /** The message to show the user when asking, which says what's approved and why. */
+  /**
+   * The message to show the user when asking, which says what's approved and why. It has everything the user needs to see
+   * to decide apart from the configuration of the items (ex. the registry of an npm plugin or the `.npmrc` file of a proxy),
+   * so a client that can't show the items shows it.
+   */
   message: string;
+  /**
+   * The id the approval had before its process plugins were set up (ex. in a server that was started before), which is
+   * for the same trusted configuration. Send a decision the user made for the session for that id again with `id`.
+   */
+  idBeforeSetUp?: string;
   /**
    * The trusted configuration of the configuration file, including what it extends, which the process plugins that weren't set up
    * before run with once they're allowed (what each one runs with isn't known until it's set up).
@@ -373,7 +382,7 @@ type FormatResult =
     plugin?: FilePlugin;
   };
 
-/** Something to tell the user about a document that was formatted or a configuration file that's used (ex. a warning). */
+/** Something to tell the user about the result of a request (ex. a warning about a document that was formatted, or a decision that couldn't be stored). Show it like its `show` and `severity` say (see `dprint/format`). */
 interface Notice {
   message: string;
   show: ShowPolicy;
@@ -480,7 +489,7 @@ interface ConfigFileInfo {
   /** A file, https, or npm uri. */
   uri: string;
   /**
-   * The directory whose files it formats, which is the directory it's in unless that's a `.config` directory,
+   * The directory whose files it formats, which is the directory it's in unless that's a `.config` directory (other than the home directory's),
    * and the directory it's used for when it's the global configuration file (ex. the root of a drive). It's the
    * directory its patterns are relative to for a remote or npm configuration file.
    */
@@ -709,7 +718,7 @@ See "Which documents dprint formats". Ignore a configuration file the editor ext
 The server also uses these, which an editor extension should handle:
 
 - `window/logMessage` - What the server logs, which isn't written to stderr. Stderr only has what isn't (ex. a crash).
-- `window/showMessage` - Something to show the user that isn't in the result of a request (ex. failing to store an approval).
+- `window/showMessage` - Something to show the user that isn't in the result of a request. The server doesn't send it to an editor extension now (what goes wrong with a request is in its result, ex. a `notice`), but a later version may.
 - `window/workDoneProgress/create` and `$/progress` - What's being done that may take a while (ex. downloading a plugin), when the client supports it. What's done while a request with a `workDoneToken` is handled is reported on its token, which is the total of everything that's being done (ex. a download that started before the request), and what starts then is reported on the server's own token once the request is done.
 - `textDocument/publishDiagnostics` - The problems with a configuration file (ex. an unknown property), which replace the ones published before. A problem without a known position is at the start of the file.
 - `$/cancelRequest` - Cancels a request (ex. a format the editor doesn't need anymore).

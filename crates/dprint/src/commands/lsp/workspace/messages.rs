@@ -291,8 +291,8 @@ pub enum FormatResult {
   },
 }
 
-/// Something to tell the user about a document that was formatted or a
-/// config file that's used (ex. a warning).
+/// Something to tell the user about the result of a request (ex. a warning
+/// about a document that was formatted, or a decision that couldn't be stored).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Notice {
