@@ -4,6 +4,15 @@ An editor extension formats documents with the `dprint lsp` command, which is a 
 
 The `dprint/*` methods were introduced in dprint 0.65. Editor extensions for older versions used `dprint editor-service` (see [schema version 5](./editor-extension-development-schema-5.md)), which formats the files of a configuration file that the editor found.
 
+An editor extension usually does the following, which the sections below describe:
+
+1. Start `dprint lsp`, send `initialize` with the `dprint` capability, check the `version` of the server's capability, and send `initialized` (see "Starting the server").
+2. Watch the configuration files (`configFileGlobs`) and the files they were resolved from (`watchUris`), and send `workspace/didChangeWatchedFiles` when they change (see "Lifecycle").
+3. When a document is opened, get its `dprint/fileInfo`, which says whether dprint formats it (`status`) or the editor extension should act as its formatter anyway (`claim`), and which configuration file is used for it (`configFile`). Get `dprint/configInfo` for that configuration file, which says which other documents it may format (see "Which documents dprint formats").
+4. Format a document with `dprint/format`. When something needs to be approved first (the `approvalRequired` reason), ask the user and send their decision with `dprint/approve` (see "Approving").
+5. When the server sends `dprint/configChanged`, get the `dprint/configInfo` and `dprint/fileInfo` results again.
+6. Show the `message` of a result like its `show` and `severity` say (see `dprint/format`).
+
 ## Starting the server
 
 Start one `dprint lsp` process for each `dprint` executable the editor uses (usually one for the whole editor window, not one for each workspace folder) and send the `initialize` request with the `dprint` experimental capability:
@@ -19,6 +28,8 @@ Start one `dprint lsp` process for each `dprint` executable the editor uses (usu
   "initializationOptions": { "useGlobalConfig": false }
 }
 ```
+
+Then send the `initialized` notification, which is when the server registers what it needs from the client (ex. the files to watch with the `watchFiles` feature).
 
 `versions` are the versions of the `dprint/*` methods the editor extension supports. The server uses the highest one that it also supports, which is the `version` in the `dprint` experimental capability of the `capabilities` of its result:
 
@@ -73,7 +84,7 @@ interface ServerCapability {
 
 `files` are where dprint's own files are, so the editor extension can offer commands that open them (ex. to add a domain to `editor.trustedDomains` in the settings file, or to edit the global configuration file). A file is left out when its directory can't be found, and `globalConfigUri` is where the global configuration file would be created when it doesn't exist, so a command that opens it may offer to create it. Use `dprint/forgetDecisions` to forget what the user decided instead of changing the approvals file.
 
-`configFileGlobs` are the configuration files to watch in the workspace folders (see "Lifecycle"), which may have names added later. When an older server doesn't provide them, watch `**/dprint.json`, `**/dprint.jsonc`, `**/.dprint.json`, and `**/.dprint.jsonc`.
+`configFileGlobs` are the configuration files to watch in the workspace folders (see "Lifecycle"), which may have names added later. They're empty when the server was started with a configuration file (`dprint lsp --config <path>`), which is the only one, so another configuration file in the workspace isn't one to the server (ex. `dprint/configInfo` fails with `-32602` for it). When an older server doesn't provide them, watch `**/dprint.json`, `**/dprint.jsonc`, `**/.dprint.json`, and `**/.dprint.jsonc`.
 
 An editor whose extensions can't send custom requests or handle custom notifications (ex. Zed or Helix) uses `dprint lsp` as a language client instead (see [the language server docs](../website/src/lsp.md)).
 
@@ -149,11 +160,11 @@ The process plugins of the global configuration file run without being approved 
 
 Documents are identified by their uri (ex. `file:///home/user/project/file.ts`). The plugin that formats a document is chosen by its file path, so a document that isn't a file is formatted as one:
 
-- An untitled document is formatted as a file in the first workspace folder, or the home directory when there isn't one. It's any uri with the `untitled` scheme (ex. `untitled:Untitled-1`), so an editor without its own uris for them (ex. Neovim or Emacs) uses one like `untitled:<buffer number>`. Use `fileUri` instead to format it in another directory (ex. the workspace folder of the active document).
+- An untitled document is formatted as a file in the first workspace folder, or the home directory when there isn't one. It's any uri with the `untitled` scheme (ex. `untitled:Untitled-1`), so an editor without its own uris for them (ex. Neovim or Emacs) uses one like `untitled:<buffer number>`. To format it in another directory (ex. the workspace folder of the active document), use the `fileUri` feature with the uri of a file there, which is the exact file it's formatted as (ex. `file:///home/user/project/Untitled-1.ts`), so its name decides which plugin formats it.
 - A notebook cell is formatted as a file in the notebook's directory when the `notebookDocument` is provided, which is what the jupyter plugin does when `dprint fmt` formats a notebook. It's only formatted when the notebook would be.
 - With the `fileUri` feature, a document with a `fileUri` is formatted as that file instead (ex. a `git:` document of a file in the workspace, or a document of a virtual file system that's backed by a file).
 
-These are named after the document's language (ex. `Untitled.ts` or `code_block.py`), so provide the `language` of an untitled document or a notebook cell, which is otherwise not formatted for the `languageRequired` reason. The name is the first of these that the configuration file formats, or otherwise the first of them: each of the language's `fileExtensions`, each of its `fileNames`, and then the file extension dprint knows for the language's `id`. Any other kind of uri isn't formatted for the `unsupportedDocument` reason (ex. a `git:` document without a `fileUri`).
+An untitled document or a notebook cell without a `fileUri` is named after its language (ex. `Untitled.ts` or `code_block.py`), so provide its `language`, which it's otherwise not formatted for (the `languageRequired` reason). A `fileUri` is used as it is, so its `language` isn't used. The name is the first of these that the configuration file formats, or otherwise the first of them: each of the language's `fileExtensions`, each of its `fileNames`, and then the file extension dprint knows for the language's `id`. Any other kind of uri isn't formatted for the `unsupportedDocument` reason (ex. a `git:` document without a `fileUri`).
 
 dprint knows these language ids, which are VS Code's and are compared case insensitively: `bash`, `sh`, `shell`, and `shellscript` (`.sh`), `c#` and `csharp` (`.cs`), `c++` and `cpp` (`.cpp`), `clojure` (`.clj`), `coffeescript` (`.coffee`), `elixir` (`.ex`), `erlang` (`.erl`), `f#` and `fsharp` (`.fs`), `handlebars` (`.hbs`), `haskell` (`.hs`), `javascript` (`.js`), `javascriptreact` (`.jsx`), `julia` (`.jl`), `kotlin` (`.kt`), `latex` (`.tex`), `markdown` (`.md`), `nushell` (`.nu`), `ocaml` (`.ml`), `perl` (`.pl`), `powershell` (`.ps1`), `proto3` and `protobuf` (`.proto`), `python` and `python3` (`.py`), `restructuredtext` (`.rst`), `ruby` (`.rb`), `rust` (`.rs`), `terraform` (`.tf`), `typescript` (`.ts`), `typescriptreact` (`.tsx`), and `yaml` (`.yml`). Another id of only letters and digits is used as the extension (ex. `toml` or `json`), and an id with other characters isn't known (ex. `yaml.ansible`). An editor with other ids (ex. a Neovim filetype, a TextMate scope, or an Emacs mode) provides the `fileExtensions` or `fileNames` it associates with the language.
 
@@ -188,7 +199,9 @@ The server uses canonical paths, which have their symlinks resolved, but the uri
 
 ## Which documents dprint formats
 
-An editor usually needs to know which documents an extension formats before formatting them (ex. to register as their formatter). Get each configuration file's plugins with `dprint/configInfo`:
+An editor usually needs to know which documents an extension formats before formatting them (ex. to register as their formatter). Find the configuration files from the documents: the `configFile` of a document's `dprint/fileInfo` is the configuration file that's used for it, which may be in an ancestor directory of the workspace folder. An editor that needs to know them before a document is opened (ex. to register a formatter for their documents) may also search the workspace folders with the `configFileGlobs` and the ancestor directories of the workspace folders, leaving out what the editor excludes from searches (ex. build directories). Getting `dprint/configInfo` sets up a configuration file's plugins, so a configuration file found that way may download plugins that dprint wouldn't use for any document (ex. one in an ignored directory). A file in `node_modules` and a `.config/.dprint.json` aren't configuration files dprint finds for a directory, so `dprint/configInfo` fails with `-32602` for them.
+
+Get each configuration file's plugins with `dprint/configInfo`:
 
 - `filePatterns` are globs of the documents its plugins may format, which are relative to the directory of the configuration file (`configFile.dirUri`). Register them as the documents the editor extension formats, and the cells of the notebooks they match, unless the status's `claim` is `false`.
 - `otherFiles` are the other documents the configuration file formats, which a glob can't match:
@@ -210,7 +223,7 @@ The results stay valid until the server says otherwise, so get them again only w
 
 When it's sent, get `dprint/configInfo` for the configuration file and `dprint/fileInfo` for the open documents it may be used for, because a change to its `includes` or `excludes` changes whether they're formatted. Those are the documents in its `dirUri`, the documents its `associations` may match (see `otherFiles`), every document for the one the server was started with (`kind: "cli"`), and the documents without a configuration file when it was created. Without a `configFile`, get them for every configuration file and open document. The results of `dprint/format` say whether to claim a document (`claim`) and `dprint/approve` says whether its configuration file is used (`status`), which replace what was known before for them.
 
-A configuration file is identified by its `uri` and the directory it's used for (`dirUri`), which are always provided together. The global configuration file has results for each directory it's used for (ex. each drive). Send the `dirUri` with the `uri` whenever a method takes a configuration file, keep what's known about one by both, and treat a `dprint/configChanged` whose `configFile` doesn't have a `dirUri` like it's for each one.
+A configuration file is identified by its `uri` and the directory it's used for (`dirUri`), which the server always provides together. The global configuration file has results for each directory it's used for (ex. each drive). Send the `dirUri` with the `uri` when a method takes a configuration file and it's known (ex. from a result), which is needed for the global configuration file and the one the server was started with, and isn't for one the editor found (a configuration file in the workspace is used for its own directory). Keep what's known about one by both, and treat a `dprint/configChanged` whose `configFile` doesn't have a `dirUri` like it's for each one.
 
 ## Approving
 
@@ -219,7 +232,7 @@ Opening a project isn't the same as choosing to run what its configuration file 
 - **Downloads** - A download sends a request to the domain it's from, which a configuration file could use to send information to a server of its choosing (ex. that the project was opened and from where). To limit that, the server only downloads plugins and the configuration files that a configuration file extends from these trusted domains (and their subdomains) without the user approving it: `registry.npmjs.org`, `plugins.dprint.dev`, `github.com`, `githubusercontent.com`, and the ones the user added to the `editor.trustedDomains` setting in dprint's settings file. This includes each redirect, and reading a file on another machine (ex. a UNC path on Windows) is approved like a download. What's in dprint's cache doesn't need to be downloaded (ex. from running `dprint fmt` or `dprint config install`), and neither does a plugin that's a file (ex. in `node_modules`). Allowing a download allows each of its exact urls for the rest of the session, including for the other configuration files that need them (the url of an npm registry allows every package from it), which are then used too. A decision that isn't `always` is only for the server that received it, so another editor window asks again.
 - **Process plugins** - They aren't sandboxed, so running them needs to be approved for the configuration file with each plugin's configuration, unless the user set `editor.allowProcessPlugins` to `true` in dprint's settings file (see [the language server docs](../website/src/lsp.md)). Running dprint with the configuration file (`dprint fmt`, `dprint check`, or `dprint config install`) approves them because the user ran it.
 
-Nothing is formatted with the configuration file until then, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The results of `dprint/format`, `dprint/fileInfo`, and `dprint/configInfo` then have the `approvalRequired` reason and what needs to be approved (see "Which documents dprint formats" for which documents). Start asking about the `approvals` of any result that has them, whatever its reason:
+Nothing is formatted with the configuration file until then, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The results of `dprint/format`, `dprint/fileInfo`, and `dprint/configInfo` then have the `approvalRequired` reason and what needs to be approved (see "Which documents dprint formats" for which documents). The `approvals` of any result are what to ask about, whatever its reason, but only ask when the user wants to format with the configuration file (see below):
 
 ```ts
 interface PendingApproval {
