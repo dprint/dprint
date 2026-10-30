@@ -13,31 +13,9 @@ pub struct EditorPaths {
 }
 
 impl EditorPaths {
-  /// Remembers the editor's path of the canonical path, which is used for the
-  /// directories they have in common (ex. `/link/project/file.ts` and
-  /// `/real/project/file.ts` are `/link` and `/real`).
-  pub fn add(&self, editor_path: &Path, canonical_path: &Path) {
-    if editor_path == canonical_path {
-      return;
-    }
-    let mut editor_dir = editor_path;
-    let mut canonical_dir = canonical_path;
-    // the components they end with are the same
-    while let (Some(editor_name), Some(canonical_name)) = (editor_dir.file_name(), canonical_dir.file_name()) {
-      if editor_name != canonical_name {
-        break;
-      }
-      match (editor_dir.parent(), canonical_dir.parent()) {
-        (Some(editor_parent), Some(canonical_parent)) => {
-          editor_dir = editor_parent;
-          canonical_dir = canonical_parent;
-        }
-        _ => break,
-      }
-    }
-    if editor_dir == canonical_dir {
-      return;
-    }
+  /// Remembers the editor's path of a canonical directory, which is an alias
+  /// of it (ex. a symlink to it), and replaces the one remembered for it.
+  pub fn add(&self, editor_dir: &Path, canonical_dir: &Path) {
     let mut dirs = self.dirs.borrow_mut();
     dirs.retain(|(dir, _)| dir != canonical_dir);
     dirs.push((canonical_dir.to_path_buf(), editor_dir.to_path_buf()));
@@ -71,17 +49,17 @@ mod test {
   fn should_get_the_editors_path_of_a_canonical_path() {
     let paths = EditorPaths::default();
     assert_eq!(paths.get(Path::new("/real/project/file.ts")), PathBuf::from("/real/project/file.ts"));
-    paths.add(Path::new("/link/project/file.ts"), Path::new("/real/project/file.ts"));
+    paths.add(Path::new("/link/project"), Path::new("/real/project"));
     assert_eq!(paths.get(Path::new("/real/project/dprint.json")), PathBuf::from("/link/project/dprint.json"));
-    assert_eq!(paths.get(Path::new("/real")), PathBuf::from("/link"));
+    assert_eq!(paths.get(Path::new("/real/project")), PathBuf::from("/link/project"));
     // a directory the editor doesn't know by another path
-    assert_eq!(paths.get(Path::new("/other/dprint.json")), PathBuf::from("/other/dprint.json"));
-    // the same paths don't change anything
-    paths.add(Path::new("/other/file.ts"), Path::new("/other/file.ts"));
-    assert_eq!(paths.get(Path::new("/other/file.ts")), PathBuf::from("/other/file.ts"));
+    assert_eq!(paths.get(Path::new("/real/other/dprint.json")), PathBuf::from("/real/other/dprint.json"));
     // the closest directory wins
-    paths.add(Path::new("/link/project/nested-link/file.ts"), Path::new("/elsewhere/file.ts"));
+    paths.add(Path::new("/link/project/nested-link"), Path::new("/elsewhere"));
     assert_eq!(paths.get(Path::new("/elsewhere/a.ts")), PathBuf::from("/link/project/nested-link/a.ts"));
     assert_eq!(paths.get(Path::new("/real/project/a.ts")), PathBuf::from("/link/project/a.ts"));
+    // the most recent path replaces the one before it
+    paths.add(Path::new("/other-link"), Path::new("/real/project"));
+    assert_eq!(paths.get(Path::new("/real/project/a.ts")), PathBuf::from("/other-link/a.ts"));
   }
 }

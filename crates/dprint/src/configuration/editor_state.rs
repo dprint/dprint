@@ -319,6 +319,17 @@ impl SessionPermissions {
     self.process_plugin_set_up_grants.lock().push(grant);
   }
 
+  /// Gets what the user decided for the session about running process
+  /// plugins, with the most recent last.
+  pub fn session_process_plugin_decisions(&self) -> Vec<ProcessPluginDecision> {
+    self.process_plugin_decisions.lock().clone()
+  }
+
+  /// Gets the process plugins the user allowed setting up for the session.
+  pub fn process_plugin_set_up_grants(&self) -> Vec<ProcessPluginSetUpGrant> {
+    self.process_plugin_set_up_grants.lock().clone()
+  }
+
   /// Forgets what the user decided for the session about the process plugins
   /// of the config files.
   pub fn forget_process_plugin_decisions(&self, is_config_file: &impl Fn(&str) -> bool) {

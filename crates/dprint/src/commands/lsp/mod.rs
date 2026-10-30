@@ -419,6 +419,9 @@ struct State<TEnvironment: Environment> {
   /// The features of the `dprint/*` methods that the server uses with the
   /// editor extension.
   features: serde_json::Map<String, serde_json::Value>,
+  /// Whether the client is an editor extension that doesn't support a version
+  /// the server does, which every method fails for.
+  is_unsupported_client: bool,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -445,6 +448,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         supports_document_changes: false,
         output_sink: None,
         features: Default::default(),
+        is_unsupported_client: false,
       }),
       environment,
     }
@@ -456,6 +460,15 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     match self.state.lock().client_kind {
       ClientKind::EditorExtension => Ok(()),
       ClientKind::LanguageClient { .. } => Err(LspError::method_not_found()),
+    }
+  }
+
+  /// Fails with `MethodNotFound` for an editor extension that doesn't support a
+  /// version the server does, which isn't handled like a language client.
+  fn ensure_supported_client(&self) -> LspResult<()> {
+    match self.state.lock().is_unsupported_client {
+      true => Err(LspError::method_not_found()),
+      false => Ok(()),
     }
   }
 
@@ -987,6 +1000,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         state.settings.update(options, &self.environment);
       }
       state.client_kind = client_kind;
+      state.is_unsupported_client = is_unsupported_editor_extension;
       state.supports_document_changes = supports_document_changes(&params.capabilities);
       #[allow(deprecated)]
       let root_uri = params.root_uri.clone();
@@ -1048,7 +1062,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       };
       serde_json::json!({ EXPERIMENTAL_CAPABILITY_NAME: capability })
     });
-    let workspace = Some(WorkspaceServerCapabilities {
+    // an editor extension that isn't supported isn't advertised anything
+    let workspace = (!is_unsupported_editor_extension).then(|| WorkspaceServerCapabilities {
       workspace_folders: Some(WorkspaceFoldersServerCapabilities {
         supported: Some(true),
         change_notifications: Some(OneOf::Left(true)),
@@ -1206,10 +1221,12 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn formatting(&self, params: DocumentFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
+    self.ensure_supported_client()?;
     Ok(self.format_document(&params.text_document.uri, None, &params.options, token).await)
   }
 
   async fn range_formatting(&self, params: DocumentRangeFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
+    self.ensure_supported_client()?;
     Ok(
       self
         .format_document(&params.text_document.uri, Some(params.range), &params.options, token)
@@ -1218,6 +1235,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn execute_command(&self, params: ExecuteCommandParams, token: CancellationToken) -> LspResult<Option<serde_json::Value>> {
+    self.ensure_supported_client()?;
     let has_range = match params.command.as_str() {
       FORMAT_WITH_GLOBAL_CONFIG_COMMAND => false,
       FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND => true,
@@ -1240,6 +1258,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn completion(&self, params: CompletionParams, _token: CancellationToken) -> LspResult<Option<CompletionResponse>> {
+    self.ensure_supported_client()?;
     let uri = params.text_document_position.text_document.uri;
     if !is_config_uri(&uri) {
       return Ok(None);
@@ -1264,6 +1283,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn hover(&self, params: HoverParams, _token: CancellationToken) -> LspResult<Option<Hover>> {
+    self.ensure_supported_client()?;
     let uri = params.text_document_position_params.text_document.uri;
     if !is_config_uri(&uri) {
       return Ok(None);
