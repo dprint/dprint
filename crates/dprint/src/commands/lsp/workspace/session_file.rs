@@ -51,7 +51,8 @@ const SESSIONS_DIR_NAME: &str = "editor-sessions";
 /// The version of the format of a session file that this version writes,
 /// which is raised for any change an older server can't read or would read
 /// with another meaning (see `SessionFile`). A file of a version this one
-/// can't use is ignored, which only means the user is asked again.
+/// can't use is ignored, which only means the user is asked again. The test
+/// `should_not_change_the_session_file_format` has what it writes.
 const SESSION_FILE_VERSION: u64 = 1;
 /// How many times a server tries to take the lock of its session when it
 /// starts, which is several times because the server that exited
@@ -857,6 +858,105 @@ mod test {
     environment.set_file_lock_fails(&file.lock_path, false);
     file.write(&environment, &SessionState::default(), false).unwrap();
     assert!(environment.path_exists(&file.file_path));
+  }
+
+  #[test]
+  fn should_not_change_the_session_file_format() {
+    // IMPORTANT: Other versions of dprint read and delete these files (see `SessionFile`), so raise
+    // `SESSION_FILE_VERSION` for a change to this that an older server can't read or would read with another meaning
+    use crate::configuration::ProcessPluginApproval;
+    use crate::configuration::ProcessPluginDecision;
+    use crate::configuration::ProcessPluginSetUpGrant;
+
+    let approval = ProcessPluginApproval {
+      config_file: "/a/dprint.json".to_string(),
+      plugin: "https://plugins.dprint.dev/exec.json@abc".to_string(),
+      config_hash: Some("1:hash".to_string()),
+      config_key: Some("exec".to_string()),
+    };
+    let decision = |allowed: bool| ProcessPluginDecision {
+      approval: approval.clone(),
+      allowed,
+      decided_at: 2,
+    };
+    let state = SessionState {
+      permissions: SessionPermissionsState {
+        process_plugin_decisions: vec![decision(true), decision(false)],
+        process_plugin_set_up_grants: vec![ProcessPluginSetUpGrant {
+          config_file: "/a/dprint.json".to_string(),
+          plugin: "npm:dprint-plugin-exec".to_string(),
+          trusted_config_hash: "trusted".to_string(),
+          unpinned_file_checksum: Some("checksum".to_string()),
+          always: true,
+          decided_at: 3,
+        }],
+        seen_stored_denials: vec![decision(false)],
+        approvals_file_fingerprint: Some("fingerprint".to_string()),
+      },
+      allowed_downloads: vec![AllowedDownload {
+        download: "https://example.com/plugin.wasm".to_string(),
+        item: Some(ApprovalItem {
+          specifier: "https://example.com/plugin.wasm".to_string(),
+          kind: super::super::messages::ApprovalItemKind::Plugin,
+          registry: None,
+          npmrc_uri: None,
+          local_uri: None,
+          plugin: None,
+          configuration: None,
+        }),
+      }],
+      denied_downloads: vec![DeniedDownload {
+        id: String::new(),
+        config_key: "/a/dprint.json".to_string(),
+        downloads: vec!["https://example.com/config.json".to_string()],
+        config_file: ConfigFileIdentifier {
+          uri: "file:///a/dprint.json".parse().unwrap(),
+          dir_uri: Some("file:///a".parse().unwrap()),
+        },
+        items: Vec::new(),
+      }],
+    };
+    let decision_json = |allowed: bool| {
+      serde_json::json!({
+        "configFile": "/a/dprint.json",
+        "plugin": "https://plugins.dprint.dev/exec.json@abc",
+        "configHash": "1:hash",
+        "configKey": "exec",
+        "allowed": allowed,
+        "decidedAt": 2,
+      })
+    };
+    let expected = serde_json::json!({
+      "version": 1,
+      "processPluginDecisions": [decision_json(true), decision_json(false)],
+      "processPluginSetUpGrants": [{
+        "configFile": "/a/dprint.json",
+        "plugin": "npm:dprint-plugin-exec",
+        "trustedConfigHash": "trusted",
+        "unpinnedFileChecksum": "checksum",
+        "always": true,
+        "decidedAt": 3,
+      }],
+      "seenStoredDenials": [decision_json(false)],
+      "approvalsFileFingerprint": "fingerprint",
+      "allowedDownloads": [{
+        "download": "https://example.com/plugin.wasm",
+        "item": { "specifier": "https://example.com/plugin.wasm", "kind": "plugin" },
+      }],
+      "deniedDownloads": [{
+        "configKey": "/a/dprint.json",
+        "downloads": ["https://example.com/config.json"],
+        "configFile": { "uri": "file:///a/dprint.json", "dirUri": "file:///a" },
+        "items": [],
+      }],
+    });
+    let content = SessionFileContent {
+      version: SESSION_FILE_VERSION,
+      state: &state,
+    };
+    assert_eq!(serde_json::to_value(&content).unwrap(), expected);
+    // and it's read the same way
+    assert_eq!(serde_json::from_value::<SessionState>(expected).unwrap(), state);
   }
 
   #[test]

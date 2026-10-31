@@ -1716,6 +1716,7 @@ fn get_dprint_files(environment: &impl Environment) -> DprintFiles {
     settings_uri: get_settings_file_path(environment).and_then(|path: PathBuf| file_path_to_uri(&path)),
     approvals_uri: get_editor_approvals_file_path(environment).and_then(|path: PathBuf| file_path_to_uri(&path)),
     global_config_uri: global_config.and_then(|path: PathBuf| file_path_to_uri(&path)),
+    global_config_file_names: GLOBAL_CONFIG_FILE_NAMES.iter().map(|name| name.to_string()).collect(),
   }
 }
 

@@ -52,6 +52,7 @@ fn should_say_it_supports_the_dprint_methods() {
       // where `dprint init --global` creates the global config file, which is used over a `dprint.json`
       let global_config_uri = capability["files"]["globalConfigUri"].as_str().unwrap();
       assert!(global_config_uri.ends_with("/dprint/dprint.jsonc"), "{}", global_config_uri);
+      assert_eq!(capability["files"]["globalConfigFileNames"], json!(["dprint.jsonc", "dprint.json"]));
       assert!(capability.get("features").is_none());
       // the text is sent when formatting, so the documents aren't synced
       assert_eq!(result.capabilities.text_document_sync, None);
@@ -803,6 +804,50 @@ fn should_tell_the_editor_when_the_config_file_the_server_was_started_with_chang
         // a change to it is a change to every config file because it's used for every file
         client.backend.did_change_watched_files(change("/config/my-config.json")).await;
         assert!(client.wait_for_config_changes().await.contains(&uri("/")));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_not_download_a_remote_config_file_again_until_reset() {
+  const URL: &str = "https://plugins.dprint.dev/shared/dprint.json";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("extends", &format!("\"{}\"", URL));
+    })
+    .initialize()
+    .build();
+  // ex. a server whose responses are never fresh and change each time, which would have the editor's requests for a
+  // change of it download it again and see another change forever
+  fn respond(environment: &TestEnvironment, count: usize) {
+    let text = format!(r#"{{ "excludes": ["file{}.txt"] }}"#, count);
+    environment.add_remote_file_with_headers(URL, text.as_bytes(), &[("cache-control", "no-cache")]);
+  }
+  respond(&environment, 0);
+  environment.set_fs_time(1000);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.file_info("/a/file.txt").await;
+        let request_count = environment.remote_file_request_count(URL);
+        assert!(request_count > 0);
+        client.take_config_changes();
+        for count in 1..5 {
+          respond(&environment, count);
+          client.config_info("/a/dprint.json").await;
+          client.file_info("/a/file.txt").await;
+        }
+        assert_eq!(environment.remote_file_request_count(URL), request_count);
+        assert_eq!(client.take_config_changes(), Vec::<Uri>::new());
+        // until the server is reset, which downloads it again
+        environment.set_fs_time(1001);
+        client.backend.dprint_reset(Some(ResetParams {}), CancellationToken::new()).await.unwrap();
+        client.file_info("/a/file.txt").await;
+        assert!(environment.remote_file_request_count(URL) > request_count);
       }
       .boxed_local()
     }

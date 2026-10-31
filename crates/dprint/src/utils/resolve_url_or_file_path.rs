@@ -8,6 +8,7 @@ use super::PathSource;
 use crate::cache::HttpCache;
 use crate::cache::HttpCacheSys;
 use crate::cache::RemoteCacheMode;
+use crate::cache::SerializedCachedUrlMetadata;
 use crate::environment::CacheValidators;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
@@ -80,7 +81,7 @@ pub async fn resolve_url_or_file_path_to_file_with_cache<TEnvironment: Environme
 /// Gets whether a response for the url is cached, even when it's stale.
 pub fn is_url_cached(url: &Url, environment: &impl Environment) -> bool {
   let cache = HttpCache::new(environment.clone(), environment.get_cache_dir().join("remote"));
-  matches!(read_cached_chain(&cache, url, /* allow stale */ true), Ok(Some(_)))
+  matches!(read_cached_chain(&cache, url, |_| true), Ok(Some(_)))
 }
 
 /// Resolves the url using the cached response while it's fresh (see
@@ -95,16 +96,14 @@ async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(
 ) -> Result<ResolvedFilePathWithBytes> {
   let cache = HttpCache::new(environment.clone(), environment.get_cache_dir().join("remote"));
 
-  if cache_mode == RemoteCacheMode::Use
-    && let Some(cached) = read_cached_chain(&cache, url, /* allow stale */ false)?
-  {
+  if let Some(cached) = read_cached_chain(&cache, url, |metadata| cache.uses_cached(metadata, cache_mode))? {
     return Ok(cached);
   }
 
   match download_through_cache(&cache, url, cache_mode, environment).await {
     Ok(Some(result)) => Ok(result),
     Ok(None) => bail!("Error downloading {} - 404 Not Found", url),
-    Err(err) => match read_cached_chain(&cache, url, /* allow stale */ true) {
+    Err(err) => match read_cached_chain(&cache, url, |_| true) {
       Ok(Some(cached)) => {
         log_warn!(
           environment,
@@ -123,20 +122,23 @@ async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(
 }
 
 /// Reads the cached response of the url, following cached redirects. Returns
-/// `None` when any response in the chain isn't cached or, unless stale ones
-/// are allowed, is stale.
+/// `None` when any response in the chain isn't cached or isn't one to use.
 ///
 /// The whole chain is checked because a redirect target might only be valid
 /// for a short time (ex. a signed url), so it should be requested again via
 /// the original url rather than directly.
-fn read_cached_chain<Sys: HttpCacheSys>(cache: &HttpCache<Sys>, url: &Url, allow_stale: bool) -> Result<Option<ResolvedFilePathWithBytes>> {
+fn read_cached_chain<Sys: HttpCacheSys>(
+  cache: &HttpCache<Sys>,
+  url: &Url,
+  is_usable: impl Fn(&SerializedCachedUrlMetadata) -> bool,
+) -> Result<Option<ResolvedFilePathWithBytes>> {
   let mut current_url = url.clone();
   for _ in 0..=MAX_REDIRECTS {
     let key = cache.cache_item_key(&current_url)?;
     let Some(entry) = cache.get(&key)? else {
       return Ok(None);
     };
-    if !allow_stale && !cache.is_fresh(&entry.metadata) {
+    if !is_usable(&entry.metadata) {
       return Ok(None);
     }
     if let Some(location) = entry.metadata.headers.get("location") {
@@ -192,8 +194,7 @@ async fn download_through_cache<TEnvironment: Environment>(
   for i in 0..=MAX_REDIRECTS {
     // a redirect may lead back to a fresh part of the chain
     if i > 0
-      && cache_mode == RemoteCacheMode::Use
-      && let Some(cached) = read_cached_chain(cache, &current_url, /* allow stale */ false)?
+      && let Some(cached) = read_cached_chain(cache, &current_url, |metadata| cache.uses_cached(metadata, cache_mode))?
     {
       return Ok(Some(cached));
     }

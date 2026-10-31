@@ -70,6 +70,11 @@ const NO_APPROVALS_FILE_FINGERPRINT: &str = "none";
 /// It's in the cache directory because losing it only has the user notified
 /// again. Clearing the cache also discards the list of workspace folders that
 /// builds up in it.
+///
+/// IMPORTANT: Every version of dprint that's installed rewrites this file and
+/// drops what it doesn't know, and starts over when it can't parse it, so a
+/// new field must be safe to lose (it only notifies again), and a field never
+/// changes its type (a new one is added instead).
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct EditorState {

@@ -650,7 +650,7 @@ async fn resolve_extends_file_with_checksum(specifier: &str, context: &ExtendsCo
     Some(checksum) => {
       let checksum = checksum.to_ascii_lowercase();
       let mut file = resolve_extends_file(specifier_without_checksum, context, context.remote_cache_mode, environment).await?;
-      if verify_sha256_checksum(&file.content, &checksum).is_err() && context.remote_cache_mode == RemoteCacheMode::Use {
+      if verify_sha256_checksum(&file.content, &checksum).is_err() && context.remote_cache_mode != RemoteCacheMode::Reload {
         // the cached file might be out of date, so check the server for a newer one
         file = resolve_extends_file(specifier_without_checksum, context, RemoteCacheMode::Reload, environment).await?;
       }

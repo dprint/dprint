@@ -167,6 +167,10 @@ pub struct DprintFiles {
   /// server started.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub global_config_uri: Option<Uri>,
+  /// The names of the global config file in the order they're looked for in
+  /// its directory, which a newer version may add to.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub global_config_file_names: Vec<String>,
 }
 
 /// What identifies a document, which is formatted as a file.

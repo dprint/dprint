@@ -40,6 +40,25 @@ pub enum RemoteCacheMode {
   /// Check the server for a newer response even when the cached one is fresh
   /// (`--reload`).
   Reload,
+  /// Use a cached response that was received since the time (seconds since
+  /// the UNIX epoch) whatever its caching headers say, and otherwise like
+  /// `Use`. The editors use it from when the server starts, so a remote file
+  /// is only downloaded once until they're reset, because a request that a
+  /// change of the file caused would otherwise download it again, and a
+  /// server whose responses change each time would have them change forever.
+  UseReceivedSince(u64),
+}
+
+impl RemoteCacheMode {
+  /// Gets whether a cached response is used at the time (seconds since the
+  /// UNIX epoch) without checking the server for a newer one.
+  pub fn uses_cached_at(&self, metadata: &SerializedCachedUrlMetadata, now_secs: u64) -> bool {
+    match self {
+      Self::Use => metadata.is_fresh_at(now_secs),
+      Self::Reload => false,
+      Self::UseReceivedSince(since_secs) => metadata.time.is_some_and(|secs| secs >= *since_secs) || metadata.is_fresh_at(now_secs),
+    }
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -208,6 +227,12 @@ impl<Sys: HttpCacheSys> HttpCache<Sys> {
   /// for a newer one.
   pub fn is_fresh(&self, metadata: &SerializedCachedUrlMetadata) -> bool {
     metadata.is_fresh_at(self.now_secs())
+  }
+
+  /// Whether the cached response is used now with the cache mode without
+  /// checking the server for a newer one (see `RemoteCacheMode::uses_cached_at`).
+  pub fn uses_cached(&self, metadata: &SerializedCachedUrlMetadata, cache_mode: RemoteCacheMode) -> bool {
+    cache_mode.uses_cached_at(metadata, self.now_secs())
   }
 
   fn now_secs(&self) -> u64 {
@@ -438,6 +463,25 @@ mod test {
     // the clock going backwards or a corrupt time doesn't panic
     assert!(metadata(Some(1000), &[]).is_fresh_at(500));
     assert!(!metadata(Some(u64::MAX), &[("expires", "Sun, 06 Nov 1994 08:59:37 GMT")]).is_fresh_at(1000));
+  }
+
+  #[test]
+  fn should_use_a_response_received_since_the_time_whatever_its_headers_say() {
+    fn metadata(time: u64, cache_control: &str) -> SerializedCachedUrlMetadata {
+      SerializedCachedUrlMetadata {
+        headers: HashMap::from([("cache-control".to_string(), cache_control.to_string())]),
+        url: "https://example.com/file.json".to_string(),
+        time: Some(time),
+      }
+    }
+    let mode = RemoteCacheMode::UseReceivedSince(1000);
+    assert!(mode.uses_cached_at(&metadata(1000, "no-cache"), 2000));
+    assert!(!mode.uses_cached_at(&metadata(999, "no-cache"), 2000));
+    // and otherwise like `Use`
+    assert!(mode.uses_cached_at(&metadata(999, "max-age=300"), 1000));
+    assert!(RemoteCacheMode::Use.uses_cached_at(&metadata(999, "max-age=300"), 1000));
+    assert!(!RemoteCacheMode::Use.uses_cached_at(&metadata(1000, "no-cache"), 1000));
+    assert!(!RemoteCacheMode::Reload.uses_cached_at(&metadata(1000, "max-age=300"), 1000));
   }
 
   fn create_cache() -> HttpCache<sys_traits::impls::InMemorySys> {

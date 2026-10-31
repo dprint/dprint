@@ -46,7 +46,7 @@ pub struct PluginSectionDiagnostic<'a> {
 /// Gets the diagnostics of the config file, finding where each one's property
 /// is in the text of the config file when it's there.
 pub fn get_config_diagnostics(
-  config_text: Option<&str>,
+  config_text: &str,
   global_diagnostics: &[GlobalConfigDiagnostic],
   plugin_diagnostics: &[PluginSectionDiagnostic],
 ) -> Vec<ConfigDiagnostic> {
@@ -78,11 +78,8 @@ pub fn get_config_diagnostics(
 
 /// Gets the diagnostic of a config file that failed to resolve, which is
 /// where the text doesn't parse when that's why.
-pub fn get_config_error_diagnostic(config_text: Option<&str>, err: &anyhow::Error) -> ConfigDiagnostic {
-  let parse_error_range = config_text.and_then(|config_text| {
-    let err = parse(config_text).err()?;
-    ConfigText::new(Some(config_text)).range(err.range())
-  });
+pub fn get_config_error_diagnostic(config_text: &str, err: &anyhow::Error) -> ConfigDiagnostic {
+  let parse_error_range = parse(config_text).err().and_then(|err| ConfigText::new(config_text).range(err.range()));
   ConfigDiagnostic {
     message: format!("{:#}", err),
     range: parse_error_range,
@@ -119,20 +116,19 @@ fn parse(text: &str) -> Result<Option<Value<'_>>, jsonc_parser::errors::ParseErr
   jsonc_parser::parse_to_ast(text, &Default::default(), &Default::default()).map(|result| result.value)
 }
 
-/// The text of a config file, which is `None` when it's not known (ex. a
-/// remote config file).
+/// The text of a config file with what's parsed of it.
 struct ConfigText<'a> {
-  text: Option<&'a str>,
+  text: &'a str,
   value: Option<Value<'a>>,
-  line_index: Option<LineIndex>,
+  line_index: LineIndex,
 }
 
 impl<'a> ConfigText<'a> {
-  fn new(text: Option<&'a str>) -> Self {
+  fn new(text: &'a str) -> Self {
     Self {
       text,
-      value: text.and_then(|text| parse(text).ok().flatten()),
-      line_index: text.map(LineIndex::new),
+      value: parse(text).ok().flatten(),
+      line_index: LineIndex::new(text),
     }
   }
 
@@ -145,9 +141,12 @@ impl<'a> ConfigText<'a> {
 
   /// Converts the byte range to a range of lines and UTF-16 characters.
   fn range(&self, range: jsonc_parser::common::Range) -> Option<Range> {
-    let line_index = self.line_index.as_ref()?;
-    let len = self.text?.len();
-    let position = |offset: usize| line_index.position_utf16_from_utf8_offset(TextSize::from(std::cmp::min(offset, len) as u32));
+    let len = self.text.len();
+    let position = |offset: usize| {
+      self
+        .line_index
+        .position_utf16_from_utf8_offset(TextSize::from(std::cmp::min(offset, len) as u32))
+    };
     Some(Range {
       start: position(range.start),
       end: position(range.end),
@@ -213,7 +212,7 @@ mod test {
       .map(|(diagnostic, config_key)| PluginSectionDiagnostic { config_key, diagnostic })
       .collect::<Vec<_>>();
     let diagnostics = get_config_diagnostics(
-      Some(text),
+      text,
       &[GlobalConfigDiagnostic::UnknownProperty(diagnostic(
         "unknown",
         "Unknown property in configuration",
@@ -235,11 +234,10 @@ mod test {
   #[test]
   fn should_get_where_a_config_file_does_not_parse() {
     let err = anyhow::anyhow!("Failed parsing.");
-    let diagnostic = get_config_error_diagnostic(Some("{\n  \"a\": }"), &err);
+    let diagnostic = get_config_error_diagnostic("{\n  \"a\": }", &err);
     assert_eq!(diagnostic.message, "Failed parsing.");
     assert_eq!(diagnostic.range, range((1, 7), (1, 8)));
     // it parses, so the problem is elsewhere
-    assert_eq!(get_config_error_diagnostic(Some("{}"), &err).range, None);
-    assert_eq!(get_config_error_diagnostic(None, &err).range, None);
+    assert_eq!(get_config_error_diagnostic("{}", &err).range, None);
   }
 }

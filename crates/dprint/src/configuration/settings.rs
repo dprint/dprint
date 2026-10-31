@@ -180,8 +180,10 @@ pub(super) fn set_setting(environment: &impl Environment, property_path: &[&str]
   if !text.ends_with('\n') {
     text.push('\n');
   }
+  // every version reads it, so it's replaced at once rather than being seen partly written (ex. by a server of
+  // another version, which would fail closed) or left that way
   environment
-    .write_file(&file_path, &text)
+    .atomic_write_file_bytes(&file_path, text.as_bytes())
     .with_context(|| format!("Failed writing {}", file_path.display()))?;
   Ok(file_path)
 }

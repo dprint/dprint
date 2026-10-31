@@ -483,7 +483,8 @@ struct StoredApproval {
   config_key: String,
   /// What the config file it's for is resolved again for once it's approved,
   /// which is the config file itself by the path that identifies it unless it
-  /// can't be (ex. a remote one) and then a file it was used for.
+  /// can't be (ex. the one the server was started with) and then a file it
+  /// was used for.
   config_target: ApprovalTarget,
   approval: PendingApproval,
   subject: ApprovalSubject,
@@ -710,6 +711,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   pub async fn reset(&self) {
     log_debug!(self.environment, "Resetting the configuration files and plugins.");
     self.used_configs.borrow_mut().clear();
+    self.scope_container.download_remote_files_again();
     self.scope_container.shutdown().await;
   }
 
@@ -1761,8 +1763,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   /// Gets what a config file is resolved for by the path that identifies it,
-  /// which is `None` when it's resolved for a file instead (ex. it's remote or
-  /// the one the server was started with).
+  /// which is `None` when it's resolved for a file instead (ex. the one the
+  /// server was started with).
   fn get_config_file_target(&self, config_file: ConfigFileRef<'_>) -> Option<ApprovalTarget> {
     if self.scope_container.has_config_override() {
       return None;
@@ -2501,7 +2503,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if let (Some(config), Some(config_text)) = (&scope.config, &config_text) {
       self.publish_config_diagnostics(
         ConfigFileRef::of_config(config),
-        get_config_diagnostics(Some(config_text), scope.global_config_diagnostics(), &plugin_diagnostics),
+        get_config_diagnostics(config_text, scope.global_config_diagnostics(), &plugin_diagnostics),
       );
     }
     // one that may not be read now isn't offered to be opened (see `publish_config_diagnostics`)
@@ -2703,7 +2705,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         if self.used_configs.borrow().contains_key(&key) {
           self.publish_config_diagnostics(
             ConfigFileRef::of_found(&config_file),
-            vec![get_config_error_diagnostic(Some(&config_file.content), &err)],
+            vec![get_config_error_diagnostic(&config_file.content, &err)],
           );
         }
         return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err), Vec::new()));
@@ -2745,7 +2747,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
     self.publish_config_diagnostics(
       ConfigFileRef::of_found(config_file),
-      get_config_diagnostics(Some(&config_text), scope.global_config_diagnostics(), &[]),
+      get_config_diagnostics(&config_text, scope.global_config_diagnostics(), &[]),
     );
     let workspace = self.clone();
     let key = key.to_string();
@@ -2778,7 +2780,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         .collect::<Vec<_>>();
       workspace.publish_config_diagnostics(
         ConfigFileRef::of_found(&config_file),
-        get_config_diagnostics(Some(&config_text), scope.global_config_diagnostics(), &plugin_diagnostics),
+        get_config_diagnostics(&config_text, scope.global_config_diagnostics(), &plugin_diagnostics),
       );
     });
   }
