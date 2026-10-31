@@ -108,6 +108,15 @@ pub struct EditorState {
 ///   each, so the older readers use it.
 /// - When decisions for the same plugin are compared by when they were made, a
 ///   denial wins a tie with an allow.
+/// - The file stays strict JSON (no comments or trailing commas), because a
+///   reader parses it as JSON (see `ApprovalsFile::parse`), and one that
+///   can't parse it loses its denials (it asks again about what the user
+///   always denied) and can't store anything.
+/// - Every writer takes the same lock for the whole read and write of the
+///   file: an exclusive lock of `.editor-approvals.lock` in the file's
+///   directory (see `lock_editor_approvals`). A writer that uses another lock
+///   would race with the others, which could lose an "Always Deny" under an
+///   "Always Allow" written at the same time.
 /// - Decisions are only in the top-level arrays whose names end with
 ///   `Decisions` (ex. `processPluginDecisions`), and each one is an object with
 ///   a top-level `configFile` string in the form of `PathSource::display` (ex.

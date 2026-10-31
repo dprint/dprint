@@ -93,7 +93,9 @@ impl ClientExperimentalCapability {
   }
 
   /// Gets the features that both the client and the server support, which
-  /// are the ones the server uses.
+  /// are the ones the server uses. Each is `true` because this version
+  /// doesn't use any of their options, which is what `true` means to a
+  /// client that sent an object of options.
   pub fn negotiate_features(&self) -> serde_json::Map<String, serde_json::Value> {
     self
       .features
@@ -1326,6 +1328,7 @@ mod test {
       "features": { "fileUri": true, "watchFiles": { "option": 1 }, "unknown": true, "other": false },
     }))
     .unwrap();
+    // `true` for a feature sent with options says that none of them are used
     assert_eq!(
       serde_json::Value::Object(capability.negotiate_features()),
       json!({ "fileUri": true, "watchFiles": true })
