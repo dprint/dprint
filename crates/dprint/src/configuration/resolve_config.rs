@@ -49,9 +49,9 @@ use crate::utils::verify_sha256_checksum;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
 use super::resolve_main_config_path::get_config_file_display;
+use super::resolve_main_config_path::get_config_file_lookup;
 use super::resolve_main_config_path::get_config_file_path;
 use super::resolve_main_config_path::get_default_config_file_in_ancestor_directories;
-use super::resolve_main_config_path::get_dot_config_file_base_dir;
 use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
 use super::resolve_npm_extends::NpmExtendsResolver;
 
@@ -923,7 +923,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     let config_dir = config_path_and_text
       .source
       .maybe_local_path()
-      .and_then(|path| get_dot_config_file_base_dir(environment, path.as_ref()).or_else(|| path.as_ref().parent()));
+      .and_then(|path| Some(get_config_file_lookup(environment, path.as_ref())?.base_dir));
     let ancestor_config_file = match config_dir {
       Some(config_dir) => find_config_file_to_inherit(config_dir, environment, &inherit_chain)?,
       None => None,

@@ -195,7 +195,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
   config_file_path: PathBuf,
   options: &InitConfigFileOptions<'_>,
 ) -> Result<()> {
-  let dirs = resolve_local_config_file_dirs(environment, &environment.cwd().as_ref().join(&config_file_path))?;
+  let (dirs, _) = resolve_config_file_dirs_at_path(environment, &environment.cwd().as_ref().join(&config_file_path))?;
   let config_file_path = environment.canonicalize(&config_file_path)?;
   let config_dir = config_file_path.parent();
   let file_text = environment.read_file(&config_file_path)?;

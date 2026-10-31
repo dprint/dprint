@@ -157,13 +157,12 @@ pub struct EditorState {
 ///   the format. It's the canonical path of the directory it's used for joined
 ///   with the names dprint looked up (ex. `.config/dprint.json`), which is the
 ///   path it was found at when that isn't its canonical path (ex. a symlink, or
-///   those names in another case on disk, see `get_config_file_found_path`),
-///   and was its canonical path in older versions. A version that changes how
-///   it's made stores a denial under each older form it can make too, and
-///   removes the allows under them when it stores a denial or forgets, like
-///   what's stored with another config hash version (see
-///   `PROCESS_PLUGIN_CONFIG_HASH_VERSION`), and it forgets a decision by the
-///   `configFile` text it lists for it too. Forgetting the decisions of config files
+///   those names in another case on disk, see `get_config_file_found_path`). A
+///   version that changes how it's made stores a denial under each older form
+///   it can make too, and removes the allows under them when it stores a
+///   denial or forgets, like what's stored with another config hash version
+///   (see `PROCESS_PLUGIN_CONFIG_HASH_VERSION`), and it forgets a decision by
+///   the `configFile` text it lists for it too. Forgetting the decisions of config files
 ///   removes the ones with their `configFile` from each of those arrays, and
 ///   forgetting every decision empties each of them, including the decisions
 ///   in a format it doesn't know. The other top-level properties don't have

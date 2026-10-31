@@ -1038,6 +1038,9 @@ fn is_same_file_at_path(file: &fs::File, file_path: &Path) -> io::Result<bool> {
   match same_file::Handle::from_path(file_path) {
     Ok(file_at_path) => Ok(open_file == file_at_path),
     Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+    // a file system that deletes a file once its last handle is closed (ex. FAT on Windows) denies opening it
+    // while it's deleted
+    Err(err) if cfg!(windows) && err.kind() == io::ErrorKind::PermissionDenied => Ok(false),
     Err(err) => Err(err),
   }
 }

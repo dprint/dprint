@@ -1770,6 +1770,9 @@ fn should_check_a_directory_alias_again_before_providing_a_path_through_it() {
   });
 }
 
+/// On a case sensitive file system (ex. Linux), this covers a `.config`
+/// directory that's a symlink to another one, which is known by the names
+/// that were looked up the same way.
 #[test]
 fn should_know_a_config_file_by_the_names_that_were_looked_up_when_they_are_in_another_case() {
   let environment = TestEnvironmentBuilder::new()
@@ -1918,6 +1921,147 @@ fn should_use_a_config_file_the_server_was_started_with_that_is_a_symlink_for_th
 }
 
 #[test]
+fn should_take_back_the_diagnostics_of_a_config_file_in_a_symlinked_dot_config_dir_that_is_on_another_machine_now() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/x/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/p/.config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  // ex. a symlink to a local directory, which is read through it
+  environment.add_canonical_path("/p/.config", "/x");
+  take_back_diagnostics_of_config_file_on_another_machine(&environment, "/p/file.txt", "/p/.config/dprint.json");
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn should_take_back_the_diagnostics_of_a_config_file_in_a_dot_config_dir_in_another_case_that_is_on_another_machine_now() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/p/.Config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/p/.config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  // ex. a case insensitive file system
+  environment.add_canonical_path("/p/.config", "/p/.Config");
+  take_back_diagnostics_of_config_file_on_another_machine(&environment, "/p/file.txt", "/p/.config/dprint.json");
+}
+
+/// Publishes the diagnostics of the config file found for the document, which
+/// is then replaced with a symlink to a share, and checks that they're taken
+/// back and that the editor is told it changed.
+fn take_back_diagnostics_of_config_file_on_another_machine(environment: &TestEnvironment, document_path: &'static str, config_path: &'static str) {
+  run_session(environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        environment.write_file(config_path, "{").unwrap();
+        client.file_info(document_path).await;
+        let diagnostics = client.wait_for_published_diagnostics().await;
+        assert_eq!(diagnostics[0].0, uri(config_path));
+        client.take_config_changes();
+        // ex. a `git pull` replaced it with a symlink to a share
+        environment.remove_file(config_path).unwrap();
+        environment.symlink(network_path("dprint.json"), config_path).unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri(config_path),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_published_diagnostics().await, vec![(uri(config_path), Vec::new())]);
+        assert!(client.wait_for_config_changes().await.contains(&uri(config_path)));
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_move_the_diagnostics_published_through_a_directory_symlink_that_points_elsewhere_now() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/repo/libs/pkg/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+    })
+    .initialize()
+    .build();
+  environment.add_canonical_symlink("/repo/pkg", "/repo/libs/pkg");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // a document opened through the symlink makes it an alias of the directory it points to
+        client.file_info("/repo/pkg/file.txt").await;
+        // so the config file's problems are published through it once they change
+        let text = environment.read_file("/repo/libs/pkg/dprint.json").unwrap();
+        environment
+          .write_file("/repo/libs/pkg/dprint.json", &text.replacen('{', r#"{ "otherUnknownProperty": 1, "#, 1))
+          .unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/repo/libs/pkg/dprint.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        client.wait_for_config_changes().await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let last = diagnostics.last().unwrap();
+        assert_eq!(last.0, uri("/repo/pkg/dprint.json"));
+        assert_eq!(last.1.len(), 2);
+        // it points somewhere else now, so the config file's problems are where the editor knows it now
+        environment.remove_canonical_path("/repo/pkg");
+        environment.add_canonical_path("/repo/pkg", "/repo/other");
+        client.file_info("/repo/libs/pkg/file.txt").await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.len(), 2, "{:?}", diagnostics);
+        assert_eq!(diagnostics[0], (uri("/repo/pkg/dprint.json"), Vec::new()));
+        assert_eq!(diagnostics[1].0, uri("/repo/libs/pkg/dprint.json"));
+        assert_eq!(diagnostics[1].1.len(), 2);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn should_not_know_two_directories_whose_names_are_only_different_in_case_as_one() {
+  // ex. a case sensitive volume, where `.Config` and `.config` are two directories
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/p/.config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/p/.Config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      assert_eq!(client.file_info("/p/file.txt").await.config_file, Some(local_config("/p/.config/dprint.json")));
+      let config_file = client.file_info("/p/.Config/file.txt").await.config_file.unwrap();
+      assert_eq!(config_file.uri, uri("/p/.Config/dprint.json"));
+      assert_eq!(config_file.dir_uri, uri("/p/.Config"));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_take_back_the_diagnostics_of_a_config_file_that_is_on_another_machine_now() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
@@ -1954,54 +2098,64 @@ fn should_take_back_the_diagnostics_of_a_config_file_that_is_on_another_machine_
   });
 }
 
-#[cfg(any(windows, target_os = "macos"))]
 #[test]
-fn should_forget_a_decision_by_the_config_file_it_is_listed_with() {
+fn should_not_forget_the_decisions_of_the_config_file_a_symlinked_dot_config_dir_points_into() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
-    .add_remote_process_plugin()
-    .with_local_config("/a/.config/dprint.json", |c| {
-      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    .with_local_config("/repo/.config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
     })
-    .with_local_config("/a/.Config/dprint.json", |c| {
-      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    .with_local_config("/repo/packages/a/.config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
     })
-    .initialize()
     .build();
-  // ex. a case insensitive file system, where this version knows it as `/a/.config/dprint.json`
-  environment.add_canonical_path("/a/.config", "/a/.Config");
-  disallow_process_plugins(&environment);
+  // ex. a symlink to the `.config` directory of the repository, which is read through it
+  environment.add_canonical_path("/repo/packages/a/.config", "/repo/.config");
   run_session(&environment, {
     let environment = environment.clone();
     move |client| {
       async move {
-        let approval = client.config_info("/a/.config/dprint.json").await.status.approvals()[0].clone();
-        // ex. stored by an older version, which made the text of the config file from its canonical path
-        let decision = crate::configuration::ProcessPluginDecision::new(
-          &environment,
-          crate::configuration::ProcessPluginApproval {
-            config_file: environment.canonicalize("/a/.Config/dprint.json").unwrap().display().to_string(),
-            plugin: approval.items[0].specifier.clone(),
-            config_hash: Some("1:hash".to_string()),
-            config_key: None,
-          },
-          true,
-          &[],
-        );
-        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
-        let decisions = client.decisions().await;
-        let listed = decisions.iter().find(|decision| decision.always).unwrap().config_file.clone().unwrap();
+        let store = |config_file: String| {
+          let environment = environment.clone();
+          async move {
+            let decision = crate::configuration::ProcessPluginDecision::new(
+              &environment,
+              crate::configuration::ProcessPluginApproval {
+                config_file,
+                plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
+                config_hash: Some("1:hash".to_string()),
+                config_key: None,
+              },
+              true,
+              &[],
+            );
+            crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
+          }
+        };
+        let root_config_file = environment.canonicalize("/repo/.config/dprint.json").unwrap().display().to_string();
+        let package_config_file = environment
+          .canonicalize("/repo/packages/a")
+          .unwrap()
+          .join(".config")
+          .join("dprint.json")
+          .display()
+          .to_string();
+        store(root_config_file.clone()).await;
+        store(package_config_file).await;
         let params = ForgetDecisionsParams {
-          config_file: Some(listed),
+          config_file: Some(ConfigFileIdentifier {
+            uri: uri("/repo/packages/a/.config/dprint.json"),
+            dir_uri: Some(uri("/repo/packages/a")),
+          }),
           work_done_token: None,
         };
         let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
         assert_eq!(forgotten.decisions.len(), 1);
-        assert!(
-          crate::configuration::read_editor_approvals(&environment)
-            .unwrap()
-            .process_plugin_decisions
-            .is_empty()
+        // it's another config file than the one its directory points into
+        let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
+        assert_eq!(
+          decisions.iter().map(|decision| decision.approval.config_file.clone()).collect::<Vec<_>>(),
+          vec![root_config_file]
         );
       }
       .boxed_local()
@@ -2041,11 +2195,7 @@ fn should_tell_the_user_a_denial_of_what_was_allowed_since_is_not_kept_after_its
         .await
         .unwrap();
       let notice = result.notice.unwrap();
-      assert!(
-        notice.message.starts_with("What you denied was allowed for another configuration file since"),
-        "{}",
-        notice.message
-      );
+      assert!(notice.message.starts_with("What you denied was allowed since"), "{}", notice.message);
       assert_eq!(result.config_approvals.status, FormatStatus::ready());
     }
     .boxed_local()
@@ -5149,11 +5299,7 @@ fn should_not_deny_a_download_that_was_allowed_exactly_since() {
         .unwrap();
       // which doesn't do anything, because it's allowed exactly, so the user is told and it isn't kept
       let notice = result.notice.unwrap();
-      assert!(
-        notice.message.starts_with("What you denied was allowed for another configuration file since"),
-        "{}",
-        notice.message
-      );
+      assert!(notice.message.starts_with("What you denied was allowed since"), "{}", notice.message);
       assert_eq!(result.config_approvals.approvals, Vec::new());
       assert_eq!(result.config_approvals.status, FormatStatus::ready());
       assert!(!client.decisions().await.iter().any(|decision| !decision.allows));

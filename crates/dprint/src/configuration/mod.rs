@@ -39,7 +39,6 @@ pub use resolve_main_config_path::resolve_global_config_dir;
 pub use resolve_main_config_path::resolve_global_config_dir_path;
 pub use resolve_main_config_path::resolve_global_config_path_and_text;
 pub use resolve_main_config_path::resolve_global_config_path_and_text_at_path_root;
-pub use resolve_main_config_path::resolve_local_config_file_dirs;
 pub use resolve_main_config_path::resolve_main_config_path_and_bytes;
 pub use settings::*;
 pub use types::*;
