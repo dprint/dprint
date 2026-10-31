@@ -62,6 +62,7 @@ use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::ConfigFileOnAnotherMachineError;
 use crate::configuration::ConfigMapValue;
+use crate::configuration::GLOBAL_CONFIG_FILE_NAMES;
 use crate::configuration::NewerApprovalsFileError;
 use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
 use crate::configuration::ResolvedConfig;
@@ -2591,6 +2592,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         file_path.display()
       )));
     };
+    // the editor's path of the file is remembered before its config file is resolved, so the config file's problems
+    // are published to the editor's path of it (ex. through a workspace folder that's a symlink)
+    self.canonicalize_editor_path(file_path.to_path_buf());
     let config_file = match self.scope_container.find_config_file(dir_path, use_global_config) {
       Ok(config_file) => {
         self.config_find_errors.borrow_mut().remove(dir_path);
@@ -2825,7 +2829,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       !is_under
     });
     // the global config file is told about for each directory it's used for instead (see `watch_dprint_files`)
-    let global_config_path = self.get_global_config_path();
+    let global_config_paths = self
+      .used_configs
+      .borrow()
+      .values()
+      .filter(|config_file| config_file.is_global_config)
+      .filter_map(|config_file| config_file.file_path().map(|path| path.to_path_buf()))
+      .collect::<Vec<_>>();
     let mut editor_paths = BTreeSet::new();
     for (uri, editor_uri) in taken_back {
       self.client.publish_diagnostics(editor_uri.clone(), Vec::new());
@@ -2835,7 +2845,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       // they're published again when it's resolved next
       self.forget_checked_scope(&file_path);
       // where they were published is where the editor knew it (ex. through a symlink in the directory)
-      if global_config_path.as_ref() != Some(&file_path) {
+      if !global_config_paths.contains(&file_path) {
         editor_paths.extend(uri_to_file_path(&editor_uri));
       }
     }
@@ -2893,6 +2903,18 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .filter(|file_path| file_path.starts_with(canonical_dir))
       .map(|file_path| file_path.to_path_buf())
       .collect()
+  }
+
+  /// Gets whether a local config file was used in the canonical directory
+  /// (see `get_used_local_config_paths_under`).
+  fn has_used_local_config_under(&self, canonical_dir: &Path) -> bool {
+    self
+      .used_configs
+      .borrow()
+      .values()
+      .filter(|config_file| !config_file.is_global_config)
+      .filter_map(|config_file| config_file.file_path())
+      .any(|file_path| file_path.starts_with(canonical_dir))
   }
 
   /// Gets the uris that identify the config files whose problems were
@@ -3172,7 +3194,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .into_iter()
       .chain(resolve_global_config_dir(&self.environment).ok().map(|dir| dir.into_path_buf()));
     for config_dir in config_dirs {
-      for name in ["dprint.jsonc", "dprint.json"] {
+      for name in GLOBAL_CONFIG_FILE_NAMES {
         let file_path = config_dir.join(name);
         if !file_paths.contains(&file_path) {
           file_paths.push(file_path);
@@ -3672,7 +3694,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     for (canonical_dir, editor_dir) in self.editor_paths.replaced_dirs() {
       // there's nothing to tell about without a config file that was used in it, so it's only checked once there is,
       // and it's kept for then (ex. the config files were used again after `reset`)
-      if self.get_used_local_config_paths_under(&canonical_dir).is_empty() {
+      if !self.has_used_local_config_under(&canonical_dir) {
         continue;
       }
       if !self.is_alias_of(&editor_dir, &canonical_dir) {
@@ -4817,7 +4839,7 @@ impl<'a> ConfigFileRef<'a> {
   fn dir_path(&self, environment: &impl Environment) -> Option<PathBuf> {
     match self.file_path {
       Some(path) if !self.is_global => Some(get_config_file_dir(environment, path)?.to_path_buf()),
-      // a remote or npm config file's patterns are relative to the directory it's used for
+      // the global config file is used for the directory it's resolved for (ex. a drive root)
       _ => Some(self.base_path.to_path_buf()),
     }
   }
@@ -4842,6 +4864,9 @@ fn get_other_canonical_path<'a>(source: &'a PathSource, found_path: Option<&Path
 }
 
 /// Gets the uri of a config file.
+///
+/// The server only resolves local config files (see `ConfigFileInfo::uri`),
+/// so a remote or npm one is only handled so that this covers any source.
 fn path_source_to_uri(source: &PathSource) -> Option<Uri> {
   match source {
     PathSource::Local(local) => file_path_to_uri(local.path.as_ref()),

@@ -30,7 +30,7 @@ pub const DOT_CONFIG_DIR_NAME: &str = ".config";
 pub static DOT_CONFIG_FILE_NAMES: [&str; 2] = ["dprint.json", "dprint.jsonc"];
 /// The config file names of the global config file, in the order they're
 /// looked for in the global config directory.
-const GLOBAL_CONFIG_FILE_NAMES: [&str; 2] = ["dprint.jsonc", "dprint.json"];
+pub const GLOBAL_CONFIG_FILE_NAMES: [&str; 2] = ["dprint.jsonc", "dprint.json"];
 
 #[derive(Debug, Clone)]
 pub struct ResolvedConfigPathWithText {
@@ -570,13 +570,19 @@ pub fn get_specified_config_path(environment: &impl Environment, config: &str) -
   if let Some(path) = config.strip_prefix("~/") {
     return Some(environment.get_home_dir()?.join(path));
   }
-  if config.starts_with("file:") {
+  if is_file_url(config) {
     return url::Url::parse(config).ok()?.to_file_path().ok();
   }
   if config.contains("://") || config.starts_with("npm:") {
     return None;
   }
   Some(environment.cwd().as_ref().join(config))
+}
+
+/// Gets whether a specified config file is a `file:` url, whose scheme is in
+/// any case like the one of any url.
+pub fn is_file_url(config: &str) -> bool {
+  config.get(..5).is_some_and(|scheme| scheme.eq_ignore_ascii_case("file:"))
 }
 
 /// Gets the path of a local config file that identifies it (see
@@ -731,6 +737,12 @@ mod tests {
     assert_eq!(resolve_global_config_file_path(&env), Some(file_path.clone()));
     // it's known by where it was found when that isn't its canonical path (ex. a symlink to a dotfiles repository)
     env.add_canonical_path("/global-config/dprint.json", "/dotfiles/dprint.json");
+    let config_file = resolve_global_config_path_and_text(&env).unwrap().unwrap();
+    assert_eq!(config_file.display(), file_path.display().to_string());
+    assert_eq!(resolve_global_config_file_path(&env), Some(file_path));
+    // and a `dprint.jsonc` is used over it, which `dprint init --global` creates
+    env.write_file("/global-config/dprint.jsonc", "{}").unwrap();
+    let file_path = Path::new("/global-config").join("dprint.jsonc");
     let config_file = resolve_global_config_path_and_text(&env).unwrap().unwrap();
     assert_eq!(config_file.display(), file_path.display().to_string());
     assert_eq!(resolve_global_config_file_path(&env), Some(file_path));

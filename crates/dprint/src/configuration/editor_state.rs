@@ -76,18 +76,6 @@ pub struct EditorState {
   pub no_config_notification: NoConfigNotificationState,
 }
 
-impl EditorState {
-  /// Adds what the user dismissed in the other state.
-  fn with_dismissals_of(mut self, other: EditorState) -> Self {
-    let notification = &mut self.no_config_notification;
-    notification.dismissed |= other.no_config_notification.dismissed;
-    notification
-      .dismissed_workspace_folders
-      .extend(other.no_config_notification.dismissed_workspace_folders);
-    self
-  }
-}
-
 /// The process plugin decisions the user said to always use, which are next
 /// to the settings file because they're the user's decisions and not a cache
 /// (ex. clearing the cache shouldn't forget what they denied).
@@ -1179,9 +1167,19 @@ pub fn read_editor_state(environment: &impl Environment) -> EditorState {
       .map(|text| serde_json::from_str::<EditorState>(&text).unwrap_or_default())
   };
   match (read(STATE_FILE_NAME), read(LEGACY_STATE_FILE_NAME)) {
-    (Some(state), Some(legacy_state)) => state.with_dismissals_of(legacy_state),
+    (Some(state), Some(legacy_state)) => with_dismissals_of(state, legacy_state),
     (state, legacy_state) => state.or(legacy_state).unwrap_or_default(),
   }
+}
+
+/// Adds what the user dismissed in the other state to the state.
+fn with_dismissals_of(mut state: EditorState, other: EditorState) -> EditorState {
+  let notification = &mut state.no_config_notification;
+  notification.dismissed |= other.no_config_notification.dismissed;
+  notification
+    .dismissed_workspace_folders
+    .extend(other.no_config_notification.dismissed_workspace_folders);
+  state
 }
 
 pub(crate) fn update_editor_state_without_lock(environment: &impl Environment, update: impl FnOnce(&mut EditorState)) -> Result<()> {
@@ -3025,6 +3023,22 @@ mod test {
       .unwrap();
     let folders = read_editor_state(&environment).no_config_notification.dismissed_workspace_folders;
     assert_eq!(folders, BTreeSet::from(["/a".to_string(), "/b".to_string()]));
+  }
+
+  #[test]
+  fn should_use_what_was_dismissed_in_either_state_file() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
+    let write = |file_name: &str, text: &str| environment.write_file(environment.get_cache_dir().join(file_name), text).unwrap();
+    write(STATE_FILE_NAME, r#"{ "noConfigNotification": { "dismissed": false } }"#);
+    write(LEGACY_STATE_FILE_NAME, r#"{ "noConfigNotification": { "dismissed": true } }"#);
+    assert!(read_editor_state(&environment).no_config_notification.dismissed);
+    // and what an older version dismissed when this version's file can't be read
+    write(STATE_FILE_NAME, "{");
+    write(LEGACY_STATE_FILE_NAME, r#"{ "noConfigNotification": { "dismissedWorkspaceFolders": ["/a"] } }"#);
+    let state = read_editor_state(&environment);
+    assert!(!state.no_config_notification.dismissed);
+    assert_eq!(state.no_config_notification.dismissed_workspace_folders, BTreeSet::from(["/a".to_string()]));
   }
 
   #[test]

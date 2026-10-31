@@ -12,7 +12,8 @@ use super::resolve_global_config_dir_path;
 use super::set_setting;
 
 /// Name of the file in the global config directory that `dprint init` kept
-/// what the user prefers in before they were moved to the settings file.
+/// what the user prefers in before they were in the settings file, which
+/// dprint 0.64 still uses.
 const LEGACY_INIT_PREFERENCES_FILE_NAME: &str = "init.json";
 
 /// What the user told `dprint init` to remember for the next time it runs.

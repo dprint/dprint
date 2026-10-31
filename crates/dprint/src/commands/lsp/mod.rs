@@ -83,12 +83,13 @@ use crate::arg_parser::CliArgs;
 use crate::cache::RemoteCacheMode;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::DOT_CONFIG_FILE_NAMES;
+use crate::configuration::GLOBAL_CONFIG_FILE_NAMES;
 use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
 use crate::configuration::SessionPermissions;
 use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
 use crate::configuration::resolve_global_config_dir;
-use crate::configuration::resolve_global_config_path_and_text;
+use crate::configuration::resolve_global_config_file_path;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
 use crate::utils::DownloadPolicy;
@@ -1062,9 +1063,9 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     // when it doesn't support any of the client's, so it can tell an older dprint apart
     let experimental = has_dprint_capability.then(|| {
       // the config file the server was started with is the only one
-      let names = |names: &[&str]| match self.has_config_override {
+      let names = |all: &[&str]| match self.has_config_override {
         true => Vec::new(),
-        false => names.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
+        false => all.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
       };
       let config_file_names = names(&POSSIBLE_CONFIG_FILE_NAMES);
       let capability = match methods_version {
@@ -1705,13 +1706,12 @@ fn get_unsupported_versions_message(client_versions: &[u32], cli_version: &str) 
 
 /// Gets where dprint's own files are for an editor extension.
 fn get_dprint_files(environment: &impl Environment) -> DprintFiles {
-  let global_config = match resolve_global_config_path_and_text(environment) {
-    Ok(Some(config_file)) => config_file.source.maybe_local_path().map(|path| path.as_ref().to_path_buf()),
-    // where `dprint init --global` creates it, which is used over a `dprint.json`
-    _ => resolve_global_config_dir(environment)
+  // where `dprint init --global` creates it when there's none, which is the name that's used first
+  let global_config = resolve_global_config_file_path(environment).or_else(|| {
+    resolve_global_config_dir(environment)
       .ok()
-      .map(|dir| dir.join_panic_relative("dprint.jsonc").into_path_buf()),
-  };
+      .map(|dir| dir.join_panic_relative(GLOBAL_CONFIG_FILE_NAMES[0]).into_path_buf())
+  });
   DprintFiles {
     settings_uri: get_settings_file_path(environment).and_then(|path: PathBuf| file_path_to_uri(&path)),
     approvals_uri: get_editor_approvals_file_path(environment).and_then(|path: PathBuf| file_path_to_uri(&path)),
@@ -1828,6 +1828,7 @@ fn get_config_override_path(environment: &impl Environment, config: &str) -> Res
   match crate::configuration::get_specified_config_path(environment, config) {
     Some(path) => Ok(path),
     None if config.starts_with("~/") => bail!("Could not find the home directory for --config {}", config),
+    None if crate::configuration::is_file_url(config) => bail!("Could not convert the file url --config {} to a path on this system.", config),
     None => bail!(
       "dprint lsp --config only supports a local configuration file (a path or a file: url), not {}. Extend it from a local configuration file instead (ex. \"extends\": \"{}\").",
       config,
@@ -4874,6 +4875,34 @@ mod test {
         )
       );
     }
+    // a file url, whose scheme is in any case
+    let (file_url, file_path) = match cfg!(windows) {
+      true => ("file:///C:/x/dprint.json", PathBuf::from(r"C:\x\dprint.json")),
+      false => ("file:///x/dprint.json", PathBuf::from("/x/dprint.json")),
+    };
+    assert_eq!(get_config_override_path(&environment, file_url).unwrap(), file_path);
+    assert_eq!(get_config_override_path(&environment, &file_url.replace("file:", "FILE:")).unwrap(), file_path);
+    // but not one that isn't a path on the system, ex. one of a share on Linux and macOS, or one without a drive on
+    // Windows
+    let file_url = match cfg!(windows) {
+      true => "file:///x/dprint.json",
+      false => "file://server/share/dprint.json",
+    };
+    assert_eq!(
+      get_config_override_path(&environment, file_url).unwrap_err().to_string(),
+      format!("Could not convert the file url --config {} to a path on this system.", file_url)
+    );
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_start_with_a_config_file_on_a_drive() {
+    // the drive isn't a url's scheme
+    let environment = TestEnvironmentBuilder::new().build();
+    assert_eq!(
+      get_config_override_path(&environment, r"C:\x\dprint.json").unwrap(),
+      PathBuf::from(r"C:\x\dprint.json")
+    );
   }
 
   #[test]

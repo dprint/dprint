@@ -49,6 +49,8 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
+  /// The absolute path of the config file the server was started with (see
+  /// `get_config_override_path`), which is used for every file.
   config_override: Option<PathBuf>,
   remote_cache_mode: RemoteCacheMode,
   /// Incremented each time the plugins are shut down, which is when the
@@ -97,9 +99,8 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     Ok(if let Some(path) = &self.config_override {
       // it's used for the directory it's in and known by its path there like `dprint fmt --config` (see
       // `resolve_config_file_dirs_at_path`)
-      let path = self.environment.cwd().as_ref().join(path);
-      let (dirs, found_path) = resolve_config_file_dirs_at_path(&self.environment, &path).context("failed resolving --config path")?;
-      let canonical_path = self.environment.canonicalize(&path).context("failed resolving --config path")?;
+      let (dirs, found_path) = resolve_config_file_dirs_at_path(&self.environment, path).context("failed resolving --config path")?;
+      let canonical_path = self.environment.canonicalize(path).context("failed resolving --config path")?;
       let content = self.environment.read_file(&canonical_path).context("failed resolving --config path")?;
       Some(ResolvedConfigPathWithText {
         base_path: dirs.base_path,
@@ -238,10 +239,9 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     self.plugin_resolver.shutdown_unused(&used_plugins).await;
   }
 
-  /// Gets the path of the config file the server was started with, which is
-  /// relative to the current directory.
+  /// Gets the path of the config file the server was started with.
   pub fn config_override_path(&self) -> Option<PathBuf> {
-    self.config_override.as_ref().map(|path| self.environment.cwd().as_ref().join(path))
+    self.config_override.clone()
   }
 
   /// Gets whether the server uses one config file for every file

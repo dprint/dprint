@@ -2338,6 +2338,99 @@ fn should_tell_about_a_config_file_known_through_a_replaced_alias_after_a_reset(
 }
 
 #[test]
+fn should_provide_the_most_recently_replaced_alias_of_a_directory_that_still_leads_to_it() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  for path in ["/ws/a", "/ws/b", "/ws/c"] {
+    environment.add_canonical_symlink(path, "/ws/real");
+  }
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        for path in ["/ws/a/file.txt", "/ws/b/file.txt", "/ws/c/file.txt"] {
+          client.file_info(path).await;
+        }
+        // the most recent one points somewhere else now, so the one it replaced is provided, which replaced the
+        // first one
+        environment.remove_canonical_path("/ws/c");
+        environment.add_canonical_path("/ws/c", "/ws/other");
+        let config_file = client.file_info("/ws/real/file.txt").await.config_file.unwrap();
+        assert_eq!(config_file.uri, uri("/ws/b/dprint.json"));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_publish_the_diagnostics_of_a_config_file_through_the_path_the_editor_first_used() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+    })
+    .initialize()
+    .build();
+  environment.add_canonical_symlink("/ws/a", "/ws/real");
+  run_session(&environment, |client| {
+    async move {
+      // not its canonical path, which the editor never opened
+      client.file_info("/ws/a/file.txt").await;
+      let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+      assert_eq!(diagnostics.len(), 1, "{:?}", diagnostics);
+      assert_eq!(diagnostics[0].0, uri("/ws/a/dprint.json"));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_publish_the_diagnostics_through_a_replaced_alias_that_still_leads_to_the_directory() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+    })
+    .initialize()
+    .build();
+  for path in ["/ws/a", "/ws/b", "/ws/c"] {
+    environment.add_canonical_symlink(path, "/ws/real");
+  }
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        for path in ["/ws/a/file.txt", "/ws/b/file.txt", "/ws/c/file.txt"] {
+          client.file_info(path).await;
+        }
+        // they're published through the first one and moved to each one the editor used after it
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.last().unwrap().0, uri("/ws/c/dprint.json"));
+        // the last two point somewhere else now, so the problems are taken back from the most recent one and
+        // published through the first one, which still leads to the directory
+        for path in ["/ws/b", "/ws/c"] {
+          environment.remove_canonical_path(path);
+          environment.add_canonical_path(path, "/ws/other");
+        }
+        let config_file = client.file_info("/ws/real/file.txt").await.config_file.unwrap();
+        assert_eq!(config_file.uri, uri("/ws/a/dprint.json"));
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.first(), Some(&(uri("/ws/c/dprint.json"), Vec::new())), "{:?}", diagnostics);
+        let last = diagnostics.last().unwrap();
+        assert_eq!(last.0, uri("/ws/a/dprint.json"));
+        assert_eq!(last.1.len(), 1);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_provide_another_alias_of_a_directory_that_still_leads_to_it_after_the_most_recent_one_points_elsewhere() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
