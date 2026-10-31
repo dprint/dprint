@@ -1,10 +1,12 @@
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::ops::Range as StdRange;
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use deno_tower_lsp::CancellationToken;
@@ -12,6 +14,7 @@ use deno_tower_lsp::LanguageServer;
 use deno_tower_lsp::LspService;
 use deno_tower_lsp::Server;
 use deno_tower_lsp::jsonrpc::Error as LspError;
+use deno_tower_lsp::jsonrpc::ErrorCode;
 use deno_tower_lsp::jsonrpc::Result as LspResult;
 use deno_tower_lsp::lsp_types::ClientCapabilities;
 use deno_tower_lsp::lsp_types::CompletionList;
@@ -20,6 +23,8 @@ use deno_tower_lsp::lsp_types::CompletionResponse;
 use deno_tower_lsp::lsp_types::DidChangeConfigurationParams;
 use deno_tower_lsp::lsp_types::DidChangeNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
+use deno_tower_lsp::lsp_types::DidChangeWatchedFilesParams;
+use deno_tower_lsp::lsp_types::DidChangeWatchedFilesRegistrationOptions;
 use deno_tower_lsp::lsp_types::DidChangeWorkspaceFoldersParams;
 use deno_tower_lsp::lsp_types::DidCloseNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidCloseTextDocumentParams;
@@ -30,18 +35,22 @@ use deno_tower_lsp::lsp_types::DocumentFormattingParams;
 use deno_tower_lsp::lsp_types::DocumentRangeFormattingParams;
 use deno_tower_lsp::lsp_types::ExecuteCommandOptions;
 use deno_tower_lsp::lsp_types::ExecuteCommandParams;
+use deno_tower_lsp::lsp_types::FileChangeType;
+use deno_tower_lsp::lsp_types::FileSystemWatcher;
 use deno_tower_lsp::lsp_types::FormattingOptions;
 use deno_tower_lsp::lsp_types::FormattingProperty;
+use deno_tower_lsp::lsp_types::GlobPattern;
 use deno_tower_lsp::lsp_types::Hover;
 use deno_tower_lsp::lsp_types::HoverParams;
 use deno_tower_lsp::lsp_types::InitializeParams;
 use deno_tower_lsp::lsp_types::InitializeResult;
 use deno_tower_lsp::lsp_types::InitializedParams;
-use deno_tower_lsp::lsp_types::MessageActionItem;
 use deno_tower_lsp::lsp_types::MessageType;
+use deno_tower_lsp::lsp_types::NumberOrString;
 use deno_tower_lsp::lsp_types::OneOf;
 use deno_tower_lsp::lsp_types::OptionalVersionedTextDocumentIdentifier;
 use deno_tower_lsp::lsp_types::Position;
+use deno_tower_lsp::lsp_types::PositionEncodingKind;
 use deno_tower_lsp::lsp_types::Range;
 use deno_tower_lsp::lsp_types::Registration;
 use deno_tower_lsp::lsp_types::ServerCapabilities;
@@ -52,17 +61,19 @@ use deno_tower_lsp::lsp_types::TextDocumentSyncKind;
 use deno_tower_lsp::lsp_types::TextDocumentSyncOptions;
 use deno_tower_lsp::lsp_types::TextEdit;
 use deno_tower_lsp::lsp_types::Uri;
+use deno_tower_lsp::lsp_types::WorkDoneProgress;
+use deno_tower_lsp::lsp_types::WorkDoneProgressBegin;
+use deno_tower_lsp::lsp_types::WorkDoneProgressEnd;
+use deno_tower_lsp::lsp_types::WorkDoneProgressReport;
 use deno_tower_lsp::lsp_types::WorkspaceEdit;
 use deno_tower_lsp::lsp_types::WorkspaceFolder;
 use deno_tower_lsp::lsp_types::WorkspaceFoldersServerCapabilities;
 use deno_tower_lsp::lsp_types::WorkspaceServerCapabilities;
+use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::JoinHandle;
-use dprint_core::plugins::FormatError;
-use dprint_core::plugins::FormatRange;
-use dprint_core::plugins::HostFormatRequest;
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::plugins::process::start_parent_process_checker_task;
 use parking_lot::Mutex;
-use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::try_join;
@@ -70,47 +81,101 @@ use url::Url;
 
 use crate::arg_parser::CliArgs;
 use crate::cache::RemoteCacheMode;
-use crate::configuration::resolve_global_config_path_and_text;
+use crate::commands::scope_container::PluginsScopeContainer;
+use crate::configuration::DOT_CONFIG_FILE_NAMES;
+use crate::configuration::GLOBAL_CONFIG_FILE_NAMES;
+use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
+use crate::configuration::SessionPermissions;
+use crate::configuration::get_editor_approvals_file_path;
+use crate::configuration::get_settings_file_path;
+use crate::configuration::resolve_global_config_dir;
+use crate::configuration::resolve_global_config_file_path;
 use crate::environment::Environment;
-use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
-use crate::resolution::PluginConfigDiagnosticsError;
+use crate::utils::DownloadPolicy;
+use crate::utils::LogLevel;
+use crate::utils::OutputSink;
+use crate::utils::Semaphore;
 
 use self::client::ClientWrapper;
-use self::config::LspPluginsScopeContainer;
 use self::config_completion::ConfigCompletions;
 use self::config_completion::get_config_file_capabilities;
 use self::config_completion::is_config_uri;
 use self::documents::Documents;
-use self::no_config::DISMISS_ACTION_TITLE;
-use self::no_config::DISMISS_WORKSPACE_ACTION_TITLE;
-use self::no_config::NoConfigMessageOptions;
-use self::no_config::NoConfigNotificationDismissal;
-use self::no_config::dismiss_no_config_notification;
-use self::no_config::get_no_config_message;
-use self::no_config::is_no_config_notification_dismissed;
-use self::notebook::get_notebook_cell_file_path;
 use self::notebook::get_notebook_cell_format_registrations;
 use self::notebook::get_notebook_document_sync_options;
-use self::notebook::trim_formatted_cell_text;
 use self::settings::LspSettings;
 use self::text::LineIndex;
-use self::text::get_edits;
-use self::text::normalize_to_source_line_endings;
-use self::untitled::get_untitled_file_path;
+use self::text::to_lsp_edits;
 use self::untitled::get_untitled_registrations;
 use self::untitled::is_untitled_uri;
+use self::workspace::ApprovalChangedError;
+use self::workspace::ClientKind;
+use self::workspace::ConfigFileChange;
+use self::workspace::ConfigTarget;
+use self::workspace::DocumentInfo;
+use self::workspace::FormatOutcome;
+use self::workspace::FormatRequest;
+use self::workspace::InvalidParamsError;
+use self::workspace::UnsupportedDocumentError;
+use self::workspace::WatchedFileChange;
+use self::workspace::Workspace;
+use self::workspace::WorkspaceSettings;
+use self::workspace::is_config_file_path;
+use self::workspace::messages::APPROVAL_CHANGED_ERROR_CODE;
+use self::workspace::messages::APPROVE_METHOD;
+use self::workspace::messages::ApproveParams;
+use self::workspace::messages::ApproveResult;
+use self::workspace::messages::CONFIG_INFO_METHOD;
+use self::workspace::messages::CONFIG_SCHEMA_METHOD;
+use self::workspace::messages::ClientExperimentalCapability;
+use self::workspace::messages::ConfigFileInfo;
+use self::workspace::messages::ConfigInfoResult;
+use self::workspace::messages::ConfigParams;
+use self::workspace::messages::ConfigSchemaResult;
+use self::workspace::messages::DECISIONS_METHOD;
+use self::workspace::messages::DecisionsParams;
+use self::workspace::messages::DecisionsResult;
+use self::workspace::messages::DocumentLanguage;
+use self::workspace::messages::DocumentParams;
+use self::workspace::messages::DprintFiles;
+use self::workspace::messages::EXPERIMENTAL_CAPABILITY_NAME;
+use self::workspace::messages::ErrorData;
+use self::workspace::messages::FILE_INFO_METHOD;
+use self::workspace::messages::FILE_URI_FEATURE;
+use self::workspace::messages::FORGET_DECISIONS_METHOD;
+use self::workspace::messages::FORMAT_METHOD;
+use self::workspace::messages::FileInfoParams;
+use self::workspace::messages::FileInfoResult;
+use self::workspace::messages::ForgetDecisionsParams;
+use self::workspace::messages::ForgetDecisionsResult;
+use self::workspace::messages::FormatParams;
+use self::workspace::messages::FormatResponse;
+use self::workspace::messages::FormatResult;
+use self::workspace::messages::GlobalConfigUse;
+use self::workspace::messages::NotFormatted;
+use self::workspace::messages::NotFormattedReason;
+use self::workspace::messages::NotebookIdentifier;
+use self::workspace::messages::OVERRIDE_CONFIG_KEYS;
+use self::workspace::messages::PENDING_APPROVALS_METHOD;
+use self::workspace::messages::PendingApprovalsParams;
+use self::workspace::messages::PendingApprovalsResult;
+use self::workspace::messages::RESET_METHOD;
+use self::workspace::messages::ResetParams;
+use self::workspace::messages::ResetResult;
+use self::workspace::messages::SUPPORTED_METHOD_VERSIONS;
+use self::workspace::messages::ServerExperimentalCapability;
+use self::workspace::messages::WATCH_FILES_FEATURE;
 
 mod client;
-mod config;
-mod config_completion;
+pub(super) mod config_completion;
 mod documents;
-mod language;
-mod no_config;
-mod notebook;
+pub(super) mod language;
+pub(super) mod notebook;
 mod settings;
-mod text;
-mod untitled;
+pub(super) mod text;
+pub(super) mod untitled;
+pub(super) mod workspace;
 
 /// The formatting option a client provides in a format request to format a
 /// document without a config file in an ancestor directory using the global
@@ -123,15 +188,21 @@ const USE_GLOBAL_CONFIG_OPTION: &str = "useGlobalConfig";
 const FORMAT_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatWithGlobalConfig";
 const FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatSelectionWithGlobalConfig";
 
+/// How many requests and notifications are handled at the same time. A request
+/// may wait a while (ex. for the plugins of a config file to be downloaded), so
+/// this is high enough that it doesn't hold up the others (ex. a format on save
+/// for another config file). Formatting is limited separately.
+const MAX_CONCURRENT_MESSAGES: usize = 64;
+
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
 struct DropToken {
   completed: bool,
-  token: Arc<CancellationToken>,
+  token: Arc<tokio_util::sync::CancellationToken>,
 }
 
 impl DropToken {
-  pub fn new(token: Arc<CancellationToken>) -> Self {
+  pub fn new(token: Arc<tokio_util::sync::CancellationToken>) -> Self {
     Self { token, completed: false }
   }
 
@@ -148,129 +219,8 @@ impl Drop for DropToken {
   }
 }
 
-struct PendingTokenGuard {
-  id: u16,
-  tokens: Rc<RefCell<HashMap<u16, Arc<CancellationToken>>>>,
-}
-
-impl Drop for PendingTokenGuard {
-  fn drop(&mut self) {
-    self.tokens.borrow_mut().remove(&self.id);
-  }
-}
-
-#[derive(Default)]
-struct PendingTokens {
-  next_id: u16,
-  tokens: Rc<RefCell<HashMap<u16, Arc<CancellationToken>>>>,
-}
-
-impl PendingTokens {
-  pub fn insert(&mut self, token: Arc<CancellationToken>) -> PendingTokenGuard {
-    let id = self.next_id();
-    self.tokens.borrow_mut().insert(id, token);
-    PendingTokenGuard {
-      id,
-      tokens: self.tokens.clone(),
-    }
-  }
-
-  pub fn cancel_all(&mut self) {
-    let mut pending_tokens = self.tokens.borrow_mut();
-    for token in pending_tokens.values() {
-      token.cancel();
-    }
-    pending_tokens.clear();
-    self.next_id = 0;
-  }
-
-  pub fn next_id(&mut self) -> u16 {
-    if self.next_id == u16::MAX {
-      self.next_id = 0;
-    }
-    let id = self.next_id;
-    self.next_id += 1;
-    id
-  }
-}
-
-struct EditorFormatRequest {
-  /// The file path to format the document's text as, which differs from the
-  /// document's for documents that aren't on the file system (ex. notebook cells).
-  pub file_path: PathBuf,
-  /// The notebook file's path when the document is a notebook cell.
-  pub notebook_path: Option<PathBuf>,
-  pub file_text: Arc<String>,
-  pub maybe_line_index: Option<Arc<LineIndex>>,
-  pub range: FormatRange,
-  /// Whether to use the global config file when there's no config file in
-  /// an ancestor directory.
-  pub use_global_config: bool,
-  pub token: Arc<CancellationToken>,
-}
-
-enum FormatOutcome {
-  Edits(Vec<TextEdit>),
-  NotFormatted(NotFormattedReason),
-}
-
-impl FormatOutcome {
-  /// Gets the response for a format request.
-  fn into_edits(self) -> Option<Vec<TextEdit>> {
-    match self {
-      FormatOutcome::Edits(edits) => Some(edits),
-      FormatOutcome::NotFormatted(_) => None,
-    }
-  }
-}
-
-/// Why a document wasn't formatted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NotFormattedReason {
-  Cancelled,
-  /// There's no config file in an ancestor directory and the global config
-  /// file isn't used or doesn't exist.
-  NoConfigFile,
-  /// The config file doesn't format the file (ex. its includes and excludes
-  /// don't match it).
-  NotMatched,
-  /// No plugin in the config file handles the file.
-  NoPlugin,
-  /// The document is already formatted.
-  Unchanged,
-  /// Formatting failed, which is logged.
-  Failed,
-}
-
-impl NotFormattedReason {
-  /// Gets the message to show when an explicitly run format command didn't
-  /// format the document.
-  fn message(&self) -> Option<(MessageType, String)> {
-    match self {
-      NotFormattedReason::Cancelled | NotFormattedReason::Unchanged => None,
-      NotFormattedReason::NoConfigFile => Some((
-        MessageType::INFO,
-        get_no_config_message(NoConfigMessageOptions {
-          use_global_config: true,
-          has_global_config: false,
-        }),
-      )),
-      NotFormattedReason::NotMatched => Some((
-        MessageType::INFO,
-        "dprint did not format this document because the configuration file in use doesn't format it (ex. its \"includes\" and \"excludes\" don't match it)."
-          .to_string(),
-      )),
-      NotFormattedReason::NoPlugin => Some((
-        MessageType::INFO,
-        "dprint did not format this document because no plugin in the configuration file in use handles it.".to_string(),
-      )),
-      NotFormattedReason::Failed => Some((
-        MessageType::WARNING,
-        "dprint failed to format this document. See the language server's log for details.".to_string(),
-      )),
-    }
-  }
-}
+/// What the `Workspace` does on the message handler's task.
+type WorkspaceTask<TEnvironment> = Box<dyn FnOnce(Rc<Workspace<TEnvironment>>) -> LocalBoxFuture<'static, ()> + Send>;
 
 struct ConfigEditorRequest {
   pub file_path: PathBuf,
@@ -281,104 +231,16 @@ struct ConfigEditorRequest {
   pub use_global_config: bool,
 }
 
-enum ChannelMessage {
-  Format(EditorFormatRequest, oneshot::Sender<Result<FormatOutcome>>),
+enum ChannelMessage<TEnvironment: Environment> {
+  /// The client to send messages to, which is the first message.
+  SetClient(ClientWrapper),
+  Workspace(WorkspaceTask<TEnvironment>),
   Completion(ConfigEditorRequest, oneshot::Sender<Option<CompletionList>>),
   Hover(ConfigEditorRequest, oneshot::Sender<Option<Hover>>),
   Shutdown(oneshot::Sender<()>),
   /// This message is used for testing.
   #[cfg(test)]
   HasPending(oneshot::Sender<bool>),
-}
-
-async fn handle_format_request<TEnvironment: Environment>(
-  mut request: EditorFormatRequest,
-  scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>,
-  ensure_stable_format: EnsureStableFormat,
-  environment: &TEnvironment,
-) -> Result<FormatOutcome> {
-  let Some(parent_dir) = request.file_path.parent() else {
-    // the backend doesn't send this, so it's an error that also goes to the client
-    bail!("Cannot format non-file path: {}", request.file_path.display());
-  };
-  if request.token.is_cancelled() {
-    return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Cancelled));
-  }
-  let Some(scope) = scope_container.resolve_by_path(parent_dir, request.use_global_config).await? else {
-    log_stderr_info!(environment, "Path did not have a dprint config file: {}", request.file_path.display());
-    return Ok(FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile));
-  };
-  if request.token.is_cancelled() {
-    return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Cancelled));
-  }
-  // canonicalize the paths
-  request.file_path = canonicalize_path(environment, request.file_path);
-  request.notebook_path = request.notebook_path.map(|path| canonicalize_path(environment, path));
-
-  let can_format = match &request.notebook_path {
-    // the cli formats a notebook's cells when a plugin (the jupyter plugin) formats
-    // the notebook, so only format a cell when the notebook would be formatted
-    Some(notebook_path) => {
-      !scope.plugin_name_maps.get_plugin_names_from_file_path(notebook_path).into_names().is_empty() && scope.can_format_for_editor(notebook_path, None)
-    }
-    None => scope.can_format_for_editor(&request.file_path, Some(request.file_text.as_bytes())),
-  };
-  if !can_format {
-    log_debug!(
-      environment,
-      "Excluded file: {}",
-      request.notebook_path.as_ref().unwrap_or(&request.file_path).display()
-    );
-    return Ok(FormatOutcome::NotFormatted(NotFormattedReason::NotMatched));
-  }
-
-  let has_plugin = !scope
-    .plugin_name_maps
-    .get_plugin_names_from_file_path_and_bytes(&request.file_path, request.file_text.as_bytes())
-    .is_empty();
-  let token = request.token.clone();
-  // the range is given to the plugin, but is needed after for a notebook cell
-  let maybe_cell_range = request.notebook_path.as_ref().map(|_| request.range.clone());
-  let Some(result) = scope
-    .format_stable(
-      HostFormatRequest {
-        file_path: request.file_path,
-        file_bytes: request.file_text.as_bytes().to_vec(),
-        range: request.range,
-        override_config: Default::default(),
-        token: request.token,
-      },
-      ensure_stable_format,
-    )
-    .await?
-  else {
-    return Ok(FormatOutcome::NotFormatted(if token.is_cancelled() {
-      NotFormattedReason::Cancelled
-    } else if has_plugin {
-      NotFormattedReason::Unchanged
-    } else {
-      NotFormattedReason::NoPlugin
-    }));
-  };
-  dprint_core::async_runtime::spawn_blocking(move || {
-    let new_text = String::from_utf8(result).context("Failed converting formatted text to utf-8.")?;
-    // the editor owns the document's line endings, so match them rather than
-    // imposing the plugin's configured newline kind (see #965)
-    let new_text = normalize_to_source_line_endings(&request.file_text, new_text);
-    let new_text = match maybe_cell_range {
-      Some(range) => {
-        let new_text = trim_formatted_cell_text(&request.file_text, new_text, &range);
-        if new_text == *request.file_text {
-          return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
-        }
-        new_text
-      }
-      None => new_text,
-    };
-    let line_index = request.maybe_line_index.unwrap_or_else(|| Arc::new(LineIndex::new(&request.file_text)));
-    Ok(FormatOutcome::Edits(get_edits(&request.file_text, &new_text, &line_index)))
-  })
-  .await?
 }
 
 pub async fn run_language_server<TEnvironment: Environment>(
@@ -390,16 +252,29 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let stdout = tokio::io::stdout();
   let (tx, rx) = mpsc::unbounded_channel();
 
-  let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
-  let recv_task = start_message_handler(environment, plugin_resolver, config_path, args.remote_cache_mode(), rx);
+  let config_path = args.config.as_ref().map(|config| get_config_override_path(environment, config)).transpose()?;
+  let has_config_override = config_path.is_some();
+  let session_permissions = Arc::new(SessionPermissions::default());
+  let recv_task = start_message_handler(
+    environment,
+    plugin_resolver,
+    config_path,
+    args.remote_cache_mode(),
+    session_permissions.clone(),
+    rx,
+  );
 
   let environment = environment.clone();
   let lsp_task = dprint_core::async_runtime::spawn(async move {
-    let (service, socket, pending) = LspService::new(|client| {
+    let (service, socket, pending) = with_dprint_methods(LspService::build(|client| {
       let client = ClientWrapper::new(Arc::new(client));
-      Backend::new(client.clone(), environment.clone(), tx)
-    });
-    Server::new(stdin, stdout, socket, pending).serve(service).await;
+      Backend::new(client.clone(), environment.clone(), tx, has_config_override)
+    }))
+    .finish();
+    Server::new(stdin, stdout, socket, pending)
+      .concurrency_level(MAX_CONCURRENT_MESSAGES)
+      .serve(service)
+      .await;
   });
 
   let (shutdown_received, _) = try_join!(recv_task, lsp_task)?;
@@ -415,45 +290,78 @@ pub async fn run_language_server<TEnvironment: Environment>(
   std::process::exit(get_exit_code(shutdown_received))
 }
 
+/// Adds the `dprint/*` methods that an editor extension uses.
+fn with_dprint_methods<TEnvironment: Environment>(
+  builder: deno_tower_lsp::LspServiceBuilder<Backend<TEnvironment>>,
+) -> deno_tower_lsp::LspServiceBuilder<Backend<TEnvironment>> {
+  builder
+    .custom_method(FORMAT_METHOD, Backend::dprint_format)
+    .custom_method(FILE_INFO_METHOD, Backend::dprint_file_info)
+    .custom_method(CONFIG_INFO_METHOD, Backend::dprint_config_info)
+    .custom_method(CONFIG_SCHEMA_METHOD, Backend::dprint_config_schema)
+    .custom_method(APPROVE_METHOD, Backend::dprint_approve)
+    .custom_method(RESET_METHOD, Backend::dprint_reset)
+    .custom_method(PENDING_APPROVALS_METHOD, Backend::dprint_pending_approvals)
+    .custom_method(FORGET_DECISIONS_METHOD, Backend::dprint_forget_decisions)
+    .custom_method(DECISIONS_METHOD, Backend::dprint_decisions)
+}
+
 /// Starts the task that handles the messages sent by the `Backend`, which
-/// resolves to whether it stopped because of a shutdown request rather than
-/// because the `Backend` was dropped.
+/// stops once the `Backend` is dropped (ex. the client exited or disconnected)
+/// and resolves to whether a shutdown request was received before that.
 fn start_message_handler<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   config_override: Option<PathBuf>,
   remote_cache_mode: RemoteCacheMode,
-  mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
+  session_permissions: Arc<SessionPermissions>,
+  mut rx: mpsc::UnboundedReceiver<ChannelMessage<TEnvironment>>,
 ) -> JoinHandle<bool> {
+  // IMPORTANT: Only what's on the trusted domains is downloaded without the
+  // user allowing it because opening a project isn't the same as choosing to
+  // download what its config file says (see `DownloadPolicy`).
+  environment.set_download_policy(DownloadPolicy::for_editor(environment));
   // tower_lsp required Backend to implement Send and Sync, but
   // we use a single threaded runtime. So spawn some tasks and
   // communicate over a channel.
   // todo: deno_tower_lsp doesn't require this, so the channel could be removed
   let max_cores = environment.max_threads();
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
-  let ensure_stable_format = EnsureStableFormat::for_editor(environment);
   let environment = environment.clone();
-  let scope_container = Rc::new(LspPluginsScopeContainer::new(
+  let scope_container = Rc::new(PluginsScopeContainer::new(
     environment.clone(),
     plugin_resolver.clone(),
     config_override,
-    remote_cache_mode,
+    remote_cache_mode == RemoteCacheMode::Reload,
+    session_permissions.clone(),
   ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
-    let mut pending_tokens = PendingTokens::default();
+    let mut workspace = None;
+    let mut shutdown_received = false;
+    let pending_count = Rc::new(Cell::new(0usize));
     while let Some(message) = rx.recv().await {
       match message {
-        ChannelMessage::Format(request, sender) => {
-          let token_guard = pending_tokens.insert(request.token.clone());
-          let concurrency_limiter = concurrency_limiter.clone();
-          let scope_container = scope_container.clone();
-          let environment = environment.clone();
+        ChannelMessage::SetClient(client) => {
+          workspace = Some(Rc::new(Workspace::new(
+            environment.clone(),
+            client,
+            scope_container.clone(),
+            concurrency_limiter.clone(),
+            session_permissions.clone(),
+          )));
+        }
+        ChannelMessage::Workspace(task) => {
+          let Some(workspace) = workspace.clone() else {
+            continue;
+          };
+          pending_count.set(pending_count.get() + 1);
+          let pending_count = pending_count.clone();
           dprint_core::async_runtime::spawn(async move {
-            let _permit = concurrency_limiter.acquire().await;
-            let result = handle_format_request(request, scope_container, ensure_stable_format, &environment).await;
-            let _ = sender.send(result);
-            drop(token_guard); // remove the token from the pending tokens
+            // the paths it provides are checked again for it (see `Workspace::editor_path`)
+            workspace.check_editor_dirs_again();
+            task(workspace).await;
+            pending_count.set(pending_count.get() - 1);
           });
         }
         ChannelMessage::Completion(request, sender) => {
@@ -475,19 +383,25 @@ fn start_message_handler<TEnvironment: Environment>(
           });
         }
         ChannelMessage::Shutdown(sender) => {
-          pending_tokens.cancel_all();
-          scope_container.shutdown().await;
+          match &workspace {
+            Some(workspace) => workspace.shutdown().await,
+            None => scope_container.shutdown().await,
+          }
+          shutdown_received = true;
           let _ = sender.send(());
-          return true; // exit
         }
         #[cfg(test)]
         ChannelMessage::HasPending(sender) => {
-          let is_empty = pending_tokens.tokens.borrow().is_empty();
-          let _ = sender.send(!is_empty);
+          let _ = sender.send(pending_count.get() > 0);
         }
       }
     }
-    false
+    // the client exited the server (or disconnected) after shutting it down, which ends the session, while
+    // a server that's killed after shutting down keeps its session file
+    if shutdown_received && let Some(workspace) = &workspace {
+      workspace.end_session();
+    }
+    shutdown_received
   })
 }
 
@@ -504,48 +418,198 @@ struct State<TEnvironment: Environment> {
   /// The paths of the client's workspace folders on the file system.
   workspace_folders: Vec<PathBuf>,
   settings: LspSettings,
-  /// Whether the client shows the actions of a `window/showMessageRequest`.
-  supports_message_actions: bool,
+  client_kind: ClientKind,
   /// Whether the client supports the versioned document edits of a `WorkspaceEdit`.
   supports_document_changes: bool,
-  /// Whether the user was notified this session about a file without a config file.
-  has_notified_no_config: bool,
+  /// Where an editor extension's progress is sent.
+  output_sink: Option<Arc<LspOutputSink>>,
+  /// The features of the `dprint/*` methods that the server uses with the
+  /// editor extension.
+  features: serde_json::Map<String, serde_json::Value>,
+  /// Whether the client is an editor extension that doesn't support a version
+  /// the server does, which every method fails for.
+  is_unsupported_client: bool,
 }
 
 struct Backend<TEnvironment: Environment> {
   client: ClientWrapper,
   environment: TEnvironment,
-  sender: mpsc::UnboundedSender<ChannelMessage>,
+  /// Whether the server was started with a config file (`--config`), which is
+  /// the only one.
+  has_config_override: bool,
+  sender: mpsc::UnboundedSender<ChannelMessage<TEnvironment>>,
   state: Mutex<State<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> Backend<TEnvironment> {
-  pub fn new(client: ClientWrapper, environment: TEnvironment, sender: mpsc::UnboundedSender<ChannelMessage>) -> Self {
+  pub fn new(client: ClientWrapper, environment: TEnvironment, sender: mpsc::UnboundedSender<ChannelMessage<TEnvironment>>, has_config_override: bool) -> Self {
+    let _ = sender.send(ChannelMessage::SetClient(client.clone()));
     Backend {
       client,
+      has_config_override,
       sender,
       state: Mutex::new(State {
         settings: LspSettings::from_environment(&environment),
         documents: Documents::new(environment.clone()),
         pending_registrations: Vec::new(),
         workspace_folders: Vec::new(),
-        supports_message_actions: false,
+        client_kind: ClientKind::LanguageClient {
+          supports_message_actions: false,
+        },
         supports_document_changes: false,
-        has_notified_no_config: false,
+        output_sink: None,
+        features: Default::default(),
+        is_unsupported_client: false,
       }),
       environment,
     }
   }
 
-  /// Formats the document for a format request, notifying the user when it
-  /// isn't formatted because there's no config file.
-  async fn format_document(&self, uri: &Uri, range: Option<Range>, options: &FormattingOptions, token: CancellationToken) -> Option<Vec<TextEdit>> {
-    let use_global_config = self.state.lock().settings.use_global_config || has_use_global_config_option(options);
-    let outcome = self.format(uri, range, use_global_config, token).await?;
-    if matches!(outcome, FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile)) {
-      self.notify_no_config();
+  /// Fails with `MethodNotFound` for a language client, which didn't
+  /// negotiate a version of the `dprint/*` methods.
+  fn ensure_editor_extension(&self) -> LspResult<()> {
+    match self.state.lock().client_kind {
+      ClientKind::EditorExtension => Ok(()),
+      ClientKind::LanguageClient { .. } => Err(LspError::method_not_found()),
     }
-    outcome.into_edits()
+  }
+
+  /// Fails with `MethodNotFound` for an editor extension that doesn't support a
+  /// version the server does, which isn't handled like a language client.
+  fn ensure_supported_client(&self) -> LspResult<()> {
+    match self.state.lock().is_unsupported_client {
+      true => Err(LspError::method_not_found()),
+      false => Ok(()),
+    }
+  }
+
+  /// Gets the document of a `dprint/*` method, which only has the file it's
+  /// formatted as with the `fileUri` feature.
+  fn get_document_info(&self, params: &DocumentParams) -> DocumentInfo {
+    self.new_document_info(
+      &params.text_document.uri,
+      params.language.as_ref(),
+      params.notebook_document.as_ref(),
+      params.file_uri.as_ref(),
+    )
+  }
+
+  /// Gets what `dprint/configInfo` and `dprint/configSchema` are for, which is
+  /// a config file or a document it's used for.
+  fn get_config_target(&self, params: &ConfigParams) -> LspResult<ConfigTarget> {
+    match (&params.config_file, &params.text_document) {
+      (Some(config_file), None) => Ok(ConfigTarget::ConfigFile {
+        uri: config_file.uri.clone(),
+        dir_uri: config_file.dir_uri.clone(),
+      }),
+      (None, Some(text_document)) => Ok(ConfigTarget::Document(self.new_document_info(
+        &text_document.uri,
+        params.language.as_ref(),
+        params.notebook_document.as_ref(),
+        params.file_uri.as_ref(),
+      ))),
+      _ => Err(to_lsp_error(
+        InvalidParamsError("Provide either the configFile or the textDocument.".to_string()).into(),
+      )),
+    }
+  }
+
+  /// Gets the document of the params of a `dprint/*` method, which only has
+  /// the file it's formatted as with the `fileUri` feature.
+  fn new_document_info(&self, uri: &Uri, language: Option<&DocumentLanguage>, notebook: Option<&NotebookIdentifier>, file_uri: Option<&Uri>) -> DocumentInfo {
+    let has_file_uri_feature = self.state.lock().features.contains_key(FILE_URI_FEATURE);
+    DocumentInfo {
+      uri: uri.clone(),
+      language: language.cloned(),
+      notebook_uri: notebook.map(|notebook| notebook.file_uri.as_ref().filter(|_| has_file_uri_feature).unwrap_or(&notebook.uri).clone()),
+      file_uri: file_uri.filter(|_| has_file_uri_feature).cloned(),
+    }
+  }
+
+  /// Reports the progress of what's done while the request is handled on the
+  /// token the client provided, which is done until the result is dropped.
+  fn track_request_progress(&self, token: Option<NumberOrString>) -> RequestProgress {
+    let sink = token.as_ref().and_then(|_| self.state.lock().output_sink.clone());
+    let progress = RequestProgress { sink, token };
+    if let (Some(sink), Some(token)) = (&progress.sink, &progress.token) {
+      sink.start_request(token.clone());
+    }
+    progress
+  }
+
+  /// Runs the task with the `Workspace` on the message handler's task, which
+  /// is `None` when the message handler stopped.
+  async fn run<T: Send + 'static>(&self, task: impl FnOnce(Rc<Workspace<TEnvironment>>) -> LocalBoxFuture<'static, T> + Send + 'static) -> Option<T> {
+    let (sender, receiver) = oneshot::channel();
+    let task: WorkspaceTask<TEnvironment> = Box::new(move |workspace| {
+      async move {
+        let _ = sender.send(task(workspace).await);
+      }
+      .boxed_local()
+    });
+    self.sender.send(ChannelMessage::Workspace(task)).ok()?;
+    receiver.await.ok()
+  }
+
+  /// Runs the task of a `dprint/*` method with the `Workspace` like `run`,
+  /// which fails with the error response when the task fails or the message
+  /// handler stopped.
+  async fn run_method<T: Send + 'static>(
+    &self,
+    task: impl FnOnce(Rc<Workspace<TEnvironment>>) -> LocalBoxFuture<'static, Result<T>> + Send + 'static,
+  ) -> LspResult<T> {
+    self.run(task).await.unwrap_or_else(|| Err(new_server_stopped_error())).map_err(to_lsp_error)
+  }
+
+  /// Runs the task with the `Workspace` on the message handler's task without
+  /// waiting on it.
+  fn spawn(&self, task: impl FnOnce(Rc<Workspace<TEnvironment>>) -> LocalBoxFuture<'static, ()> + Send + 'static) {
+    let _ = self.sender.send(ChannelMessage::Workspace(Box::new(task)));
+  }
+
+  /// Sends the settings to the `Workspace`.
+  async fn update_workspace_settings(&self) {
+    let settings = {
+      let state = self.state.lock();
+      WorkspaceSettings {
+        use_global_config: state.settings.use_global_config,
+        show_no_config_notification: state.settings.show_no_config_notification,
+        ensure_stable_format: state.settings.ensure_stable_format,
+        verbose: state.settings.verbose,
+        workspace_folders: state.workspace_folders.clone(),
+      }
+    };
+    self
+      .run(move |workspace| {
+        workspace.set_settings(settings);
+        async {}.boxed_local()
+      })
+      .await;
+  }
+
+  /// Formats the document for a format request of a language client.
+  async fn format_document(&self, uri: &Uri, range: Option<Range>, options: &FormattingOptions, token: CancellationToken) -> Option<Vec<TextEdit>> {
+    let use_global_config = has_use_global_config_option(options);
+    let (line_index, outcome) = self.format(uri, range, use_global_config, true, token).await?;
+    match outcome {
+      FormatOutcome::Formatted(edits) if edits.is_empty() => None,
+      FormatOutcome::Formatted(edits) => Some(to_lsp_edits(edits, &line_index)),
+      FormatOutcome::NotFormatted(NotFormatted { reason, message, .. }) => {
+        match reason {
+          // only logged because a client may format a range without the user asking (ex. on paste)
+          NotFormattedReason::RangeFormattingNotSupported => self.client.log_info(message),
+          // the problems are only shown once, so tell the client each time
+          NotFormattedReason::ConfigDiagnostics | NotFormattedReason::ConfigError => self.log_format_failure(uri, &message),
+          NotFormattedReason::UnsupportedDocument | NotFormattedReason::LanguageRequired => self.log_format_failure(uri, &message),
+          _ => {}
+        }
+        None
+      }
+      FormatOutcome::Failed { message, .. } => {
+        self.log_format_failure(uri, &message);
+        None
+      }
+    }
   }
 
   /// Formats the document or a range of it using the global config file when
@@ -554,137 +618,93 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   /// document wasn't formatted except for when it's already formatted.
   async fn format_with_global_config(&self, uri: &Uri, range: Option<Range>, token: CancellationToken) {
     let version = self.state.lock().documents.get_version(uri);
-    let outcome = match self.format(uri, range, true, token).await {
-      Some(outcome) => outcome,
-      // why was logged
-      None => FormatOutcome::NotFormatted(NotFormattedReason::Failed),
-    };
-    let reason = match outcome {
-      FormatOutcome::Edits(edits) => {
+    let message = match self.format(uri, range, true, false, token).await {
+      Some((line_index, FormatOutcome::Formatted(edits))) => {
         // the edits don't apply to the document anymore when it changed while formatting
         if edits.is_empty() || self.state.lock().documents.get_version(uri) != version {
           return;
         }
         let supports_document_changes = self.state.lock().supports_document_changes;
+        let edits = to_lsp_edits(edits, &line_index);
         match self.client.apply_edit(new_workspace_edit(uri, version, edits, supports_document_changes)).await {
           Ok(()) => return,
           Err(err) => {
             let message = format!("Failed applying the edits for '{}': {:#}", uri.as_str(), err);
             log_error!(self.environment, "{}", message);
             self.client.log_error(message);
-            NotFormattedReason::Failed
+            None
           }
         }
       }
-      FormatOutcome::NotFormatted(reason) => reason,
+      Some((_, FormatOutcome::NotFormatted(NotFormatted { message, .. }))) => Some((MessageType::INFO, message)),
+      Some((_, FormatOutcome::Failed { message, .. })) => {
+        self.log_format_failure(uri, &message);
+        None
+      }
+      // why was logged
+      None => None,
     };
-    if let Some((message_type, message)) = reason.message() {
-      self.client.show_message(message_type, message);
-    }
+    let (message_type, message) = message.unwrap_or_else(|| {
+      (
+        MessageType::WARNING,
+        "dprint failed to format this document. See the language server's log for details.".to_string(),
+      )
+    });
+    self.client.show_message(message_type, message);
   }
 
-  /// Formats the document or a range of it, which is `None` when the document
-  /// can't be formatted and why was logged.
-  async fn format(&self, uri: &Uri, range: Option<Range>, use_global_config: bool, token: CancellationToken) -> Option<FormatOutcome> {
-    let (file_path, notebook_path) = self.ok_or_log_format_warning(self.resolve_format_paths(uri))?;
-    let (file_text, range, maybe_line_index) = match range {
+  /// Formats a document of a language client, which is `None` when it failed
+  /// and why was logged.
+  async fn format(
+    &self,
+    uri: &Uri,
+    range: Option<Range>,
+    use_global_config: bool,
+    notify_no_config: bool,
+    token: CancellationToken,
+  ) -> Option<(Arc<LineIndex>, FormatOutcome)> {
+    let (document, text, line_index) = self.ok_or_log_format_warning(self.get_document(uri))?;
+    let ranges = match range {
       Some(range) => {
-        let content = self.state.lock().documents.get_content_with_range(uri, range);
-        let (file_text, range, line_index) = self.ok_or_log_format_warning(content)?;
-        (file_text, range, Some(line_index))
-      }
-      None => {
-        let content = self.state.lock().documents.get_content(uri);
-        let (file_text, maybe_line_index) = self.ok_or_log_format_warning(content)?;
-        (file_text, None, maybe_line_index)
-      }
-    };
-    let request = EditorFormatRequest {
-      file_path,
-      notebook_path,
-      file_text,
-      range,
-      use_global_config,
-      maybe_line_index,
-      token: Arc::new(token),
-    };
-    Some(self.send_format_request(uri, request).await)
-  }
-
-  /// Notifies the user that a file wasn't formatted because no config file
-  /// was found for it. This is only done once per session to not annoy people.
-  fn notify_no_config(&self) {
-    let (settings, workspace_folders, supports_message_actions) = {
-      let mut state = self.state.lock();
-      if !state.settings.show_no_config_notification || state.has_notified_no_config {
-        return;
-      }
-      state.has_notified_no_config = true;
-      (state.settings, state.workspace_folders.clone(), state.supports_message_actions)
-    };
-    if is_no_config_notification_dismissed(&self.environment, &workspace_folders) {
-      return;
-    }
-    let has_global_config = !settings.use_global_config && matches!(resolve_global_config_path_and_text(&self.environment), Ok(Some(_)));
-    let message = get_no_config_message(NoConfigMessageOptions {
-      use_global_config: settings.use_global_config,
-      has_global_config,
-    });
-    // the notification can only be dismissed for good in a client that shows the actions
-    if !supports_message_actions {
-      self.client.show_message(MessageType::INFO, message);
-      return;
-    }
-    let mut actions = Vec::new();
-    if !workspace_folders.is_empty() {
-      actions.push(new_message_action(DISMISS_WORKSPACE_ACTION_TITLE));
-    }
-    actions.push(new_message_action(DISMISS_ACTION_TITLE));
-    let selection = self.client.show_message_request(MessageType::INFO, message, actions);
-    let client = self.client.clone();
-    let environment = self.environment.clone();
-    // don't wait on this because it only resolves once the user responds
-    dprint_core::async_runtime::spawn(async move {
-      let Some(selection) = selection.await else {
-        return;
-      };
-      let dismissal = if selection.title == DISMISS_WORKSPACE_ACTION_TITLE {
-        NoConfigNotificationDismissal::WorkspaceFolders(workspace_folders)
-      } else {
-        NoConfigNotificationDismissal::Everywhere
-      };
-      if let Err(err) = dismiss_no_config_notification(&environment, dismissal).await {
-        let message = format!("Failed storing to not show the no configuration file notification: {:#}", err);
-        log_warn!(environment, "{}", message);
-        client.log_warn(message);
-      }
-    });
-  }
-
-  async fn send_format_request(&self, uri: &Uri, request: EditorFormatRequest) -> FormatOutcome {
-    let start_time = std::time::Instant::now();
-    log_debug!(self.environment, "Received format request for {}", uri.as_str());
-    let mut drop_token = DropToken::new(request.token.clone());
-    let result = self.send_format_request_inner(request).await;
-    drop_token.completed();
-    let result = match result {
-      Ok(value) => value,
-      Err(err) => {
-        // Not a response error or a shown message because failing to format is
-        // what happens for a file with a syntax error, which would notify the
-        // user on every format on save.
-        let mut message = format!("Failed formatting '{}': {:#}", uri.as_str(), err);
-        log_error!(self.environment, "{}", message);
-        // the text of a plugin's config diagnostics is only logged to stderr
-        // the first time the plugin is used, so tell the client each time
-        for diagnostic in get_plugin_config_diagnostics(&err) {
-          message.push('\n');
-          message.push_str(diagnostic);
+        if let Err(err) = line_index.get_text_range(range) {
+          self.ok_or_log_format_warning::<()>(Err(anyhow::anyhow!("Invalid range for '{}'. {:#}", uri.as_str(), err)));
+          return None;
         }
-        self.client.log_error(message);
-        FormatOutcome::NotFormatted(NotFormattedReason::Failed)
+        let range = line_index.offset_utf16(range.start)..line_index.offset_utf16(range.end);
+        Some(Vec::from([range]))
       }
+      None => None,
     };
+    let request = FormatRequest {
+      document,
+      text: text.to_string(),
+      ranges,
+      override_config: Default::default(),
+      // the setting is used otherwise
+      global_config: use_global_config.then_some(GlobalConfigUse::WhenNoConfigFile),
+      notify_no_config,
+    };
+    match self.format_request(request, token).await {
+      Ok((outcome, _)) => Some((line_index, outcome)),
+      Err(err) => {
+        self.log_format_failure(uri, &format!("{:#}", err));
+        None
+      }
+    }
+  }
+
+  /// Formats the document, which says the config file that was used.
+  async fn format_request(&self, request: FormatRequest, token: CancellationToken) -> Result<(FormatOutcome, Option<ConfigFileInfo>)> {
+    let start_time = std::time::Instant::now();
+    let uri = request.document.uri.clone();
+    log_debug!(self.environment, "Received format request for {}", uri.as_str());
+    let token = Arc::new(token);
+    let mut drop_token = DropToken::new(token.clone());
+    let result = self
+      .run(move |workspace| async move { workspace.format(request, &token).await }.boxed_local())
+      .await
+      .unwrap_or_else(|| Err(new_server_stopped_error()));
+    drop_token.completed();
     log_debug!(
       self.environment,
       "Finished format request for {} in {}ms",
@@ -694,53 +714,55 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     result
   }
 
-  /// Resolves the file path to format the document as along with the path of
-  /// its notebook when the document is a notebook cell, which fails with the
-  /// message to log when the document can't be formatted.
-  fn resolve_format_paths(&self, uri: &Uri) -> Result<(PathBuf, Option<PathBuf>)> {
-    if is_untitled_uri(uri) {
-      return Ok((self.resolve_untitled_file_path(uri)?, None));
-    }
-    let Some((notebook_uri, language_id)) = self.state.lock().documents.get_notebook_cell(uri) else {
-      let Some(file_path) = uri_to_file_path(uri) else {
-        bail!(
-          "Cannot format document that is not a file, an untitled document or a cell of an open notebook: {}",
-          uri.as_str()
-        );
-      };
-      // the document is formatted with the config file for its directory
-      if file_path.parent().is_none() {
-        bail!("Cannot format non-file path: {}", file_path.display());
-      }
-      return Ok((file_path, None));
-    };
-    // the cli only formats notebooks on the file system
-    let Some(notebook_path) = uri_to_file_path(&notebook_uri) else {
-      bail!("Cannot format cell of a notebook that is not on the file system: {}", uri.as_str());
-    };
-    let Some(file_path) = get_notebook_cell_file_path(&notebook_path, &language_id) else {
-      bail!("Could not determine a file path to format the notebook cell with language: {}", language_id);
-    };
-    Ok((file_path, Some(notebook_path)))
+  /// Logs to stderr and the client that the document failed to format, which
+  /// isn't a response error or a shown message because failing to format is
+  /// what happens for a file with a syntax error, which would notify the user
+  /// on every format on save.
+  fn log_format_failure(&self, uri: &Uri, message: &str) {
+    let message = format!("Failed formatting '{}': {}", uri.as_str(), message);
+    log_error!(self.environment, "{}", message);
+    self.client.log_error(message);
   }
 
-  /// An untitled document is formatted as a file in the first workspace
-  /// folder or otherwise the home directory.
-  fn resolve_untitled_file_path(&self, uri: &Uri) -> Result<PathBuf> {
-    let (language_id, workspace_folder) = {
-      let state = self.state.lock();
-      let Some(language_id) = state.documents.get_language_id(uri) else {
-        bail!("Missing document: {}", uri.as_str());
-      };
-      (language_id, state.workspace_folders.first().cloned())
+  /// Gets the document of a language client along with its text and line
+  /// index, which fails with the message to log when it can't be formatted.
+  fn get_document(&self, uri: &Uri) -> Result<(DocumentInfo, Arc<String>, Arc<LineIndex>)> {
+    let mut state = self.state.lock();
+    let notebook_cell = state.documents.get_notebook_cell(uri);
+    if !is_untitled_uri(uri) {
+      match &notebook_cell {
+        // the cli only formats notebooks on the file system
+        Some((notebook_uri, _)) if uri_to_file_path(notebook_uri).is_none() => {
+          bail!("Cannot format cell of a notebook that is not on the file system: {}", uri.as_str());
+        }
+        Some(_) => {}
+        None => match uri_to_file_path(uri) {
+          // the document is formatted with the config file for its directory
+          Some(file_path) if file_path.parent().is_none() => bail!("Cannot format non-file path: {}", file_path.display()),
+          Some(_) => {}
+          None => bail!(
+            "Cannot format document that is not a file, an untitled document or a cell of an open notebook: {}",
+            uri.as_str()
+          ),
+        },
+      }
+    }
+    let (text, line_index) = state.documents.get_content_with_line_index(uri)?;
+    let (language_id, notebook_uri) = match notebook_cell {
+      Some((notebook_uri, language_id)) => (Some(language_id), Some(notebook_uri)),
+      None => (state.documents.get_language_id(uri), None),
     };
-    let Some(dir_path) = workspace_folder.or_else(|| self.environment.get_home_dir().map(|dir| dir.into_path_buf())) else {
-      bail!("Cannot format untitled document without a workspace folder or home directory: {}", uri.as_str());
+    let document = DocumentInfo {
+      uri: uri.clone(),
+      language: language_id.map(|id| DocumentLanguage {
+        id,
+        file_extensions: Vec::new(),
+        file_names: Vec::new(),
+      }),
+      notebook_uri,
+      file_uri: None,
     };
-    let Some(file_path) = get_untitled_file_path(&dir_path, &language_id) else {
-      bail!("Could not determine a file path to format the untitled document with language: {}", language_id);
-    };
-    Ok(file_path)
+    Ok((document, text, line_index))
   }
 
   /// Gets the value or otherwise logs to stderr and the client why the format
@@ -768,10 +790,142 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     }
   }
 
-  async fn send_format_request_inner(&self, request: EditorFormatRequest) -> Result<FormatOutcome> {
-    let (sender, receiver) = oneshot::channel();
-    self.sender.send(ChannelMessage::Format(request, sender))?;
-    receiver.await?
+  async fn dprint_format(&self, mut params: FormatParams, token: CancellationToken) -> LspResult<FormatResponse> {
+    self.ensure_editor_extension()?;
+    let _progress = self.track_request_progress(params.document.work_done_token.clone());
+    // a property that's null isn't provided
+    params
+      .override_config
+      .retain(|_, value| !matches!(value, dprint_core::configuration::ConfigKeyValue::Null));
+    if let Some(message) = get_override_config_error(&params.override_config) {
+      return Err(LspError {
+        code: ErrorCode::InvalidParams,
+        message: message.into(),
+        data: None,
+      });
+    }
+    let line_index = LineIndex::new(&params.text);
+    let request = FormatRequest {
+      document: self.get_document_info(&params.document),
+      ranges: params.ranges.map(|ranges| {
+        ranges
+          .iter()
+          .map(|range| line_index.offset_utf16(range.start)..line_index.offset_utf16(range.end))
+          .collect::<Vec<StdRange<u32>>>()
+      }),
+      text: params.text,
+      override_config: params.override_config,
+      global_config: params.document.global_config,
+      notify_no_config: false,
+    };
+    let (outcome, config_file) = self.format_request(request, token).await.map_err(to_lsp_error)?;
+    let result = match outcome {
+      FormatOutcome::Formatted(edits) => FormatResult::Formatted {
+        edits: to_lsp_edits(edits, &line_index),
+        notice: None,
+      },
+      FormatOutcome::NotFormatted(not_formatted) => FormatResult::NotFormatted(not_formatted),
+      FormatOutcome::Failed { reason, message, plugin } => FormatResult::Failed {
+        reason,
+        message,
+        show: reason.show(),
+        severity: reason.severity(),
+        // the user is told why it wasn't formatted
+        claim: true,
+        actions: Vec::new(),
+        plugin,
+      },
+    };
+    Ok(FormatResponse { config_file, result })
+  }
+
+  async fn dprint_file_info(&self, params: FileInfoParams, _token: CancellationToken) -> LspResult<FileInfoResult> {
+    self.ensure_editor_extension()?;
+    let _progress = self.track_request_progress(params.document.work_done_token.clone());
+    let document = self.get_document_info(&params.document);
+    let global_config = params.document.global_config;
+    let text = params.text;
+    self
+      .run_method(move |workspace| async move { workspace.file_info(&document, text.as_deref(), global_config).await }.boxed_local())
+      .await
+  }
+
+  async fn dprint_config_info(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigInfoResult> {
+    self.ensure_editor_extension()?;
+    let _progress = self.track_request_progress(params.work_done_token.clone());
+    let target = self.get_config_target(&params)?;
+    self
+      .run_method(move |workspace| async move { workspace.config_info(&target, params.global_config).await }.boxed_local())
+      .await
+  }
+
+  async fn dprint_config_schema(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigSchemaResult> {
+    self.ensure_editor_extension()?;
+    let _progress = self.track_request_progress(params.work_done_token.clone());
+    let target = self.get_config_target(&params)?;
+    let (schema, complete) = self
+      .run_method(move |workspace| async move { workspace.config_schema(&target, params.global_config).await }.boxed_local())
+      .await?;
+    Ok(ConfigSchemaResult { schema, complete })
+  }
+
+  async fn dprint_approve(&self, params: ApproveParams, _token: CancellationToken) -> LspResult<ApproveResult> {
+    self.ensure_editor_extension()?;
+    let _progress = self.track_request_progress(params.work_done_token.clone());
+    self
+      .run_method(move |workspace| async move { workspace.approve(&params.id, params.decision).await }.boxed_local())
+      .await
+  }
+
+  /// Takes optional params so that they can be added later, which are `{}` for now.
+  async fn dprint_reset(&self, _params: Option<ResetParams>, _token: CancellationToken) -> LspResult<ResetResult> {
+    self.ensure_editor_extension()?;
+    self.run(|workspace| async move { workspace.reset().await }.boxed_local()).await;
+    Ok(ResetResult {})
+  }
+
+  /// Takes optional params so that the approvals of every config file can be gotten with `{}`.
+  async fn dprint_pending_approvals(&self, params: Option<PendingApprovalsParams>, _token: CancellationToken) -> LspResult<PendingApprovalsResult> {
+    self.ensure_editor_extension()?;
+    let params = params.unwrap_or_default();
+    let _progress = self.track_request_progress(params.work_done_token.clone());
+    let config_file = params.config_file.map(|config_file| (config_file.uri, config_file.dir_uri));
+    let (approvals, config) = self
+      .run_method(|workspace| async move { workspace.pending_approvals(config_file).await }.boxed_local())
+      .await?;
+    let (config_file, status) = config.unzip();
+    Ok(PendingApprovalsResult {
+      approvals,
+      config_file,
+      status,
+    })
+  }
+
+  /// Takes optional params so that the decisions of every config file can be forgotten with `{}`.
+  async fn dprint_forget_decisions(&self, params: Option<ForgetDecisionsParams>, _token: CancellationToken) -> LspResult<ForgetDecisionsResult> {
+    self.ensure_editor_extension()?;
+    let params = params.unwrap_or_default();
+    let _progress = self.track_request_progress(params.work_done_token.clone());
+    let config_file = params.config_file.map(|config_file| (config_file.uri, config_file.dir_uri));
+    let (decisions, notice) = self
+      .run_method(|workspace| async move { workspace.forget_decisions(config_file).await }.boxed_local())
+      .await?;
+    Ok(ForgetDecisionsResult { decisions, notice })
+  }
+
+  /// Takes optional params so that the decisions of every config file can be gotten with `{}`.
+  async fn dprint_decisions(&self, params: Option<DecisionsParams>, _token: CancellationToken) -> LspResult<DecisionsResult> {
+    self.ensure_editor_extension()?;
+    let config_file = params
+      .and_then(|params| params.config_file)
+      .map(|config_file| (config_file.uri, config_file.dir_uri));
+    let (decisions, allow_process_plugins) = self
+      .run_method(|workspace| async move { workspace.decisions(config_file) }.boxed_local())
+      .await?;
+    Ok(DecisionsResult {
+      decisions,
+      allow_process_plugins,
+    })
   }
 
   /// This is used in the test code to ensure there are no pending requests.
@@ -792,26 +946,167 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if let Some(parent_id) = params.process_id {
       start_parent_process_checker_task(parent_id);
     }
-    let config_file_capabilities = get_config_file_capabilities(&params.capabilities);
+    // the client is an editor extension when it supports a version of the dprint methods that the server does
+    let mut features = serde_json::Map::new();
+    let mut client_versions = Vec::new();
+    let mut session_id = None;
+    // a capability that's null is the same as not providing it
+    let dprint_capability = params
+      .capabilities
+      .experimental
+      .as_ref()
+      .and_then(|experimental| experimental.get(EXPERIMENTAL_CAPABILITY_NAME))
+      .filter(|capability| !capability.is_null());
+    let has_dprint_capability = dprint_capability.is_some();
+    let methods_version = dprint_capability.and_then(|capability| match ClientExperimentalCapability::from_value(capability) {
+      Some(capability) => {
+        let version = capability.negotiate_version();
+        features = capability.negotiate_features();
+        if version.is_none() {
+          log_warn!(
+            self.environment,
+            "The editor extension supports versions {:?} of the dprint methods and the server supports versions {:?}, so the dprint methods aren't used (update dprint or the editor extension).",
+            capability.versions,
+            SUPPORTED_METHOD_VERSIONS
+          );
+        }
+        client_versions = capability.versions;
+        session_id = capability.session_id;
+        version
+      }
+      None => {
+        log_warn!(
+          self.environment,
+          "The dprint capability of the editor extension isn't an object with versions, so the dprint methods aren't used."
+        );
+        None
+      }
+    });
+    let is_editor_extension = methods_version.is_some();
+    // an editor extension that doesn't support the server's versions isn't handled like a
+    // language client, which its language client library would start using right away
+    let is_unsupported_editor_extension = has_dprint_capability && !is_editor_extension;
+    // the server can only register every file to watch when the client supports registering them by their directory
+    let config_file_watcher_registrations = get_config_file_watcher_registrations(&params.capabilities);
+    let can_register_watched_files = config_file_watcher_registrations.len() == 1 && supports_relative_watch_patterns(&params.capabilities);
+    if !can_register_watched_files || !is_editor_extension {
+      features.remove(WATCH_FILES_FEATURE);
+    }
+    let watches_files_outside_workspace = features.contains_key(WATCH_FILES_FEATURE);
+    let client_kind = if is_editor_extension {
+      ClientKind::EditorExtension
+    } else {
+      ClientKind::LanguageClient {
+        supports_message_actions: supports_message_actions(&params.capabilities),
+      }
+    };
     {
       let mut state = self.state.lock();
       if let Some(options) = &params.initialization_options {
-        state.settings.update(options);
+        state.settings.update(options, &self.environment);
       }
-      state.supports_message_actions = supports_message_actions(&params.capabilities);
+      state.client_kind = client_kind;
+      state.is_unsupported_client = is_unsupported_editor_extension;
       state.supports_document_changes = supports_document_changes(&params.capabilities);
-      state.pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
-      state.pending_registrations.extend(get_untitled_registrations(&params.capabilities));
-      state.pending_registrations.extend(config_file_capabilities.registrations);
-      state.workspace_folders = get_workspace_folder_paths(params.workspace_folders.as_deref().unwrap_or_default());
+      #[allow(deprecated)]
+      let root_uri = params.root_uri.as_ref();
+      state.workspace_folders = match &params.workspace_folders {
+        Some(folders) => get_workspace_folder_paths(folders),
+        // an older client may only provide the root
+        None => root_uri.and_then(uri_to_file_path).into_iter().collect(),
+      };
+      state.features = features.clone();
+      // an editor extension tells the server when a config file changes unless it opts into this, and the
+      // config file the server was started with is the only one, which is watched like the files it's resolved from
+      let config_file_watchers = match self.has_config_override {
+        true => Vec::new(),
+        false => config_file_watcher_registrations,
+      };
+      if watches_files_outside_workspace {
+        state.pending_registrations = config_file_watchers;
+      } else if !is_editor_extension && !is_unsupported_editor_extension {
+        state.pending_registrations = config_file_watchers;
+        state.pending_registrations.extend(get_notebook_cell_format_registrations(&params.capabilities));
+        state.pending_registrations.extend(get_untitled_registrations(&params.capabilities));
+        state
+          .pending_registrations
+          .extend(get_config_file_capabilities(&params.capabilities).registrations);
+      }
     }
+    if is_editor_extension {
+      // what's logged and the progress go to the editor instead of stderr
+      let output_sink = Arc::new(LspOutputSink::new(self.client.clone(), supports_work_done_progress(&params.capabilities)));
+      self.state.lock().output_sink = Some(output_sink.clone());
+      self.environment.set_output_sink(output_sink);
+    }
+    self
+      .run(move |workspace| {
+        workspace.set_client_kind(client_kind);
+        if watches_files_outside_workspace {
+          workspace.use_watch_files_registration();
+        }
+        // only an editor extension's decisions are kept for its session
+        if is_editor_extension {
+          workspace.use_session(session_id.as_ref());
+        }
+        async {}.boxed_local()
+      })
+      .await;
+    self.update_workspace_settings().await;
 
-    Ok(InitializeResult {
-      server_info: Some(ServerInfo {
-        name: "dprint".to_string(),
-        version: Some(self.environment.cli_version()),
+    // a client that sent the capability is told which versions the server supports
+    // when it doesn't support any of the client's, so it can tell an older dprint apart
+    let experimental = has_dprint_capability.then(|| {
+      // the config file the server was started with is the only one
+      let names = |all: &[&str]| match self.has_config_override {
+        true => Vec::new(),
+        false => all.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
+      };
+      let config_file_names = names(&POSSIBLE_CONFIG_FILE_NAMES);
+      let capability = match methods_version {
+        Some(version) => ServerExperimentalCapability {
+          version: Some(version),
+          versions: SUPPORTED_METHOD_VERSIONS.to_vec(),
+          features,
+          files: Some(get_dprint_files(&self.environment)),
+          config_file_globs: Some(config_file_names.iter().map(|name| format!("**/{}", name)).collect()),
+          config_file_names: Some(config_file_names),
+          dot_config_file_names: Some(names(&DOT_CONFIG_FILE_NAMES)),
+          message: None,
+        },
+        None => ServerExperimentalCapability {
+          version: None,
+          versions: SUPPORTED_METHOD_VERSIONS.to_vec(),
+          features: Default::default(),
+          files: None,
+          config_file_globs: None,
+          config_file_names: None,
+          dot_config_file_names: None,
+          message: Some(get_unsupported_versions_message(&client_versions, &self.environment.cli_version())),
+        },
+      };
+      serde_json::json!({ EXPERIMENTAL_CAPABILITY_NAME: capability })
+    });
+    // an editor extension that isn't supported isn't advertised anything
+    let workspace = (!is_unsupported_editor_extension).then_some(WorkspaceServerCapabilities {
+      workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+        supported: Some(true),
+        change_notifications: Some(OneOf::Left(true)),
       }),
-      capabilities: ServerCapabilities {
+      file_operations: None,
+    });
+    let capabilities = if is_editor_extension || is_unsupported_editor_extension {
+      // an editor extension sends the text of a document when formatting it,
+      // so the server doesn't need to keep the documents
+      ServerCapabilities {
+        workspace,
+        experimental,
+        position_encoding: Some(PositionEncodingKind::UTF16),
+        ..ServerCapabilities::default()
+      }
+    } else {
+      let config_file_capabilities = get_config_file_capabilities(&params.capabilities);
+      ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
           // todo: incremental should work now, but let's try out full to start
           change: Some(TextDocumentSyncKind::FULL),
@@ -821,6 +1116,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           will_save_wait_until: None,
         })),
         notebook_document_sync: Some(OneOf::Left(get_notebook_document_sync_options())),
+        position_encoding: Some(PositionEncodingKind::UTF16),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_range_formatting_provider: Some(OneOf::Left(true)),
         completion_provider: config_file_capabilities.completion_provider,
@@ -832,15 +1128,17 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           ],
           work_done_progress_options: Default::default(),
         }),
-        workspace: Some(WorkspaceServerCapabilities {
-          workspace_folders: Some(WorkspaceFoldersServerCapabilities {
-            supported: Some(true),
-            change_notifications: Some(OneOf::Left(true)),
-          }),
-          file_operations: None,
-        }),
+        workspace,
+        experimental,
         ..ServerCapabilities::default()
-      },
+      }
+    };
+    Ok(InitializeResult {
+      server_info: Some(ServerInfo {
+        name: "dprint".to_string(),
+        version: Some(self.environment.cli_version()),
+      }),
+      capabilities,
     })
   }
 
@@ -859,15 +1157,48 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
-    self.state.lock().settings.update(&params.settings);
+    self.state.lock().settings.update(&params.settings, &self.environment);
+    self.update_workspace_settings().await;
+  }
+
+  async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+    let changes = params
+      .changes
+      .iter()
+      .filter_map(|change| {
+        let file_path = uri_to_file_path(&change.uri)?;
+        // a config file in node_modules isn't resolved again for a change (it's usually installed)
+        let is_in_node_modules = file_path.components().any(|component| component.as_os_str() == "node_modules");
+        Some(WatchedFileChange {
+          is_config_file: is_config_file_path(&self.environment, &file_path) && !is_in_node_modules,
+          change: match change.typ {
+            FileChangeType::CREATED => ConfigFileChange::Created,
+            FileChangeType::DELETED => ConfigFileChange::Deleted,
+            _ => ConfigFileChange::Changed,
+          },
+          file_path,
+        })
+      })
+      .collect::<Vec<_>>();
+    if changes.is_empty() {
+      return;
+    }
+    // a notification doesn't wait on this so that it doesn't hold up the other messages
+    self.spawn(move |workspace| {
+      workspace.config_files_changed(changes);
+      async {}.boxed_local()
+    });
   }
 
   async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
     let removed = get_workspace_folder_paths(&params.event.removed);
     let added = get_workspace_folder_paths(&params.event.added);
-    let mut state = self.state.lock();
-    state.workspace_folders.retain(|folder| !removed.contains(folder));
-    state.workspace_folders.extend(added);
+    {
+      let mut state = self.state.lock();
+      state.workspace_folders.retain(|folder| !removed.contains(folder));
+      state.workspace_folders.extend(added);
+    }
+    self.update_workspace_settings().await;
   }
 
   async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -915,10 +1246,12 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn formatting(&self, params: DocumentFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
+    self.ensure_supported_client()?;
     Ok(self.format_document(&params.text_document.uri, None, &params.options, token).await)
   }
 
   async fn range_formatting(&self, params: DocumentRangeFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
+    self.ensure_supported_client()?;
     Ok(
       self
         .format_document(&params.text_document.uri, Some(params.range), &params.options, token)
@@ -927,6 +1260,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn execute_command(&self, params: ExecuteCommandParams, token: CancellationToken) -> LspResult<Option<serde_json::Value>> {
+    self.ensure_supported_client()?;
     let has_range = match params.command.as_str() {
       FORMAT_WITH_GLOBAL_CONFIG_COMMAND => false,
       FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND => true,
@@ -949,6 +1283,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn completion(&self, params: CompletionParams, _token: CancellationToken) -> LspResult<Option<CompletionResponse>> {
+    self.ensure_supported_client()?;
     let uri = params.text_document_position.text_document.uri;
     if !is_config_uri(&uri) {
       return Ok(None);
@@ -973,6 +1308,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn hover(&self, params: HoverParams, _token: CancellationToken) -> LspResult<Option<Hover>> {
+    self.ensure_supported_client()?;
     let uri = params.text_document_position_params.text_document.uri;
     if !is_config_uri(&uri) {
       return Ok(None);
@@ -1002,6 +1338,259 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       let _ = receiver.await;
     };
     Ok(())
+  }
+}
+
+/// Sends what's logged and the progress to an editor extension from any
+/// thread, which are sent in order.
+struct LspOutputSink {
+  sender: mpsc::UnboundedSender<OutputEvent>,
+  /// The last percentage sent for each progress, which is `None` when it's
+  /// not known.
+  percentages: Mutex<HashMap<usize, Option<u32>>>,
+}
+
+enum OutputEvent {
+  Log(MessageType, String),
+  Progress(usize, WorkDoneProgress),
+  /// A request with a progress token started, which the progress is also
+  /// reported on until it finishes.
+  RequestStarted(NumberOrString),
+  RequestFinished(NumberOrString),
+}
+
+/// Something that's being done, which is reported on the tokens of requests.
+struct ActiveProgress {
+  id: usize,
+  title: String,
+  percentage: Option<u32>,
+}
+
+/// The progress of everything that's being done.
+struct TotalProgress {
+  message: String,
+  percentage: Option<u32>,
+}
+
+impl TotalProgress {
+  /// Gets the progress for a request, which begins it when it wasn't begun.
+  fn for_request(&self, is_begun: bool) -> WorkDoneProgress {
+    if is_begun {
+      WorkDoneProgress::Report(WorkDoneProgressReport {
+        cancellable: Some(false),
+        message: Some(self.message.clone()),
+        percentage: self.percentage,
+      })
+    } else {
+      new_progress_begin(self.message.clone(), self.percentage)
+    }
+  }
+}
+
+/// Gets the progress of everything that's being done, which is the most recent
+/// thing with how many others there are and the average percentage when each
+/// one's is known.
+fn get_total_progress(active_progress: &[ActiveProgress]) -> Option<TotalProgress> {
+  let latest = active_progress.last()?;
+  let message = match active_progress.len() {
+    1 => latest.title.clone(),
+    count => format!("{} (and {} more)", latest.title, count - 1),
+  };
+  let percentage = active_progress
+    .iter()
+    .map(|active| active.percentage)
+    .sum::<Option<u32>>()
+    .map(|sum| sum / active_progress.len() as u32);
+  Some(TotalProgress { message, percentage })
+}
+
+/// Gets the progress that begins something that's being done.
+fn new_progress_begin(title: String, percentage: Option<u32>) -> WorkDoneProgress {
+  WorkDoneProgress::Begin(WorkDoneProgressBegin {
+    title,
+    cancellable: Some(false),
+    message: None,
+    percentage,
+  })
+}
+
+/// Gets the server's own token of the progress of something that's being done.
+fn get_server_progress_token(id: usize) -> NumberOrString {
+  NumberOrString::String(format!("dprint/{}", id))
+}
+
+/// Reports the progress of what's done while a request is handled until it's
+/// dropped (see `Backend::track_request_progress`).
+struct RequestProgress {
+  sink: Option<Arc<LspOutputSink>>,
+  token: Option<NumberOrString>,
+}
+
+impl Drop for RequestProgress {
+  fn drop(&mut self) {
+    if let (Some(sink), Some(token)) = (&self.sink, self.token.take()) {
+      let _ = sink.sender.send(OutputEvent::RequestFinished(token));
+    }
+  }
+}
+
+impl LspOutputSink {
+  fn new(client: ClientWrapper, supports_progress: bool) -> Self {
+    let (sender, mut receiver) = mpsc::unbounded_channel::<OutputEvent>();
+    dprint_core::async_runtime::spawn(async move {
+      // the requests with a progress token and whether their progress was begun
+      let mut requests: Vec<(NumberOrString, bool)> = Vec::new();
+      // the progress that's reported on the server's own tokens
+      let mut server_progress_ids: HashSet<usize> = HashSet::new();
+      // what's being done, which a request reports the total of
+      let mut active_progress: Vec<ActiveProgress> = Vec::new();
+      while let Some(event) = receiver.recv().await {
+        match event {
+          OutputEvent::Log(message_type, message) => client.send_log(message_type, message).await,
+          OutputEvent::Progress(id, progress) => {
+            match &progress {
+              WorkDoneProgress::Begin(begin) => active_progress.push(ActiveProgress {
+                id,
+                title: begin.title.clone(),
+                percentage: begin.percentage,
+              }),
+              WorkDoneProgress::Report(report) => {
+                if let Some(active) = active_progress.iter_mut().find(|active| active.id == id) {
+                  active.percentage = report.percentage;
+                }
+              }
+              WorkDoneProgress::End(_) => active_progress.retain(|active| active.id != id),
+            }
+            // what's done is for the requests that are being handled (ex. a
+            // download that a format waits on), which end their progress once
+            // they're handled
+            if let Some(total) = get_total_progress(&active_progress) {
+              for (token, is_begun) in &mut requests {
+                client.send_progress(token.clone(), total.for_request(*is_begun)).await;
+                *is_begun = true;
+              }
+            }
+            if !supports_progress {
+              continue;
+            }
+            let token = get_server_progress_token(id);
+            match &progress {
+              WorkDoneProgress::Begin(_) => {
+                // it's only reported on the tokens of the requests while there are
+                // some so that the editor doesn't show it twice
+                if !requests.is_empty() || !client.create_work_done_progress(token.clone()).await {
+                  continue;
+                }
+                server_progress_ids.insert(id);
+              }
+              WorkDoneProgress::Report(_) if !server_progress_ids.contains(&id) => continue,
+              WorkDoneProgress::Report(_) => {}
+              WorkDoneProgress::End(_) => {
+                if !server_progress_ids.remove(&id) {
+                  continue;
+                }
+              }
+            }
+            client.send_progress(token, progress).await;
+          }
+          OutputEvent::RequestStarted(token) => {
+            // a request may wait on what's already being done
+            let is_begun = match get_total_progress(&active_progress) {
+              Some(total) => {
+                client.send_progress(token.clone(), total.for_request(false)).await;
+                true
+              }
+              None => false,
+            };
+            requests.push((token, is_begun));
+          }
+          OutputEvent::RequestFinished(token) => {
+            if let Some(index) = requests.iter().position(|(request_token, _)| *request_token == token) {
+              let (token, is_begun) = requests.remove(index);
+              if is_begun {
+                client.send_progress(token, WorkDoneProgress::End(WorkDoneProgressEnd { message: None })).await;
+              }
+            }
+            // what's still being done (ex. a download a cancelled request started) is
+            // reported on the server's own tokens once no request reports it
+            if !supports_progress || !requests.is_empty() {
+              continue;
+            }
+            for active in &active_progress {
+              let token = get_server_progress_token(active.id);
+              if server_progress_ids.contains(&active.id) || !client.create_work_done_progress(token.clone()).await {
+                continue;
+              }
+              server_progress_ids.insert(active.id);
+              client.send_progress(token, new_progress_begin(active.title.clone(), active.percentage)).await;
+            }
+          }
+        }
+      }
+    });
+    Self {
+      sender,
+      percentages: Default::default(),
+    }
+  }
+
+  /// Sends the progress, which goes to the progress tokens of the requests
+  /// that are being handled, and to the server's own token when there are none
+  /// and the client supports it.
+  fn send_progress(&self, id: usize, progress: WorkDoneProgress) {
+    let _ = self.sender.send(OutputEvent::Progress(id, progress));
+  }
+
+  fn start_request(&self, token: NumberOrString) {
+    let _ = self.sender.send(OutputEvent::RequestStarted(token));
+  }
+}
+
+impl OutputSink for LspOutputSink {
+  fn log(&self, level: LogLevel, text: &str) {
+    let message_type = match level {
+      LogLevel::Error => MessageType::ERROR,
+      LogLevel::Warn => MessageType::WARNING,
+      LogLevel::Info => MessageType::INFO,
+      LogLevel::Debug => MessageType::LOG,
+      LogLevel::Silent => return,
+    };
+    let _ = self.sender.send(OutputEvent::Log(message_type, text.to_string()));
+  }
+
+  fn start_progress(&self, id: usize, title: &str, total_size: usize) {
+    let percentage = (total_size > 0).then_some(0);
+    self.percentages.lock().insert(id, percentage);
+    self.send_progress(id, new_progress_begin(title.to_string(), percentage));
+  }
+
+  fn update_progress(&self, id: usize, position: usize, total_size: usize) {
+    if total_size == 0 {
+      return;
+    }
+    let percentage = std::cmp::min(100, position as u128 * 100 / total_size as u128) as u32;
+    {
+      let mut percentages = self.percentages.lock();
+      // only send when it changes because this is updated often (ex. for each part of a download)
+      match percentages.get_mut(&id) {
+        Some(previous) if *previous != Some(percentage) => *previous = Some(percentage),
+        _ => return,
+      }
+    }
+    self.send_progress(
+      id,
+      WorkDoneProgress::Report(WorkDoneProgressReport {
+        cancellable: Some(false),
+        message: None,
+        percentage: Some(percentage),
+      }),
+    );
+  }
+
+  fn finish_progress(&self, id: usize) {
+    if self.percentages.lock().remove(&id).is_some() {
+      self.send_progress(id, WorkDoneProgress::End(WorkDoneProgressEnd { message: None }));
+    }
   }
 }
 
@@ -1040,14 +1629,94 @@ pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
   }
 }
 
-/// Gets the text of the plugin's configuration diagnostics when the format
-/// request failed because of them.
-fn get_plugin_config_diagnostics(err: &anyhow::Error) -> &[String] {
-  err
-    .downcast_ref::<FormatError>()
-    .and_then(|err| err.downcast_ref::<PluginConfigDiagnosticsError>())
-    .map(|err| err.diagnostics.as_slice())
-    .unwrap_or_default()
+/// Gets the uri of a file path, which is the reverse of `uri_to_file_path`.
+pub fn file_path_to_uri(file_path: &Path) -> Option<Uri> {
+  let url = match Url::from_file_path(file_path) {
+    Ok(url) => url,
+    // a unix-style path, which is used in the tests even on Windows (see `uri_to_file_path`)
+    Err(()) if cfg!(windows) && file_path.to_string_lossy().starts_with('/') => {
+      Url::parse(&format!("file://{}", file_path.to_string_lossy().replace('\\', "/"))).ok()?
+    }
+    Err(()) => return None,
+  };
+  url.as_str().parse().ok()
+}
+
+/// Gets the error response of a `dprint/*` method.
+fn to_lsp_error(err: anyhow::Error) -> LspError {
+  let mut data = None;
+  let code = if err.downcast_ref::<InvalidParamsError>().is_some() || err.downcast_ref::<UnsupportedDocumentError>().is_some() {
+    ErrorCode::InvalidParams
+  } else if let Some(err) = err.downcast_ref::<ApprovalChangedError>() {
+    // what needs to be approved changed, which is provided when it's known
+    data = serde_json::to_value(ErrorData::ApprovalChanged { current: err.current.clone() }).ok();
+    ErrorCode::ServerError(APPROVAL_CHANGED_ERROR_CODE)
+  } else {
+    ErrorCode::InternalError
+  };
+  LspError {
+    code,
+    message: format!("{:#}", err).into(),
+    data,
+  }
+}
+
+/// Gets why the `overrideConfig` of `dprint/format` can't be used, which is
+/// `None` when it can.
+fn get_override_config_error(override_config: &dprint_core::configuration::ConfigKeyMap) -> Option<String> {
+  for (key, value) in override_config {
+    let is_valid = match key.as_str() {
+      "indentWidth" => matches!(value, dprint_core::configuration::ConfigKeyValue::Number(width) if *width > 0),
+      "useTabs" => matches!(value, dprint_core::configuration::ConfigKeyValue::Bool(_)),
+      _ => {
+        return Some(format!(
+          "Cannot override \"{}\". Only {} can be overridden.",
+          key,
+          OVERRIDE_CONFIG_KEYS.join(" and ")
+        ));
+      }
+    };
+    if !is_valid {
+      let expected = if key == "useTabs" { "a boolean" } else { "a positive integer" };
+      return Some(format!("The \"{}\" of overrideConfig must be {}.", key, expected));
+    }
+  }
+  None
+}
+
+/// Gets what to tell the user when the server doesn't support any of the
+/// versions of the `dprint/*` methods the editor extension does, which says
+/// whether dprint or the editor extension needs to be updated.
+fn get_unsupported_versions_message(client_versions: &[u32], cli_version: &str) -> String {
+  let server_max = SUPPORTED_METHOD_VERSIONS.iter().max().copied().unwrap_or(0);
+  let update = match client_versions.iter().max() {
+    Some(client_max) if *client_max > server_max => "Update dprint to use it with this version of the editor extension.",
+    _ => "Update the editor extension to use it with this version of dprint.",
+  };
+  format!(
+    "dprint {} doesn't support the versions of its editor extension methods that the editor extension does. {}",
+    cli_version, update
+  )
+}
+
+/// Gets where dprint's own files are for an editor extension.
+fn get_dprint_files(environment: &impl Environment) -> DprintFiles {
+  // where `dprint init --global` creates it when there's none, which is the name that's used first
+  let global_config = resolve_global_config_file_path(environment).or_else(|| {
+    resolve_global_config_dir(environment)
+      .ok()
+      .map(|dir| dir.join_panic_relative(GLOBAL_CONFIG_FILE_NAMES[0]).into_path_buf())
+  });
+  DprintFiles {
+    settings_uri: get_settings_file_path(environment).and_then(|path: PathBuf| file_path_to_uri(&path)),
+    approvals_uri: get_editor_approvals_file_path(environment).and_then(|path: PathBuf| file_path_to_uri(&path)),
+    global_config_uri: global_config.and_then(|path: PathBuf| file_path_to_uri(&path)),
+    global_config_file_names: GLOBAL_CONFIG_FILE_NAMES.iter().map(|name| name.to_string()).collect(),
+  }
+}
+
+fn new_server_stopped_error() -> anyhow::Error {
+  anyhow::anyhow!("The language server stopped.")
 }
 
 fn has_use_global_config_option(options: &FormattingOptions) -> bool {
@@ -1074,10 +1743,63 @@ fn new_workspace_edit(uri: &Uri, version: Option<i32>, edits: Vec<TextEdit>, sup
   }
 }
 
+/// Gets the registration that has the client tell the server when a config
+/// file changes, which is when the client supports registering it.
+fn get_config_file_watcher_registrations(capabilities: &ClientCapabilities) -> Vec<Registration> {
+  let can_register = capabilities
+    .workspace
+    .as_ref()
+    .and_then(|workspace| workspace.did_change_watched_files.as_ref())
+    .and_then(|did_change_watched_files| did_change_watched_files.dynamic_registration)
+    == Some(true);
+  if !can_register {
+    return Vec::new();
+  }
+  let options = DidChangeWatchedFilesRegistrationOptions {
+    watchers: vec![FileSystemWatcher {
+      glob_pattern: GlobPattern::String(get_config_file_glob(cfg!(any(windows, target_os = "macos")))),
+      kind: None,
+    }],
+  };
+  vec![Registration {
+    id: "dprint-config-file-watcher".to_string(),
+    method: "workspace/didChangeWatchedFiles".to_string(),
+    register_options: Some(serde_json::to_value(options).expect("options should serialize")),
+  }]
+}
+
+/// Gets the glob of the configuration files the client tells the server about
+/// when they change, which includes the ones in a `.config` directory. On a
+/// case insensitive file system, it matches the names in any case, which the
+/// file system finds too (ex. `Dprint.json`) and a client's glob doesn't match
+/// otherwise.
+fn get_config_file_glob(is_case_insensitive: bool) -> String {
+  let names = POSSIBLE_CONFIG_FILE_NAMES.map(|name| match is_case_insensitive {
+    true => workspace::to_case_insensitive_glob(name),
+    false => name.to_string(),
+  });
+  format!("**/{{{}}}", names.join(","))
+}
+
+/// Gets whether the client watches files with a glob relative to a uri,
+/// which is how the files outside the workspace are watched.
+fn supports_relative_watch_patterns(capabilities: &ClientCapabilities) -> bool {
+  capabilities
+    .workspace
+    .as_ref()
+    .and_then(|workspace| workspace.did_change_watched_files.as_ref())
+    .and_then(|did_change_watched_files| did_change_watched_files.relative_pattern_support)
+    == Some(true)
+}
+
 fn supports_message_actions(capabilities: &ClientCapabilities) -> bool {
   // the `messageActionItem` property within this is only about the
   // additional properties of an action, which aren't used
   capabilities.window.as_ref().is_some_and(|window| window.show_message.is_some())
+}
+
+fn supports_work_done_progress(capabilities: &ClientCapabilities) -> bool {
+  capabilities.window.as_ref().and_then(|window| window.work_done_progress).unwrap_or(false)
 }
 
 fn supports_document_changes(capabilities: &ClientCapabilities) -> bool {
@@ -1089,28 +1811,39 @@ fn supports_document_changes(capabilities: &ClientCapabilities) -> bool {
     .unwrap_or(false)
 }
 
-fn new_message_action(title: &str) -> MessageActionItem {
-  MessageActionItem {
-    title: title.to_string(),
-    properties: Default::default(),
-  }
-}
-
 fn get_workspace_folder_paths(folders: &[WorkspaceFolder]) -> Vec<PathBuf> {
   folders.iter().filter_map(|folder| uri_to_file_path(&folder.uri)).collect()
 }
 
-fn canonicalize_path(environment: &impl Environment, path: PathBuf) -> PathBuf {
-  environment.canonicalize_maybe_not_exists(&path).map(|p| p.into_path_buf()).unwrap_or(path)
+/// Gets the path of the config file that `dprint lsp --config` specifies,
+/// which is like `dprint fmt --config` (ex. a `~/` path is in the home
+/// directory), apart from a remote or npm config file not being supported,
+/// because the server watches the config file it was started with and
+/// provides it by its path.
+fn get_config_override_path(environment: &impl Environment, config: &str) -> Result<PathBuf> {
+  match crate::configuration::get_specified_config_path(environment, config) {
+    Some(path) => Ok(path),
+    None if config.starts_with("~/") => bail!("Could not find the home directory for --config {}", config),
+    None if crate::configuration::is_file_url(config) => bail!("Could not convert the file url --config {} to a path on this system.", config),
+    None => bail!(
+      "dprint lsp --config only supports a local configuration file (a path or a file: url), not {}. Extend it from a local configuration file instead (ex. \"extends\": \"{}\").",
+      config,
+      config
+    ),
+  }
 }
 
 #[cfg(test)]
 mod test {
+  mod editor_extension;
+
   use std::str::FromStr;
   use std::time::Duration;
 
   use deno_tower_lsp::lsp_types::ClientCapabilities;
+  use deno_tower_lsp::lsp_types::Diagnostic;
   use deno_tower_lsp::lsp_types::DynamicRegistrationClientCapabilities;
+  use deno_tower_lsp::lsp_types::MessageActionItem;
   use deno_tower_lsp::lsp_types::MessageType;
   use deno_tower_lsp::lsp_types::NotebookCellArrayChange;
   use deno_tower_lsp::lsp_types::NotebookDocument;
@@ -1145,6 +1878,8 @@ mod test {
 
   use super::client::ClientTrait;
   use super::*;
+  use crate::configuration::get_editor_approvals_file_path;
+  use crate::configuration::get_settings_file_path;
 
   macro_rules! did_open {
     ($backend:expr, $uri:expr, $text:expr) => {
@@ -1188,6 +1923,80 @@ mod test {
   }
 
   #[test]
+  fn should_ask_to_download_from_domains_that_are_not_trusted_with_lsp() {
+    const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+      .with_default_config(|c| {
+        c.add_plugin(UNTRUSTED_PLUGIN_URL);
+      })
+      .build(); // not initialized, so the plugin isn't installed
+    environment.write_file("/file.txt", "text").unwrap();
+
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let (backend, recv_task, test_client) = setup_backend(environment.clone());
+        test_client.set_message_action_selection("Download");
+        let run_test_task = dprint_core::async_runtime::spawn({
+          let test_client = test_client.clone();
+          let environment = environment.clone();
+          async move {
+            initialize_backend(
+              &backend,
+              InitializeParams {
+                capabilities: message_actions_capabilities(),
+                ..Default::default()
+              },
+            )
+            .await;
+            let file_uri = Uri::from_str("file:///file.txt").unwrap();
+            did_open!(backend, file_uri, "text");
+            // nothing is downloaded until the user allows it
+            assert_format!(backend, file_uri, None);
+            assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
+            let shown = test_client.take_shown_messages();
+            assert_eq!(shown.len(), 1, "{shown:?}");
+            assert!(
+              shown[0]
+                .1
+                .starts_with("dprint needs to download `https://example.com/test-plugin.wasm` from domains that aren't trusted.")
+            );
+            assert_eq!(shown[0].2, vec!["Download", "Cancel"]);
+            // the user chose to download it
+            let mut result = None;
+            for _ in 0..100 {
+              tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+              result = backend
+                .formatting(
+                  DocumentFormattingParams {
+                    text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                    options: Default::default(),
+                    work_done_progress_params: Default::default(),
+                  },
+                  CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+              if result.is_some() {
+                break;
+              }
+            }
+            assert!(result.is_some());
+            assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 1);
+            // it's only asked once
+            assert!(test_client.take_shown_messages().is_empty());
+            backend.shutdown().await.unwrap();
+          }
+        });
+        try_join!(recv_task, run_test_task).unwrap();
+        test_client.take_messages();
+      }
+    });
+    environment.take_stderr_messages();
+  }
+
+  #[test]
   fn should_format_with_lsp() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
@@ -1201,6 +2010,7 @@ mod test {
       })
       .initialize()
       .build();
+    crate::test_helpers::allow_process_plugins_in_editors(&environment);
     environment.write_file(".gitignore", "gitignored_file.txt\ngitignored_dir").unwrap();
 
     environment.clone().run_in_runtime(async move {
@@ -1364,6 +2174,7 @@ mod test {
               CancellationToken::new(),
             )
             .await;
+          // the process plugin formats the range itself
           assert_eq!(
             result.unwrap().unwrap(),
             vec![
@@ -1732,6 +2543,7 @@ mod test {
       })
       .initialize()
       .build();
+    crate::test_helpers::allow_process_plugins_in_editors(&environment);
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -2089,6 +2901,7 @@ mod test {
       })
       .initialize()
       .build();
+    crate::test_helpers::allow_process_plugins_in_editors(&environment);
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -2185,7 +2998,7 @@ mod test {
             }])
           );
 
-          // range formatting before the end of the cell keeps the trailing whitespace
+          // the range is expanded to its whole lines, which is the whole cell here
           let result = backend
             .range_formatting(
               DocumentRangeFormattingParams {
@@ -2199,20 +3012,10 @@ mod test {
             .await;
           assert_eq!(
             result.unwrap(),
-            Some(vec![
-              TextEdit {
-                range: Range::new(Position::new(0, 1), Position::new(0, 1)),
-                new_text: "_formatt".to_string()
-              },
-              TextEdit {
-                range: Range::new(Position::new(0, 2), Position::new(0, 2)),
-                new_text: "d\n_".to_string()
-              },
-              TextEdit {
-                range: Range::new(Position::new(0, 6), Position::new(0, 6)),
-                new_text: "_formatted  ".to_string()
-              },
-            ])
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 6), Position::new(0, 6)),
+              new_text: "_formatted".to_string()
+            }])
           );
 
           // language without a plugin
@@ -2722,6 +3525,169 @@ mod test {
         }
       });
 
+      try_join!(recv_task, run_test_task).unwrap();
+      test_client.take_messages();
+      environment.take_stderr_messages();
+    });
+  }
+
+  #[test]
+  fn should_ask_to_allow_process_plugins_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_process_plugin();
+      })
+      .build(); // not initialized, so the process plugin is only set up when it's allowed
+    disallow_process_plugins(&environment);
+    environment.write_file("/file.txt_ps", "text").unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      // each backend is a session and returns the messages it showed along
+      // with whether the process plugin was set up, which runs it
+      async fn run_session(
+        environment: &TestEnvironment,
+        capabilities: ClientCapabilities,
+        selection: Option<&str>,
+        expected_formats: [bool; 2],
+      ) -> (Vec<(MessageType, String, Vec<String>)>, bool) {
+        let (backend, recv_task, test_client) = setup_backend(environment.clone());
+        if let Some(selection) = selection {
+          test_client.set_message_action_selection(selection);
+        }
+        let run_test_task = dprint_core::async_runtime::spawn(async move {
+          initialize_backend(
+            &backend,
+            InitializeParams {
+              capabilities,
+              ..Default::default()
+            },
+          )
+          .await;
+          let file_uri = Uri::from_str("file:///file.txt_ps").unwrap();
+          did_open!(backend, file_uri, "text");
+          for formats in expected_formats {
+            let expected = formats.then(|| {
+              vec![TextEdit {
+                range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+                new_text: "_formatted_process".to_string(),
+              }]
+            });
+            assert_format!(backend, file_uri, expected);
+            // let the task that stores the user's selection run
+            tokio::task::yield_now().await;
+          }
+          backend.shutdown().await.unwrap();
+        });
+        try_join!(recv_task, run_test_task).unwrap();
+        test_client.take_messages();
+        let was_set_up = environment
+          .take_stderr_messages()
+          .iter()
+          .any(|message| message == "Extracting zip for test-process-plugin");
+        (test_client.take_shown_messages(), was_set_up)
+      }
+
+      fn assert_asked(shown: Vec<(MessageType, String, Vec<String>)>, reason: &str) {
+        assert_eq!(shown.len(), 1, "{shown:?}");
+        let (message_type, message, actions) = &shown[0];
+        assert_eq!(*message_type, MessageType::WARNING);
+        assert!(message.starts_with("dprint isn't formatting files with `/dprint.json` because "), "{message}");
+        assert!(message.contains(reason), "{message}");
+        assert_eq!(*actions, vec!["Allow", "Always Allow", "Deny", "Always Deny"]);
+      }
+
+      // a client that can't ask is told how to allow them
+      let (shown, was_set_up) = run_session(&environment, Default::default(), None, [false, false]).await;
+      assert!(!was_set_up);
+      assert_eq!(shown.len(), 1, "{shown:?}");
+      assert!(shown[0].1.contains("or when \"editor.allowProcessPlugins\" isn't false in"), "{shown:?}");
+      assert_eq!(shown[0].2, Vec::<String>::new());
+
+      // denying only asks once per session
+      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny"), [false, false]).await;
+      assert!(!was_set_up);
+      assert_asked(shown, "because its process plugins (`https://plugins.dprint.dev/test-process.json@");
+
+      // allowing uses it for the session
+      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Allow"), [false, true]).await;
+      assert!(was_set_up);
+      assert_asked(shown, "because its process plugins (`https://plugins.dprint.dev/test-process.json@");
+
+      // always denying doesn't ask in the next session
+      let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Deny"), [false, false]).await;
+      assert_asked(shown, "because its process plugins (`https://plugins.dprint.dev/test-process.json@");
+      assert_eq!(
+        run_session(&environment, message_actions_capabilities(), None, [false, false]).await,
+        (Vec::new(), false)
+      );
+
+      // always allowing replaces the decision and uses it in the next session
+      environment.remove_file(get_editor_approvals_file_path(&environment).unwrap()).unwrap();
+      let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Allow"), [false, true]).await;
+      assert_asked(shown, "because its process plugins (`https://plugins.dprint.dev/test-process.json@");
+      assert_eq!(
+        run_session(&environment, message_actions_capabilities(), None, [true, true]).await,
+        (Vec::new(), false)
+      );
+
+      // asks again when its configuration changes
+      environment
+        .write_file(
+          "/dprint.json",
+          &environment
+            .read_file("/dprint.json")
+            .unwrap()
+            .replacen('{', r#"{ "testProcessPlugin": { "ending": "changed" }, "#, 1),
+        )
+        .unwrap();
+      let (shown, _) = run_session(&environment, message_actions_capabilities(), None, [false, false]).await;
+      assert_asked(
+        shown,
+        "because the configuration of its process plugins (`https://plugins.dprint.dev/test-process.json@",
+      );
+    });
+  }
+
+  #[test]
+  fn should_use_process_plugins_of_global_config_without_asking_with_lsp() {
+    // the global config file is the user's own
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_global_config(|c| {
+        c.add_remote_process_plugin();
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let test_client = test_client.clone();
+        async move {
+          initialize_backend(
+            &backend,
+            InitializeParams {
+              capabilities: message_actions_capabilities(),
+              initialization_options: Some(serde_json::json!({ "useGlobalConfig": true })),
+              ..Default::default()
+            },
+          )
+          .await;
+          let file_uri = Uri::from_str("file:///file.txt_ps").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert_format!(
+            backend,
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_formatted_process".to_string()
+            }])
+          );
+          assert_eq!(test_client.take_shown_messages(), Vec::new());
+          backend.shutdown().await.unwrap();
+        }
+      });
       try_join!(recv_task, run_test_task).unwrap();
       test_client.take_messages();
       environment.take_stderr_messages();
@@ -3542,6 +4508,7 @@ mod test {
         assert_eq!(test_client.take_registered_methods(), Vec::<String>::new());
         backend.initialized(InitializedParams {}).await;
         backend.shutdown().await.unwrap();
+        drop(backend);
         recv_task.await.unwrap();
 
         assert_eq!(
@@ -3670,8 +4637,8 @@ mod test {
             .await;
           assert_format!(backend, untitled_uri, None);
           assert_logged!(
-            MessageType::WARNING,
-            "Could not determine a file path to format the untitled document with language: some language"
+            MessageType::ERROR,
+            "Failed formatting 'untitled:Untitled-2': Could not determine a file path to format the document with language: some language"
           );
 
           // config file that fails to resolve
@@ -3722,31 +4689,29 @@ mod test {
           test_client.take_messages();
 
           // stderr only has the text of the diagnostics the first time the
-          // plugin is used, but the client is told for every failure
+          // plugin is used, but each failure says what they are
           let file_uri = Uri::from_str("file:///file.txt").unwrap();
           did_open!(backend, file_uri, "text");
-          let client_message = (
-            MessageType::ERROR,
-            concat!(
-              "Failed formatting 'file:///file.txt': Had 1 configuration errors.\n",
-              "[test-plugin]: Unknown property in configuration (non-existent)"
-            )
-            .to_string(),
+          let failure_message = concat!(
+            "Failed formatting 'file:///file.txt': dprint did not format the file because of errors in the configuration of /dprint.json:
+",
+            "[test-plugin]: Unknown property in configuration (non-existent)"
           );
+          let client_message = (MessageType::ERROR, failure_message.to_string());
           assert_format!(backend, file_uri, None);
           assert_eq!(
             environment.take_stderr_messages(),
             vec![
               "[test-plugin]: Unknown property in configuration (non-existent)",
               "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s).",
-              "Failed formatting 'file:///file.txt': Had 1 configuration errors.",
+              failure_message,
             ]
           );
           assert_eq!(test_client.take_messages(), vec![client_message.clone()]);
           assert_format!(backend, file_uri, None);
           assert_eq!(
             environment.take_stderr_messages(),
-            vec!["Failed formatting 'file:///file.txt': Had 1 configuration errors."]
+            vec![failure_message]
           );
           assert_eq!(test_client.take_messages(), vec![client_message]);
 
@@ -3771,7 +4736,11 @@ mod test {
             vec![
               "[test-plugin]: Unknown property in configuration (unknownProperty)",
               "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s).",
-              "Failed formatting 'file:///overrides/file.txt': Had 1 configuration errors.",
+              concat!(
+                "Failed formatting 'file:///overrides/file.txt': dprint did not format the file because of errors in the configuration of /overrides/dprint.json:
+",
+                "[test-plugin]: Unknown property in configuration (unknownProperty)"
+              ),
             ]
           );
           assert_eq!(
@@ -3779,7 +4748,7 @@ mod test {
             vec![(
               MessageType::ERROR,
               concat!(
-                "Failed formatting 'file:///overrides/file.txt': Had 1 configuration errors.\n",
+                "Failed formatting 'file:///overrides/file.txt': dprint did not format the file because of errors in the configuration of /overrides/dprint.json:\n",
                 "[test-plugin]: Unknown property in configuration (unknownProperty)"
               )
               .to_string()
@@ -3881,14 +4850,68 @@ mod test {
   }
 
   #[test]
+  fn should_only_start_with_a_local_config_file() {
+    let environment = TestEnvironmentBuilder::new().build();
+    assert_eq!(
+      get_config_override_path(&environment, "dprint.json").unwrap(),
+      environment.cwd().as_ref().join("dprint.json")
+    );
+    assert_eq!(
+      get_config_override_path(&environment, "~/dprint.json").unwrap(),
+      environment.get_home_dir().unwrap().join("dprint.json")
+    );
+    // a url or an npm specifier is rejected rather than taken as a path in the current directory
+    for config in ["https://example.com/dprint.json", "npm:@scope/config"] {
+      let err = get_config_override_path(&environment, config).unwrap_err();
+      assert_eq!(
+        err.to_string(),
+        format!(
+          "dprint lsp --config only supports a local configuration file (a path or a file: url), not {0}. Extend it from a local configuration file instead (ex. \"extends\": \"{0}\").",
+          config
+        )
+      );
+    }
+    // a file url, whose scheme is in any case
+    let (file_url, file_path) = match cfg!(windows) {
+      true => ("file:///C:/x/dprint.json", PathBuf::from(r"C:\x\dprint.json")),
+      false => ("file:///x/dprint.json", PathBuf::from("/x/dprint.json")),
+    };
+    assert_eq!(get_config_override_path(&environment, file_url).unwrap(), file_path);
+    assert_eq!(get_config_override_path(&environment, &file_url.replace("file:", "FILE:")).unwrap(), file_path);
+    // but not one that isn't a path on the system, ex. one of a share on Linux and macOS, or one without a drive on
+    // Windows
+    let file_url = match cfg!(windows) {
+      true => "file:///x/dprint.json",
+      false => "file://server/share/dprint.json",
+    };
+    assert_eq!(
+      get_config_override_path(&environment, file_url).unwrap_err().to_string(),
+      format!("Could not convert the file url --config {} to a path on this system.", file_url)
+    );
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_start_with_a_config_file_on_a_drive() {
+    // the drive isn't a url's scheme
+    let environment = TestEnvironmentBuilder::new().build();
+    assert_eq!(
+      get_config_override_path(&environment, r"C:\x\dprint.json").unwrap(),
+      PathBuf::from(r"C:\x\dprint.json")
+    );
+  }
+
+  #[test]
   fn exit_code_for_shutdown_request() {
     // the message handler says a shutdown request was received
     let environment = TestEnvironmentBuilder::new().build();
     let shutdown_received = environment.clone().run_in_runtime(async move {
       let (backend, recv_task, _test_client) = setup_backend(environment.clone());
       backend.shutdown().await.unwrap();
-      // a second one after the message handler stopped should not hang
+      // a second one should not hang
       backend.shutdown().await.unwrap();
+      // the client exits, which drops the backend
+      drop(backend);
       recv_task.await.unwrap()
     });
     assert!(shutdown_received);
@@ -3931,6 +4954,44 @@ mod test {
       .await
   }
 
+  fn ensure_global_config_dir(environment: &TestEnvironment) {
+    // macOS only uses this directory when it's already there
+    let file_path = get_settings_file_path(environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+  }
+
+  #[test]
+  fn gets_the_total_progress_of_what_is_being_done() {
+    assert!(get_total_progress(&[]).is_none());
+    let download = ActiveProgress {
+      id: 1,
+      title: "Downloading a".to_string(),
+      percentage: Some(20),
+    };
+    let total = get_total_progress(std::slice::from_ref(&download)).unwrap();
+    assert_eq!((total.message.as_str(), total.percentage), ("Downloading a", Some(20)));
+    let compile = ActiveProgress {
+      id: 2,
+      title: "Compiling b".to_string(),
+      percentage: Some(60),
+    };
+    let total = get_total_progress(&[download, compile]).unwrap();
+    assert_eq!((total.message.as_str(), total.percentage), ("Compiling b (and 1 more)", Some(40)));
+    let unknown = ActiveProgress {
+      id: 3,
+      title: "Setting up c".to_string(),
+      percentage: None,
+    };
+    assert_eq!(get_total_progress(&[unknown]).unwrap().percentage, None);
+  }
+
+  /// Requires the user to approve running process plugins.
+  fn disallow_process_plugins(environment: &TestEnvironment) {
+    ensure_global_config_dir(environment);
+    let file_path = get_settings_file_path(environment).unwrap();
+    environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": false } }"#).unwrap();
+  }
+
   /// The capabilities of a client that shows the actions of a message.
   fn message_actions_capabilities() -> ClientCapabilities {
     ClientCapabilities {
@@ -3951,12 +5012,33 @@ mod test {
     environment: TestEnvironment,
     config_override: Option<PathBuf>,
   ) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
+    setup_backend_with_options(environment, config_override, RemoteCacheMode::Use)
+  }
+
+  fn setup_backend_with_options(
+    environment: TestEnvironment,
+    config_override: Option<PathBuf>,
+    remote_cache_mode: RemoteCacheMode,
+  ) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, Default::default()));
     let (tx, rx) = mpsc::unbounded_channel();
-    let recv_task = start_message_handler(&environment, &plugin_resolver, config_override, RemoteCacheMode::Use, rx);
+    let session_permissions = Arc::new(SessionPermissions::default());
+    let has_config_override = config_override.is_some();
+    let recv_task = start_message_handler(
+      &environment,
+      &plugin_resolver,
+      config_override,
+      remote_cache_mode,
+      session_permissions.clone(),
+      rx,
+    );
     let test_client = Arc::new(TestClient::default());
-    (Backend::new(ClientWrapper::new(test_client.clone()), environment, tx), recv_task, test_client)
+    (
+      Backend::new(ClientWrapper::new(test_client.clone()), environment, tx, has_config_override),
+      recv_task,
+      test_client,
+    )
   }
 
   #[derive(Debug, Default)]
@@ -3968,6 +5050,10 @@ mod test {
     /// The title of the action to select when a message with actions is shown.
     message_action_selection: Mutex<Option<String>>,
     applied_edits: Mutex<Vec<WorkspaceEdit>>,
+    published_diagnostics: Mutex<Vec<(Uri, Vec<Diagnostic>)>>,
+    config_changes: Mutex<Vec<Uri>>,
+    /// The progress that was sent with the token it was sent on.
+    progress: Mutex<Vec<(NumberOrString, WorkDoneProgress)>>,
   }
 
   impl Drop for TestClient {
@@ -4015,6 +5101,12 @@ mod test {
       self.registrations.lock().extend(registrations);
     }
 
+    fn replace_capability(&self, unregistration: deno_tower_lsp::lsp_types::Unregistration, registration: Option<Registration>) {
+      let mut registrations = self.registrations.lock();
+      registrations.retain(|registration| registration.id != unregistration.id);
+      registrations.extend(registration);
+    }
+
     fn show_message(&self, message_type: MessageType, message: String) {
       self.shown_messages.lock().push((message_type, message, Vec::new()));
     }
@@ -4035,6 +5127,34 @@ mod test {
     fn apply_edit(&self, edit: WorkspaceEdit) -> LocalBoxFuture<'static, Result<()>> {
       self.applied_edits.lock().push(edit);
       async move { Ok(()) }.boxed_local()
+    }
+
+    fn publish_diagnostics(&self, uri: Uri, diagnostics: Vec<Diagnostic>) {
+      self.published_diagnostics.lock().push((uri, diagnostics));
+    }
+
+    fn send_config_changed(&self, params: workspace::messages::ConfigChangedParams) {
+      // every config file may have changed without a uri
+      self.config_changes.lock().push(
+        params
+          .config_file
+          .map(|config_file| config_file.uri)
+          .unwrap_or_else(|| "file:///".parse().unwrap()),
+      );
+    }
+
+    fn send_log(&self, message_type: MessageType, message: String) -> LocalBoxFuture<'static, ()> {
+      self.logged_messages.lock().push((message_type, message));
+      async {}.boxed_local()
+    }
+
+    fn create_work_done_progress(&self, _token: NumberOrString) -> LocalBoxFuture<'static, bool> {
+      async { true }.boxed_local()
+    }
+
+    fn send_progress(&self, token: NumberOrString, progress: WorkDoneProgress) -> LocalBoxFuture<'static, ()> {
+      self.progress.lock().push((token, progress));
+      async {}.boxed_local()
     }
   }
 }

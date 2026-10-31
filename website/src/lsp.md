@@ -19,12 +19,14 @@ The server communicates over stdin and stdout, so this command is run by the edi
 ## Features
 
 - **Formatting** of a whole document (`textDocument/formatting`).
-- **Range formatting** (`textDocument/rangeFormatting`). The range is passed on to the plugin, so what's formatted is up to the plugin.
+- **Range formatting** (`textDocument/rangeFormatting`). A plugin that says it formats a range is given the range and decides what to format around it. A plugin that doesn't say is given the range's whole lines and only the changes within those lines are made. A plugin that says it doesn't format a range doesn't format the document.
 - **Completions and hover information in dprint configuration files** (files named `dprint.json`, `dprint.jsonc`, `.dprint.json`, or `.dprint.jsonc`). This covers dprint's own properties and the configuration of the plugins listed in the saved file.
 - **Notebook cells** and **untitled documents**, in clients that support them (see below).
 - **Commands for formatting with the global configuration file** (see [Global Configuration](#global-configuration)).
 
-The server only formats. It doesn't provide diagnostics or code actions.
+The server also publishes the problems with dprint configuration files (ex. an unknown property) as diagnostics, which are updated when a configuration file changes in a client that supports registering `workspace/didChangeWatchedFiles`. It doesn't provide code actions.
+
+An editor extension can use the server's `dprint/*` methods instead of the text document methods, which are only sent a document's text when formatting it (see [developing an editor extension](https://github.com/dprint/dprint/blob/main/docs/editor-extension-development.md)).
 
 ### Configuration file completions and hover
 
@@ -47,6 +49,12 @@ A new document that hasn't been saved yet has a URI with the `untitled` scheme i
 Since an untitled document doesn't have a file path, it's formatted as a file named `Untitled.<ext>` in the first workspace folder, or in the home directory when there is no workspace folder. The extension is based on the document's language (ex. `Untitled.ts` for `typescript`), and the configuration file is [resolved](#configuration-file-resolution) for that path.
 
 Documents with other schemes that aren't files on the file system are not formatted.
+
+## Downloads
+
+The server only downloads plugins and the configuration files that a configuration file extends from [trusted domains](/setup#trusted-domains) without asking. This includes each redirect, and reading a file on another machine (ex. a UNC path on Windows) is asked about like a download, including an npm package in `node_modules` and a path that reaches another machine through a symlink, which the message shows with the path on that machine. A `.gitignore` file in the project that's on another machine is ignored, a configuration file that's found for a file on another machine is asked about before it's read, and an `.npmrc` file that's on another machine is asked about before downloading an npm package because it may set where the package is from. When formatting needs something from another domain, the server asks whether to download it with a message that has `Download` and `Cancel` actions, which is once per session for the same download. Allowing it only allows what the message says, so you may be asked about something else it leads to (ex. a configuration file that the downloaded one extends). Nothing is formatted with the configuration file until then. In a client that can't show the actions of a message, run `dprint config install` in the directory of the configuration file to download them.
+
+The same goes for downloading through a proxy that an `.npmrc` file other than your own `~/.npmrc` sets (ex. the project's), because the proxy receives every download and the credentials in the setting, which may have the values of your environment variables. The message shows the setting as it's in the file (ex. `https://${GITHUB_TOKEN}@proxy.example`), and allowing it allows that setting for the session.
 
 ## Configuration File Resolution
 
@@ -88,7 +96,42 @@ The first time in a session that a file isn't formatted because no configuration
 - `Don't show in this workspace` stops showing it for the current workspace folders. This is only offered when there's a workspace folder.
 - `Don't show again` stops showing it everywhere.
 
-A server can't change an editor's settings, so the choice is stored in an `lsp-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file shows the notification again. To turn off the notification from the editor instead, set the `showNoConfigNotification` [setting](#settings) to `false`.
+A server can't change an editor's settings, so the choice is stored in an `editor-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file shows the notification again. To turn off the notification from the editor instead, set the `showNoConfigNotification` [setting](#settings) to `false`.
+
+## Process Plugins
+
+Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Opening a file isn't the same as choosing to run dprint in its directory—the file may be in a repository you just cloned—so the server only runs them once you allow them. To run them without being asked, set `editor.allowProcessPlugins` to `true` in the [settings file](/global-config#settings-file) (ex. `~/.config/dprint/settings.json`):
+
+```json
+{
+  "editor": {
+    "allowProcessPlugins": true
+  }
+}
+```
+
+When a file is formatted with a configuration file whose process plugins you haven't allowed, the server doesn't set them up or start them and asks with a message that has the following actions:
+
+- `Allow` runs them for the rest of the session.
+- `Always Allow` runs them from then on.
+- `Deny` doesn't run them for the rest of the session.
+- `Always Deny` doesn't run them or ask about them again.
+
+Not selecting an action (ex. closing the message) doesn't run them either, and you're asked again in the next session.
+
+Nothing is formatted with the configuration file until they're allowed, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The next format uses them once they're allowed. In a client that can't show the actions of a message, the message says that they're not allowed instead.
+
+Running dprint with the configuration file is the same as choosing to run its process plugins, so `dprint fmt`, `dprint check`, and `dprint config install` allow them too, which is the same as `Always Allow`. Run one of them in the directory of the configuration file to allow them in a client that can't ask or after denying them:
+
+```sh
+dprint config install
+# or with the path of the configuration file
+dprint config install --config path/to/dprint.json
+```
+
+The most recent decision is used, so this also allows them in a session where they were denied. What's allowed is each process plugin of that configuration file with its configuration, so when a plugin or its configuration changes after you allowed it (ex. the commands of dprint-plugin-exec), you're asked again. The same goes for the `plugin.json` file of an npm plugin without a version, which is resolved from `node_modules` (ex. when updating the package). Allowing a configuration doesn't allow the files of the project that it runs (ex. a script in the commands of dprint-plugin-exec), so a change to one of them (ex. after a `git pull`) runs without asking. Denying a process plugin denies it with any configuration, so changing its configuration doesn't ask you again. The process plugins of the [global configuration file](/global-config) are always allowed. The `Always Allow` and `Always Deny` choices are stored in an `editor-approvals.json` file next to the [settings file](/global-config#settings-file). Deleting that file has you asked again.
+
+This is deliberately not a [setting](#settings) because an editor's workspace settings can come from the project (ex. `.vscode/settings.json`), which would let a project allow its own process plugins. The CLI doesn't use this file because running `dprint fmt` is choosing to run dprint in that directory.
 
 ## Settings
 
@@ -96,6 +139,8 @@ The server reads the following settings from the `initializationOptions` of the 
 
 - `useGlobalConfig` (default: `false`) - Format the files that don't have a configuration file in an ancestor directory with the [global configuration file](#global-configuration).
 - `showNoConfigNotification` (default: `true`) - Show the [no configuration file notification](#no-configuration-file-notification).
+- `ensureStableFormat` - Format again until the text doesn't change, which is for a plugin that formats a file differently each time. It defaults to what the `DPRINT_EDITOR_STABLE_FORMAT` environment variable says.
+- `verbose` (default: `false`) - Log debug messages.
 
 For example, in Neovim (as with the snippets in [Editor Setup](#editor-setup), these were written from each editor's documentation and have not been tested in those editors):
 
@@ -128,7 +173,12 @@ The formatting options an editor sends with a format request (`tabSize`, `insert
 
 ## Troubleshooting
 
-The server doesn't respond to a format request with an error or show a popup about it, because a file that can't be formatted (ex. one with a syntax error) would then interrupt you each time you format on save. A request that fails or does nothing gets a response without edits, and the reason is logged instead. The only popups (`window/showMessage` and `window/showMessageRequest`) are the once per session [no configuration file notification](#no-configuration-file-notification) and the result of a [command](#global-configuration) you explicitly ran.
+The server doesn't respond to a format request with an error or show a popup about it, because a file that can't be formatted (ex. one with a syntax error) would then interrupt you each time you format on save. A request that fails or does nothing gets a response without edits, and the reason is logged instead. The only popups (`window/showMessage` and `window/showMessageRequest`) are:
+
+- The once per session [no configuration file notification](#no-configuration-file-notification).
+- Asking whether to allow [process plugins](#process-plugins) or a download from a domain that isn't trusted, which only happens when you format a file.
+- An error in a configuration file, which is shown once until it changes.
+- The result of a [command](#global-configuration) you explicitly ran.
 
 The following is logged to the client with `window/logMessage`, which most editors show in a language server log or output panel:
 

@@ -20,6 +20,7 @@ use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::InstallSubCommand;
 use crate::arg_parser::OutputResolvedConfigSubCommand;
 use crate::cache::RemoteCacheMode;
+use crate::commands::process_plugin_approval::allow_process_plugins_in_editors_or_warn;
 use crate::configuration::GetInitConfigFileTextOptions;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
@@ -194,7 +195,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
   config_file_path: PathBuf,
   options: &InitConfigFileOptions<'_>,
 ) -> Result<()> {
-  let dirs = resolve_local_config_file_dirs(environment, &environment.cwd().as_ref().join(&config_file_path))?;
+  let (dirs, _) = resolve_config_file_dirs_at_path(environment, &environment.cwd().as_ref().join(&config_file_path))?;
   let config_file_path = environment.canonicalize(&config_file_path)?;
   let config_dir = config_file_path.parent();
   let file_text = environment.read_file(&config_file_path)?;
@@ -208,6 +209,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
       is_global_config: options.global,
+      found_path: None,
     },
     options.remote_cache_mode,
     environment,
@@ -1002,6 +1004,11 @@ pub async fn install_plugins<TEnvironment: Environment>(
       ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
     )
     .await?;
+    if args.plugins.is_empty() {
+      for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
+        allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
+      }
+    }
     scopes
       .iter()
       .flat_map(|scope| scope.scope.plugins.values())
@@ -1010,7 +1017,15 @@ pub async fn install_plugins<TEnvironment: Environment>(
   } else {
     // only resolve the plugins, as there's no need to start them up
     let config = resolve_config_from_args(args, environment).await?;
-    plugin_resolver.resolve_plugins(config.plugins).await.map_err(ResolvePluginsError::from)?
+    let plugins = plugin_resolver
+      .resolve_plugins(config.plugins.clone())
+      .await
+      .map_err(ResolvePluginsError::from)?;
+    // the plugins provided as arguments aren't the config file's
+    if args.plugins.is_empty() {
+      allow_process_plugins_in_editors_or_warn(environment, &config, plugin_resolver).await;
+    }
+    plugins
   };
 
   let mut seen_plugins = HashSet::new();
@@ -4408,6 +4423,63 @@ text",
     let commands = environment.take_run_commands();
     let (args, _) = &commands[0];
     assert_eq!(args[args.len() - 1], "/custom.config.json");
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_installing() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_process_plugin();
+      })
+      .build();
+    let get_approvals = || {
+      crate::configuration::read_editor_approvals(&environment)
+        .unwrap()
+        .process_plugin_decisions
+        .into_iter()
+        .filter(|decision| decision.allowed)
+        .map(|decision| decision.approval)
+        .collect::<Vec<_>>()
+    };
+
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
+    let approvals = get_approvals();
+    assert_eq!(approvals.len(), 1);
+    assert_eq!(approvals[0].config_file, "/dprint.json");
+    assert!(
+      approvals[0].plugin.starts_with("https://plugins.dprint.dev/test-process.json@"),
+      "{}",
+      approvals[0].plugin
+    );
+
+    // the plugin is allowed with its configuration
+    environment
+      .write_file(
+        "/dprint.json",
+        &environment
+          .read_file("/dprint.json")
+          .unwrap()
+          .replacen('{', r#"{ "testProcessPlugin": { "ending": "custom" }, "#, 1),
+      )
+      .unwrap();
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
+    let new_approvals = get_approvals();
+    assert_eq!(new_approvals.len(), 1);
+    assert_eq!(new_approvals[0].plugin, approvals[0].plugin);
+    assert_ne!(new_approvals[0].config_hash, approvals[0].config_hash);
+
+    // the global configuration isn't part of it
+    environment
+      .write_file(
+        "/dprint.json",
+        &environment.read_file("/dprint.json").unwrap().replacen('{', r#"{ "lineWidth": 10, "#, 1),
+      )
+      .unwrap();
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
+    assert_eq!(get_approvals(), new_approvals);
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
   }
 
   fn test_plugin_resolver(environment: &TestEnvironment) -> std::rc::Rc<crate::plugins::PluginResolver<TestEnvironment>> {

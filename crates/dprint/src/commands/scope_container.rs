@@ -1,0 +1,320 @@
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::Path;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use anyhow::Context;
+use anyhow::Result;
+
+use crate::cache::RemoteCacheMode;
+use crate::commands::process_plugin_approval::get_process_plugin_store_error_message;
+use crate::commands::process_plugin_approval::record_set_up_process_plugins;
+use crate::configuration::Permissions;
+use crate::configuration::ResolvedConfig;
+use crate::configuration::ResolvedConfigPathWithText;
+use crate::configuration::SessionPermissions;
+use crate::configuration::get_config_file_found_path;
+use crate::configuration::get_default_config_file_in_ancestor_directories;
+use crate::configuration::resolve_config_file_dirs_at_path;
+use crate::configuration::resolve_config_from_path_with_ancestors;
+use crate::configuration::resolve_global_config_path_and_text;
+use crate::configuration::resolve_global_config_path_and_text_at_path_root;
+use crate::environment::Environment;
+use crate::plugins;
+use crate::resolution::PluginsScope;
+use crate::resolution::get_unapproved_process_plugins;
+use crate::resolution::resolve_plugins_scope_with_approval;
+use crate::utils::AsyncMutex;
+use crate::utils::PathSource;
+
+type ScopeCell<TEnvironment> = AsyncMutex<Option<CachedScope<TEnvironment>>>;
+
+struct CachedScope<TEnvironment: Environment> {
+  scope: Rc<PluginsScope<TEnvironment>>,
+  /// What the user allowed when the scope was resolved, which decides the
+  /// process plugins that are in it.
+  permissions: Permissions,
+}
+
+/// Resolves and caches the plugins of each config file for the language
+/// server, which formats the files of a whole workspace and so finds the
+/// config file of each file.
+pub struct PluginsScopeContainer<TEnvironment: Environment> {
+  environment: TEnvironment,
+  plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
+  plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
+  /// The absolute path of the config file the server was started with (see
+  /// `get_config_override_path`), which is used for every file.
+  config_override: Option<PathBuf>,
+  /// When the remote files that were downloaded since are used whatever their
+  /// caching headers say (see `download_remote_files_again`).
+  remote_files_since_secs: Cell<u64>,
+  /// Whether the remote files are downloaded even when they're fresh, which
+  /// is still only once until `download_remote_files_again` (`--reload`).
+  reload_remote_files: bool,
+  /// What the user allowed for this session.
+  session_permissions: Arc<SessionPermissions>,
+}
+
+impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
+  pub fn new(
+    environment: TEnvironment,
+    plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
+    config_override: Option<PathBuf>,
+    reload_remote_files: bool,
+    session_permissions: Arc<SessionPermissions>,
+  ) -> Self {
+    Self {
+      remote_files_since_secs: Cell::new(now_secs(&environment)),
+      environment,
+      plugin_resolver,
+      plugins_scope_by_config: Default::default(),
+      config_override,
+      reload_remote_files,
+      session_permissions,
+    }
+  }
+
+  /// Makes the remote files (ex. a config file a config file extends) be
+  /// downloaded again once they're stale (or with `--reload`, whether or not
+  /// they are), and then be used until this is called again (see
+  /// `RemoteCacheMode::ReceivedSince`), which is when the server starts and
+  /// when it's reset.
+  ///
+  /// IMPORTANT: A remote file that changed has `dprint/configChanged` sent,
+  /// whose requests resolve it again, so downloading it again for them would
+  /// loop when the server's responses change each time (ex. `no-cache` with
+  /// another body).
+  pub fn download_remote_files_again(&self) {
+    self.remote_files_since_secs.set(now_secs(&self.environment));
+  }
+
+  pub async fn shutdown(&self) {
+    self.plugins_scope_by_config.borrow_mut().clear();
+    self.plugin_resolver.clear_and_shutdown_initialized().await;
+  }
+
+  /// Resolves the plugins to format the files in the provided directory with.
+  /// `use_global_config` is for using the global config file when there's no
+  /// config file in an ancestor directory.
+  pub async fn resolve_by_path(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
+    match self.find_config_file(dir_path, use_global_config)? {
+      Some(config_file) => Ok(Some(self.resolve_config_file(&config_file).await?)),
+      None => Ok(None),
+    }
+  }
+
+  /// Finds the config file to format the files in the provided directory with.
+  pub fn find_config_file(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<ResolvedConfigPathWithText>> {
+    Ok(if let Some(path) = &self.config_override {
+      // it's used for the directory it's in and known by its path there like `dprint fmt --config` (see
+      // `resolve_config_file_dirs_at_path`)
+      let (dirs, found_path) = resolve_config_file_dirs_at_path(&self.environment, path).context("failed resolving --config path")?;
+      let canonical_path = self.environment.canonicalize(path).context("failed resolving --config path")?;
+      let content = self.environment.read_file(&canonical_path).context("failed resolving --config path")?;
+      Some(ResolvedConfigPathWithText {
+        base_path: dirs.base_path,
+        anchored_patterns_base_path: dirs.anchored_patterns_base_path,
+        found_path: get_config_file_found_path(found_path, canonical_path.as_ref()),
+        source: PathSource::new_local(canonical_path),
+        is_first_download: false,
+        content,
+        is_global_config: false,
+      })
+    } else {
+      match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
+        Some(config) => Some(config),
+        None if use_global_config => resolve_global_config_path_and_text_at_path_root(&self.environment, dir_path)?,
+        None => None,
+      }
+    })
+  }
+
+  /// Loads the config file at the path, which is `None` when it doesn't exist.
+  pub fn load_config_file(&self, path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
+    let canonical_path = match self.environment.canonicalize(path) {
+      Ok(canonical_path) => canonical_path,
+      Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+      Err(err) => return Err(err.into()),
+    };
+    // it's used for its own directory and known by its path there, like when it's found for a file in it
+    let (dirs, found_path) = resolve_config_file_dirs_at_path(&self.environment, path)?;
+    let found_path = get_config_file_found_path(found_path, canonical_path.as_ref());
+    // the global config file is used for any directory, which is the cwd here, but a symlink
+    // to it is a config file of its own directory, like when it's found for a file in it
+    let file_path = found_path.as_deref().unwrap_or(canonical_path.as_ref());
+    if let Some(global_config_file) = resolve_global_config_path_and_text(&self.environment)?
+      && global_config_file
+        .source
+        .maybe_local_path()
+        .is_some_and(|global_path| global_path.as_ref() == file_path)
+    {
+      return Ok(Some(global_config_file));
+    }
+    let Some(content) = self.environment.maybe_read_file(path)? else {
+      return Ok(None);
+    };
+    Ok(Some(ResolvedConfigPathWithText {
+      base_path: dirs.base_path,
+      anchored_patterns_base_path: dirs.anchored_patterns_base_path,
+      found_path,
+      source: PathSource::new_local(canonical_path),
+      is_first_download: false,
+      content,
+      is_global_config: false,
+    }))
+  }
+
+  /// Resolves the plugins of the config file found by `find_config_file`.
+  pub async fn resolve_config_file(&self, config_file: &ResolvedConfigPathWithText) -> Result<Rc<PluginsScope<TEnvironment>>> {
+    let cell = {
+      let mut plugins_scope_by_config = self.plugins_scope_by_config.borrow_mut();
+      plugins_scope_by_config.entry(get_config_file_key(config_file)).or_default().clone()
+    };
+    // only allow one task in here per config
+    let mut cell = cell.lock().await;
+    let config = self.resolve_config(config_file).await?;
+    // read each time so approving a process plugin or editing the file takes effect
+    let permissions = self.session_permissions.read(&self.environment);
+
+    if let Some(cached_scope) = cell.as_ref() {
+      let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
+      // a plugin may have been installed since
+      let is_installed = cached_scope.scope.untrusted_downloads.is_empty();
+      if is_same_config && is_installed && cached_scope.permissions == permissions {
+        return Ok(cached_scope.scope.clone());
+      }
+      // forget the scope so that failing to resolve the new one
+      // doesn't have this be seen as a config change again
+      cell.take();
+    }
+
+    // IMPORTANT: Process plugins don't run sandboxed, so the editors only use
+    // the plugins when the user approved running its process plugins with their
+    // configuration. The user opening a file (ex. in a cloned repository or in
+    // node_modules) isn't the same as choosing to run dprint there.
+    let config = Rc::new(config);
+    let mut new_scope = Rc::new(resolve_plugins_scope_with_approval(config.clone(), &self.environment, &self.plugin_resolver, &permissions).await?);
+    let permissions = if new_scope.plugins.is_empty() {
+      permissions
+    } else {
+      // the configuration of a process plugin that the user allowed setting up is known now
+      match record_set_up_process_plugins(&self.environment, &self.session_permissions, &config, &self.plugin_resolver).await {
+        // a failure from before isn't the last result anymore
+        Ok(()) => self.session_permissions.clear_process_plugin_store_error(&config.display()),
+        Err(err) => {
+          let message = get_process_plugin_store_error_message(&err);
+          log_warn!(self.environment, "{}", message);
+          // the approval that set them up tells the user (see `take_process_plugin_store_error`)
+          self.session_permissions.set_process_plugin_store_error(config.display(), message);
+        }
+      }
+      let permissions = self.session_permissions.read(&self.environment);
+      // IMPORTANT: The scope is cached with these permissions, so check its process
+      // plugins with them because the user may have denied or forgotten one while
+      // it was set up (ex. "Always Deny" in another window), and then resolve it
+      // again with them so that it's not used. Its plugins are shut down below.
+      if !get_unapproved_process_plugins(&config, &self.plugin_resolver, &self.environment, &permissions).is_empty() {
+        new_scope = Rc::new(resolve_plugins_scope_with_approval(config.clone(), &self.environment, &self.plugin_resolver, &permissions).await?);
+      }
+      permissions
+    };
+    let _ = cell.insert(CachedScope {
+      scope: new_scope.clone(),
+      permissions,
+    });
+    drop(cell);
+    self.shutdown_unused_plugins().await;
+    Ok(new_scope)
+  }
+
+  /// Gets the path of the config file the server was started with.
+  pub fn config_override_path(&self) -> Option<PathBuf> {
+    self.config_override.clone()
+  }
+
+  /// Gets whether the server uses one config file for every file
+  /// (`dprint lsp --config <path>`).
+  pub fn has_config_override(&self) -> bool {
+    self.config_override.is_some()
+  }
+
+  /// Gets the information of a plugin that was set up before, which doesn't
+  /// set it up (ex. a process plugin is run to get its information).
+  pub fn get_set_up_plugin_info(&self, plugin: &crate::plugins::PluginSourceReference) -> Option<dprint_core::plugins::PluginInfo> {
+    self.plugin_resolver.get_set_up_plugin_info(plugin)
+  }
+
+  /// Gets the files a plugin matched the last time the config file was
+  /// resolved with it, which doesn't set it up. The config is what identifies
+  /// the config file (ex. its url).
+  pub fn get_last_file_matching_info(&self, plugin: &crate::plugins::PluginSourceReference, config: &str) -> Option<dprint_core::plugins::FileMatchingInfo> {
+    self.plugin_resolver.get_last_file_matching_info(plugin, config)
+  }
+
+  /// Remembers the files a plugin matched when the config file was resolved with it.
+  pub async fn store_file_matching_info(
+    &self,
+    plugin: &crate::plugins::PluginSourceReference,
+    config: &str,
+    file_matching: &dprint_core::plugins::FileMatchingInfo,
+  ) -> Result<()> {
+    self.plugin_resolver.store_file_matching_info(plugin, config, file_matching).await
+  }
+
+  /// Resolves the config of a config file, merging in the config file of an
+  /// ancestor directory when it specifies `"inherit": true`.
+  async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText) -> Result<ResolvedConfig> {
+    // a clock that went back before the time would otherwise have every remote file downloaded again until it's
+    // after it again
+    let since_secs = std::cmp::min(self.remote_files_since_secs.get(), now_secs(&self.environment));
+    self.remote_files_since_secs.set(since_secs);
+    let remote_cache_mode = RemoteCacheMode::ReceivedSince {
+      since_secs,
+      reload: self.reload_remote_files,
+    };
+    Ok(resolve_config_from_path_with_ancestors(config_file, remote_cache_mode, &self.environment).await?)
+  }
+
+  /// Shuts down the plugins that none of the scopes use anymore (ex. a plugin
+  /// that was removed from a config file), which leaves the others running so
+  /// that changing a config file doesn't stop formatting with another.
+  async fn shutdown_unused_plugins(&self) {
+    let cells = self.plugins_scope_by_config.borrow().values().cloned().collect::<Vec<_>>();
+    let mut used_plugins = Vec::new();
+    for cell in cells {
+      // a scope that's being resolved may use any of them
+      let Some(cell) = cell.try_read() else {
+        return;
+      };
+      if let Some(cached_scope) = cell.as_ref() {
+        used_plugins.extend(cached_scope.scope.plugins.values().map(|plugin| plugin.plugin.clone()));
+      }
+    }
+    self.plugin_resolver.shutdown_unused(&used_plugins).await;
+  }
+}
+
+/// Gets the key that identifies the config file found for a directory.
+pub fn get_config_file_key(config_file: &ResolvedConfigPathWithText) -> String {
+  // the base path is part of the key because the global config
+  // file has a different one for each root directory (ex. drive)
+  let base_path = config_file.base_path.display();
+  match config_file.file_path() {
+    // a path that was joined with another separator (ex. the path a symlink was found at) is the same key
+    Some(path) => format!("{}\n{}", path.components().collect::<PathBuf>().display(), base_path),
+    None => format!("{}\n{}", config_file.display(), base_path),
+  }
+}
+
+/// Gets the current time in seconds since the UNIX epoch.
+fn now_secs(environment: &impl Environment) -> u64 {
+  environment
+    .sys_time_now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|duration| duration.as_secs())
+    .unwrap_or(0)
+}

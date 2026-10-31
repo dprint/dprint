@@ -10,12 +10,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::PluginInfo;
 use sys_traits::FsMetadata;
 use sys_traits::FsMetadataValue;
 
 use super::cache_fs_locks::CacheFsLockGuard;
 use super::cache_fs_locks::CacheFsLockPool;
+use super::cache_meta::ConfigFileMatching;
 use super::cache_meta::LocalStamp;
 use super::cache_meta::PluginCacheMeta;
 use super::cache_meta::current_signature;
@@ -34,13 +36,17 @@ use super::implementations::get_process_plugin_os_path;
 use super::implementations::parse_process_plugin_file;
 use super::implementations::setup_plugin;
 use super::npm_resolution;
+use url::Url;
+
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
 use crate::utils::NpmSpecifier;
+use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::UntrustedDownloadError;
 use crate::utils::get_sha256_checksum;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
@@ -85,6 +91,11 @@ struct VerifyAndStoreOptions<'a> {
   resolved_source: PathSource,
   primary_stamp: Option<LocalStamp>,
 }
+
+/// The most config files a plugin's cache entry remembers the files the
+/// plugin matched for (see `PluginCache::store_file_matching_info`), which
+/// are the ones the editors resolved most recently.
+const MAX_FILE_MATCHING_CONFIG_FILES: usize = 50;
 
 /// On-disk cache of set-up plugins.
 ///
@@ -149,7 +160,12 @@ where
     // concurrent process resolving the same plugin would lock on a different
     // key and we'd race between remove_entry here and setup over there.
     let _setup_guard = self.fs_locks.lock(&cache_source).await;
-    let cache_key = self.compute_cache_key(&cache_source)?;
+    let cache_key = match self.compute_cache_key(&cache_source) {
+      // the registry isn't known until an `.npmrc` file may be read, so there's
+      // no entry it could be found by
+      Err(err) if UntrustedDownloadError::find(&err).is_some() => return Ok(()),
+      result => result?,
+    };
     let hash = entry_hash(&cache_key, &self.environment);
     // also remove the per-platform npm package a process plugin's executable is
     // run from, so that setting the plugin up again gets a fresh copy of it
@@ -163,7 +179,7 @@ where
       && let Some(version) = &npm_source.specifier.version
     {
       let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-      let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
+      let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir)?;
       let registry_segment = npm_resolution::registry_dir_segment(&registry);
       let extract_dir = npm_resolution::get_npm_extract_dir(&registry_segment, &npm_source.specifier.name, version, &self.environment);
       npm_resolution::remove_npm_package_dir(&extract_dir, &self.environment);
@@ -228,6 +244,110 @@ where
     Some(path_source.clone())
   }
 
+  /// Whether the plugin can be used without downloading it, which is when it's
+  /// in the cache or it isn't downloaded (ex. it's a file).
+  pub fn is_installed(&self, source_reference: &PluginSourceReference) -> bool {
+    !source_reference.is_downloaded() || self.get_set_up_plugin_info(source_reference).is_some()
+  }
+
+  /// Gets the information of the plugin when it's set up in the cache without
+  /// setting it up (which runs a process plugin to get its information).
+  pub fn get_set_up_plugin_info(&self, source_reference: &PluginSourceReference) -> Option<PluginInfo> {
+    self.set_up_meta(source_reference).map(|meta| meta.info)
+  }
+
+  /// Gets the files the plugin matched the last time an editor resolved the
+  /// config file with it when it's set up in the cache. The config is what
+  /// identifies the config file (ex. its url).
+  pub fn get_last_file_matching_info(&self, source_reference: &PluginSourceReference, config: &str) -> Option<FileMatchingInfo> {
+    self
+      .set_up_meta(source_reference)?
+      .config_file_matching
+      .into_iter()
+      .find(|entry| entry.config == config)
+      .map(|entry| entry.file_matching)
+  }
+
+  /// Remembers the files the plugin matched when an editor resolved the config
+  /// file with it (see `get_last_file_matching_info`).
+  pub async fn store_file_matching_info(&self, source_reference: &PluginSourceReference, config: &str, file_matching: &FileMatchingInfo) -> Result<()> {
+    let Some(path_source) = self.cache_source_for_forget(&source_reference.path_source) else {
+      return Ok(());
+    };
+    // lock so that this doesn't write over what setting it up stores
+    let _setup_guard = self.fs_locks.lock(&path_source).await;
+    let cache_key = self.compute_cache_key(&path_source)?;
+    let hash = entry_hash(&cache_key, &self.environment);
+    let Some(mut meta) = self.cached_meta(&path_source, &hash, &cache_key) else {
+      return Ok(());
+    };
+    let entries = &mut meta.config_file_matching;
+    // it's only written when what's remembered for the config file changed, so
+    // config files that share the plugin don't rewrite it whenever another of
+    // them is resolved, unless it's the entry that storing another config file
+    // would drop next, which is kept by moving it to the front
+    let index = entries.iter().position(|entry| entry.config == config);
+    if let Some(index) = index
+      && entries[index].file_matching == *file_matching
+      && index + 1 < MAX_FILE_MATCHING_CONFIG_FILES
+    {
+      return Ok(());
+    }
+    entries.retain(|entry| entry.config != config);
+    entries.insert(
+      0,
+      ConfigFileMatching {
+        config: config.to_string(),
+        file_matching: file_matching.clone(),
+      },
+    );
+    entries.truncate(MAX_FILE_MATCHING_CONFIG_FILES);
+    write_meta(&hash, &meta, &self.environment)
+  }
+
+  /// Gets the npm registry the plugin is downloaded from when it's an npm
+  /// package and the registry isn't the default one (ex. an `.npmrc` sets
+  /// another one for its scope).
+  pub fn get_npm_registry(&self, source_reference: &PluginSourceReference) -> Option<String> {
+    match &source_reference.path_source {
+      PathSource::Npm(npm_source) if npm_source.specifier.version.is_some() => {
+        let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+        let url = self.resolve_registry_url(&npm_source.specifier.name, start_dir).ok()?;
+        (!npm_resolution::is_default_registry(&url)).then_some(url)
+      }
+      _ => None,
+    }
+  }
+
+  /// Gets the url the plugin is downloaded from, which is the registry for an
+  /// npm package and `None` when it isn't downloaded (ex. it's a file).
+  ///
+  /// It errors when the registry isn't known until an `.npmrc` file that
+  /// can't be read without asking the user is read (see `NpmrcChain::load`).
+  pub fn get_download_url(&self, source_reference: &PluginSourceReference) -> Result<Option<Url>, UntrustedDownloadError> {
+    Ok(match &source_reference.path_source {
+      PathSource::Remote(remote_source) => Some(remote_source.url.clone()),
+      PathSource::Npm(npm_source) if npm_source.specifier.version.is_some() => {
+        let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+        Url::parse(&self.resolve_registry_url(&npm_source.specifier.name, start_dir)?).ok()
+      }
+      PathSource::Npm(_) | PathSource::Local(_) => None,
+    })
+  }
+
+  /// Gets the proxy of an `.npmrc` file that isn't the user's own that an npm
+  /// plugin is downloaded from its registry through (see `NpmrcProxy`).
+  pub fn get_download_npmrc_proxy(&self, source_reference: &PluginSourceReference) -> Option<NpmrcProxy> {
+    let PathSource::Npm(npm_source) = &source_reference.path_source else {
+      return None;
+    };
+    npm_source.specifier.version.as_ref()?;
+    let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+    let registry = self.resolve_registry(&npm_source.specifier.name, start_dir).ok()?;
+    let url = Url::parse(&registry.url).ok()?;
+    registry.npmrc_proxy_for(&url).cloned()
+  }
+
   pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
     match &source_reference.path_source {
       PathSource::Remote(_) | PathSource::Local(_) => self.get_plugin(source_reference).await,
@@ -265,7 +385,7 @@ where
     let specifier = &npm_source.specifier;
     let checksum = source_reference.checksum.as_deref();
     let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-    let registry = self.resolve_registry(&specifier.name, base_dir);
+    let registry = self.resolve_registry(&specifier.name, base_dir)?;
     let resolved = npm_resolution::resolve_npm_from_registry(
       npm_resolution::ResolveNpmRegistryOptions {
         specifier,
@@ -332,7 +452,7 @@ where
       // through to a full resolve, which re-downloads and re-detects.
     }
 
-    let registry = self.resolve_registry(&specifier.name, base_dir_ref);
+    let registry = self.resolve_registry(&specifier.name, base_dir_ref)?;
     let resolved = npm_resolution::resolve_npm_from_registry(
       npm_resolution::ResolveNpmRegistryOptions {
         specifier,
@@ -630,6 +750,7 @@ where
       npm_executable_sub_path,
       npm_executable_checksum,
       local_stamps,
+      config_file_matching: Vec::new(),
     };
     write_meta(hash, &meta, &self.environment)?;
     self.set_up_hashes.lock().insert(hash.to_string());
@@ -646,6 +767,29 @@ where
   /// (collision guard) and, for local sources, that the stamped source files
   /// are unchanged. Returns `None` on any miss.
   fn cached_item(&self, source: &PathSource, hash: &str, cache_key: &str) -> Option<PluginCacheItem> {
+    let meta = self.cached_meta(source, hash, cache_key)?;
+    let file_path = meta.artifact_file_path(hash, &self.environment);
+    Some(PluginCacheItem {
+      file_path,
+      info: meta.info,
+      plugin_kind: meta.plugin_kind,
+      // a hit may be for an entry set up earlier in this process (ex. by
+      // `dprint add` warming the cache)
+      was_set_up: self.set_up_hashes.lock().contains(hash),
+    })
+  }
+
+  /// Reads the sidecar of the plugin's cache entry when it's set up, without
+  /// setting it up.
+  fn set_up_meta(&self, source_reference: &PluginSourceReference) -> Option<PluginCacheMeta> {
+    let path_source = self.cache_source_for_forget(&source_reference.path_source)?;
+    let cache_key = self.compute_cache_key(&path_source).ok()?;
+    let hash = entry_hash(&cache_key, &self.environment);
+    self.cached_meta(&path_source, &hash, &cache_key)
+  }
+
+  /// Reads the cached entry's sidecar like `cached_item`.
+  fn cached_meta(&self, source: &PathSource, hash: &str, cache_key: &str) -> Option<PluginCacheMeta> {
     let meta = read_meta(hash, &self.environment)?;
     if meta.source != cache_key {
       // different source hashed to the same filename — treat as a miss and let
@@ -660,15 +804,7 @@ where
       // when setting the plugin up, so set the plugin up again
       return None;
     }
-    let file_path = meta.artifact_file_path(hash, &self.environment);
-    Some(PluginCacheItem {
-      file_path,
-      info: meta.info,
-      plugin_kind: meta.plugin_kind,
-      // a hit may be for an entry set up earlier in this process (ex. by
-      // `dprint add` warming the cache)
-      was_set_up: self.set_up_hashes.lock().contains(hash),
-    })
+    Some(meta)
   }
 
   /// Whether every stamped local source file still matches (size + mtime). A
@@ -724,6 +860,17 @@ where
   /// Size + modification time of a local file via sys_traits, or `None` if it
   /// can't be stat'd. The cheap stat that backs local cache-change detection.
   fn file_size_and_mtime(&self, path: impl AsRef<Path>) -> Option<(u64, SystemTime)> {
+    let path = path.as_ref();
+    // IMPORTANT: Looking it up follows a symlink, which may be to another machine now (ex. the local per-platform
+    // archive of a process plugin that a `git pull` replaced with a symlink to a share, which the config's resolution
+    // doesn't check), which then has no stamp, so it's set up again, where `resolve_local_per_platform_archive_path`
+    // checks the archive. The plugin's own path is checked by the config's resolution on every request (see
+    // `resolve_url_or_file_path_to_path_source`).
+    self
+      .environment
+      .download_policy()
+      .ensure_allows_path(&self.environment, path, path.parent())
+      .ok()?;
     let metadata = self.environment.fs_metadata(path).ok()?;
     Some((metadata.len(), metadata.modified().ok()?))
   }
@@ -748,17 +895,20 @@ where
     }
   }
 
-  pub(super) fn resolve_registry(&self, package_name: &str, start_dir: Option<&Path>) -> npm_resolution::NpmRegistryResolution {
+  /// Resolves the npm registry of a package, which errors when it isn't known
+  /// until an `.npmrc` file that can't be read without asking the user is read
+  /// (see `NpmrcChain::load`).
+  pub(super) fn resolve_registry(&self, package_name: &str, start_dir: Option<&Path>) -> Result<npm_resolution::NpmRegistryResolution, UntrustedDownloadError> {
     let key = RegistryUrlKey {
       package_name: package_name.to_string(),
       start_dir: start_dir.map(|p| p.to_path_buf()),
     };
     if let Some(info) = self.registry_cache.lock().get(&key) {
-      return info.clone();
+      return Ok(info.clone());
     }
-    let info = self.npmrc_chain(start_dir).registry_for_package(package_name, &self.environment);
+    let info = self.npmrc_chain(start_dir).registry_for_package(package_name, &self.environment)?;
     self.registry_cache.lock().insert(key, info.clone());
-    info
+    Ok(info)
   }
 
   fn npmrc_chain(&self, start_dir: Option<&Path>) -> Arc<npm_resolution::NpmrcChain> {
@@ -769,12 +919,15 @@ where
     // loaded outside the lock since it does file I/O. a concurrent caller may
     // load the same files — harmless since the result is deterministic.
     let chain = Arc::new(npm_resolution::NpmrcChain::load(start_dir, &self.environment));
-    self.npmrc_cache.lock().insert(key, chain.clone());
+    // one with a file that wasn't read is loaded again in case reading it was allowed since
+    if !chain.has_unread_files() {
+      self.npmrc_cache.lock().insert(key, chain.clone());
+    }
     chain
   }
 
-  pub(super) fn resolve_registry_url(&self, package_name: &str, start_dir: Option<&Path>) -> String {
-    self.resolve_registry(package_name, start_dir).url
+  pub(super) fn resolve_registry_url(&self, package_name: &str, start_dir: Option<&Path>) -> Result<String, UntrustedDownloadError> {
+    Ok(self.resolve_registry(package_name, start_dir)?.url)
   }
 
   /// The stable cache key string for a source (`remote:<url>`, `local:<path>`,
@@ -806,7 +959,7 @@ where
           );
         };
         let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-        let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
+        let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir)?;
         format!("npm:{}#{}@{}/{}", registry, npm_source.specifier.name, version, npm_source.specifier.path,)
       }
     })
@@ -842,6 +995,35 @@ mod test {
   use pretty_assertions::assert_eq;
   use std::path::PathBuf;
 
+  #[test]
+  fn should_not_look_up_a_stamped_archive_on_another_machine_in_the_editors() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo").unwrap();
+    environment.write_file("/repo/plugin.json", "{}").unwrap();
+    let network_path = if cfg!(windows) {
+      r"\\server\share\plugin.zip"
+    } else {
+      "/net/server/share/plugin.zip"
+    };
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    let plugin_cache = PluginCache::new(environment.clone());
+    let mut meta = make_wasm_meta("local:/repo/plugin.json", "plugin", "1.0.0", &environment);
+    let plugin_stamp = plugin_cache.stamp_for("/repo/plugin.json").unwrap();
+    meta.local_stamps = Some(vec![
+      plugin_stamp,
+      LocalStamp {
+        path: "/repo/plugin.zip".to_string(),
+        len: 0,
+        modified_ms: 0,
+      },
+    ]);
+    // ex. a `git pull` replaced the local per-platform archive of a process plugin with a symlink to a share
+    environment.symlink(network_path, "/repo/plugin.zip").unwrap();
+    // so it's set up again rather than looked up
+    assert!(!plugin_cache.local_stamps_match(&meta));
+    assert_eq!(environment.stat_count("/repo/plugin.zip"), 0);
+  }
+
   fn make_wasm_meta(cache_key: &str, name: &str, version: &str, environment: &TestEnvironment) -> PluginCacheMeta {
     PluginCacheMeta {
       source: cache_key.to_string(),
@@ -855,11 +1037,13 @@ mod test {
         help_url: "help".to_string(),
         config_schema_url: "schema".to_string(),
         update_url: None,
+        supports_range_formatting: None,
       },
       executable_sub_path: None,
       npm_executable_sub_path: None,
       npm_executable_checksum: None,
       local_stamps: None,
+      config_file_matching: Vec::new(),
     }
   }
 
@@ -899,6 +1083,55 @@ mod test {
     assert!(!environment.path_exists(&file_path));
     assert!(read_meta(&hash, &environment).is_none());
 
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn should_only_store_the_file_matching_of_a_config_file_when_it_changed() -> Result<()> {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://plugins.dprint.dev/test.wasm", WASM_PLUGIN_BYTES);
+    environment.set_cpu_arch("aarch64");
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
+    plugin_cache.get_plugin_cache_item(&plugin_source).await?;
+    environment.take_stderr_messages();
+    let hash = entry_hash(&plugin_cache.compute_cache_key(&plugin_source.path_source)?, &environment);
+    let stored_configs = || {
+      read_meta(&hash, &environment)
+        .unwrap()
+        .config_file_matching
+        .into_iter()
+        .map(|entry| entry.config)
+        .collect::<Vec<_>>()
+    };
+    let matching = |extension: &str| FileMatchingInfo {
+      file_extensions: vec![extension.to_string()],
+      file_names: Vec::new(),
+      additive: false,
+    };
+
+    plugin_cache.store_file_matching_info(&plugin_source, "a", &matching("ts")).await?;
+    plugin_cache.store_file_matching_info(&plugin_source, "b", &matching("ts")).await?;
+    assert_eq!(stored_configs(), ["b", "a"]);
+    // resolving a config file again with the same files matched doesn't write it (which would move it to the front)
+    plugin_cache.store_file_matching_info(&plugin_source, "a", &matching("ts")).await?;
+    assert_eq!(stored_configs(), ["b", "a"]);
+    // but a change does
+    plugin_cache.store_file_matching_info(&plugin_source, "a", &matching("js")).await?;
+    assert_eq!(stored_configs(), ["a", "b"]);
+    assert_eq!(plugin_cache.get_last_file_matching_info(&plugin_source, "a"), Some(matching("js")));
+
+    // the entry that storing another config file would drop next is kept by moving it to the front
+    for i in 0..MAX_FILE_MATCHING_CONFIG_FILES - 2 {
+      plugin_cache
+        .store_file_matching_info(&plugin_source, &format!("other{}", i), &matching("ts"))
+        .await?;
+    }
+    assert_eq!(stored_configs().len(), MAX_FILE_MATCHING_CONFIG_FILES);
+    assert_eq!(stored_configs().last().map(|config| config.as_str()), Some("b"));
+    plugin_cache.store_file_matching_info(&plugin_source, "b", &matching("ts")).await?;
+    assert_eq!(stored_configs().first().map(|config| config.as_str()), Some("b"));
+    assert_eq!(stored_configs().len(), MAX_FILE_MATCHING_CONFIG_FILES);
     Ok(())
   }
 
@@ -1321,9 +1554,9 @@ mod test {
 
     let plugin_cache = PluginCache::new(environment.clone());
     let start_dir = Some(std::path::Path::new("/repo/sub"));
-    let typescript = plugin_cache.resolve_registry("@dprint/typescript", start_dir);
-    let json = plugin_cache.resolve_registry("@dprint/json", start_dir);
-    let unscoped = plugin_cache.resolve_registry("some-plugin", start_dir);
+    let typescript = plugin_cache.resolve_registry("@dprint/typescript", start_dir).unwrap();
+    let json = plugin_cache.resolve_registry("@dprint/json", start_dir).unwrap();
+    let unscoped = plugin_cache.resolve_registry("some-plugin", start_dir).unwrap();
     assert_eq!(typescript.url, "https://dprint.example.com");
     assert_eq!(json.url, "https://dprint.example.com");
     assert_eq!(unscoped.url, "https://registry.npmjs.org");

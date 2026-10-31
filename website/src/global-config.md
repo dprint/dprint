@@ -100,3 +100,27 @@ Starting in version 0.18 of the extension, a file is formatted with the closest 
 2. Run the `Dprint: Format Document (global config)` or `Dprint: Format Selection (global config)` command from the command palette to format the current file once. These commands work regardless of the `dprint.useGlobalConfig` setting and are only shown for a file that doesn't have a configuration file in an ancestor directory. When the file isn't formatted, the command says why (ex. there's no global configuration file or none of its plugins handle the file).
 
 The global configuration file is the same one the CLI uses, including when `DPRINT_CONFIG_DIR` is set. As with `dprint fmt`, a file is only formatted when the global configuration would format it—a plugin needs to handle the file and it can't be matched by the `excludes`.
+
+## Settings File
+
+dprint's settings that aren't formatting configuration go in a `settings.json` file next to the global configuration file (ex. `~/.config/dprint/settings.json`), which may have comments. It's only read from there and never from a project, so a project can't change them:
+
+<!-- dprint-ignore -->
+
+```jsonc
+{
+  "editor": {
+    // trust a private npm registry
+    "trustedDomains": ["npm.example.com"]
+  }
+}
+```
+
+- `editor.allowProcessPlugins` (default: `false`) - Whether editors run [process plugins](/lsp#process-plugins) without you allowing them. Editors don't format with a configuration file that has process plugins until you allow them unless this is `true`.
+- `editor.trustedDomains` - The domains editors download from without asking you in addition to the [default ones](/setup#trusted-domains). Each one is a host name, which includes its subdomains, or an IP address (ex. `npm.example.com` or `[::1]`).
+
+dprint warns about a property it doesn't know (ex. a misspelled one). When the file can't be read or parsed, or `editor` has a property or a value dprint doesn't know (ex. a setting of a newer version of dprint that a project's older dprint is used with, or an entry of `editor.trustedDomains` that isn't a domain, like a url), editors fail closed: no domains are trusted, not even the default ones, so every download needs to be allowed, and process plugins need to be allowed, even the ones you always allowed before (the ones you always denied stay denied). That way a setting that allows less isn't ignored. Editors say why when they ask you to allow something. A value outside `editor` that dprint can't parse (ex. `init` preferences that a newer version of dprint wrote) is only ignored itself.
+
+What you always allow or deny in an editor is stored in an `editor-approvals.json` file next to it.
+
+dprint also stores the [preferences of `dprint init`](/setup#init-preferences) here (`init`). Only the property being changed is written, so the rest of the file is kept as it is.

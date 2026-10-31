@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use anyhow::Result;
@@ -28,6 +29,7 @@ use crate::patterns::process_config_pattern;
 use crate::patterns::relative_to_descendant_dir;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::parse_plugin_source_reference;
+use crate::utils::DownloadPolicy;
 use crate::utils::GlobPatternKind;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -35,16 +37,21 @@ use crate::utils::ResolvedFilePathWithBytes;
 use crate::utils::ResolvedFilePathWithText;
 use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::ShowConfirmStrategy;
+use crate::utils::UntrustedDownloadError;
 use crate::utils::get_sha256_checksum;
 use crate::utils::is_negated_glob;
+use crate::utils::is_url_cached;
 use crate::utils::non_negated_glob;
 use crate::utils::parse_npm_specifier;
 use crate::utils::resolve_url_or_file_path_to_file_with_cache;
+use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
+use super::resolve_main_config_path::get_config_file_display;
+use super::resolve_main_config_path::get_config_file_lookup;
+use super::resolve_main_config_path::get_config_file_path;
 use super::resolve_main_config_path::get_default_config_file_in_ancestor_directories;
-use super::resolve_main_config_path::get_dot_config_file_base_dir;
 use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
 use super::resolve_npm_extends::NpmExtendsResolver;
 
@@ -60,6 +67,9 @@ pub struct ResolvedConfig {
   pub anchored_patterns_base_path: Option<CanonicalizedPathBuf>,
   /// Whether this is the user's global configuration file.
   pub is_global: bool,
+  /// The path a local config file was found at when that isn't its canonical
+  /// path (see `get_config_file_found_path`), which is what identifies it.
+  pub found_path: Option<PathBuf>,
   pub includes: Option<Vec<String>>,
   pub excludes: Option<Vec<String>>,
   pub plugins: Vec<PluginSourceReference>,
@@ -83,9 +93,25 @@ pub struct ResolvedConfig {
   /// a matching plugin because a shared config may configure more plugins than
   /// the ones being used.
   pub extended_only_plugin_config_keys: HashSet<String>,
+  /// The local files besides the config file that it was resolved from (ex.
+  /// a config file it extends or inherits from), so a change to one changes
+  /// what it resolves to.
+  pub local_dependencies: Vec<PathBuf>,
 }
 
 impl ResolvedConfig {
+  /// Gets the path of a local config file that identifies it, which is the
+  /// path it was found at (see `found_path`).
+  pub fn file_path(&self) -> Option<&Path> {
+    get_config_file_path(&self.source, self.found_path.as_deref())
+  }
+
+  /// Gets the config file as it's shown, which is what identifies it (see
+  /// `file_path`).
+  pub fn display(&self) -> String {
+    get_config_file_display(&self.source, self.found_path.as_deref())
+  }
+
   /// Gets the directories the config file's patterns are relative to.
   pub fn pattern_bases(&self) -> ConfigPatternBases<'_> {
     ConfigPatternBases {
@@ -183,10 +209,12 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           config_map: ConfigMap::new(),
           trusted_config_map: ConfigMap::new(),
           extended_only_plugin_config_keys: HashSet::new(),
+          local_dependencies: Vec::new(),
           base_path: environment.cwd().clone(),
           anchored_patterns_base_path: None,
           source: PathSource::new_local(environment.cwd().join_panic_relative("dprint.json")),
           is_global: false,
+          found_path: None,
           excludes: None,
           includes: None,
           incremental: None,
@@ -284,13 +312,15 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   inherit_chain: Vec<PathSource>,
 ) -> Result<ResolvedConfig, ResolveConfigError> {
   let base_source = config_path_and_text.source.parent();
+  // the errors of the file's contents say which configuration file they're in
+  let with_source = |err: anyhow::Error| anyhow::anyhow!("{:#}\n    at {}", err, config_path_and_text.source.display());
   let mut config_map = get_config_map_from_path(ConfigPathContext {
     current: config_path_and_text.as_file_path_with_text_ref(),
     origin: &config_path_and_text.source,
   })
-  .map_err(|err| anyhow::anyhow!("{:#}\n    at {}", err, config_path_and_text.source.display()))?;
+  .map_err(with_source)?;
 
-  let plugins_vec = take_plugins_array_from_config_map(&mut config_map, &base_source, environment)?; // always take this out of the config map
+  let plugins_vec = take_plugins_array_from_config_map(&mut config_map, &base_source, environment).map_err(with_source)?; // always take this out of the config map
   let plugins = filter_duplicate_plugin_sources({
     // filter out any non-wasm plugins from remote config
     if !config_path_and_text.source.is_local() {
@@ -327,12 +357,12 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   }
   // =========
 
-  let includes = take_array_from_config_map(&mut config_map, "includes")?;
-  let excludes = take_array_from_config_map(&mut config_map, "excludes")?;
+  let includes = take_array_from_config_map(&mut config_map, "includes").map_err(with_source)?;
+  let excludes = take_array_from_config_map(&mut config_map, "excludes").map_err(with_source)?;
 
-  let incremental = take_bool_from_config_map(&mut config_map, "incremental")?;
-  let shebangs = take_shebangs_from_config_map(&mut config_map)?;
-  let inherit = take_bool_from_config_map(&mut config_map, "inherit")?;
+  let incremental = take_bool_from_config_map(&mut config_map, "incremental").map_err(with_source)?;
+  let shebangs = take_shebangs_from_config_map(&mut config_map).map_err(with_source)?;
+  let inherit = take_bool_from_config_map(&mut config_map, "inherit").map_err(with_source)?;
   if inherit == Some(true) && config_path_and_text.is_global_config {
     return Err(
       anyhow::anyhow!(
@@ -344,7 +374,7 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     );
   }
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
-  let extends = take_extends(&mut config_map)?;
+  let extends = take_extends(&mut config_map).map_err(with_source)?;
   let trusted_config_map = if config_path_and_text.source.is_local() {
     config_map.clone()
   } else {
@@ -355,9 +385,11 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     base_path: config_path_and_text.base_path.clone(),
     anchored_patterns_base_path: config_path_and_text.anchored_patterns_base_path.clone(),
     is_global: config_path_and_text.is_global_config,
+    found_path: config_path_and_text.found_path.clone(),
     config_map,
     trusted_config_map,
     extended_only_plugin_config_keys: HashSet::new(),
+    local_dependencies: Vec::new(),
     includes,
     excludes,
     plugins,
@@ -426,6 +458,18 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
 
   merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
   merge_config_map_into(&mut config.trusted_config_map, parent.trusted_config_map.clone())?;
+
+  // what the ancestor was resolved from changes this one too, which includes where it was
+  // found when it's a symlink, because that changes when the symlink points elsewhere
+  let parent_dependencies = parent
+    .source
+    .maybe_local_path()
+    .map(|path| path.as_ref())
+    .into_iter()
+    .chain(parent.found_path.as_deref());
+  for path in parent_dependencies.chain(parent.local_dependencies.iter().map(|path| path.as_path())) {
+    add_local_dependency(&mut config, path);
+  }
 
   Ok(config)
 }
@@ -528,6 +572,9 @@ fn resolve_extends<TEnvironment: Environment>(
     for (specifier, extended_file) in extends.iter().zip(resolved_files) {
       let ExtendedConfigFile { file, pinning } = extended_file?;
       let resolved_file = file.into_text()?;
+      if let Some(path) = resolved_file.source.maybe_local_path() {
+        add_local_dependency(&mut resolved_config, path.as_ref());
+      }
       if context.ancestors.contains(&resolved_file.source) {
         bail!(
           "Circular extends detected: {} -> {}",
@@ -544,6 +591,8 @@ fn resolve_extends<TEnvironment: Environment>(
       };
       resolved_config = match handle_config_file(&resolved_file, checksum_hint_specifier, resolved_config, pinning, &context, &environment).await {
         Ok(resolved_config) => resolved_config,
+        // keep this one's type so the editors can ask the user to allow it
+        Err(err) if UntrustedDownloadError::find(&err).is_some() => return Err(err),
         Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),
       }
     }
@@ -592,9 +641,11 @@ async fn resolve_extends_file_with_checksum(specifier: &str, context: &ExtendsCo
     Some(checksum) => {
       let checksum = checksum.to_ascii_lowercase();
       let mut file = resolve_extends_file(specifier_without_checksum, context, context.remote_cache_mode, environment).await?;
-      if verify_sha256_checksum(&file.content, &checksum).is_err() && context.remote_cache_mode == RemoteCacheMode::Use {
+      if verify_sha256_checksum(&file.content, &checksum).is_err()
+        && let Some(reloading) = context.remote_cache_mode.reloading()
+      {
         // the cached file might be out of date, so check the server for a newer one
-        file = resolve_extends_file(specifier_without_checksum, context, RemoteCacheMode::Reload, environment).await?;
+        file = resolve_extends_file(specifier_without_checksum, context, reloading, environment).await?;
       }
       if let Err(err) = verify_sha256_checksum(&file.content, &checksum) {
         bail!("Invalid checksum for extended configuration '{}'.\n\n{:#}", specifier, err);
@@ -668,6 +719,7 @@ async fn resolve_extends_file(
   remote_cache_mode: RemoteCacheMode,
   environment: &impl Environment,
 ) -> Result<ResolvedFilePathWithBytes> {
+  ensure_download_allowed(specifier, context, environment)?;
   let base_path = &context.base_path;
   if specifier.starts_with("npm:") {
     context.npm_resolver.resolve(specifier, base_path, environment).await
@@ -692,6 +744,31 @@ async fn resolve_extends_file(
   } else {
     resolve_url_or_file_path_to_file_with_cache(specifier, base_path, remote_cache_mode, environment).await
   }
+}
+
+/// Errors when the extended configuration file needs to be downloaded from
+/// where the download policy doesn't allow without asking the user (ex. a
+/// domain that isn't trusted). One that was downloaded before may be used.
+fn ensure_download_allowed(specifier: &str, context: &ExtendsContext, environment: &impl Environment) -> Result<()> {
+  let download_policy = environment.download_policy();
+  if matches!(download_policy, DownloadPolicy::All) {
+    return Ok(());
+  }
+  if specifier.starts_with("npm:") {
+    if let Some((registry_url, npmrc_proxy)) = context.npm_resolver.get_download(specifier, &context.base_path, environment)? {
+      download_policy.ensure_allows_npm_registry(&registry_url)?;
+      if let Some(npmrc_proxy) = npmrc_proxy {
+        download_policy.ensure_allows_npmrc_proxy(&npmrc_proxy)?;
+      }
+    }
+    return Ok(());
+  }
+  if let Ok(PathSource::Remote(remote)) = resolve_url_or_file_path_to_path_source(specifier, &context.base_path, environment)
+    && !is_url_cached(&remote.url, environment)
+  {
+    download_policy.ensure_allows(&remote.url)?;
+  }
+  Ok(())
 }
 
 fn is_http_url(specifier: &str) -> bool {
@@ -839,7 +916,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     let config_dir = config_path_and_text
       .source
       .maybe_local_path()
-      .and_then(|path| get_dot_config_file_base_dir(environment, path.as_ref()).or_else(|| path.as_ref().parent()));
+      .and_then(|path| Some(get_config_file_lookup(environment, path.as_ref())?.base_dir));
     let ancestor_config_file = match config_dir {
       Some(config_dir) => find_config_file_to_inherit(config_dir, environment, &inherit_chain)?,
       None => None,
@@ -856,7 +933,9 @@ async fn handle_config_file<TEnvironment: Environment>(
 /// Finds the closest config file in the ancestor directories of the directory
 /// a config file that has specified `"inherit": true` applies to.
 fn find_config_file_to_inherit(config_dir: &Path, environment: &impl Environment, inherit_chain: &[PathSource]) -> Result<Option<ResolvedConfigPathWithText>> {
-  let Some(ancestor_dir) = config_dir.parent() else {
+  // what's above the root of a share isn't on it (ex. `/net/dprint.json` is a host named `dprint.json`)
+  let ancestor_paths = environment.download_policy().ancestor_paths(config_dir);
+  let Some(ancestor_dir) = ancestor_paths.parent_on_share(environment, config_dir) else {
     return Ok(None);
   };
   let Some(ancestor_config_file) = get_default_config_file_in_ancestor_directories(environment, ancestor_dir)? else {
@@ -1329,6 +1408,13 @@ fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -
     .collect()
 }
 
+/// Adds a local file the config was resolved from when it's not there already.
+fn add_local_dependency(config: &mut ResolvedConfig, path: &Path) {
+  if !config.local_dependencies.iter().any(|dependency| dependency == path) {
+    config.local_dependencies.push(path.to_path_buf());
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use std::path::PathBuf;
@@ -1356,7 +1442,36 @@ mod tests {
     resolve_config_from_args(&args, environment).await
   }
 
+  #[test]
+  fn should_know_a_config_file_that_is_a_symlink_by_where_it_was_found() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/shared/base.json", "{}")
+      .write_file("/dprint.json", "{}")
+      .build();
+    // ex. a symlink to a file with another name, which is what the editors know it by too
+    environment.add_canonical_path("/dprint.json", "/shared/base.json");
+    environment.clone().run_in_runtime(async move {
+      let specified = get_result("./dprint.json", &environment).await.unwrap();
+      assert_eq!(
+        specified.source.display(),
+        environment.canonicalize("/shared/base.json").unwrap().display().to_string()
+      );
+      assert_eq!(specified.file_path(), Some(Path::new("/").join("dprint.json").as_path()));
+      let args = parse_args(vec![String::from(""), String::from("check")], TestStdInReader::default()).unwrap();
+      let discovered = resolve_config_from_args(&args, &environment).await.unwrap();
+      assert_eq!(discovered.display(), specified.display());
+    });
+  }
+
   async fn resolve_local_config(path: &str, environment: &TestEnvironment) -> ResolvedConfig {
+    resolve_local_config_with(path, RemoteCacheMode::Use, environment).await.unwrap()
+  }
+
+  async fn resolve_local_config_with(
+    path: &str,
+    remote_cache_mode: RemoteCacheMode,
+    environment: &TestEnvironment,
+  ) -> Result<ResolvedConfig, ResolveConfigError> {
     let canonical = environment.canonicalize(path).unwrap();
     let config_path = ResolvedConfigPathWithText {
       content: environment.read_file(&canonical).unwrap(),
@@ -1364,11 +1479,10 @@ mod tests {
       anchored_patterns_base_path: None,
       source: PathSource::new_local(canonical),
       is_global_config: false,
+      found_path: None,
       is_first_download: false,
     };
-    resolve_config_from_path_with_bytes(&config_path, RemoteCacheMode::Use, environment)
-      .await
-      .unwrap()
+    resolve_config_from_path_with_bytes(&config_path, remote_cache_mode, environment).await
   }
 
   #[test]
@@ -2139,6 +2253,7 @@ mod tests {
         anchored_patterns_base_path: None,
         source: PathSource::new_local(source),
         is_global: false,
+        found_path: None,
         includes: None,
         excludes: None,
         plugins: Vec::new(),
@@ -2151,6 +2266,7 @@ mod tests {
           .collect(),
         trusted_config_map: Default::default(),
         extended_only_plugin_config_keys: extended_only_plugin_config_keys.iter().map(|key| key.to_string()).collect(),
+        local_dependencies: Vec::new(),
       }
     }
 
@@ -2897,6 +3013,41 @@ mod tests {
   }
 
   #[test]
+  fn should_check_server_for_extended_config_that_does_not_match_checksum_once_for_each_time() {
+    // ex. the editors, which only download a remote file once until they're reset
+    let environment = TestEnvironment::new();
+    let url = "https://dprint.dev/shared.json";
+    environment.add_remote_file_with_headers(url, br#"{ "test": { "prop": "old" } }"#, &[("cache-control", "max-age=300")]);
+    let checksum = get_sha256_checksum(br#"{ "test": { "prop": "new" } }"#);
+    environment
+      .write_file(&PathBuf::from("/test.json"), &format!(r#"{{ "extends": "{url}@{checksum}" }}"#))
+      .unwrap();
+    environment.set_fs_time(1000);
+    environment.clone().run_in_runtime(async move {
+      let resolve = |since_secs: u64| {
+        let environment = environment.clone();
+        async move {
+          let mode = RemoteCacheMode::ReceivedSince { since_secs, reload: false };
+          resolve_local_config_with("/test.json", mode, &environment).await
+        }
+      };
+      crate::utils::resolve_url_or_file_path_to_file_with_cache(url, &PathSource::new_local(environment.cwd()), RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      environment.set_fs_time(1001);
+      // a cached one from before that doesn't match is downloaded again, which still doesn't match
+      assert!(resolve(1001).await.is_err());
+      assert_eq!(environment.remote_file_request_count(url), 2);
+      // and isn't downloaded again until the time changes
+      assert!(resolve(1001).await.is_err());
+      assert_eq!(environment.remote_file_request_count(url), 2);
+      environment.set_fs_time(1002);
+      assert!(resolve(1002).await.is_err());
+      assert_eq!(environment.remote_file_request_count(url), 3);
+    });
+  }
+
+  #[test]
   fn should_parse_extends_checksum() {
     let checksum = "a".repeat(64);
     fn parse(specifier: &str) -> (&str, Option<&str>) {
@@ -3034,7 +3185,7 @@ mod tests {
       let err = get_result("https://dprint.dev/test.json", &environment).await.err().unwrap();
       assert_eq!(
         err.to_string(),
-        "The 'shebangs' property must be an object that maps shebang lines to file extensions."
+        "The 'shebangs' property must be an object that maps shebang lines to file extensions.\n    at https://dprint.dev/test.json"
       );
     });
   }
@@ -3376,7 +3527,7 @@ mod tests {
 
     assert_eq!(
       get_error(r##"{ "#!/bin/sh": "" }"##),
-      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found ''."
+      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found ''.\n    at /test.json"
     );
     for extension in [".", "*.sh", " sh", "tar.gz"] {
       assert!(
@@ -3387,10 +3538,20 @@ mod tests {
     }
     assert_eq!(
       get_error(r##"{ "/bin/sh": "sh" }"##),
-      "Expected the key '/bin/sh' in the 'shebangs' property to be a shebang line starting with '#!'."
+      "Expected the key '/bin/sh' in the 'shebangs' property to be a shebang line starting with '#!'.\n    at /test.json"
     );
     assert!(get_error(r##"{ " #!/bin/sh": "sh" }"##).contains("to be a shebang line starting with '#!'"));
     assert!(get_error(r##"{ "#!/bin/sh\ntext": "sh" }"##).contains("to be a shebang line starting with '#!'"));
+  }
+
+  #[test]
+  fn should_say_which_config_file_has_an_invalid_property() {
+    let environment = TestEnvironment::new();
+    environment.write_file(&PathBuf::from("/test.json"), r#"{ "plugins": 5 }"#).unwrap();
+    environment.clone().run_in_runtime(async move {
+      let err = get_result("/test.json", &environment).await.err().unwrap();
+      assert_eq!(err.to_string(), "Expected array in 'plugins' property.\n    at /test.json");
+    });
   }
 
   #[test]
@@ -3443,6 +3604,7 @@ mod tests {
       base_path: CanonicalizedPathBuf::new_for_testing("/"),
       anchored_patterns_base_path: None,
       is_global: false,
+      found_path: None,
       includes: Some(vec!["**/*.txt".to_string()]),
       // both patterns match at any depth, so both rebase into the nested directory
       excludes: Some(vec!["**/node_modules".to_string(), "dist".to_string()]),
@@ -3470,12 +3632,14 @@ mod tests {
       ]),
       trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
+      local_dependencies: Vec::new(),
     };
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
       anchored_patterns_base_path: None,
       is_global: false,
+      found_path: None,
       includes: None,
       excludes: Some(vec!["sub-excludes".to_string()]),
       // a plugin specified in the child has precedence over the ancestor's
@@ -3494,6 +3658,7 @@ mod tests {
       )]),
       trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
+      local_dependencies: Vec::new(),
     };
 
     let result = inherit_config(child, &parent).unwrap();
@@ -3630,6 +3795,7 @@ mod tests {
       base_path: CanonicalizedPathBuf::new_for_testing("/"),
       anchored_patterns_base_path: None,
       is_global: false,
+      found_path: None,
       includes: None,
       excludes: None,
       plugins: Vec::new(),
@@ -3647,12 +3813,14 @@ mod tests {
       )]),
       trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
+      local_dependencies: Vec::new(),
     };
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
       anchored_patterns_base_path: None,
       is_global: false,
+      found_path: None,
       includes: None,
       excludes: None,
       plugins: Vec::new(),
@@ -3670,6 +3838,7 @@ mod tests {
       )]),
       trusted_config_map: Default::default(),
       extended_only_plugin_config_keys: Default::default(),
+      local_dependencies: Vec::new(),
     };
 
     let err = inherit_config(child, &parent).err().unwrap();

@@ -48,6 +48,41 @@ pub fn expand_braces(pattern: String) -> impl Iterator<Item = String> {
   pattern.into_iter().chain(expansions)
 }
 
+/// Expands every brace group in a pattern into separate patterns, including
+/// the ones within a path component (ex. `**/*.{yml,yaml}` -> `**/*.yml` and
+/// `**/*.yaml`), for a glob engine without braces.
+///
+/// Returns `None` when there would be more patterns than the maximum.
+pub fn expand_all_braces(pattern: &str, max_expansions: usize) -> Option<Vec<String>> {
+  let mut expansions = Vec::new();
+  expand_braces_from(pattern.to_string(), 0, find_brace_group, max_expansions, &mut expansions).then_some(expansions)
+}
+
+/// Writes each negated character class with `!` instead of `^` (ex. `[^.]` ->
+/// `[!.]`), for a glob engine that only knows `!`.
+pub fn to_exclamation_negated_classes(pattern: &str) -> Cow<'_, str> {
+  let bytes = pattern.as_bytes();
+  let mut result: Option<String> = None;
+  let mut index = 0;
+  while index < bytes.len() {
+    match bytes[index] {
+      b'\\' => index += 2,
+      b'[' => {
+        let end = skip_char_class(bytes, index);
+        if end > index + 1 && bytes[index + 1] == b'^' {
+          result.get_or_insert_with(|| pattern.to_string()).replace_range(index + 1..index + 2, "!");
+        }
+        index = end;
+      }
+      _ => index += 1,
+    }
+  }
+  match result {
+    Some(result) => Cow::Owned(result),
+    None => Cow::Borrowed(pattern),
+  }
+}
+
 /// Whether a single path component pattern (ex. `dist`, `su*`, `[sd]ist`)
 /// names the given directory.
 ///
@@ -159,7 +194,7 @@ fn try_expand_braces(pattern: &str) -> Option<Vec<String>> {
   find_brace_group_spanning_path_components(text, 0)?;
 
   let mut expansions = Vec::new();
-  expand_braces_from(text.to_string(), 0, &mut expansions);
+  expand_braces_from(text.to_string(), 0, find_brace_group_spanning_path_components, usize::MAX, &mut expansions);
 
   // a pattern with a slash only matches relative to its base directory, so
   // keep it that way when an expansion ends up without one (ex. `{a/b,c}`)
@@ -187,10 +222,21 @@ fn try_expand_braces(pattern: &str) -> Option<Vec<String>> {
   Some(expansions)
 }
 
-fn expand_braces_from(text: String, start: usize, expansions: &mut Vec<String>) {
-  let Some(group) = find_brace_group_spanning_path_components(&text, start) else {
+/// Expands the brace groups the provided function finds, returning `false`
+/// once there would be more expansions than the maximum.
+fn expand_braces_from(
+  text: String,
+  start: usize,
+  find_group: fn(&str, usize) -> Option<BraceGroup>,
+  max_expansions: usize,
+  expansions: &mut Vec<String>,
+) -> bool {
+  let Some(group) = find_group(&text, start) else {
+    if expansions.len() >= max_expansions {
+      return false;
+    }
     expansions.push(text);
-    return;
+    return true;
   };
   let (before, after) = (&text[..group.open], &text[group.close + 1..]);
   let body = &text[group.open + 1..group.close];
@@ -202,9 +248,12 @@ fn expand_braces_from(text: String, start: usize, expansions: &mut Vec<String>) 
     expanded.push_str(alternative);
     expanded.push_str(after);
     // start at the alternative because it might contain a nested group
-    expand_braces_from(expanded, group.open, expansions);
+    if !expand_braces_from(expanded, group.open, find_group, max_expansions, expansions) {
+      return false;
+    }
     alternative_start = comma_index + 1;
   }
+  true
 }
 
 struct BraceGroup {
@@ -422,6 +471,47 @@ mod tests {
     run("a/[]{]b/c,d}", &["a/[]{]b/c,d}"]);
     run("a/\\{b/c,d\\}", &["a/\\{b/c,d\\}"]);
     run("{a/b,c", &["{a/b,c"]);
+  }
+
+  #[test]
+  fn should_expand_all_braces() {
+    #[track_caller]
+    fn run(pattern: &str, expected: &[&str]) {
+      assert_eq!(expand_all_braces(pattern, 10).unwrap(), expected);
+    }
+
+    run("**/*.ts", &["**/*.ts"]);
+    run("**/*.{yml,yaml}", &["**/*.yml", "**/*.yaml"]);
+    run("{a,b}/*.{c,d}", &["a/*.c", "a/*.d", "b/*.c", "b/*.d"]);
+    run("*.{a,{b,c}d}", &["*.a", "*.bd", "*.cd"]);
+    run("*.{,js}", &["*.", "*.js"]);
+    run("{a}/x", &["a/x"]);
+    run("{{myfile}}.yaml", &["myfile.yaml"]);
+    // escaped or in a character class
+    run("a/[{]b,c}", &["a/[{]b,c}"]);
+    run("a/\\{b,c\\}", &["a/\\{b,c\\}"]);
+    // unbalanced
+    run("*.{a,b", &["*.{a,b"]);
+
+    // too many
+    assert_eq!(expand_all_braces("{a,b}{c,d}{e,f}{g,h}", 10), None);
+    assert_eq!(expand_all_braces("{a,b,c,d,e,f,g,h,i,j}", 10).unwrap().len(), 10);
+    assert_eq!(expand_all_braces("{a,b,c,d,e,f,g,h,i,j,k}", 10), None);
+  }
+
+  #[test]
+  fn should_write_negated_classes_with_exclamation() {
+    assert_eq!(to_exclamation_negated_classes("**/*.ts"), "**/*.ts");
+    assert_eq!(to_exclamation_negated_classes("**/[^.]*"), "**/[!.]*");
+    assert_eq!(to_exclamation_negated_classes("[!a][^b]/[^c-d]"), "[!a][!b]/[!c-d]");
+    // in a class or escaped
+    assert_eq!(to_exclamation_negated_classes("[a^]"), "[a^]");
+    assert_eq!(to_exclamation_negated_classes("[[^]"), "[[^]");
+    assert_eq!(to_exclamation_negated_classes("\\[^a]"), "\\[^a]");
+    // a closing bracket after the `^` is in the class
+    assert_eq!(to_exclamation_negated_classes("[^]]"), "[!]]");
+    // not a class
+    assert_eq!(to_exclamation_negated_classes("a[^b"), "a[^b");
   }
 
   #[test]

@@ -26,7 +26,10 @@ use sys_traits::ThreadSleep;
 
 use crate::plugins::CompilationResult;
 use crate::utils::BasicShowConfirmStrategy;
+use crate::utils::DownloadPolicy;
 use crate::utils::LogLevel;
+use crate::utils::NpmrcProxy;
+use crate::utils::OutputSink;
 use crate::utils::ProgressBars;
 use crate::utils::PromptTerminal;
 use crate::utils::ShowConfirmStrategy;
@@ -37,6 +40,25 @@ use super::CanonicalizedPathBuf;
 pub enum DirEntry {
   Directory(PathBuf),
   File { path: PathBuf },
+}
+
+/// An exclusive lock of a file, which is released when it's dropped (see
+/// `Environment::try_lock_file`).
+pub struct FileLock {
+  _guard: Box<dyn std::any::Any + Send + Sync>,
+}
+
+impl FileLock {
+  /// Gets a lock that's released when the guard is dropped.
+  pub fn new(guard: impl std::any::Any + Send + Sync) -> Self {
+    Self { _guard: Box::new(guard) }
+  }
+}
+
+impl std::fmt::Debug for FileLock {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("FileLock").finish_non_exhaustive()
+  }
 }
 
 /// The kind of entry at a path on the file system.
@@ -116,6 +138,10 @@ pub enum DownloadProxy<'a> {
   Environment,
   /// This proxy instead of the one found in the environment.
   Url(&'a str),
+  /// This proxy instead of the one found in the environment, which is from
+  /// an `.npmrc` file that the download policy needs to allow sending
+  /// downloads through (see `NpmrcProxy`).
+  Npmrc { url: &'a str, source: &'a NpmrcProxy },
   /// No proxy, even when the environment has one.
   Direct,
 }
@@ -169,7 +195,7 @@ pub trait UrlDownloader {
 macro_rules! log_debug {
   ($logger:expr, $($arg:tt)*) => {
     if $logger.log_level().is_debug() {
-      $logger.__log_stderr__(&format!("[DEBUG] {}", format_args!($($arg)*)));
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Debug, &format!($($arg)*));
     }
   }
 }
@@ -177,12 +203,12 @@ macro_rules! log_debug {
 macro_rules! log_stderr_info {
   ($logger:expr, $single_arg:expr $(,)? ) => {
     if $logger.log_level().is_info() {
-      $logger.__log_stderr__($single_arg);
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Info, $single_arg);
     }
   };
   ($logger:expr, $($arg:tt)*) => {
     if $logger.log_level().is_info() {
-      $logger.__log_stderr__(&format!($($arg)*));
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Info, &format!($($arg)*));
     }
   }
 }
@@ -203,12 +229,12 @@ macro_rules! log_stdout_info {
 macro_rules! log_warn {
   ($logger:expr, $single_arg:expr $(,)? ) => {
     if $logger.log_level().is_warn() {
-      $logger.__log_stderr__($single_arg);
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Warn, $single_arg);
     }
   };
   ($logger:expr, $($arg:tt)*) => {
     if $logger.log_level().is_warn() {
-      $logger.__log_stderr__(&format!($($arg)*));
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Warn, &format!($($arg)*));
     }
   }
 }
@@ -216,12 +242,12 @@ macro_rules! log_warn {
 macro_rules! log_error {
   ($logger:expr, $single_arg:expr $(,)? ) => {
     if $logger.log_level().is_error() {
-      $logger.__log_stderr__($single_arg);
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Error, $single_arg);
     }
   };
   ($logger:expr, $($arg:tt)*) => {
     if $logger.log_level().is_error() {
-      $logger.__log_stderr__(&format!($($arg)*));
+      $logger.__log_stderr_with_level__($crate::utils::LogLevel::Error, &format!($($arg)*));
     }
   }
 }
@@ -288,9 +314,46 @@ pub trait Environment:
   fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     crate::utils::fs::atomic_write_file_with_retries(self, file_path.as_ref(), bytes, 0o644)
   }
+  /// An atomic write of a file the user may keep elsewhere through a symlink
+  /// (ex. in a dotfiles repository), which replaces the file the symlink
+  /// leads to rather than the symlink, in that file's directory so it's
+  /// renamed on the same file system, and keeps that file's permissions.
+  ///
+  /// It fails rather than writing over what may have something the writer
+  /// couldn't read: a symlink that doesn't lead to a file (ex. its volume
+  /// isn't mounted yet) and a read-only file.
+  fn atomic_write_file_bytes_through_symlinks(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
+    let file_path = file_path.as_ref();
+    let file_path = match self.canonicalize(file_path) {
+      Ok(canonical_path) => canonical_path.into_path_buf(),
+      Err(err) if self.path_kind(file_path) == Some(PathKind::Symlink) => {
+        return Err(io::Error::new(
+          err.kind(),
+          format!("{} is a symlink to a file that can't be found: {:#}", file_path.display(), err),
+        ));
+      }
+      // a file that doesn't exist yet is created at the path
+      Err(_) => file_path.to_path_buf(),
+    };
+    let permissions = self.file_permissions(&file_path).ok();
+    if permissions.as_ref().is_some_and(|permissions| permissions.readonly()) {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("{} is read-only.", file_path.display()),
+      ));
+    }
+    self.atomic_write_file_bytes(&file_path, bytes)?;
+    // the content was written, which a file system that doesn't support permissions doesn't change
+    if let Some(permissions) = permissions {
+      _ = self.set_file_permissions(&file_path, permissions);
+    }
+    Ok(())
+  }
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
+  /// Removes a directory that's empty, which fails when it isn't.
+  fn remove_empty_dir(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
   /// Removes a directory and all of its contents as best-effort cleanup,
   /// logging any failure at debug level rather than returning it. Use this
   /// for cleanup that shouldn't abort the surrounding operation, while still
@@ -301,6 +364,20 @@ pub trait Environment:
     }
   }
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
+  /// Gets the paths of every entry of the directory without following them,
+  /// which includes the symlinks and the other entries that `dir_info` leaves
+  /// out.
+  fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>>;
+  /// Tries to take an exclusive lock of the file, which is created when it
+  /// doesn't exist. The lock is held until it's dropped or the process exits,
+  /// and it's `None` when the file is locked already, including by another
+  /// lock of this process, or when the path doesn't name the file that was
+  /// locked anymore (ex. another process deleted it while this opened it).
+  ///
+  /// IMPORTANT: It's `flock(2)` on Unix and `LockFileEx` of the whole file on
+  /// Windows, which every version of dprint uses for the same files (see
+  /// `EditorApprovals` and `SessionFile`), so it never changes.
+  fn try_lock_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<FileLock>>;
   /// Kills any running process whose executable lives under the given directory
   /// and returns how many were killed. Used when clearing the cache so a process
   /// plugin that's still running can't stop its executable from being deleted
@@ -316,6 +393,21 @@ pub trait Environment:
   /// or symlink (`None` when the path doesn't exist). Symlinks are not
   /// followed—canonicalize and stat again to see what a symlink points at.
   fn path_kind(&self, path: impl AsRef<Path>) -> Option<PathKind>;
+  /// Reads what a symlink points at without following it any further, which
+  /// may be relative to the symlink's directory.
+  fn read_link(&self, path: impl AsRef<Path>) -> io::Result<PathBuf>;
+  /// Gets whether the directory is the root of an automounter's file system
+  /// (ex. `autofs` for `/net` on Linux and macOS), where looking up a child
+  /// may mount it from another machine. It doesn't look up the children, so
+  /// it doesn't mount them, and on Linux it doesn't mount what an automounter
+  /// mounts at the directory itself either (ex. the share of a direct map).
+  /// It's `false` when it can't be told.
+  fn is_automount_dir(&self, dir_path: impl AsRef<Path>) -> bool;
+  /// Gets whether the path is where a share is mounted from another machine
+  /// when it's looked up (ex. what Linux marks as an automount point, like an
+  /// AFS cell or a DFS link of a CIFS share), without mounting it. It's
+  /// `false` when it can't be told.
+  fn is_automount_point(&self, path: impl AsRef<Path>) -> bool;
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   /// Canonicalizes a path that might not exist (ex. an unsaved file in an editor)
   /// by canonicalizing its closest existing ancestor and adding back the rest.
@@ -332,12 +424,28 @@ pub trait Environment:
   fn __log__(&self, text: &str);
   /// Don't ever call this directly in the code. That's why this has this weird name.
   fn __log_stderr__(&self, text: &str) {
-    self.log_stderr_with_context(text, "dprint");
+    self.__log_stderr_with_level__(LogLevel::Info, text);
+  }
+  /// Don't ever call this directly in the code. That's why this has this weird name.
+  fn __log_stderr_with_level__(&self, level: LogLevel, text: &str) {
+    self.log_stderr_with_context(level, text, "dprint");
   }
   /// Logs an error to the console providing the context name.
   /// This will cause the logger to output the context name when appropriate.
   /// Ex. Will log the dprint process plugin name.
-  fn log_stderr_with_context(&self, text: &str, context_name: &str);
+  fn log_stderr_with_context(&self, level: LogLevel, text: &str, context_name: &str);
+  /// Sends what's logged and the progress of what's being done to the sink
+  /// instead of stderr from now on (ex. for an editor that shows them).
+  fn set_output_sink(&self, sink: Arc<dyn OutputSink>);
+  /// Gets what may be downloaded without asking the user.
+  fn download_policy(&self) -> DownloadPolicy;
+  /// Only downloads what the policy allows from now on (ex. for an editor),
+  /// which includes each redirect. Anything else fails with an
+  /// `UntrustedDownloadError`.
+  fn set_download_policy(&self, policy: DownloadPolicy);
+  /// Watches the files for changes, which may not exist yet. Their
+  /// directories need to exist.
+  fn watch_files(&self, file_paths: &[PathBuf]) -> io::Result<FilesWatcher>;
   /// Information to force output when the environment is in "machine readable mode".
   fn log_machine_readable(&self, bytes: &[u8]);
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
@@ -379,13 +487,14 @@ pub trait Environment:
   fn is_ci(&self) -> bool;
   fn is_terminal_interactive(&self) -> bool;
   fn log_level(&self) -> LogLevel;
+  fn set_log_level(&self, log_level: LogLevel);
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn wasm_cache_key(&self) -> String;
   /// Returns the current CPU usage as a value from 0-100.
   async fn cpu_usage(&self) -> u8;
   fn stdout(&self) -> Box<dyn Write + Send>;
   fn stdin(&self) -> Box<dyn Read + Send>;
-  fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
+  fn progress_bars(&self) -> Option<Arc<ProgressBars>> {
     None
   }
   #[cfg(windows)]
@@ -436,6 +545,24 @@ fn canonicalize_path_maybe_not_exists(mut path: &Path, canonicalize: impl Fn(&Pa
         };
       }
       Err(err) => return Err(err),
+    }
+  }
+}
+
+/// Watches files for changes (see `Environment::watch_files`), which stops
+/// once it's dropped.
+pub struct FilesWatcher {
+  /// Receives a message when one of the files may have changed, which may be
+  /// several messages for one change (ex. an atomic write).
+  pub changes: tokio::sync::mpsc::UnboundedReceiver<()>,
+  _watcher: Box<dyn std::any::Any>,
+}
+
+impl FilesWatcher {
+  pub fn new(changes: tokio::sync::mpsc::UnboundedReceiver<()>, watcher: impl std::any::Any) -> Self {
+    Self {
+      changes,
+      _watcher: Box::new(watcher),
     }
   }
 }

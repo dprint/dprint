@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::rc::Rc;
 
 use anyhow::Result;
@@ -8,8 +9,11 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::arg_parser::create_cli_parser;
+use crate::commands::lsp::workspace::get_sessions_dir;
+use crate::commands::lsp::workspace::remove_unused_session_files;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::environment::PathKind;
 use crate::plugins::PluginResolver;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::get_plugins_scope_from_args;
@@ -89,7 +93,16 @@ pub async fn output_license<TEnvironment: Environment>(
 pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   let cache_dir = environment.get_cache_dir();
   remove_cache_dir_killing_processes(environment, &cache_dir)?;
-  log_stdout_info!(environment, "Deleted {}", cache_dir.display());
+  let sessions_dir = get_sessions_dir(environment);
+  if environment.path_kind(&sessions_dir) == Some(PathKind::Dir) && environment.dir_info(&sessions_dir).is_ok_and(|entries| !entries.is_empty()) {
+    log_stdout_info!(
+      environment,
+      "Deleted {}, apart from the session files of the editor servers that are running.",
+      cache_dir.display()
+    );
+  } else {
+    log_stdout_info!(environment, "Deleted {}", cache_dir.display());
+  }
   Ok(())
 }
 
@@ -101,13 +114,13 @@ pub fn clear_cache(environment: &impl Environment) -> Result<()> {
 /// VSCode extension restarting its process plugins between attempts is absorbed,
 /// while a process that never stays dead still terminates with the error surfaced.
 fn remove_cache_dir_killing_processes(environment: &impl Environment, cache_dir: &CanonicalizedPathBuf) -> std::io::Result<()> {
-  let mut err = match environment.remove_dir_all(cache_dir) {
+  let mut err = match remove_cache_dir(environment, cache_dir) {
     Ok(()) => return Ok(()),
     Err(err) => err,
   };
   let retries = std::cmp::max(1, environment.kill_processes_using_dir(cache_dir) * 2);
   for _ in 0..retries {
-    match environment.remove_dir_all(cache_dir) {
+    match remove_cache_dir(environment, cache_dir) {
       Ok(()) => return Ok(()),
       Err(e) => {
         log_debug!(environment, "Failed deleting cache directory. Killing running processes and retrying. {:#}", e);
@@ -117,6 +130,54 @@ fn remove_cache_dir_killing_processes(environment: &impl Environment, cache_dir:
     }
   }
   Err(err)
+}
+
+/// Removes the cache directory apart from the files of the editor sessions
+/// that a server that's running uses, which their locks keep another server
+/// of the same session from using (see `SessionFile`).
+///
+/// IMPORTANT: The cache directory and the sessions directory are never removed
+/// recursively, because a server may create its session's lock in them while
+/// this runs, which would then be deleted under it.
+fn remove_cache_dir(environment: &impl Environment, cache_dir: &CanonicalizedPathBuf) -> std::io::Result<()> {
+  let sessions_dir = get_sessions_dir(environment);
+  let paths = match environment.dir_entry_paths(cache_dir) {
+    Ok(paths) => paths,
+    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+    Err(err) => return Err(err),
+  };
+  for path in paths {
+    // ex. a server created it since it was checked, which is the same either way, while a link or a file with its
+    // name is removed like the rest
+    if path.file_name() == sessions_dir.file_name() && environment.path_kind(&path) == Some(PathKind::Dir) {
+      continue;
+    }
+    match environment.path_kind(&path) {
+      Some(PathKind::Dir) => environment.remove_dir_all(&path)?,
+      // a symlink isn't followed, which may be to a directory (ex. a junction on Windows, which only removing it as a
+      // directory removes, and which isn't followed then either)
+      Some(PathKind::Symlink) => environment
+        .remove_file(&path)
+        .or_else(|err| environment.remove_empty_dir(&path).map_err(|_| err))?,
+      Some(PathKind::File) => environment.remove_file(&path)?,
+      None => {}
+    }
+  }
+  remove_unused_session_files(environment);
+  remove_dir_when_empty(environment, cache_dir.as_ref())
+}
+
+/// Removes a directory when it's empty, which is kept otherwise (ex. it has
+/// the session files of a server that's running).
+fn remove_dir_when_empty(environment: &impl Environment, dir_path: &Path) -> std::io::Result<()> {
+  match environment.remove_empty_dir(dir_path) {
+    Ok(()) => Ok(()),
+    Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    Err(err) => match environment.dir_entry_paths(dir_path) {
+      Ok(paths) if !paths.is_empty() => Ok(()),
+      _ => Err(err),
+    },
+  }
 }
 
 pub async fn output_file_paths<TEnvironment: Environment>(
@@ -810,6 +871,42 @@ mod test {
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.path_exists("/cache"), false);
+  }
+
+  #[test]
+  fn should_clear_cache_directory_apart_from_the_sessions_of_running_editor_servers() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/cache/plugins").unwrap();
+    environment.write_file("/cache/plugins/plugin.wasm", "").unwrap();
+    environment.mk_dir_all("/cache/editor-sessions").unwrap();
+    environment.write_file("/cache/editor-sessions/running-0123456789.json", "{}").unwrap();
+    environment.write_file("/cache/editor-sessions/exited-0123456789.json", "{}").unwrap();
+    // a server of the session is running, which holds its lock
+    let lock = environment.try_lock_file("/cache/editor-sessions/running-0123456789.lock").unwrap().unwrap();
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["Deleted /cache, apart from the session files of the editor servers that are running."]
+    );
+    assert!(!environment.path_exists("/cache/plugins"));
+    assert!(!environment.path_exists("/cache/editor-sessions/exited-0123456789.json"));
+    assert!(environment.path_exists("/cache/editor-sessions/running-0123456789.json"));
+    assert!(environment.path_exists("/cache/editor-sessions/running-0123456789.lock"));
+    drop(lock);
+    // and everything once no server is running, which isn't said to be kept
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert!(!environment.path_exists("/cache"));
+  }
+
+  #[test]
+  fn should_clear_cache_directory_with_a_file_named_like_the_sessions_directory() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/cache").unwrap();
+    environment.write_file("/cache/editor-sessions", "").unwrap();
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert!(!environment.path_exists("/cache"));
   }
 
   #[test]
