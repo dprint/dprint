@@ -804,14 +804,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets whether the config file at the canonicalized path was resolved
   /// before.
   fn was_resolved(&self, file_path: &Path) -> bool {
-    let file_path = file_path.display().to_string();
+    // like `forget_config_file`, which compares the paths rather than their text
     self
       .resolved_configs
       .borrow()
       .keys()
       .chain(self.config_errors.borrow().keys())
       .chain(self.failed_configs.borrow().iter())
-      .any(|key| key.split('\n').next() == Some(file_path.as_str()))
+      .any(|key| key.split('\n').next().is_some_and(|source| Path::new(source) == file_path))
   }
 
   pub async fn file_info(self: &Rc<Self>, document: &DocumentInfo, text: Option<&str>, global_config: Option<GlobalConfigUse>) -> Result<FileInfoResult> {
@@ -2269,6 +2269,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// which is used once the user allows reading it.
   fn new_config_file_on_another_machine_failure(&self, err: &ConfigFileOnAnotherMachineError) -> ConfigFailure {
     self.stop_watching_config_file(&err.config_path);
+    // what it formats changed when it was resolved before (ex. a `git pull` replaced it with a symlink to a
+    // share), which the editor is told like when it fails to resolve, and it's forgotten so that it isn't
+    // resolved again before reading it is allowed (see `resolve_used_configs_again`)
+    let canonical_path = self.canonicalize_editor_path(err.config_path.clone());
+    if self.was_resolved(&canonical_path) {
+      self.forget_config_file(&canonical_path);
+      self.send_file_config_changed(&canonical_path, ConfigChange::Changed);
+    }
     let downloads = vec![err.download.download.clone()];
     let config_file = self
       .editor_uri(&err.config_path)
