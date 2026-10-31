@@ -13,7 +13,6 @@ use crate::utils::AncestorPaths;
 use crate::utils::PathSource;
 use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::UntrustedDownloadError;
-use crate::utils::get_ancestors_on_share;
 use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 pub static POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
@@ -326,7 +325,11 @@ pub fn get_default_config_file_in_ancestor_directories(environment: &impl Enviro
   let ancestor_paths = environment.download_policy().ancestor_paths(start_dir);
   // a `.config` directory is searched as part of its parent directory, which is next, and what's
   // above the root of a share isn't on it (ex. `/net/dprint.json` is a host named `dprint.json`)
-  for ancestor_dir in get_ancestors_on_share(start_dir).filter(|dir| !is_dot_config_dir(environment, dir)) {
+  for ancestor_dir in ancestor_paths
+    .ancestors(environment)
+    .into_iter()
+    .filter(|dir| !is_dot_config_dir(environment, dir))
+  {
     if let Some((ancestor_config_path, content)) = get_config_file_in_dir(ancestor_dir, environment, &ancestor_paths, start_dir)? {
       let base_path = environment.canonicalize(ancestor_dir)?;
       return Ok(Some(ResolvedConfigPathWithText {
@@ -415,9 +418,10 @@ pub fn get_dot_config_file_paths(environment: &impl Environment, dir: &Path) -> 
 /// `get_default_config_file_in_ancestor_directories`).
 fn get_config_file_in_dir(dir: &Path, environment: &impl Environment, ancestor_paths: &AncestorPaths, base: &Path) -> Result<Option<(PathBuf, String)>> {
   // IMPORTANT: Each path is checked before it's looked up because that may contact another machine.
+  // Checking it looks it up, so it's only read when that didn't find that it doesn't exist.
   let ensure_allows = |path: &Path, config_path: &Path| {
     ancestor_paths
-      .ensure_allows(environment, path, Some(base))
+      .ensure_allows_existing(environment, path, Some(base))
       .map_err(|download| ConfigFileOnAnotherMachineError {
         config_path: config_path.to_path_buf(),
         dir: dir.to_path_buf(),
@@ -426,18 +430,21 @@ fn get_config_file_in_dir(dir: &Path, environment: &impl Environment, ancestor_p
   };
   for file_name in &POSSIBLE_CONFIG_FILE_NAMES {
     let config_path = dir.join(file_name);
-    ensure_allows(&config_path, &config_path)?;
-    if let Some(text) = environment.maybe_read_file(&config_path)? {
+    if ensure_allows(&config_path, &config_path)?
+      && let Some(text) = environment.maybe_read_file(&config_path)?
+    {
       return Ok(Some((config_path, text)));
     }
   }
   let dot_config_dir = dir.join(DOT_CONFIG_DIR_NAME);
-  ensure_allows(&dot_config_dir, &dot_config_dir.join(DOT_CONFIG_FILE_NAMES[0]))?;
+  if !ensure_allows(&dot_config_dir, &dot_config_dir.join(DOT_CONFIG_FILE_NAMES[0]))? {
+    return Ok(None);
+  }
   for config_path in get_dot_config_file_paths(environment, dir) {
-    ensure_allows(&config_path, &config_path)?;
     // check it's a file first because reading within a `.config` that's
     // not a directory errors on some platforms rather than not finding it
-    if environment.path_is_file(&config_path)
+    if ensure_allows(&config_path, &config_path)?
+      && environment.path_is_file(&config_path)
       && let Some(text) = environment.maybe_read_file(&config_path)?
     {
       return Ok(Some((config_path, text)));
@@ -593,6 +600,23 @@ mod tests {
 
     let result = resolve_env_var_folder(&env, "NONEXISTENT_VAR");
     assert_eq!(result, None);
+  }
+
+  #[test]
+  fn should_only_read_the_config_files_the_editors_found_when_checking_them() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/repo/a/b").unwrap();
+    env.write_file("/repo/dprint.json", "{}").unwrap();
+    env.set_download_policy(crate::utils::DownloadPolicy::for_editor(&env));
+    let config = get_default_config_file_in_ancestor_directories(&env, Path::new("/repo/a/b")).unwrap().unwrap();
+    assert_eq!(config.base_path, CanonicalizedPathBuf::new_for_testing("/repo"));
+    // checking that a path isn't on another machine looks it up, so one that doesn't exist isn't read
+    for dir in ["/repo/a/b", "/repo/a"] {
+      for file_name in POSSIBLE_CONFIG_FILE_NAMES {
+        assert_eq!(env.file_read_count(Path::new(dir).join(file_name)), 0, "{} {}", dir, file_name);
+      }
+    }
+    assert_eq!(env.file_read_count("/repo/dprint.json"), 1);
   }
 
   #[cfg(windows)]

@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::future::Future;
@@ -174,6 +175,9 @@ pub struct TestEnvironment {
   file_read_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// How many times the kind of a path was gotten (see `Environment::path_kind`).
   path_kind_count: Arc<Mutex<usize>>,
+  /// The directories that are the roots of an automounter's file system (see
+  /// `Environment::is_automount_dir`).
+  automount_dirs: Arc<Mutex<HashSet<PathBuf>>>,
   /// URLs whose requests never get a response.
   unresponsive_remote_files: Arc<Mutex<Vec<String>>>,
   selection_result: Arc<Mutex<usize>>,
@@ -232,6 +236,7 @@ impl TestEnvironment {
       remote_file_request_counts: Default::default(),
       file_read_counts: Default::default(),
       path_kind_count: Default::default(),
+      automount_dirs: Default::default(),
       unresponsive_remote_files: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       prompt_terminal: Default::default(),
@@ -345,6 +350,14 @@ impl TestEnvironment {
   /// Gets the number of times the kind of any path was gotten.
   pub fn path_kind_count(&self) -> usize {
     *self.path_kind_count.lock()
+  }
+
+  /// Makes the directory the root of an automounter's file system (ex. `/net`
+  /// with autofs), whose children may be mounted from another machine (see
+  /// `Environment::is_automount_dir`).
+  pub fn add_automount_dir(&self, dir_path: impl AsRef<Path>) {
+    let dir_path = self.clean_path(dir_path);
+    self.automount_dirs.lock().insert(dir_path);
   }
 
   /// Makes requests of the URL not get a response, which models a host
@@ -826,6 +839,11 @@ impl Environment for TestEnvironment {
   fn read_link(&self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
     let path = self.clean_path(path);
     self.sys.fs_read_link(path)
+  }
+
+  fn is_automount_dir(&self, dir_path: impl AsRef<Path>) -> bool {
+    let dir_path = self.clean_path(dir_path);
+    self.automount_dirs.lock().contains(&dir_path)
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {

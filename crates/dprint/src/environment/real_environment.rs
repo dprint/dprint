@@ -487,6 +487,11 @@ impl Environment for RealEnvironment {
     fs::read_link(path)
   }
 
+  fn is_automount_dir(&self, dir_path: impl AsRef<Path>) -> bool {
+    log_debug!(self, "Getting the file system of: {}", dir_path.as_ref().display());
+    is_automount_dir(dir_path.as_ref())
+  }
+
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     canonicalize_path(path)
   }
@@ -847,6 +852,47 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> io::R
     None => Err(io::Error::new(io::ErrorKind::NotFound, "Expected to find cache directory.")),
   }
 }
+
+/// Gets whether the directory is the root of an automounter's file system
+/// (see `Environment::is_automount_dir`) from the type of its file system,
+/// which `statfs` gets without looking up the directory's children.
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple", target_os = "freebsd"))]
+fn is_automount_dir(dir_path: &Path) -> bool {
+  use std::os::unix::ffi::OsStrExt;
+
+  let Ok(dir_path) = std::ffi::CString::new(dir_path.as_os_str().as_bytes()) else {
+    return false;
+  };
+  let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
+  // SAFETY: the path is nul terminated and the buffer has the size of what's written to it
+  if unsafe { libc::statfs(dir_path.as_ptr(), stat.as_mut_ptr()) } != 0 {
+    return false;
+  }
+  // SAFETY: it succeeded, so it was written
+  let stat = unsafe { stat.assume_init() };
+  #[cfg(any(target_os = "linux", target_os = "android"))]
+  {
+    // the type's size and sign differ between the targets
+    #[allow(clippy::unnecessary_cast)]
+    let is_autofs = stat.f_type as u64 == AUTOFS_SUPER_MAGIC;
+    is_autofs
+  }
+  #[cfg(not(any(target_os = "linux", target_os = "android")))]
+  {
+    // SAFETY: the name is nul terminated
+    let type_name = unsafe { std::ffi::CStr::from_ptr(stat.f_fstypename.as_ptr()) };
+    type_name.to_bytes() == b"autofs"
+  }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple", target_os = "freebsd")))]
+fn is_automount_dir(_dir_path: &Path) -> bool {
+  false
+}
+
+/// The `f_type` of an `autofs` file system on Linux.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const AUTOFS_SUPER_MAGIC: u64 = 0x0187;
 
 #[cfg(test)]
 mod test {

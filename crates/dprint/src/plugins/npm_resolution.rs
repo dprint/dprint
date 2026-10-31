@@ -28,7 +28,6 @@ use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::UntrustedDownloadError;
-use crate::utils::get_ancestors_on_share;
 use crate::utils::get_sha256_checksum;
 use crate::utils::parse_rfc3339;
 use crate::utils::replace_control_chars;
@@ -1344,16 +1343,18 @@ impl NpmrcChain {
         files.push(NpmrcEntry::Read(NpmrcFile { path, is_users, text, parsed }));
       }
     };
-    if let Some(start) = start_dir {
-      // what's above the root of a share isn't on it (ex. `/net/.npmrc` is a host named `.npmrc`)
-      for dir in get_ancestors_on_share(start) {
-        load_dir(dir);
-      }
+    // what's above the root of a share isn't on it (ex. `/net/.npmrc` is a host named `.npmrc`)
+    let ancestor_dirs = ancestor_paths
+      .as_ref()
+      .map(|ancestor_paths| ancestor_paths.ancestors(environment))
+      .unwrap_or_default();
+    for dir in &ancestor_dirs {
+      load_dir(dir);
     }
     // the user-level file is only a fallback, so when the walk already went
     // through the home directory there's nothing more it could set
     if let Some(home_dir) = &home_dir
-      && !start_dir.is_some_and(|start| get_ancestors_on_share(start).any(|dir| dir == home_dir.as_ref()))
+      && !ancestor_dirs.iter().any(|dir| *dir == home_dir.as_ref())
     {
       load_dir(home_dir.as_ref());
     }
@@ -1709,7 +1710,7 @@ fn get_tarball_url_from_packument(packument: &serde_json::Value, version: &str, 
 pub fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Result<Option<PathBuf>> {
   let ancestor_paths = environment.download_policy().ancestor_paths(start_dir);
   // what's above the root of a share isn't on it (ex. `/net/node_modules` is a host named `node_modules`)
-  for dir in get_ancestors_on_share(start_dir) {
+  for dir in ancestor_paths.ancestors(environment) {
     let candidate = dir.join("node_modules").join(package_name);
     ancestor_paths.ensure_allows(environment, &candidate, Some(start_dir))?;
     if environment.path_exists(&candidate) {

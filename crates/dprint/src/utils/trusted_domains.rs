@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::path::Component;
 use std::path::Path;
@@ -177,26 +178,28 @@ impl TrustedDownloads {
   /// `DownloadPolicy::ensure_allows_path`).
   fn ensure_allows_path(&self, environment: &impl Environment, path: &Path, base: Option<&Path>, rules: PathRules) -> Result<(), UntrustedDownloadError> {
     // the share of the file it's relative to is already being read
-    let base_share = base.and_then(|base| get_network_share(base, rules.is_net_automounted));
-    let network_path = resolve_network_share(environment, path, rules, base_share);
-    self.ensure_allows_network_path(path, network_path, base, rules)
+    let mut base_share = base.and_then(|base| get_network_share(base, rules.is_net_automounted));
+    let mut network_path = resolve_network_share(environment, path, rules, base_share.clone());
+    // the file it's relative to may be on a share that an automounter mounted, which is
+    // only found through the file system, so that's only done when the path reached a share
+    if network_path.is_some()
+      && base_share.is_none()
+      && let Some(automounted_share) = base.and_then(|base| get_automounted_share(environment, base, rules))
+    {
+      network_path = resolve_network_share(environment, path, rules, Some(automounted_share.clone()));
+      base_share = Some(automounted_share);
+    }
+    self.ensure_allows_network_path(path, network_path, base_share.as_deref())
   }
 
   /// Errors when the path that's on another machine may not be read without
-  /// asking the user (see `DownloadPolicy::ensure_allows_path`).
-  fn ensure_allows_network_path(
-    &self,
-    path: &Path,
-    network_path: Option<NetworkPath>,
-    base: Option<&Path>,
-    rules: PathRules,
-  ) -> Result<(), UntrustedDownloadError> {
+  /// asking the user (see `DownloadPolicy::ensure_allows_path`), which it may
+  /// be when it's on the share of the file it's relative to.
+  fn ensure_allows_network_path(&self, path: &Path, network_path: Option<NetworkPath>, base_share: Option<&str>) -> Result<(), UntrustedDownloadError> {
     let Some(network_path) = network_path else {
       return Ok(());
     };
-    // the file it's relative to was already resolved
-    let base_share = base.and_then(|base| get_network_share(base, rules.is_net_automounted));
-    if base_share.is_some_and(|base_share| base_share == network_path.share) || self.is_path_allowed(path, &network_path.resolved) {
+    if base_share == Some(network_path.share.as_str()) || self.is_path_allowed(path, &network_path.resolved) {
       Ok(())
     } else {
       Err(UntrustedDownloadError {
@@ -280,8 +283,9 @@ pub struct AncestorPaths {
   downloads: Option<Arc<TrustedDownloads>>,
   dir: PathBuf,
   rules: PathRules,
-  /// How the directory and each of its ancestors were followed.
-  walks: OnceCell<HashMap<PathBuf, PathWalk>>,
+  /// The share the directory is on, with how the directory and each of its
+  /// ancestors were followed.
+  walks: OnceCell<(Option<String>, HashMap<PathBuf, PathWalk>)>,
 }
 
 impl AncestorPaths {
@@ -297,44 +301,112 @@ impl AncestorPaths {
     }
   }
 
+  /// Gets the directory and its ancestors, which stop at the root of the
+  /// network share the directory is on (see `parent_on_share`).
+  pub fn ancestors(&self, environment: &impl Environment) -> Vec<&Path> {
+    std::iter::successors(Some(self.dir.as_path()), |dir| self.parent_on_share(environment, dir)).collect()
+  }
+
+  /// Gets the parent of the directory or one of its ancestors, which is
+  /// `None` for the root of the network share the directory is on (ex.
+  /// `/net/host` on macOS) because what's above it isn't on the share. For
+  /// example, `/net/.npmrc` isn't a file but a host named `.npmrc`, which the
+  /// automounter would look up. The same goes for the root of a share that an
+  /// automounter mounted elsewhere (ex. `/home/me` when `/home` is an
+  /// `autofs` directory).
+  pub fn parent_on_share<'a>(&self, environment: &impl Environment, dir: &'a Path) -> Option<&'a Path> {
+    let parent = get_parent_on_share_with(dir, self.rules.is_net_automounted)?;
+    if self.downloads.is_none() {
+      return Some(parent);
+    }
+    let (followed_share, walks) = self.get_walks(environment);
+    let Some(followed_share) = followed_share else {
+      return Some(parent);
+    };
+    let share = PathLocation::Share(followed_share.clone());
+    let location = |dir: &Path| walks.get(&*self.rules.normalize(dir)).map(|walk| &walk.location);
+    match (location(dir), location(parent)) {
+      (Some(location), Some(parent_location)) if *location == share && *parent_location != share => None,
+      _ => Some(parent),
+    }
+  }
+
   /// Errors when the path, which is in the directory or one of its ancestors,
   /// is on another machine and may not be read without asking the user (see
   /// `DownloadPolicy::ensure_allows_path`).
   pub fn ensure_allows(&self, environment: &impl Environment, path: &Path, base: Option<&Path>) -> Result<(), UntrustedDownloadError> {
+    self.ensure_allows_existing(environment, path, base).map(|_| ())
+  }
+
+  /// Errors like `ensure_allows`, which also gets whether the path may exist.
+  /// It's `false` when following it found that it doesn't, so it doesn't need
+  /// to be read, and `true` otherwise (ex. when nothing was looked up because
+  /// anything may be read).
+  pub fn ensure_allows_existing(&self, environment: &impl Environment, path: &Path, base: Option<&Path>) -> Result<bool, UntrustedDownloadError> {
     let Some(downloads) = &self.downloads else {
-      return Ok(());
+      return Ok(true);
     };
-    let followed_share = get_network_share(&self.dir, self.rules.is_net_automounted);
-    let walks = self
-      .walks
-      .get_or_init(|| PathWalk::follow_ancestors(environment, &self.dir, self.rules, followed_share.clone()));
+    let (followed_share, walks) = self.get_walks(environment);
     // the walks are of the directories as they're followed (ex. without `..` on Windows)
     let followed_path = self.rules.normalize(path);
-    let network_path = match followed_path.ancestors().find_map(|dir| Some((dir, walks.get(dir)?))) {
+    let walk = match followed_path.ancestors().find_map(|dir| Some((dir, walks.get(dir)?))) {
       Some((dir, walk)) => {
         let mut walk = walk.clone();
         walk.follow(environment, followed_path.strip_prefix(dir).unwrap_or(path), self.rules, |_| {});
-        walk.into_network_path(path)
+        walk
       }
       // ex. it's in a directory that's after a symlink loop
-      None => resolve_network_share(environment, path, self.rules, followed_share),
+      None => {
+        let mut walk = PathWalk::new(followed_share.clone());
+        walk.follow(environment, path, self.rules, |_| {});
+        walk
+      }
     };
-    downloads.ensure_allows_network_path(path, network_path, base, self.rules)
+    let is_missing = walk.is_missing;
+    let network_path = walk.into_network_path(path);
+    let base_share = match &network_path {
+      Some(_) => base.and_then(|base| self.get_base_share(environment, base)),
+      None => None,
+    };
+    downloads.ensure_allows_network_path(path, network_path, base_share.as_deref())?;
+    Ok(!is_missing)
   }
-}
 
-/// Gets the directory and its ancestors, which stop at the root of the
-/// network share it's on (see `get_parent_on_share`).
-pub fn get_ancestors_on_share(dir: &Path) -> impl Iterator<Item = &Path> {
-  std::iter::successors(Some(dir), |dir| get_parent_on_share(dir))
-}
+  /// Gets the share the directory is on, which is followed like a local path,
+  /// with how the directory and each of its ancestors were followed. The
+  /// share is from the text of the directory, or else from following it when
+  /// an automounter mounted it (see `get_automounted_share`).
+  fn get_walks(&self, environment: &impl Environment) -> (&Option<String>, &HashMap<PathBuf, PathWalk>) {
+    let (share, walks) = self.walks.get_or_init(|| {
+      let share = get_network_share(&self.dir, self.rules.is_net_automounted);
+      let walks = PathWalk::follow_ancestors(environment, &self.dir, self.rules, share.clone());
+      if share.is_some() {
+        return (share, walks);
+      }
+      match walks.get(&*self.rules.normalize(&self.dir)).and_then(|walk| walk.get_automounted_share()) {
+        Some(share) => {
+          let walks = PathWalk::follow_ancestors(environment, &self.dir, self.rules, Some(share.clone()));
+          (Some(share), walks)
+        }
+        None => (None, walks),
+      }
+    });
+    (share, walks)
+  }
 
-/// Gets the parent of the directory, which is `None` for the root of a
-/// network share (ex. `/net/host` on macOS) because what's above it isn't on
-/// the share. For example, `/net/.npmrc` isn't a file but a host named
-/// `.npmrc`, which the automounter would look up.
-pub fn get_parent_on_share(dir: &Path) -> Option<&Path> {
-  get_parent_on_share_with(dir, PATH_RULES.is_net_automounted)
+  /// Gets the share of the file a path is relative to like
+  /// `TrustedDownloads::ensure_allows_path`, which is already known for the
+  /// directory and its ancestors.
+  fn get_base_share(&self, environment: &impl Environment, base: &Path) -> Option<String> {
+    if let Some(share) = get_network_share(base, self.rules.is_net_automounted) {
+      return Some(share);
+    }
+    let (followed_share, walks) = self.get_walks(environment);
+    match walks.get(&*self.rules.normalize(base)) {
+      Some(walk) => followed_share.clone().filter(|share| walk.location == PathLocation::Share(share.clone())),
+      None => get_automounted_share(environment, base, self.rules),
+    }
+  }
 }
 
 /// The error for something that needs to be downloaded from where the
@@ -597,8 +669,9 @@ const NPMRC_PROXY_DOWNLOAD_PREFIX: &str = "npmrc-proxy:";
 
 /// How the system resolves the paths that are checked (see `PathRules`).
 const PATH_RULES: PathRules = PathRules {
-  is_net_automounted: cfg!(target_os = "macos"),
+  is_net_automounted: cfg!(any(target_os = "macos", target_os = "linux")),
   is_parent_lexical: cfg!(windows),
+  has_windows_names: cfg!(windows),
 };
 
 /// The most symlinks to follow when resolving a path, which is more than the
@@ -610,12 +683,19 @@ const MAX_SYMLINKS: usize = 64;
 struct PathRules {
   /// Whether a path in `/net` is on another machine, which is where the
   /// automounter of macOS mounts the shares of a host when the host is
-  /// looked up.
+  /// looked up, and the one of Linux does with its `-hosts` map. That's from
+  /// its text, which is what the share of the file a path is relative to is
+  /// from. A directory of an automounter is also found from its file system,
+  /// wherever it is (see `Environment::is_automount_dir`).
   is_net_automounted: bool,
   /// Whether `..` is applied to the text of a path before anything in it is
   /// followed, like Win32 does, instead of to where the path before it
   /// resolved to (ex. `link\..\x` is `x` even when `link` is a symlink).
   is_parent_lexical: bool,
+  /// Whether a name is resolved like Windows does, where what's before a `:`
+  /// is the file of an alternate data stream and Win32 changes some names
+  /// (see `WindowsName`).
+  has_windows_names: bool,
 }
 
 impl PathRules {
@@ -686,6 +766,16 @@ fn resolve_network_share(environment: &impl Environment, path: &Path, rules: Pat
   walk.into_network_path(path)
 }
 
+/// Gets the share that an automounter mounted that a directory is on (ex.
+/// `/home/me/project` when `/home` is an `autofs` directory), which is
+/// followed like the share in the text of a path because it's from the path
+/// without any symlinks (see `PathWalk::get_automounted_share`).
+fn get_automounted_share(environment: &impl Environment, dir: &Path, rules: PathRules) -> Option<String> {
+  let mut walk = PathWalk::new(None);
+  walk.follow(environment, dir, rules, |_| {});
+  walk.get_automounted_share()
+}
+
 /// A path on another machine (see `resolve_network_share`).
 struct NetworkPath {
   /// Where it is (see `get_network_share`).
@@ -702,10 +792,20 @@ struct PathWalk {
   /// The path without symlinks or `..` that's followed so far.
   resolved: PathBuf,
   location: PathLocation,
+  /// The root of the share it's on when an automounter mounted it (ex.
+  /// `/home/me` when `/home` is an `autofs` directory), which is where what's
+  /// on the share is.
+  automount_root: Option<PathBuf>,
   symlink_count: usize,
   /// The share that's followed like a local path, because its machine is
   /// already being read (ex. the share of a project that's on one).
   followed_share: Option<String>,
+  /// Whether the last component that was looked up doesn't exist, so the
+  /// path doesn't (see `AncestorPaths::ensure_allows_existing`).
+  is_missing: bool,
+  /// Whether each directory that was checked is an automounter's, which the
+  /// walks that are cloned from this one share (see `Environment::is_automount_dir`).
+  automount_dirs: Arc<Mutex<HashMap<PathBuf, bool>>>,
 }
 
 /// Where a path that's followed is (see `PathWalk`).
@@ -723,6 +823,10 @@ enum PathLocation {
   /// machine that nothing is the same as. What's left of the path is added as
   /// it is.
   LeftShare,
+  /// It couldn't be followed (ex. Win32 changes a name in it), so it may be
+  /// on another machine that nothing is the same as. What's left of the path
+  /// is added as it is.
+  Unresolved,
   /// It went through more symlinks than the systems follow, so reading it
   /// fails anyway.
   SymlinkLoop,
@@ -798,19 +902,21 @@ impl PathWalk {
   }
 
   fn step(&mut self, environment: &impl Environment, component: OwnedComponent, remaining: &mut Vec<OwnedComponent>, rules: PathRules) {
+    self.is_missing = false;
     match &self.location {
       PathLocation::Local => {}
       PathLocation::Share(share) if self.followed_share.as_ref() == Some(share) => {}
-      PathLocation::Share(share) => {
+      PathLocation::Share(_) => {
         if let OwnedComponent::Parent = component {
-          match self.resolved.parent() {
+          let parent = self.resolved.parent().map(|parent| (parent.to_path_buf(), self.get_location(parent, rules).0));
+          match parent {
             // ex. the root of a UNC path, which can't be left
             None => {}
-            Some(parent) if get_network_share(parent, rules.is_net_automounted).as_ref() == Some(share) => self.resolved = parent.to_path_buf(),
+            Some((parent, location)) if location == self.location => self.resolved = parent,
             // IMPORTANT: Leaving the share (ex. `/net/host/..`) may reach another machine.
             Some(_) => {
               self.resolved.push("..");
-              self.location = PathLocation::LeftShare;
+              self.set_location(PathLocation::LeftShare, None);
             }
           }
         } else {
@@ -818,7 +924,7 @@ impl PathWalk {
         }
         return;
       }
-      PathLocation::LeftShare => {
+      PathLocation::LeftShare | PathLocation::Unresolved => {
         component.push_to(&mut self.resolved);
         return;
       }
@@ -828,45 +934,133 @@ impl PathWalk {
       OwnedComponent::Root(root) => {
         self.resolved.push(root);
         // ex. a UNC prefix, or an absolute symlink on the followed share that points at a local path
-        self.location = PathLocation::from_path(&self.resolved, rules);
+        self.set_location(PathLocation::from_path(&self.resolved, rules), None);
       }
       OwnedComponent::Parent => {
         // the parent of the root is the root
         self.resolved.pop();
         // ex. it left the followed share (`/net/host/..`), which is followed like a local path
-        self.location = PathLocation::from_path(&self.resolved, rules);
+        let (location, automount_root) = self.get_location(&self.resolved, rules);
+        self.set_location(location, automount_root);
       }
-      OwnedComponent::Normal(name) => {
-        let next = self.resolved.join(name);
-        let location = PathLocation::from_path(&next, rules);
-        if matches!(&location, PathLocation::Share(share) if self.followed_share.as_ref() != Some(share)) {
-          self.resolved = next;
-          self.location = location;
-          return;
-        }
-        if environment.path_kind(&next) != Some(PathKind::Symlink) {
-          self.resolved = next;
-          self.location = location;
-          return;
-        }
-        self.symlink_count += 1;
-        if self.symlink_count > MAX_SYMLINKS {
-          self.location = PathLocation::SymlinkLoop;
-          return;
-        }
-        match environment.read_link(&next) {
-          Ok(target) => {
-            let target = get_symlink_target_path(&self.resolved, &target, rules);
-            remaining.extend(target.components().rev().filter_map(OwnedComponent::new));
-            self.resolved = PathBuf::new();
-          }
-          // reading the path fails the same way
-          Err(_) => {
-            self.resolved = next;
-            self.location = location;
-          }
-        }
+      // it's of the file or directory that was followed, so it's where that is
+      OwnedComponent::Stream(stream) => append_stream(&mut self.resolved, &stream),
+      OwnedComponent::Normal(name) => self.step_into(environment, &name, remaining, rules),
+    }
+  }
+
+  /// Follows a name in the directory that was followed.
+  fn step_into(&mut self, environment: &impl Environment, name: &OsStr, remaining: &mut Vec<OwnedComponent>, rules: PathRules) {
+    let next = self.resolved.join(name);
+    let (mut location, mut automount_root) = self.get_location(&next, rules);
+    // IMPORTANT: Looking up what's in an automounter's directory (ex. `/net` with `autofs`) may
+    // mount it from another machine. The share is the path as it is because it may be case sensitive.
+    if location == PathLocation::Local && self.is_automount_dir(environment, &self.resolved) {
+      location = PathLocation::Share(next.to_string_lossy().into_owned());
+      automount_root = Some(next.clone());
+    }
+    if matches!(&location, PathLocation::Share(share) if self.followed_share.as_ref() != Some(share)) {
+      self.resolved = next;
+      self.set_location(location, automount_root);
+      return;
+    }
+    let windows_name = if rules.has_windows_names {
+      WindowsName::new(&self.resolved, name)
+    } else {
+      WindowsName::Plain
+    };
+    // what's looked up, which is the file of a stream because looking up the stream of a symlink
+    // fails although reading it follows the symlink
+    let (lookup_path, stream) = match windows_name {
+      WindowsName::Plain => (next.clone(), None),
+      // the stream of the directory that was followed (ex. `dir\:stream`)
+      WindowsName::Stream("", _) => {
+        self.resolved = next;
+        self.set_location(location, automount_root);
+        return;
       }
+      WindowsName::Stream(file_name, stream) => (self.resolved.join(file_name), Some(stream)),
+      // IMPORTANT: Win32 doesn't change it the same way when it's looked up as when it's read.
+      WindowsName::Changed => {
+        self.resolved = next;
+        self.set_location(PathLocation::Unresolved, None);
+        return;
+      }
+    };
+    let kind = environment.path_kind(&lookup_path);
+    if kind != Some(PathKind::Symlink) {
+      // IMPORTANT: The file of a stream that can't be looked up may be a symlink that reading the stream follows.
+      if stream.is_some() && kind.is_none() && environment.path_kind(&next).is_some() {
+        self.resolved = next;
+        self.set_location(PathLocation::Unresolved, None);
+        return;
+      }
+      self.is_missing = kind.is_none();
+      self.resolved = next;
+      self.set_location(location, automount_root);
+      return;
+    }
+    self.symlink_count += 1;
+    if self.symlink_count > MAX_SYMLINKS {
+      self.set_location(PathLocation::SymlinkLoop, None);
+      return;
+    }
+    match environment.read_link(&lookup_path) {
+      Ok(target) => {
+        let target = get_symlink_target_path(&self.resolved, &target, rules);
+        // the stream is of what the symlink points at, so it's added once that's followed
+        if let Some(stream) = stream {
+          remaining.push(OwnedComponent::Stream(stream.into()));
+        }
+        remaining.extend(target.components().rev().filter_map(OwnedComponent::new));
+        self.resolved = PathBuf::new();
+      }
+      // reading the path fails the same way
+      Err(_) => {
+        self.resolved = next;
+        self.set_location(location, automount_root);
+      }
+    }
+  }
+
+  /// Gets where a path the walk goes to from where it is would be from its
+  /// text, which is on the share an automounter mounted that the walk is on
+  /// when it's in the share's root, along with that root.
+  fn get_location(&self, path: &Path, rules: PathRules) -> (PathLocation, Option<PathBuf>) {
+    match &self.automount_root {
+      Some(root) if path.starts_with(root) => (self.location.clone(), Some(root.clone())),
+      _ => (PathLocation::from_path(path, rules), None),
+    }
+  }
+
+  /// Sets where the walk is, with the root of the share an automounter
+  /// mounted when it's on one.
+  fn set_location(&mut self, location: PathLocation, automount_root: Option<PathBuf>) {
+    self.location = location;
+    self.automount_root = automount_root;
+  }
+
+  /// Gets whether the directory is an automounter's (see
+  /// `Environment::is_automount_dir`), which is only checked once.
+  fn is_automount_dir(&self, environment: &impl Environment, dir: &Path) -> bool {
+    if dir.as_os_str().is_empty() {
+      return false;
+    }
+    if let Some(is_automount_dir) = self.automount_dirs.lock().get(dir) {
+      return *is_automount_dir;
+    }
+    let is_automount_dir = environment.is_automount_dir(dir);
+    self.automount_dirs.lock().insert(dir.to_path_buf(), is_automount_dir);
+    is_automount_dir
+  }
+
+  /// Gets the share an automounter mounted that the path that was followed is
+  /// on, which is only when no symlink was followed to get to it, so it's on
+  /// it like a path is on the share in its text.
+  fn get_automounted_share(&self) -> Option<String> {
+    match (&self.location, &self.automount_root) {
+      (PathLocation::Share(share), Some(_)) if self.symlink_count == 0 => Some(share.clone()),
+      _ => None,
     }
   }
 
@@ -879,7 +1073,7 @@ impl PathWalk {
         resolved: self.resolved,
       }),
       // the whole path, which the file it's relative to never matches
-      PathLocation::LeftShare => Some(NetworkPath {
+      PathLocation::LeftShare | PathLocation::Unresolved => Some(NetworkPath {
         share: self.resolved.to_string_lossy().to_lowercase(),
         resolved: self.resolved,
       }),
@@ -897,6 +1091,9 @@ enum OwnedComponent {
   Root(OsString),
   Parent,
   Normal(OsString),
+  /// An alternate data stream (ex. `:stream`) of the file or directory
+  /// before it on Windows, which is added to its name (see `WindowsName`).
+  Stream(OsString),
 }
 
 impl OwnedComponent {
@@ -916,7 +1113,80 @@ impl OwnedComponent {
       OwnedComponent::Root(root) => path.push(root),
       OwnedComponent::Parent => path.push(".."),
       OwnedComponent::Normal(name) => path.push(name),
+      OwnedComponent::Stream(stream) => append_stream(path, &stream),
     }
+  }
+}
+
+/// How Windows resolves a name of a path (see `PathRules::has_windows_names`).
+enum WindowsName<'a> {
+  /// It's the file or directory with the name.
+  Plain,
+  /// It's an alternate data stream of the file or directory with the name
+  /// before the `:` (ex. `link:stream` or `dir::$INDEX_ALLOCATION`), which is
+  /// the file name and the stream with its `:`.
+  Stream(&'a str, &'a str),
+  /// Win32 changes it, which it doesn't always do the same way when it's
+  /// looked up as when it's read (ex. it removes a trailing space from the
+  /// last component only), or opens a device for it (ex. `LPT1`, which may be
+  /// a printer on another machine).
+  Changed,
+}
+
+impl<'a> WindowsName<'a> {
+  /// Gets how Windows resolves the name in the directory, where Win32 doesn't
+  /// change a name in a verbatim path (ex. `\\?\C:\dir`).
+  fn new(dir: &Path, name: &'a OsStr) -> Self {
+    let Some(name) = name.to_str() else {
+      // a name that isn't unicode isn't split, so it's only known when it doesn't have a stream
+      return if name.as_encoded_bytes().contains(&b':') {
+        WindowsName::Changed
+      } else {
+        WindowsName::Plain
+      };
+    };
+    let (file_name, stream) = match name.find(':') {
+      Some(index) => (&name[..index], Some(&name[index..])),
+      None => (name, None),
+    };
+    let is_verbatim = matches!(dir.components().next(), Some(Component::Prefix(prefix)) if prefix.kind().is_verbatim());
+    if !is_verbatim && (file_name.ends_with(['.', ' ']) || is_dos_device_name(file_name)) {
+      return WindowsName::Changed;
+    }
+    match stream {
+      Some(stream) => WindowsName::Stream(file_name, stream),
+      None => WindowsName::Plain,
+    }
+  }
+}
+
+/// Gets whether Win32 opens a device for a name (ex. `NUL` or `COM1`), which
+/// older versions of Windows also do when it has an extension (ex. `nul.txt`).
+fn is_dos_device_name(file_name: &str) -> bool {
+  let stem = file_name.split('.').next().unwrap_or(file_name).trim_end_matches(' ').to_ascii_uppercase();
+  match stem.as_str() {
+    "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$" => true,
+    _ => {
+      (stem.starts_with("COM") || stem.starts_with("LPT"))
+        && matches!(
+          &stem[3..],
+          "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "\u{b9}" | "\u{b2}" | "\u{b3}"
+        )
+    }
+  }
+}
+
+/// Adds an alternate data stream (ex. `:stream`) to the last component of a
+/// path, which is the file or directory it's of.
+fn append_stream(path: &mut PathBuf, stream: &OsStr) {
+  match path.file_name() {
+    Some(name) => {
+      let mut name = name.to_os_string();
+      name.push(stream);
+      path.set_file_name(name);
+    }
+    // ex. the root of a drive
+    None => path.push(stream),
   }
 }
 
@@ -961,13 +1231,18 @@ fn normalize_lexically(path: &Path) -> Cow<'_, Path> {
   Cow::Owned(normalized)
 }
 
-/// Gets the parent of the directory like `get_parent_on_share`.
+/// Gets the parent of the directory from its text like
+/// `AncestorPaths::parent_on_share`.
+///
+/// The root of a UNC path has no parent, and a share that isn't known (ex.
+/// `\\?\GLOBALROOT\Device\Mup\server\share`) is the whole path, so it
+/// only stops at the root of a share in `/net`.
 fn get_parent_on_share_with(dir: &Path, is_net_automounted: bool) -> Option<&Path> {
   let parent = dir.parent()?;
-  match get_network_share(dir, is_net_automounted) {
-    Some(share) if get_network_share(parent, is_net_automounted).as_ref() != Some(&share) => None,
-    _ => Some(parent),
-  }
+  let is_net_share_root = dir.components().next() == Some(Component::RootDir)
+    && get_network_share(dir, is_net_automounted).is_some()
+    && get_network_share(parent, is_net_automounted).is_none();
+  (!is_net_share_root).then_some(parent)
 }
 
 /// Gets where a path that may be on another machine is (ex. the server and
@@ -975,17 +1250,20 @@ fn get_parent_on_share_with(dir: &Path, is_net_automounted: bool) -> Option<&Pat
 /// from the text of the path, so the path needs to be resolved first (see
 /// `resolve_network_share`).
 ///
-/// IMPORTANT: On Windows, only a path on a drive is known to be local. A UNC
-/// path isn't, and neither is any other kind of prefix because some of them
-/// also reach another machine (ex. `\\.\UNC\server\share` or
-/// `\\?\GLOBALROOT\Device\Mup\server\share`). On macOS, a path in `/net` is on
-/// another machine because the automounter mounts it, and so is one in
-/// `/System/Volumes/Data/net`, which is where `/net` is on the data volume
-/// (it's treated the same even where it isn't, which is safe).
+/// IMPORTANT: On Windows, only a path on a drive or a volume (ex.
+/// `\\?\Volume{...}\`, which is a drive without a letter) is known to be
+/// local. A UNC path isn't, and neither is any other kind of prefix because
+/// some of them also reach another machine (ex. `\\.\UNC\server\share` or
+/// `\\?\GLOBALROOT\Device\Mup\server\share`). On macOS and Linux, a path in
+/// `/net` is on another machine because the automounter mounts it (when
+/// Linux has one), and so is one in `/System/Volumes/Data/net`, which is
+/// where `/net` is on the data volume of macOS (it's treated the same even
+/// where it isn't, which is safe).
 fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
   match path.components().next()? {
     Component::Prefix(prefix) => match prefix.kind() {
       Prefix::Disk(_) | Prefix::VerbatimDisk(_) => None,
+      Prefix::Verbatim(name) | Prefix::DeviceNS(name) if is_volume_name(name) => None,
       Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => Some(format!(
         "{}\\{}",
         server.to_string_lossy().to_lowercase(),
@@ -996,8 +1274,8 @@ fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
     },
     Component::RootDir if is_net_automounted => {
       let mut components = path.components().skip(1).peekable();
-      // the file system is case insensitive by default
-      let is_name = |component: Option<Component<'_>>, name: &str| matches!(component, Some(Component::Normal(value)) if value.eq_ignore_ascii_case(name));
+      // the file system is case insensitive by default, which folds the case of any letter (ex. `ſ` is `s`)
+      let is_name = |component: Option<Component<'_>>, name: &str| matches!(component, Some(Component::Normal(value)) if eq_ignore_case(value, name));
       if components.peek().is_some_and(|component| is_name(Some(*component), "System")) {
         for name in ["System", "Volumes", "Data"] {
           if !is_name(components.next(), name) {
@@ -1012,6 +1290,24 @@ fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
     }
     _ => None,
   }
+}
+
+/// Gets whether a prefix's name is the name of a volume (ex. `Volume{...}`).
+fn is_volume_name(name: &OsStr) -> bool {
+  name
+    .to_str()
+    .and_then(|name| name.get(..7))
+    .is_some_and(|start| start.eq_ignore_ascii_case("Volume{"))
+    && name.as_encoded_bytes().ends_with(b"}")
+}
+
+/// Gets whether a name is the same as another without their case, where a
+/// letter is the same as each one that its case folds to (ex. `ſ` is `s`
+/// and `S`), like a case insensitive file system compares them. Folding more
+/// than one does only treats more paths as on another machine.
+fn eq_ignore_case(value: &OsStr, name: &str) -> bool {
+  let fold = |text: &str| text.chars().flat_map(char::to_uppercase).flat_map(char::to_lowercase).collect::<String>();
+  value.to_str().is_some_and(|value| fold(value) == fold(name))
 }
 
 /// Escapes text from the project like `escape_text`, which also escapes a
@@ -1082,17 +1378,20 @@ mod test {
   const MACOS: PathRules = PathRules {
     is_net_automounted: true,
     is_parent_lexical: false,
+    has_windows_names: false,
   };
   /// The paths of Windows, which applies `..` to the text of a path.
   const WINDOWS: PathRules = PathRules {
     is_net_automounted: false,
     is_parent_lexical: true,
+    has_windows_names: true,
   };
   /// Applies `..` like Windows with `/net` like macOS, so how Windows applies
   /// `..` is tested on every system.
   const LEXICAL_NET: PathRules = PathRules {
     is_net_automounted: true,
     is_parent_lexical: true,
+    has_windows_names: false,
   };
 
   fn url(text: &str) -> Url {
@@ -1488,7 +1787,7 @@ mod test {
     let ensure_allows_each = |path: &Path| {
       let network_path = resolve_network_share(&environment, path, MACOS, None);
       downloads
-        .ensure_allows_network_path(path, network_path, Some(dir), MACOS)
+        .ensure_allows_network_path(path, network_path, get_network_share(dir, true).as_deref())
         .map_err(|err| err.download)
     };
     let mut paths = dir.ancestors().map(|dir| dir.join(".npmrc")).collect::<Vec<_>>();
@@ -1528,6 +1827,225 @@ mod test {
     let ancestor_paths = DownloadPolicy::All.ancestor_paths(dir);
     assert!(ancestor_paths.ensure_allows(&environment, Path::new("/a/b/c/.npmrc"), None).is_ok());
     assert_eq!(environment.path_kind_count(), count);
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_follow_the_file_of_an_alternate_data_stream_on_windows() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/project").unwrap();
+    environment.write_file("/project/file.txt", "").unwrap();
+    environment.symlink(r"\\server\share\dir", "/project/link").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let base = Some(Path::new("/project"));
+    let ensure_allows = |path: &str| policy.ensure_allows_path(&environment, Path::new(path), base).map_err(|err| err.download);
+    // looking up the stream of a symlink fails although reading it follows the symlink,
+    // so the stream is of what the symlink points at
+    let resolved = Path::new(r"\\server\share\dir:plugin.wasm");
+    assert_eq!(
+      ensure_allows("/project/link:plugin.wasm"),
+      Err(format!("{} -> {}", Path::new("/project/link:plugin.wasm").display(), resolved.display()))
+    );
+    assert!(ensure_allows("/project/link::$DATA").is_err());
+    assert!(ensure_allows("/project/link:plugin.wasm:$DATA").is_err());
+    assert!(ensure_allows("/project/link/sub:x").is_err());
+    // the stream of a local file or directory, or of a file that doesn't exist
+    assert!(ensure_allows("/project/file.txt:stream").is_ok());
+    assert!(ensure_allows("/project:stream").is_ok());
+    assert!(ensure_allows("/project/missing:stream").is_ok());
+    // but not one whose file can't be looked up although the stream can
+    environment.write_file("/project/unknown:stream", "").unwrap();
+    assert!(ensure_allows("/project/unknown:stream").is_err());
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_follow_a_real_symlink_with_an_alternate_data_stream_on_windows() {
+    use crate::environment::RealEnvironment;
+    use crate::environment::RealEnvironmentOptions;
+
+    let environment = RealEnvironment::new(RealEnvironmentOptions {
+      log_level: crate::utils::LogLevel::Info,
+      is_stdout_machine_readable: false,
+    })
+    .unwrap();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let link_path = temp_dir.path().join("link");
+    // creating a symlink needs developer mode or elevation, and the target isn't contacted
+    if std::os::windows::fs::symlink_file(r"\\dprint-test.invalid\share\target.txt", &link_path).is_err() {
+      return;
+    }
+    let policy = DownloadPolicy::for_editor(&environment);
+    let err = policy
+      .ensure_allows_path(&environment, &temp_dir.path().join("link:plugin.wasm"), Some(temp_dir.path()))
+      .unwrap_err();
+    assert!(err.download.contains("dprint-test.invalid"), "{}", err.download);
+    assert!(err.download.ends_with(r"\target.txt:plugin.wasm"), "{}", err.download);
+    assert!(policy.ensure_allows_path(&environment, &link_path, Some(temp_dir.path())).is_err());
+  }
+
+  #[test]
+  fn should_not_look_up_a_windows_name_that_win32_changes() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/project/dir").unwrap();
+    let share = |path: &str| resolve_network_share(&environment, Path::new(path), WINDOWS, None).map(|network_path| network_path.share);
+    assert_eq!(share("/project/dir/plugin.wasm"), None);
+    // a trailing dot or space isn't always removed the same way when it's looked up as when it's read
+    assert!(share("/project/dir./plugin.wasm").is_some());
+    assert!(share("/project/dir /plugin.wasm").is_some());
+    assert!(share("/project/plugin.wasm.").is_some());
+    assert!(share("/project/.../plugin.wasm").is_some());
+    // and a device may be on another machine (ex. a printer)
+    for name in ["LPT1", "lpt1", "COM9", "nul.txt", "CON ", "conout$", "AUX:stream", "LPT\u{b9}"] {
+      assert!(share(&format!("/project/{}", name)).is_some(), "{}", name);
+    }
+    for name in ["LPT", "COM10", "console", "nullable.txt", "lpt1x"] {
+      assert_eq!(share(&format!("/project/{}", name)), None, "{}", name);
+    }
+    // only on windows
+    assert!(resolve_network_share(&environment, Path::new("/project/LPT1"), MACOS, None).is_none());
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_not_change_a_name_in_a_verbatim_path_on_windows() {
+    assert!(matches!(WindowsName::new(Path::new(r"\\?\C:\project"), OsStr::new("LPT1")), WindowsName::Plain));
+    assert!(matches!(WindowsName::new(Path::new(r"\\?\C:\project"), OsStr::new("dir.")), WindowsName::Plain));
+    assert!(matches!(WindowsName::new(Path::new(r"C:\project"), OsStr::new("dir.")), WindowsName::Changed));
+    assert!(matches!(
+      WindowsName::new(Path::new(r"\\?\C:\project"), OsStr::new("link:stream")),
+      WindowsName::Stream("link", ":stream")
+    ));
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_treat_a_volume_like_a_drive_on_windows() {
+    let environment = TestEnvironment::new();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let volume = r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}";
+    let dir = PathBuf::from(format!(r"{}\repo\src", volume));
+    assert_eq!(get_network_share(&dir, false), None);
+    assert_eq!(
+      get_network_share(Path::new(r"\\.\Volume{01234567-89ab-cdef-0123-456789abcdef}\repo"), false),
+      None
+    );
+    assert!(policy.ensure_allows_path(&environment, &dir.join("plugin.wasm"), None).is_ok());
+    // the ancestors of a path on a volume or with a prefix whose share isn't known aren't stopped at the first directory
+    let ancestors = |dir: &Path| policy.ancestor_paths(dir).ancestors(&environment).len();
+    assert_eq!(ancestors(&dir), 3);
+    assert_eq!(ancestors(Path::new(r"\\?\GLOBALROOT\Device\Mup\server\share\proj")), 6);
+    // but what's in them is on another machine
+    let globalroot_dir = Path::new(r"\\?\GLOBALROOT\Device\Mup\server\share\proj");
+    let ancestor_paths = policy.ancestor_paths(globalroot_dir);
+    assert!(
+      ancestor_paths
+        .ensure_allows(&environment, &globalroot_dir.join(".npmrc"), Some(globalroot_dir))
+        .is_err()
+    );
+    // and a UNC path still stops at the root of its share
+    assert_eq!(ancestors(Path::new(r"\\server\share\proj")), 2);
+  }
+
+  #[test]
+  fn should_fold_the_case_of_any_letter_in_net_like_the_file_system() {
+    let share = |path: &str| get_network_share(Path::new(path), true);
+    // `ſ` (U+017F) folds to `s` on a case insensitive file system
+    assert_eq!(share("/\u{17f}ystem/Volumes/Data/net/host/plugin.wasm").as_deref(), Some("/net/host"));
+    assert_eq!(share("/System/Volume\u{17f}/Data/net/host").as_deref(), Some("/net/host"));
+    assert_eq!(share("/system/volumes/data/NET/host").as_deref(), Some("/net/host"));
+    assert_eq!(share("/\u{17f}ystem/Volumes/Data/other/host"), None);
+  }
+
+  #[test]
+  fn should_treat_what_is_in_an_automount_directory_as_on_another_machine() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/auto/fs/home/proj").unwrap();
+    environment.mk_dir_all("/local/proj").unwrap();
+    environment.add_automount_dir("/auto");
+    environment.symlink("/auto/attacker/x", "/auto/fs/home/proj/tools").unwrap();
+    environment.symlink("/auto/fs/home", "/local/proj/home_link").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let DownloadPolicy::TrustedDomains(downloads) = &policy else {
+      unreachable!();
+    };
+    let ensure_allows = |path: &str, base: &str| {
+      downloads
+        .ensure_allows_path(&environment, Path::new(path), Some(Path::new(base)), MACOS)
+        .map_err(|err| err.download.replace('\\', "/"))
+    };
+    // what's in it isn't looked up because that may mount it from another machine
+    let count = environment.path_kind_count();
+    assert!(ensure_allows("/auto/other/plugin.wasm", "/local/proj").is_err());
+    // only `/auto`, and the directory of the config file to see whether it's on a share
+    assert_eq!(environment.path_kind_count(), count + 3);
+    // and a symlink to it is followed to it
+    assert_eq!(
+      ensure_allows("/local/proj/home_link/plugin.wasm", "/local/proj"),
+      Err("/local/proj/home_link/plugin.wasm -> /auto/fs/home/plugin.wasm".to_string())
+    );
+    // a config file on the share may use what's on it, which is followed like a local path
+    let base = "/auto/fs/home/proj";
+    assert_eq!(ensure_allows("/auto/fs/home/proj/plugin.wasm", base), Ok(()));
+    assert_eq!(ensure_allows("/auto/fs/home/proj/../plugin.wasm", base), Ok(()));
+    assert_eq!(
+      ensure_allows("/auto/fs/home/proj/tools/plugin.wasm", base),
+      Err("/auto/fs/home/proj/tools/plugin.wasm -> /auto/attacker/x/plugin.wasm".to_string())
+    );
+    assert!(ensure_allows("/auto/fs/../other/plugin.wasm", base).is_err());
+    // but not when it was reached through a symlink, like a share in the text of a path
+    assert!(ensure_allows("/auto/fs/home/plugin.wasm", "/local/proj/home_link").is_err());
+
+    // the walks of ancestor directories do the same and stop at the root of the share
+    let ancestor_paths = AncestorPaths::new(&policy, Path::new(base), MACOS);
+    assert_eq!(
+      ancestor_paths.ancestors(&environment),
+      [Path::new("/auto/fs/home/proj"), Path::new("/auto/fs/home"), Path::new("/auto/fs")]
+    );
+    assert!(
+      ancestor_paths
+        .ensure_allows(&environment, Path::new("/auto/fs/.npmrc"), Some(Path::new(base)))
+        .is_ok()
+    );
+    assert!(
+      ancestor_paths
+        .ensure_allows(&environment, Path::new("/auto/fs/home/proj/tools/.npmrc"), Some(Path::new(base)))
+        .is_err()
+    );
+    // and nothing above it is followed
+    assert!(
+      ancestor_paths
+        .ensure_allows(&environment, Path::new("/auto/.npmrc"), Some(Path::new(base)))
+        .is_err()
+    );
+    let local_ancestor_paths = AncestorPaths::new(&policy, Path::new("/local/proj"), MACOS);
+    assert_eq!(local_ancestor_paths.ancestors(&environment).len(), 3);
+  }
+
+  #[test]
+  fn should_say_whether_a_path_that_was_checked_may_exist() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/a/b").unwrap();
+    environment.write_file("/a/b/file.txt", "").unwrap();
+    environment.symlink("/a/b/file.txt", "/a/b/link").unwrap();
+    environment.symlink("/a/b/missing.txt", "/a/b/broken_link").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let ancestor_paths = AncestorPaths::new(&policy, Path::new("/a/b"), MACOS);
+    let may_exist = |path: &str| ancestor_paths.ensure_allows_existing(&environment, Path::new(path), None).unwrap();
+    assert!(may_exist("/a/b/file.txt"));
+    assert!(may_exist("/a/b/link"));
+    assert!(may_exist("/a/b"));
+    assert!(may_exist("/a"));
+    assert!(!may_exist("/a/b/missing.txt"));
+    assert!(!may_exist("/a/b/broken_link"));
+    assert!(!may_exist("/a/missing/file.txt"));
+    // nothing is looked up when anything may be read
+    assert!(
+      DownloadPolicy::All
+        .ancestor_paths(Path::new("/a/b"))
+        .ensure_allows_existing(&environment, Path::new("/a/b/missing.txt"), None)
+        .unwrap()
+    );
   }
 
   #[test]

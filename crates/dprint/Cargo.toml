@@ -114,6 +114,9 @@ wasmtime = { version = "=50.0.0", default-features = false, features = [
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"
 
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.186"
+
 [dev-dependencies]
 file_test_runner = "0.12.1"
 # stay on this version because it's good enough and makes the output the same on all platforms

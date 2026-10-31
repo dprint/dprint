@@ -38,7 +38,6 @@ use crate::utils::ResolvedFilePathWithText;
 use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::ShowConfirmStrategy;
 use crate::utils::UntrustedDownloadError;
-use crate::utils::get_parent_on_share;
 use crate::utils::get_sha256_checksum;
 use crate::utils::is_negated_glob;
 use crate::utils::is_url_cached;
@@ -920,7 +919,8 @@ async fn handle_config_file<TEnvironment: Environment>(
 /// a config file that has specified `"inherit": true` applies to.
 fn find_config_file_to_inherit(config_dir: &Path, environment: &impl Environment, inherit_chain: &[PathSource]) -> Result<Option<ResolvedConfigPathWithText>> {
   // what's above the root of a share isn't on it (ex. `/net/dprint.json` is a host named `dprint.json`)
-  let Some(ancestor_dir) = get_parent_on_share(config_dir) else {
+  let ancestor_paths = environment.download_policy().ancestor_paths(config_dir);
+  let Some(ancestor_dir) = ancestor_paths.parent_on_share(environment, config_dir) else {
     return Ok(None);
   };
   let Some(ancestor_config_file) = get_default_config_file_in_ancestor_directories(environment, ancestor_dir)? else {

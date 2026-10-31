@@ -326,6 +326,11 @@ pub trait Environment:
   /// Reads what a symlink points at without following it any further, which
   /// may be relative to the symlink's directory.
   fn read_link(&self, path: impl AsRef<Path>) -> io::Result<PathBuf>;
+  /// Gets whether the directory is the root of an automounter's file system
+  /// (ex. `autofs` for `/net` on Linux and macOS), where looking up a child
+  /// may mount it from another machine. It doesn't look up the children, so
+  /// it doesn't mount them, and it's `false` when it can't be told.
+  fn is_automount_dir(&self, dir_path: impl AsRef<Path>) -> bool;
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   /// Canonicalizes a path that might not exist (ex. an unsaved file in an editor)
   /// by canonicalizing its closest existing ancestor and adding back the rest.
