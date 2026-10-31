@@ -310,8 +310,8 @@ fn with_dprint_methods<TEnvironment: Environment>(
 }
 
 /// Starts the task that handles the messages sent by the `Backend`, which
-/// resolves to whether it stopped because of a shutdown request rather than
-/// because the `Backend` was dropped.
+/// stops once the `Backend` is dropped (ex. the client exited or disconnected)
+/// and resolves to whether a shutdown request was received before that.
 fn start_message_handler<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,

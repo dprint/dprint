@@ -327,6 +327,10 @@ pub trait Environment:
     }
   }
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
+  /// Gets the paths of every entry of the directory without following them,
+  /// which includes the symlinks and the other entries that `dir_info` leaves
+  /// out.
+  fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>>;
   /// Tries to take an exclusive lock of the file, which is created when it
   /// doesn't exist. The lock is held until it's dropped or the process exits,
   /// and it's `None` when the file is locked already, including by another

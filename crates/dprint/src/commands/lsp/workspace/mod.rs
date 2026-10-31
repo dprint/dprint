@@ -1547,7 +1547,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       log_warn!(self.environment, "{}", message);
       push_warning_notice(&mut notice, message);
     }
-    // the editor is told once reading a config file on another machine is allowed, which it may watch then
+    // the editor is told once reading a config file on another machine is allowed, so it gets the results again
     if decision.is_allowed() && stored.approval.config_file.on_another_machine {
       self.send_config_changed(ConfigChangedParams {
         config_file: Some(ConfigFileIdentifier {
@@ -1849,10 +1849,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     decisions
   }
 
-  /// Gets the item of a download from its text when its kind can be told
+  /// Gets the item of a download from its text when what it is can be told
   /// from it (ex. a registry, the proxy of an `.npmrc` file, or a path on
   /// another machine), which is `None` for a url, because it may be a plugin
-  /// or a config file.
+  /// or a config file. A registry's `kind` is `plugin` then, because what was
+  /// downloaded from it isn't known.
   fn get_download_item_from_text(&self, download: &str) -> Option<ApprovalItem> {
     let is_url = NpmrcProxy::from_download(download).is_none() && !is_path_download(download) && get_npm_registry_download_url(download).is_none();
     if is_url {
@@ -2509,11 +2510,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let Some(config) = &scope.config else {
       return;
     };
+    let mut are_dependencies_changed = false;
     if let (Some(uri), Some(config_file_path)) = (path_source_to_uri(&config_file.source), config_file.source.maybe_local_path()) {
-      self.config_dependencies.borrow_mut().insert(
-        uri.as_str().to_string(),
-        (config_file_path.as_ref().to_path_buf(), config.local_dependencies.clone()),
-      );
+      let dependencies = (config_file_path.as_ref().to_path_buf(), config.local_dependencies.clone());
+      let previous = self.config_dependencies.borrow_mut().insert(uri.as_str().to_string(), dependencies.clone());
+      are_dependencies_changed = previous.as_ref() != Some(&dependencies);
     }
     let state = ResolvedConfigState {
       config: config.clone(),
@@ -2528,7 +2529,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     {
       self.send_config_changed(params);
     }
-    self.register_watch_files();
+    // registering them follows the path of each directory (see `register_watch_files`)
+    if are_dependencies_changed {
+      self.register_watch_files();
+    }
   }
 
   /// Gets whether the user denied downloading the downloads for the config
@@ -2583,7 +2587,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     // directory that may not be read is left out because watching it would follow it to another machine (ex. a
     // directory a `git pull` replaced with a symlink to a share). A watcher of a directory doesn't follow the
     // symlinks in it (see "Lifecycle" in the editor extension docs), so a file that's a symlink is fine.
-    file_paths.retain(|path| path.parent().is_some_and(|dir_path| self.allows_reading_path(dir_path)));
+    let mut allowed_dirs = HashMap::new();
+    file_paths.retain(|path| {
+      path
+        .parent()
+        .is_some_and(|dir_path| *allowed_dirs.entry(dir_path.to_path_buf()).or_insert_with(|| self.allows_reading_path(dir_path)))
+    });
     file_paths.sort();
     if *registered != file_paths {
       self.client.register_watched_files(&file_paths);

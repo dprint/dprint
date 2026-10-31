@@ -1741,6 +1741,73 @@ fn should_not_watch_a_directory_of_an_extended_file_that_is_on_another_machine_n
 }
 
 #[test]
+fn should_register_the_files_to_watch_by_their_canonical_directories() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/data/proj/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("extends", r#""./base.json""#);
+    })
+    .build();
+  environment.write_file("/data/proj/base.json", "{}").unwrap();
+  // the workspace is opened through a symlink
+  environment.add_canonical_dir("/home/proj", "/data/proj");
+  let mut params = editor_extension_params();
+  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
+  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
+    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
+      dynamic_registration: Some(true),
+      relative_pattern_support: Some(true),
+    }),
+    ..Default::default()
+  });
+  params.workspace_folders = Some(vec![WorkspaceFolder {
+    uri: uri("/home/proj"),
+    name: "proj".to_string(),
+  }]);
+  run_session_with(&environment, params, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // a document the editor opened in it is what tells the server the editor's paths
+        client.file_info("/home/proj/file.txt").await;
+        let config_info = client.config_info("/home/proj/dprint.json").await;
+        assert_eq!(config_info.status, FormatStatus::ready());
+        // what the editor watches itself is by its paths
+        assert_eq!(config_info.watch_uris, vec![uri("/home/proj/base.json")]);
+        // while the registration is of the canonical directories, which aren't symlinks
+        let base_uris = {
+          let registrations = client.test_client.registrations.lock();
+          let registration = registrations.iter().find(|r| r.id == "dprint-watched-files").unwrap();
+          registration.register_options.as_ref().unwrap()["watchers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|watcher| watcher["globPattern"]["baseUri"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(base_uris, vec![uri("/data/proj").as_str().to_string(); 2]);
+        // so its changes are of the canonical paths, which the editor is told about by its paths
+        environment
+          .write_file("/data/proj/base.json", r#"{ "test-plugin": { "ending": "changed" } }"#)
+          .unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/data/proj/base.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/home/proj/dprint.json")]);
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_approve_downloading_from_domains_that_are_not_trusted() {
   const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
   let environment = TestEnvironmentBuilder::new()

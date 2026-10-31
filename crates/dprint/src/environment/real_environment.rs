@@ -479,6 +479,12 @@ impl Environment for RealEnvironment {
     }
   }
 
+  fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    #[allow(clippy::disallowed_methods)]
+    let entries = std::fs::read_dir(&dir_path)?;
+    entries.map(|entry| entry.map(|entry| entry.path())).collect()
+  }
+
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
     log_debug!(self, "Checking path exists: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]

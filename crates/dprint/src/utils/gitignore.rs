@@ -211,8 +211,8 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     let git_path = dir_path.join(".git");
     let is_repo_root = match (&snapshot, hint) {
       (Some(snapshot), _) => snapshot.has_git,
-      (None, Some(hint)) => hint.has_git && self.may_access(&git_path, dir_path, ancestor_paths),
-      (None, None) => self.may_access(&git_path, dir_path, ancestor_paths) && self.environment.path_exists(&git_path),
+      (None, Some(hint)) => hint.has_git && self.may_access(&git_path, dir_path, ancestor_paths, true),
+      (None, None) => self.may_access(&git_path, dir_path, ancestor_paths, true) && self.environment.path_exists(&git_path),
     };
     let parent = if is_repo_root {
       None
@@ -250,7 +250,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     // like an uncommitted `.gitignore` there (https://git-scm.com/docs/gitignore).
     // Only the repo root can have this file, so avoid the read everywhere else.
     let exclude_path = dir_path.join(".git").join("info").join("exclude");
-    let exclude_text = if is_repo_root && self.may_access(&exclude_path, dir_path, ancestor_paths) {
+    let exclude_text = if is_repo_root && self.may_access(&exclude_path, dir_path, ancestor_paths, true) {
       self.environment.read_file(&exclude_path).ok()
     } else {
       None
@@ -328,11 +328,16 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
   /// ancestor directory like `/tmp`), so one on another machine is treated as
   /// missing, which is like the CLI when it can't read it. A directory whose
   /// `.git` is then isn't the root of a repository.
-  fn may_access(&self, path: &Path, dir_path: &Path, ancestor_paths: &AncestorPaths) -> bool {
+  ///
+  /// It's only logged when `log` is `true`, because the changes are checked on
+  /// every refresh (see `take_dir_snapshot`).
+  fn may_access(&self, path: &Path, dir_path: &Path, ancestor_paths: &AncestorPaths, log: bool) -> bool {
     match ancestor_paths.ensure_allows_existing(&self.environment, path, Some(dir_path)) {
       Ok(may_exist) => may_exist,
       Err(_) => {
-        log_debug!(self.environment, "Ignoring {} because it's on another machine.", path.display());
+        if log {
+          log_debug!(self.environment, "Ignoring {} because it's on another machine.", path.display());
+        }
         false
       }
     }
@@ -341,7 +346,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
   fn take_dir_snapshot(&self, dir_path: &Path, ancestor_paths: &AncestorPaths) -> DirSnapshot {
     let git_path = dir_path.join(".git");
     // not `path_exists` because that would debug log on every refresh
-    let has_git = self.may_access(&git_path, dir_path, ancestor_paths) && self.environment.fs_metadata(&git_path).is_ok();
+    let has_git = self.may_access(&git_path, dir_path, ancestor_paths, false) && self.environment.fs_metadata(&git_path).is_ok();
     let exclude_path = git_path.join("info").join("exclude");
     let gitignore_path = dir_path.join(".gitignore");
     DirSnapshot {
@@ -352,7 +357,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
         None
       },
       // only read at the repository root
-      exclude: if has_git && self.may_access(&exclude_path, dir_path, ancestor_paths) {
+      exclude: if has_git && self.may_access(&exclude_path, dir_path, ancestor_paths, false) {
         self.take_file_snapshot(&exclude_path)
       } else {
         None

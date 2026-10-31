@@ -254,8 +254,9 @@ pub struct SessionFile {
   /// Whether the last write failed, which deleted the file, so it's written
   /// again (see `needs_refresh`).
   write_failed: Cell<bool>,
-  /// Whether the session ended, which deleted the file, so it's never written
-  /// again (ex. by a request that was still running).
+  /// Whether the client asked the server to shut down (see `close`) or the
+  /// session ended (see `delete`), so the file is never written again (ex. by
+  /// a request that was still running).
   is_closed: Cell<bool>,
 }
 

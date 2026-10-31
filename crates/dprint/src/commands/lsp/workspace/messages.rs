@@ -798,7 +798,8 @@ pub struct PendingApprovalsResult {
 #[serde(rename_all = "camelCase")]
 pub struct ForgetDecisionsParams {
   /// The config file to forget the decisions of, which is every config file
-  /// when `None`.
+  /// when `None`. Without a `dir_uri`, it's the config file for each directory
+  /// it's used for (ex. the global config file on each drive).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file: Option<ConfigFileIdentifier>,
   /// The token to report the progress of the request with.
@@ -825,7 +826,8 @@ pub struct ForgetDecisionsResult {
 #[serde(rename_all = "camelCase")]
 pub struct DecisionsParams {
   /// The config file to get the decisions of, which is every config file
-  /// when `None`.
+  /// when `None`. Without a `dir_uri`, it's the config file for each directory
+  /// it's used for (ex. the global config file on each drive).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file: Option<ConfigFileIdentifier>,
 }
@@ -942,7 +944,9 @@ pub struct ConfigFileIdentifier {
   /// which together with the uri identifies it. It's the directory the
   /// global config file is used for, which is the root of the current
   /// directory when `None`, and the directory to find the config file the
-  /// server was started with from (`kind: "cli"`).
+  /// server was started with from (`kind: "cli"`). For `dprint/decisions` and
+  /// `dprint/forgetDecisions`, a config file without one is of each directory
+  /// it's used for instead.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub dir_uri: Option<Uri>,
 }

@@ -858,9 +858,11 @@ where
   /// can't be stat'd. The cheap stat that backs local cache-change detection.
   fn file_size_and_mtime(&self, path: impl AsRef<Path>) -> Option<(u64, SystemTime)> {
     let path = path.as_ref();
-    // IMPORTANT: Looking it up follows a symlink, which may be to another machine now (ex. a plugin in the
-    // project that a `git pull` replaced with a symlink to a share), which then has no stamp, so it's set up again,
-    // which checks it.
+    // IMPORTANT: Looking it up follows a symlink, which may be to another machine now (ex. the local per-platform
+    // archive of a process plugin that a `git pull` replaced with a symlink to a share, which the config's resolution
+    // doesn't check), which then has no stamp, so it's set up again, where `resolve_local_per_platform_archive_path`
+    // checks the archive. The plugin's own path is checked by the config's resolution on every request (see
+    // `resolve_url_or_file_path_to_path_source`).
     self
       .environment
       .download_policy()
@@ -991,20 +993,32 @@ mod test {
   use std::path::PathBuf;
 
   #[test]
-  fn should_not_stamp_a_local_plugin_on_another_machine_in_the_editors() {
+  fn should_not_look_up_a_stamped_archive_on_another_machine_in_the_editors() {
     let environment = TestEnvironment::new();
     environment.mk_dir_all("/repo").unwrap();
+    environment.write_file("/repo/plugin.json", "{}").unwrap();
     let network_path = if cfg!(windows) {
-      r"\\server\share\plugin.wasm"
+      r"\\server\share\plugin.zip"
     } else {
-      "/net/server/share/plugin.wasm"
+      "/net/server/share/plugin.zip"
     };
-    environment.symlink(network_path, "/repo/plugin.wasm").unwrap();
     environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
     let plugin_cache = PluginCache::new(environment.clone());
-    // ex. a `git pull` replaced a plugin that was set up with a symlink to a share
-    assert!(plugin_cache.stamp_for("/repo/plugin.wasm").is_none());
-    assert_eq!(environment.stat_count("/repo/plugin.wasm"), 0);
+    let mut meta = make_wasm_meta("local:/repo/plugin.json", "plugin", "1.0.0", &environment);
+    let plugin_stamp = plugin_cache.stamp_for("/repo/plugin.json").unwrap();
+    meta.local_stamps = Some(vec![
+      plugin_stamp,
+      LocalStamp {
+        path: "/repo/plugin.zip".to_string(),
+        len: 0,
+        modified_ms: 0,
+      },
+    ]);
+    // ex. a `git pull` replaced the local per-platform archive of a process plugin with a symlink to a share
+    environment.symlink(network_path, "/repo/plugin.zip").unwrap();
+    // so it's set up again rather than looked up
+    assert!(!plugin_cache.local_stamps_match(&meta));
+    assert_eq!(environment.stat_count("/repo/plugin.zip"), 0);
   }
 
   fn make_wasm_meta(cache_key: &str, name: &str, version: &str, environment: &TestEnvironment) -> PluginCacheMeta {

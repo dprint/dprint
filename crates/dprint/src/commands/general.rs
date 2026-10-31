@@ -11,7 +11,6 @@ use crate::arg_parser::create_cli_parser;
 use crate::commands::lsp::workspace::get_sessions_dir;
 use crate::commands::lsp::workspace::remove_unused_session_files;
 use crate::environment::CanonicalizedPathBuf;
-use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::environment::PathKind;
 use crate::plugins::PluginResolver;
@@ -93,7 +92,8 @@ pub async fn output_license<TEnvironment: Environment>(
 pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   let cache_dir = environment.get_cache_dir();
   remove_cache_dir_killing_processes(environment, &cache_dir)?;
-  if environment.path_exists(&cache_dir) {
+  let sessions_dir = get_sessions_dir(environment);
+  if environment.path_kind(&sessions_dir) == Some(PathKind::Dir) && environment.dir_info(&sessions_dir).is_ok_and(|entries| !entries.is_empty()) {
     log_stdout_info!(
       environment,
       "Deleted {}, apart from the session files of the editor servers that are running.",
@@ -139,15 +139,20 @@ fn remove_cache_dir(environment: &impl Environment, cache_dir: &CanonicalizedPat
   if environment.path_kind(&sessions_dir) != Some(PathKind::Dir) {
     return environment.remove_dir_all(cache_dir);
   }
-  for entry in environment.dir_info(cache_dir)? {
-    match entry {
-      DirEntry::Directory(path) if path == sessions_dir => {}
-      DirEntry::Directory(path) => environment.remove_dir_all(path)?,
-      DirEntry::File { path } => environment.remove_file(path)?,
+  for path in environment.dir_entry_paths(cache_dir)? {
+    if path == sessions_dir {
+      continue;
+    }
+    match environment.path_kind(&path) {
+      Some(PathKind::Dir) => environment.remove_dir_all(&path)?,
+      // a symlink isn't followed, which may be to a directory (ex. a junction on Windows)
+      Some(PathKind::Symlink) => environment.remove_file(&path).or_else(|_| environment.remove_dir_all(&path))?,
+      Some(PathKind::File) => environment.remove_file(&path)?,
+      None => {}
     }
   }
   remove_unused_session_files(environment);
-  if environment.dir_info(cache_dir).is_ok_and(|entries| entries.is_empty()) {
+  if environment.dir_entry_paths(cache_dir).is_ok_and(|paths| paths.is_empty()) {
     environment.remove_dir_all(cache_dir)?;
   }
   Ok(())
@@ -866,9 +871,9 @@ mod test {
     assert!(environment.path_exists("/cache/editor-sessions/running-0123456789.json"));
     assert!(environment.path_exists("/cache/editor-sessions/running-0123456789.lock"));
     drop(lock);
-    // and everything once no server is running
+    // and everything once no server is running, which isn't said to be kept
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
-    environment.take_stdout_messages();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert!(!environment.path_exists("/cache"));
   }
 

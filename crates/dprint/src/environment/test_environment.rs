@@ -176,6 +176,9 @@ pub struct TestEnvironment {
   file_read_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// Number of times each path was canonicalized, which follows its symlinks.
   canonicalize_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
+  /// The directories that are canonicalized to another one, which is like a
+  /// directory that's a symlink to a local one (see `add_canonical_dir`).
+  canonical_dirs: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
   /// Number of times each file was opened (ex. to read its shebang line).
   file_open_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// Number of times each path was looked up following its symlinks (ex.
@@ -255,6 +258,7 @@ impl TestEnvironment {
       remote_file_request_counts: Default::default(),
       file_read_counts: Default::default(),
       canonicalize_counts: Default::default(),
+      canonical_dirs: Default::default(),
       file_open_counts: Default::default(),
       stat_counts: Default::default(),
       path_kind_count: Default::default(),
@@ -372,6 +376,18 @@ impl TestEnvironment {
   /// Gets the number of times the file was read, whether or not it existed.
   pub fn file_read_count(&self, path: impl AsRef<Path>) -> usize {
     self.file_read_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
+  }
+
+  /// Makes the directory a symlink to another local one, so the paths in it
+  /// are canonicalized to the paths in the other one (ex. a workspace opened
+  /// through a symlink), which canonicalizing doesn't do otherwise.
+  pub fn add_canonical_dir(&self, dir_path: impl AsRef<Path>, canonical_dir_path: impl AsRef<Path>) {
+    let (dir_path, canonical_dir_path) = (self.clean_path(dir_path), self.clean_path(canonical_dir_path));
+    if let Some(parent) = dir_path.parent() {
+      self.mk_dir_all(parent).unwrap();
+    }
+    self.symlink(&canonical_dir_path, &dir_path).unwrap();
+    self.canonical_dirs.lock().push((dir_path, canonical_dir_path));
   }
 
   /// Gets the number of times the path was looked up following its symlinks
@@ -947,6 +963,15 @@ impl Environment for TestEnvironment {
     })))
   }
 
+  fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let dir_path = self.clean_path(dir_path);
+    let mut paths = Vec::new();
+    for entry in self.sys.fs_read_dir(&dir_path)? {
+      paths.push(self.clean_path(entry?.path()));
+    }
+    Ok(paths)
+  }
+
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
     let path = self.clean_path(file_path);
     *self.stat_counts.lock().entry(path.clone()).or_default() += 1;
@@ -988,6 +1013,14 @@ impl Environment for TestEnvironment {
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     let path = self.clean_path(path);
     *self.canonicalize_counts.lock().entry(path.clone()).or_default() += 1;
+    let canonical_dir = self
+      .canonical_dirs
+      .lock()
+      .iter()
+      .find_map(|(dir_path, canonical_dir_path)| Some(canonical_dir_path.join(path.strip_prefix(dir_path).ok()?)));
+    if let Some(path) = canonical_dir {
+      return Ok(CanonicalizedPathBuf::new(self.clean_path(path)));
+    }
     // todo: use sys_traits to implement this properly
     // if !self.path_exists(&path) {
     //   Err(io::Error::new(io::ErrorKind::NotFound, "Path not found."))
