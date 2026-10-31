@@ -79,6 +79,7 @@ use crate::configuration::read_editor_approval_denials;
 use crate::configuration::read_editor_approvals;
 use crate::configuration::read_ignored_settings_message;
 use crate::configuration::resolve_global_config_dir;
+use crate::configuration::resolve_global_config_file_path;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::environment::Environment;
@@ -751,10 +752,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       tokio::time::sleep(CONFIG_CHANGE_DELAY).await;
       workspace.check_editor_dirs_again();
       let changes = std::mem::take(&mut *workspace.pending_config_changes.borrow_mut());
+      let global_config_path = workspace.get_global_config_path();
       for change in changes {
         // a config file that was resolved from the file resolves to something else now, which includes
         // one whose canonical path is the file (ex. a `dprint.json` that's a symlink to a `base.json`)
-        let global_config_path = workspace.get_global_config_path();
         for (config_file_path, is_canonical_path) in workspace.get_dependent_config_files(&change.file_path) {
           // the global config file is resolved again for each directory it's used for when what it was resolved
           // from changed, which the server doesn't watch itself (see `watch_dprint_files`)
@@ -774,7 +775,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           };
           let key = file_path_to_uri(&config_file_path).map(|uri| uri.as_str().to_string()).unwrap_or_default();
           let dependencies = workspace.config_dependencies.borrow().get(&key).cloned();
-          workspace.handle_config_file_change(&config_file_path, config_file_change).await;
+          workspace
+            .handle_config_file_change(&config_file_path, config_file_change, global_config_path.as_deref())
+            .await;
           // it's still watched by what it points to, so the editor reports that being created again
           if is_deleted && let Some(dependencies) = dependencies {
             workspace.config_dependencies.borrow_mut().insert(key, dependencies);
@@ -787,7 +790,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             workspace.handle_config_override_change(&change.file_path, change.change).await;
           }
         } else if change.is_config_file {
-          workspace.handle_config_file_change(&change.file_path, change.change).await;
+          workspace
+            .handle_config_file_change(&change.file_path, change.change, global_config_path.as_deref())
+            .await;
         }
       }
     });
@@ -797,13 +802,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// which publishes its diagnostics and tells an editor extension when what it
   /// formats changed. A config file that wasn't resolved before isn't because
   /// nothing asked for it, which would download and set up its plugins (an
-  /// editor extension is told it changed instead).
-  async fn handle_config_file_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange) {
+  /// editor extension is told it changed instead). The global config file's
+  /// path is provided, because it's the same for each change of a batch.
+  async fn handle_config_file_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange, global_config_path: Option<&Path>) {
     // the config files are known by their paths in the directories they're used for, and one that's on
     // another machine now (ex. a `git pull` replaced it with a symlink to a share) is asked about like any other
     let file_path = &self.canonicalize_config_file_path(file_path.to_path_buf());
     // the server watches the global config file itself (see `watch_dprint_files`)
-    if self.get_global_config_path().as_deref() == Some(file_path.as_path()) {
+    if global_config_path == Some(file_path.as_path()) {
       return;
     }
     let Some(uri) = file_path_to_uri(file_path) else {
@@ -2810,36 +2816,44 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// that leads to isn't known until the config file is resolved again (ex. it
   /// may be on another machine now too), which publishes them again.
   fn take_back_under_alias(&self, editor_dir: &Path, canonical_dir: &Path) {
-    let mut editor_paths = BTreeSet::new();
-    for (uri, editor_uri) in self.get_diagnostics_under(editor_dir) {
-      self.published_diagnostics.borrow_mut().remove(uri.as_str());
-      self.client.publish_diagnostics(editor_uri.clone(), Vec::new());
-      // they're published again when it's resolved next
-      if let Some(file_path) = uri_to_file_path(&uri) {
-        self.forget_checked_scope(&file_path);
+    let mut taken_back = Vec::new();
+    self.published_diagnostics.borrow_mut().retain(|uri, (editor_uri, _)| {
+      let is_under = uri_to_file_path(editor_uri).is_some_and(|path| path.starts_with(editor_dir));
+      if is_under {
+        taken_back.push((uri.clone(), editor_uri.clone()));
       }
-      editor_paths.extend(uri_to_file_path(&editor_uri));
+      !is_under
+    });
+    // the global config file is told about for each directory it's used for instead (see `watch_dprint_files`)
+    let global_config_path = self.get_global_config_path();
+    let mut editor_paths = BTreeSet::new();
+    for (uri, editor_uri) in taken_back {
+      self.client.publish_diagnostics(editor_uri.clone(), Vec::new());
+      let Some(file_path) = uri.parse::<Uri>().ok().and_then(|uri| uri_to_file_path(&uri)) else {
+        continue;
+      };
+      // they're published again when it's resolved next
+      self.forget_checked_scope(&file_path);
+      // where they were published is where the editor knew it (ex. through a symlink in the directory)
+      if global_config_path.as_ref() != Some(&file_path) {
+        editor_paths.extend(uri_to_file_path(&editor_uri));
+      }
     }
     // the local config files that were used through it, which may not have problems, apart from one the editor
     // knows by another alias of a directory in it (ex. a symlink), which isn't one of the same directory because the
     // editor knew those through this alias too
-    let used_file_paths = self
-      .used_configs
-      .borrow()
-      .values()
-      .filter(|config_file| !config_file.is_global_config)
-      .filter_map(|config_file| config_file.file_path().map(|path| path.to_path_buf()))
-      .filter(|file_path| file_path.starts_with(canonical_dir))
-      .collect::<Vec<_>>();
-    for file_path in used_file_paths {
-      let is_other_alias = self
-        .editor_paths
-        .get_alias(&file_path)
-        .is_some_and(|(dir, _)| dir.starts_with(canonical_dir) && dir != canonical_dir);
-      if !is_other_alias && let Ok(relative_path) = file_path.strip_prefix(canonical_dir) {
-        editor_paths.insert(editor_dir.join(relative_path));
-      }
-    }
+    editor_paths.extend(
+      self
+        .get_used_local_config_paths_under(canonical_dir)
+        .into_iter()
+        .filter(|file_path| {
+          !self
+            .editor_paths
+            .get_alias(file_path)
+            .is_some_and(|(dir, _)| dir.starts_with(canonical_dir) && dir != canonical_dir)
+        })
+        .filter_map(|file_path| Some(editor_dir.join(file_path.strip_prefix(canonical_dir).ok()?))),
+    );
     for editor_path in editor_paths {
       let uris = file_path_to_uri(&editor_path).zip(get_config_file_dir(&self.environment, &editor_path).and_then(file_path_to_uri));
       if let Some((uri, dir_uri)) = uris {
@@ -2865,6 +2879,20 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         self.publish_diagnostics(&uri, new_editor_uri, diagnostics);
       }
     }
+  }
+
+  /// Gets the paths that identify the local config files that were used in
+  /// the canonical directory, apart from the global config file.
+  fn get_used_local_config_paths_under(&self, canonical_dir: &Path) -> Vec<PathBuf> {
+    self
+      .used_configs
+      .borrow()
+      .values()
+      .filter(|config_file| !config_file.is_global_config)
+      .filter_map(|config_file| config_file.file_path())
+      .filter(|file_path| file_path.starts_with(canonical_dir))
+      .map(|file_path| file_path.to_path_buf())
+      .collect()
   }
 
   /// Gets the uris that identify the config files whose problems were
@@ -3441,10 +3469,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.checked_scopes.borrow_mut().retain(|key, _| !is_config_file_key(key, file_path));
   }
 
-  /// Gets the path of the global config file when there's one.
+  /// Gets the path of the global config file when there's one, without
+  /// reading it.
   fn get_global_config_path(&self) -> Option<PathBuf> {
-    let config_file = resolve_global_config_path_and_text(&self.environment).ok()??;
-    config_file.source.maybe_local_path().map(|path| path.as_ref().to_path_buf())
+    resolve_global_config_file_path(&self.environment)
   }
 
   /// Loads the config file at the path, which is the global config file for
@@ -3563,7 +3591,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Checks that the editor's path of the canonical directory is still an
   /// alias of it (see `editor_path`), which is only done once for each task.
-  /// It's forgotten when it isn't.
+  /// It's forgotten when it isn't, and the most recent editor's path of the
+  /// directory it replaced that still leads to it is provided instead.
   fn check_editor_dir(&self, canonical_dir: &Path, editor_dir: &Path) -> bool {
     if self.checked_editor_dirs.borrow().contains(canonical_dir) {
       return true;
@@ -3574,8 +3603,27 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     } else {
       self.editor_paths.remove(canonical_dir);
       self.take_back_under_alias(editor_dir, canonical_dir);
+      // ex. another symlink to it that the editor used before, which is what it knows the directory by then
+      if let Some(other_editor_dir) = self.get_replaced_alias(canonical_dir) {
+        self.editor_paths.add(&other_editor_dir, canonical_dir);
+        self.checked_editor_dirs.borrow_mut().insert(canonical_dir.to_path_buf());
+      }
     }
     is_alias
+  }
+
+  /// Gets the most recent editor's path of the canonical directory that
+  /// another one replaced (see `EditorPaths::replaced_dirs`) that still leads
+  /// to it.
+  fn get_replaced_alias(&self, canonical_dir: &Path) -> Option<PathBuf> {
+    self
+      .editor_paths
+      .replaced_dirs()
+      .into_iter()
+      .rev()
+      .filter(|(dir, _)| dir == canonical_dir)
+      .map(|(_, editor_dir)| editor_dir)
+      .find(|editor_dir| self.is_alias_of(editor_dir, canonical_dir))
   }
 
   /// Gets whether the editor's path of a directory still leads to it.
@@ -3603,7 +3651,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   ///
   /// The ones that problems were published through are checked now, because
   /// the editor may only use paths through them, which don't lead to them
-  /// (see `take_back_under_alias`).
+  /// (see `take_back_under_alias`), and so are the editor's paths that another
+  /// one replaced, which aren't used for anything else (see
+  /// `EditorPaths::replaced_dirs`).
   pub fn check_editor_dirs_again(&self) {
     self.checked_editor_dirs.borrow_mut().clear();
     let editor_paths = self
@@ -3620,7 +3670,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     // an editor's path of a directory that another one replaced may still have results of the editor's through it
     // (see `add_editor_dir`), which it's told about once it doesn't lead there anymore
     for (canonical_dir, editor_dir) in self.editor_paths.replaced_dirs() {
-      if !self.is_alias_of(&editor_dir, &canonical_dir) {
+      // there's nothing to tell about without a config file that was used in it, so it isn't kept either
+      if self.get_used_local_config_paths_under(&canonical_dir).is_empty() {
+        self.editor_paths.remove_replaced(&editor_dir);
+      } else if !self.is_alias_of(&editor_dir, &canonical_dir) {
         self.editor_paths.remove_replaced(&editor_dir);
         self.take_back_under_alias(&editor_dir, &canonical_dir);
       }

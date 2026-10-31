@@ -1583,10 +1583,14 @@ mod test {
     }
 
     let environment = TestEnvironment::new();
-    environment.set_os("linux");
-    assert_files_in(&environment, "/config/dprint");
-    environment.set_os("windows");
-    assert_files_in(&environment, "/config/dprint");
+    // the system's config directory on Linux and Windows, where dprint doesn't look at `XDG_CONFIG_HOME` itself
+    for os in ["linux", "windows"] {
+      environment.set_os(os);
+      assert_files_in(&environment, "/config/dprint");
+      environment.set_env_var("XDG_CONFIG_HOME", Some("/xdg"));
+      assert_files_in(&environment, "/config/dprint");
+      environment.set_env_var("XDG_CONFIG_HOME", None);
+    }
     // macOS uses the system config directory only when its dprint directory exists
     environment.set_os("macos");
     assert_files_in(&environment, "/home/.config/dprint");
@@ -1594,7 +1598,10 @@ mod test {
     assert_files_in(&environment, "/config/dprint");
     environment.set_env_var("XDG_CONFIG_HOME", Some("/xdg"));
     assert_files_in(&environment, "/xdg/dprint");
-    // which the environment variable overrides on any system, even when the directory doesn't exist
+    // which the environment variable overrides on any system when it isn't empty, even when the directory doesn't
+    // exist
+    environment.set_env_var("DPRINT_CONFIG_DIR", Some(""));
+    assert_files_in(&environment, "/xdg/dprint");
     environment.set_env_var("DPRINT_CONFIG_DIR", Some("/custom"));
     assert_files_in(&environment, "/custom");
     environment.set_os("linux");

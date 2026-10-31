@@ -28,6 +28,9 @@ pub static POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc
 pub const DOT_CONFIG_DIR_NAME: &str = ".config";
 /// The config file names searched for within a `.config` directory.
 pub static DOT_CONFIG_FILE_NAMES: [&str; 2] = ["dprint.json", "dprint.jsonc"];
+/// The config file names of the global config file, in the order they're
+/// looked for in the global config directory.
+const GLOBAL_CONFIG_FILE_NAMES: [&str; 2] = ["dprint.jsonc", "dprint.json"];
 
 #[derive(Debug, Clone)]
 pub struct ResolvedConfigPathWithText {
@@ -219,6 +222,16 @@ pub fn resolve_global_config_path_and_text_at_path_root(environment: &impl Envir
   }))
 }
 
+/// Gets the path of the global config file without reading it, which is the
+/// one `resolve_global_config_path_and_text` reads when there's one.
+pub fn resolve_global_config_file_path(environment: &impl Environment) -> Option<PathBuf> {
+  let global_folder = resolve_global_config_dir(environment).ok()?;
+  GLOBAL_CONFIG_FILE_NAMES
+    .iter()
+    .map(|name| global_folder.join_panic_relative(name).into_path_buf())
+    .find(|file_path| environment.path_exists(file_path))
+}
+
 enum ResolveGlobalConfigPathResult {
   Found(Box<ResolvedConfigPathWithText>),
   NotFound,
@@ -230,7 +243,7 @@ fn resolve_global_config_path_and_text_detail(environment: &impl Environment) ->
     Ok(dir) => dir,
     Err(err) => return Ok(ResolveGlobalConfigPathResult::FailedResolvingSystemDir(err)),
   };
-  for name in ["dprint.jsonc", "dprint.json"] {
+  for name in GLOBAL_CONFIG_FILE_NAMES {
     let file_path = global_folder.join_panic_relative(name);
     if let Some(content) = environment.maybe_read_file(&file_path)? {
       return Ok(ResolveGlobalConfigPathResult::Found(Box::new(ResolvedConfigPathWithText {
@@ -279,12 +292,20 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Res
 /// `Settings` and `EditorApprovals`), and a version that found them elsewhere
 /// wouldn't see what another one stored (ex. an "Always Deny"): it's
 /// `DPRINT_CONFIG_DIR` when that isn't empty, and otherwise the `dprint`
-/// directory of the system's config directory (ex. `%APPDATA%` on Windows, and
-/// `XDG_CONFIG_HOME` or `~/.config` on Linux), which on macOS is
+/// directory of the system's config directory. That's the RoamingAppData known
+/// folder on Windows (what `%APPDATA%` normally names), `XDG_CONFIG_HOME` when
+/// it's an absolute path on Linux and otherwise `~/.config`, and on macOS
 /// `XDG_CONFIG_HOME` when that isn't empty, then `~/Library/Application
 /// Support` when its `dprint` directory exists, and otherwise `~/.config`. A
 /// version that changes how it's found still reads and writes those files at
 /// the place this finds.
+///
+/// A relative `DPRINT_CONFIG_DIR` (or `XDG_CONFIG_HOME` on macOS) is relative
+/// to the current directory of each process, so the editor's server may find
+/// another directory than dprint in a terminal. On macOS, creating
+/// `~/Library/Application Support/dprint` later (ex. an older dprint that used
+/// it, or the user) moves the directory there from `~/.config/dprint`, which
+/// leaves the files in `~/.config/dprint` unused.
 pub fn resolve_global_config_dir_path(environment: &impl Environment) -> Option<PathBuf> {
   match resolve_env_var_folder(environment, "DPRINT_CONFIG_DIR") {
     Some(folder) => Some(PathBuf::from(folder)),
@@ -704,9 +725,15 @@ mod tests {
     // every version makes the same way.
     let env = crate::environment::TestEnvironmentBuilder::new().with_global_config(|_| {}).build();
     let config_file = resolve_global_config_path_and_text(&env).unwrap().unwrap();
-    let global_dir = resolve_global_config_dir(&env).unwrap();
+    let file_path = Path::new("/global-config").join("dprint.json");
     assert_eq!(config_file.found_path, None);
-    assert_eq!(config_file.display(), global_dir.join_panic_relative("dprint.json").display().to_string());
+    assert_eq!(config_file.display(), file_path.display().to_string());
+    assert_eq!(resolve_global_config_file_path(&env), Some(file_path.clone()));
+    // it's known by where it was found when that isn't its canonical path (ex. a symlink to a dotfiles repository)
+    env.add_canonical_path("/global-config/dprint.json", "/dotfiles/dprint.json");
+    let config_file = resolve_global_config_path_and_text(&env).unwrap().unwrap();
+    assert_eq!(config_file.display(), file_path.display().to_string());
+    assert_eq!(resolve_global_config_file_path(&env), Some(file_path));
   }
 
   #[test]

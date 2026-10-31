@@ -10,7 +10,6 @@ use crate::environment::Environment;
 use crate::utils::TrustedDomains;
 
 use super::get_init_config_file_text::to_cst_input;
-use super::resolve_global_config_dir;
 use super::resolve_global_config_dir_path;
 
 /// Name of the file in the global config directory, next to the global config
@@ -152,9 +151,11 @@ pub fn read_settings(environment: &impl Environment) -> Result<Option<Settings>>
 /// rest of the file as it is (ex. its comments) because people edit it too.
 /// Provides the path of the file.
 pub(super) fn set_setting(environment: &impl Environment, property_path: &[&str], value: serde_json::Value) -> Result<PathBuf> {
-  let dir = resolve_global_config_dir(environment).context("Could not find the global config directory.")?;
-  _ = environment.mk_dir_all(&dir);
-  let file_path = dir.join(SETTINGS_FILE_NAME);
+  // it's written where every version reads it (see `Settings`)
+  let file_path = get_settings_file_path(environment).context("Could not find the global config directory.")?;
+  if let Some(dir) = file_path.parent() {
+    _ = environment.mk_dir_all(dir);
+  }
   let text = if environment.path_exists(&file_path) {
     environment
       .read_file(&file_path)
@@ -219,6 +220,16 @@ mod test {
   fn ensure_global_config_dir(environment: &TestEnvironment) {
     // macOS only uses this directory when it's already there
     environment.mk_dir_all(get_settings_file_path(environment).unwrap().parent().unwrap()).unwrap();
+  }
+
+  #[test]
+  fn should_set_a_setting_where_the_settings_are_read() {
+    let environment = TestEnvironment::new();
+    // a directory that doesn't exist yet is where they're read from too
+    environment.set_env_var("DPRINT_CONFIG_DIR", Some("/custom/dprint"));
+    let file_path = set_setting(&environment, &["editor", "allowProcessPlugins"], serde_json::json!(false)).unwrap();
+    assert_eq!(file_path, get_settings_file_path(&environment).unwrap());
+    assert_eq!(read_settings(&environment).unwrap().unwrap().editor.allow_process_plugins, Some(false));
   }
 
   #[test]

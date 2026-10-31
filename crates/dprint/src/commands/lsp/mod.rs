@@ -1065,25 +1065,21 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     // a client that sent the capability is told which versions the server supports
     // when it doesn't support any of the client's, so it can tell an older dprint apart
     let experimental = has_dprint_capability.then(|| {
-      let config_file_names = |names: &[&str]| match self.has_config_override {
+      // the config file the server was started with is the only one
+      let names = |names: &[&str]| match self.has_config_override {
         true => Vec::new(),
         false => names.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
       };
+      let config_file_names = names(&POSSIBLE_CONFIG_FILE_NAMES);
       let capability = match methods_version {
         Some(version) => ServerExperimentalCapability {
           version: Some(version),
           versions: SUPPORTED_METHOD_VERSIONS.to_vec(),
           features: features.clone(),
           files: Some(get_dprint_files(&self.environment)),
-          // the config file the server was started with is the only one
-          config_file_globs: Some(
-            config_file_names(&POSSIBLE_CONFIG_FILE_NAMES)
-              .iter()
-              .map(|name| format!("**/{}", name))
-              .collect(),
-          ),
-          config_file_names: Some(config_file_names(&POSSIBLE_CONFIG_FILE_NAMES)),
-          dot_config_file_names: Some(config_file_names(&DOT_CONFIG_FILE_NAMES)),
+          config_file_globs: Some(config_file_names.iter().map(|name| format!("**/{}", name)).collect()),
+          config_file_names: Some(config_file_names),
+          dot_config_file_names: Some(names(&DOT_CONFIG_FILE_NAMES)),
           message: None,
         },
         None => ServerExperimentalCapability {

@@ -60,6 +60,27 @@ fn should_say_it_supports_the_dprint_methods() {
     assert!(test_client.take_registered_methods().is_empty());
   });
 
+  // the config file a server was started with is the only one, so there are no names to look for
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/config/my-config.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  environment.clone().run_in_runtime(async move {
+    let (backend, recv_task, test_client) = setup_backend_with_config(environment.clone(), Some(PathBuf::from("/config/my-config.json")));
+    let run_test_task = dprint_core::async_runtime::spawn(async move {
+      let result = initialize_backend(&backend, editor_extension_params()).await;
+      let capability = &result.capabilities.experimental.unwrap()["dprint"];
+      assert_eq!(capability["configFileGlobs"], json!([]));
+      assert_eq!(capability["configFileNames"], json!([]));
+      assert_eq!(capability["dotConfigFileNames"], json!([]));
+      backend.shutdown().await.unwrap();
+    });
+    try_join!(recv_task, run_test_task).unwrap();
+    test_client.take_messages();
+  });
+
   // an editor extension that doesn't support a version the server does is
   // told the server's versions instead of being handled like a language client
   for (experimental, is_editor_extension) in [
@@ -2273,6 +2294,40 @@ fn should_tell_about_a_config_file_known_through_a_replaced_alias_that_points_el
           "{:?}",
           config_changes
         );
+        // which is only told once
+        client.file_info("/ws/b/file.txt").await;
+        assert_eq!(client.take_config_changes(), Vec::<Uri>::new());
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_provide_another_alias_of_a_directory_that_still_leads_to_it_after_the_most_recent_one_points_elsewhere() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  environment.add_canonical_symlink("/ws/a", "/ws/real");
+  environment.add_canonical_symlink("/ws/b", "/ws/real");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.file_info("/ws/a/file.txt").await;
+        client.file_info("/ws/b/file.txt").await;
+        client.take_config_changes();
+        // the most recent one points somewhere else now, so the editor gets the result of what it knew through it
+        // again, and the other one is what the editor knows the directory by then
+        environment.remove_canonical_path("/ws/b");
+        environment.add_canonical_path("/ws/b", "/ws/other");
+        let config_file = client.file_info("/ws/real/file.txt").await.config_file.unwrap();
+        assert_eq!(config_file.uri, uri("/ws/a/dprint.json"));
+        assert_eq!(config_file.dir_uri, uri("/ws/a"));
+        assert!(client.take_config_changes().contains(&uri("/ws/b/dprint.json")));
       }
       .boxed_local()
     }
@@ -2365,6 +2420,86 @@ fn should_answer_with_a_config_file_that_is_on_another_machine_after_formatting(
           .config_file
           .unwrap();
         assert!(config_file.on_another_machine);
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_answer_with_a_config_file_that_went_on_another_machine_while_formatting() {
+  const PLUGIN_URL: &str = "https://plugins.dprint.dev/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build(); // not initialized, so the plugin is downloaded while it formats
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        environment.add_unresponsive_remote_file(PLUGIN_URL);
+        let swap = async {
+          while environment.remote_file_request_count(PLUGIN_URL) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+          }
+          // ex. a `git pull` replaced it with a symlink to a share while it was formatting
+          environment.remove_file("/a/dprint.json").unwrap();
+          environment.symlink(network_path("dprint.json"), "/a/dprint.json").unwrap();
+          environment.remove_unresponsive_remote_file(PLUGIN_URL);
+        };
+        let (result, _) = tokio::join!(
+          client
+            .backend
+            .dprint_format(client.format_params("/a/file.txt", "text"), CancellationToken::new()),
+          swap
+        );
+        // so the editor doesn't open it from the result
+        assert!(result.unwrap().config_file.unwrap().on_another_machine);
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_not_publish_the_error_of_a_config_file_that_was_deleted_while_it_was_resolved() {
+  const PLUGIN_URL: &str = "https://plugins.dprint.dev/missing.wasm";
+  let environment = TestEnvironmentBuilder::new().build();
+  environment.mk_dir_all("/a").unwrap();
+  environment
+    .write_file("/a/dprint.json", &format!(r#"{{ "plugins": ["{}"] }}"#, PLUGIN_URL))
+    .unwrap();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        environment.add_unresponsive_remote_file(PLUGIN_URL);
+        let delete = async {
+          while environment.remote_file_request_count(PLUGIN_URL) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+          }
+          environment.remove_file("/a/dprint.json").unwrap();
+          client
+            .backend
+            .did_change_watched_files(DidChangeWatchedFilesParams {
+              changes: vec![FileEvent {
+                uri: uri("/a/dprint.json"),
+                typ: FileChangeType::DELETED,
+              }],
+            })
+            .await;
+          client.wait_for_config_changes().await;
+          client.test_client.published_diagnostics.lock().clear();
+          // the plugin then fails to download, which is an error resolving it
+          environment.remove_unresponsive_remote_file(PLUGIN_URL);
+        };
+        let (result, _) = tokio::join!(client.config_info("/a/dprint.json"), delete);
+        assert_eq!(result.status.reason(), Some(NotFormattedReason::ConfigError));
+        assert_eq!(*client.test_client.published_diagnostics.lock(), Vec::new());
         client.test_client.take_messages();
       }
       .boxed_local()
