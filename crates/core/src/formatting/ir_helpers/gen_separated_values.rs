@@ -11,7 +11,9 @@ use super::super::print_items::*;
 pub struct GenSeparatedValuesOptions {
   pub prefer_hanging: bool,
   pub force_use_new_lines: bool,
-  pub allow_blank_lines: bool,
+  /// The maximum number of consecutive blank lines to keep between values
+  /// when multi-line, based on their `lines_span`. Use `0` to not keep any.
+  pub max_blank_lines: u32,
   pub indent_width: u8,
   pub single_line_options: SingleLineOptions,
   pub multi_line_options: MultiLineOptions,
@@ -227,7 +229,7 @@ pub fn gen_separated_values(
     is_multi_line.clone(),
     opts.single_line_options.separator,
     &multi_line_options,
-    opts.allow_blank_lines,
+    opts.max_blank_lines,
   );
   value_datas.borrow_mut().extend(inner_gen_result.value_datas);
   let generated_values_items = inner_gen_result.items.into_rc_path();
@@ -305,7 +307,7 @@ pub fn gen_separated_values(
     is_multi_line: ConditionResolver,
     single_line_separator: PrintItems,
     multi_line_options: &MultiLineOptions,
-    allow_blank_lines: bool,
+    max_blank_lines: u32,
   ) -> InnerGenResult {
     let mut items = PrintItems::new();
     let mut value_datas = Vec::new();
@@ -344,19 +346,14 @@ pub fn gen_separated_values(
         items.push_info(start_line_start_indent_level);
         items.extend(generated_value.items);
       } else {
-        let (has_new_line, has_blank_line) = if let Some(last_lines_span) = last_lines_span {
-          if let Some(current_lines_span) = generated_value.lines_span {
-            (
-              last_lines_span.end_line < current_lines_span.start_line,
-              last_lines_span.end_line < std::cmp::max(current_lines_span.start_line, 1) - 1, // prevent subtracting with overflow
-            )
-          } else {
-            (false, false)
-          }
-        } else {
-          (false, false)
+        let (has_new_line, blank_line_count) = match (last_lines_span, generated_value.lines_span) {
+          (Some(last_lines_span), Some(current_lines_span)) => (
+            last_lines_span.end_line < current_lines_span.start_line,
+            current_lines_span.start_line.saturating_sub(last_lines_span.end_line + 1),
+          ),
+          _ => (false, 0),
         };
-        let use_blank_line = allow_blank_lines && has_blank_line;
+        let blank_line_count = blank_line_count.min(max_blank_lines as usize);
         let generated_value = generated_value.items.into_rc_path();
         items.push_condition(Condition::new(
           "multiLineOrHangingCondition",
@@ -364,7 +361,7 @@ pub fn gen_separated_values(
             condition: is_multi_line.clone(),
             true_path: {
               let mut items = PrintItems::new();
-              if use_blank_line {
+              for _ in 0..blank_line_count {
                 items.push_signal(Signal::NewLine);
               }
               if !maintain_line_breaks || has_new_line {

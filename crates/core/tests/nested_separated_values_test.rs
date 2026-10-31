@@ -46,7 +46,7 @@ fn print_nested(depth: usize, declare_known_multi_line: bool) -> String {
             prefer_hanging: false,
             // the innermost group is the one already written over several lines
             force_use_new_lines: i == 0,
-            allow_blank_lines: false,
+            max_blank_lines: 0,
             single_line_options: ir_helpers::SingleLineOptions::separated_same_line(", ".into()),
             indent_width: 2,
             multi_line_options: ir_helpers::MultiLineOptions::surround_newlines_indented(),
