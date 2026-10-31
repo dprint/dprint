@@ -316,8 +316,18 @@ impl AncestorPaths {
   /// automounter would look up. The same goes for the root of a share that an
   /// automounter mounted elsewhere (ex. `/home/me` when `/home` is an
   /// `autofs` directory).
+  ///
+  /// When anything may be read (ex. the CLI), it only stops at a share in
+  /// `/net` on Linux when `/net` is an automounter's, so a project in an
+  /// ordinary `/net` directory still finds what's above it.
   pub fn parent_on_share<'a>(&self, environment: &impl Environment, dir: &'a Path) -> Option<&'a Path> {
-    let parent = get_parent_on_share_with(dir, self.rules.is_net_automounted)?;
+    let Some(parent) = get_parent_on_share_with(dir, self.rules.is_net_automounted) else {
+      // the root of a share in `/net`, or a path without a parent
+      return match dir.parent() {
+        Some(parent) if self.downloads.is_none() && !self.rules.is_net_always_automounted && !environment.is_automount_dir(parent) => Some(parent),
+        _ => None,
+      };
+    };
     if self.downloads.is_none() {
       return Some(parent);
     }
@@ -671,6 +681,7 @@ const NPMRC_PROXY_DOWNLOAD_PREFIX: &str = "npmrc-proxy:";
 /// How the system resolves the paths that are checked (see `PathRules`).
 const PATH_RULES: PathRules = PathRules {
   is_net_automounted: cfg!(any(target_os = "macos", target_os = "linux")),
+  is_net_always_automounted: cfg!(target_os = "macos"),
   is_parent_lexical: cfg!(windows),
   has_windows_names: cfg!(windows),
 };
@@ -691,6 +702,12 @@ struct PathRules {
   /// share is mounted when it's looked up (see
   /// `Environment::is_automount_point`), without mounting anything.
   is_net_automounted: bool,
+  /// Whether `/net` is always an automounter's (on macOS), instead of only
+  /// when its file system is one (on Linux, which only has one when it's set
+  /// up). A share in `/net` is still treated as on another machine either
+  /// way, but going up ancestor directories only stops at one when anything
+  /// may be read when it is (see `AncestorPaths::parent_on_share`).
+  is_net_always_automounted: bool,
   /// Whether `..` is applied to the text of a path before anything in it is
   /// followed, like Win32 does, instead of to where the path before it
   /// resolved to (ex. `link\..\x` is `x` even when `link` is a symlink).
@@ -1487,12 +1504,14 @@ mod test {
   /// The paths of macOS, which has `/net` (and how Linux applies `..`).
   const MACOS: PathRules = PathRules {
     is_net_automounted: true,
+    is_net_always_automounted: true,
     is_parent_lexical: false,
     has_windows_names: false,
   };
   /// The paths of Windows, which applies `..` to the text of a path.
   const WINDOWS: PathRules = PathRules {
     is_net_automounted: false,
+    is_net_always_automounted: false,
     is_parent_lexical: true,
     has_windows_names: true,
   };
@@ -1500,6 +1519,7 @@ mod test {
   /// `..` is tested on every system.
   const LEXICAL_NET: PathRules = PathRules {
     is_net_automounted: true,
+    is_net_always_automounted: true,
     is_parent_lexical: true,
     has_windows_names: false,
   };
@@ -1918,6 +1938,36 @@ mod test {
     assert_eq!(ancestors("/home/me/proj", true).len(), 4);
     // only on macOS
     assert_eq!(ancestors("/net/fs/proj", false).len(), 4);
+  }
+
+  #[test]
+  fn should_only_stop_at_a_share_in_net_when_anything_may_be_read_when_net_is_an_automounters() {
+    /// The paths of Linux, where `/net` is only an automounter's when it's set up.
+    const LINUX: PathRules = PathRules {
+      is_net_automounted: true,
+      is_net_always_automounted: false,
+      is_parent_lexical: false,
+      has_windows_names: false,
+    };
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/net/work/proj").unwrap();
+    let ancestors = |policy: &DownloadPolicy, rules: PathRules| {
+      AncestorPaths::new(policy, Path::new("/net/work/proj"), rules)
+        .ancestors(&environment)
+        .into_iter()
+        .map(|dir| dir.to_path_buf())
+        .collect::<Vec<_>>()
+    };
+    let net_share = [PathBuf::from("/net/work/proj"), PathBuf::from("/net/work")];
+    // an ordinary `/net` directory on Linux
+    assert_eq!(ancestors(&DownloadPolicy::All, LINUX).len(), 4);
+    assert_eq!(ancestors(&DownloadPolicy::All, MACOS), net_share);
+    // but the editor treats it as a share either way
+    let policy = DownloadPolicy::for_editor(&environment);
+    assert_eq!(ancestors(&policy, LINUX), net_share);
+    // and an automounter's `/net` on Linux
+    environment.add_automount_dir("/net");
+    assert_eq!(ancestors(&DownloadPolicy::All, LINUX), net_share);
   }
 
   #[test]
