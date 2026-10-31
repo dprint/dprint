@@ -716,9 +716,10 @@ pub struct ConfigApprovals {
   pub config_file: Option<ConfigFileInfo>,
   /// What needs to be approved now for the config file, which is empty when
   /// nothing does. After a decision, it has what was denied when the decision
-  /// was to deny it, and otherwise what else needs to be approved (ex. a
-  /// config file that a downloaded one extends or a process plugin the user
-  /// denied before).
+  /// was to deny it and the denial was kept (a denial of downloads that were
+  /// each allowed exactly since isn't, see `ApproveResult::notice`), and
+  /// otherwise what else needs to be approved (ex. a config file that a
+  /// downloaded one extends or a process plugin the user denied before).
   pub approvals: Vec<PendingApproval>,
   /// Whether the config file is used now, which isn't `ready` when it has an
   /// error or was deleted even when nothing needs to be approved.
@@ -734,12 +735,12 @@ pub struct ApproveResult {
   #[serde(flatten)]
   pub config_approvals: ConfigApprovals,
   /// What to tell the user about the decision or one made before for the
-  /// same config file (ex. what was denied was allowed exactly for another
-  /// config file since, so it's still allowed, or it couldn't be stored, so
-  /// it's only used for the
-  /// session, or the session file couldn't be written or deleted, or the
-  /// session's decisions aren't kept yet because another server that's
-  /// running uses the session id or its lock can't be taken).
+  /// same config file (ex. a denial wasn't kept because what it denied was
+  /// each allowed exactly for another config file since, so it's still
+  /// allowed for the session, or a decision couldn't be stored, so it's only
+  /// used for the session, or the session file couldn't be written or
+  /// deleted, or the session's decisions aren't kept yet because another
+  /// server that's running uses the session id or its lock can't be taken).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notice: Option<Notice>,
 }
@@ -1058,9 +1059,9 @@ pub struct ConfigFileInfo {
   /// The directory whose files it formats, which is the directory it's in
   /// unless that's a `.config` directory (other than the home directory's),
   /// even when it's a symlink to a file in another directory, and the
-  /// directory it's used for when
-  /// it's the global config file (ex. the root of a drive). It's the directory
-  /// its patterns are relative to for a remote or npm config file.
+  /// directory it's used for when it's the global config file (ex. the root
+  /// of a drive). It's the directory its patterns are relative to for a
+  /// remote or npm config file.
   pub dir_uri: Uri,
   pub kind: ConfigFileKind,
   /// Whether it's in a workspace folder, which a config file in an ancestor

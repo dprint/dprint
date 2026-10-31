@@ -22,7 +22,6 @@ use crate::configuration::resolve_config_file_dirs_at_path;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
-use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::Environment;
 use crate::plugins;
 use crate::resolution::PluginsScope;
@@ -96,17 +95,20 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   /// Finds the config file to format the files in the provided directory with.
   pub fn find_config_file(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<ResolvedConfigPathWithText>> {
     Ok(if let Some(path) = &self.config_override {
-      let dirs = resolve_local_config_file_dirs(&self.environment, &self.environment.cwd().as_ref().join(path)).context("failed resolving --config path")?;
-      let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
-      let content = self.environment.read_file(&path).context("failed resolving --config path")?;
+      // it's used for the directory it's in and known by its path there like `dprint fmt --config` (see
+      // `resolve_config_file_dirs_at_path`)
+      let path = self.environment.cwd().as_ref().join(path);
+      let (dirs, found_path) = resolve_config_file_dirs_at_path(&self.environment, &path).context("failed resolving --config path")?;
+      let canonical_path = self.environment.canonicalize(&path).context("failed resolving --config path")?;
+      let content = self.environment.read_file(&canonical_path).context("failed resolving --config path")?;
       Some(ResolvedConfigPathWithText {
         base_path: dirs.base_path,
         anchored_patterns_base_path: dirs.anchored_patterns_base_path,
-        source: PathSource::new_local(path),
+        found_path: get_config_file_found_path(found_path, canonical_path.as_ref()),
+        source: PathSource::new_local(canonical_path),
         is_first_download: false,
         content,
         is_global_config: false,
-        found_path: None,
       })
     } else {
       match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {

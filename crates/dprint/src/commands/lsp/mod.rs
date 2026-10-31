@@ -255,7 +255,11 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let stdout = tokio::io::stdout();
   let (tx, rx) = mpsc::unbounded_channel();
 
-  let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
+  // like `dprint fmt --config` (ex. a `~/` path is in the home directory)
+  let config_path = args
+    .config
+    .as_ref()
+    .map(|config| crate::configuration::get_specified_config_path(environment, config).unwrap_or_else(|| environment.cwd().join(config)));
   let has_config_override = config_path.is_some();
   let session_permissions = Arc::new(SessionPermissions::default());
   let recv_task = start_message_handler(

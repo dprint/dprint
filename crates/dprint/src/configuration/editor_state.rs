@@ -145,16 +145,25 @@ pub struct EditorState {
 ///   (ex. an `fcntl` lock, which doesn't exclude a `flock` lock on Linux) or
 ///   skips it would race with the others, which could lose an "Always Deny"
 ///   under an "Always Allow" written at the same time. No version deletes or
-///   replaces `.editor-approvals.lock`, because a writer that locked the file
-///   it opened doesn't check that the path still names it, so a writer that
+///   replaces `.editor-approvals.lock`, because a version isn't required to
+///   check that the path still names the file it locked, so a writer that
 ///   opened a new one wouldn't be excluded.
 /// - Decisions are only in the top-level arrays whose names end with
 ///   `Decisions` (ex. `processPluginDecisions`), and each one is an object with
 ///   a top-level `configFile` string in the form of `PathSource::display` (ex.
-///   `/home/user/project/dprint.json`), which is the path a config file that's
-///   a symlink was found at (see `get_config_file_found_path`) and was its
-///   canonical path in older versions, so that a version that doesn't know
-///   their format can forget them. Forgetting the decisions of config files
+///   `/home/user/project/dprint.json`), so that a version that doesn't know
+///   their format can forget them.
+/// - IMPORTANT: How the `configFile` of a local config file is made is part of
+///   the format. It's the canonical path of the directory it's used for joined
+///   with the names dprint looked up (ex. `.config/dprint.json`), which is the
+///   path it was found at when that isn't its canonical path (ex. a symlink, or
+///   those names in another case on disk, see `get_config_file_found_path`),
+///   and was its canonical path in older versions. A version that changes how
+///   it's made stores a denial under each older form it can make too, and
+///   removes the allows under them when it stores a denial or forgets, like
+///   what's stored with another config hash version (see
+///   `PROCESS_PLUGIN_CONFIG_HASH_VERSION`), and it forgets a decision by the
+///   `configFile` text it lists for it too. Forgetting the decisions of config files
 ///   removes the ones with their `configFile` from each of those arrays, and
 ///   forgetting every decision empties each of them, including the decisions
 ///   in a format it doesn't know. The other top-level properties don't have

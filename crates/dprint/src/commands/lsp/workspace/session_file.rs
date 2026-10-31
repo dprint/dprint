@@ -598,7 +598,7 @@ fn is_stale(environment: &impl Environment, file_path: &Path, now: SystemTime) -
 /// Deletes a file of a session unless a server that's running holds the
 /// session's lock, which is also kept when it can't be told.
 fn remove_unless_locked(environment: &impl Environment, lock_path: &Path, file_path: &Path) {
-  // no server holds a lock without its file (see `SessionFile::lock_once`), so it isn't created for this
+  // no server holds a lock without its file (see `Environment::try_lock_file`), so it isn't created for this
   if !environment.path_exists(lock_path) {
     remove_session_dir_file(environment, file_path);
     return;

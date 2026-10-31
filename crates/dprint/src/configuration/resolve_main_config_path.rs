@@ -144,13 +144,8 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
     // when it's discovered, but a remote or npm config file has no directory
     let (dirs, found_path) = match &resolved_file.source {
       PathSource::Local(source) => {
-        // use the path as specified when it's a file path (see `resolve_config_file_dirs_at_path`)
-        let home_path = config.strip_prefix("~/").and_then(|path| Some(environment.get_home_dir()?.join(path)));
-        let specified_path = match home_path {
-          Some(home_path) => home_path,
-          None if config.starts_with("file:") => source.path.as_ref().to_path_buf(),
-          None => cwd.as_ref().join(config),
-        };
+        // use the path as specified (see `resolve_config_file_dirs_at_path`)
+        let specified_path = get_specified_config_path(environment, config).unwrap_or_else(|| source.path.as_ref().to_path_buf());
         // it's used for the directory it was found in and known by its path there like when it's found, so what the
         // editors allow for it is the same (see `get_config_file_found_path`)
         let (dirs, found_path) = resolve_config_file_dirs_at_path(environment, &specified_path)?;
@@ -385,13 +380,17 @@ pub fn ensure_allows_reading_config_file(environment: &impl Environment, config_
   let Some(dir) = config_path.parent() else {
     return Ok(());
   };
-  // the directory a config file in a `.config` directory applies to, which is only from
-  // the names because telling whether it's the home directory's canonicalizes it
-  let is_in_dot_config_dir = dir.file_name().is_some_and(|name| name == DOT_CONFIG_DIR_NAME)
-    && config_path
-      .file_name()
-      .and_then(|name| name.to_str())
-      .is_some_and(|name| DOT_CONFIG_FILE_NAMES.contains(&name));
+  // the directory a config file in a `.config` directory applies to, which is only from the names (in another
+  // case too on a case insensitive file system) because telling whether it's the home directory's or the same
+  // directory canonicalizes it
+  let is_looked_up_name = |name: Option<&std::ffi::OsStr>, looked_up_names: &[&str]| {
+    name.and_then(|name| name.to_str()).is_some_and(|name| {
+      looked_up_names
+        .iter()
+        .any(|looked_up_name| name == *looked_up_name || is_case_insensitive_file_system() && name.eq_ignore_ascii_case(looked_up_name))
+    })
+  };
+  let is_in_dot_config_dir = is_looked_up_name(dir.file_name(), &[DOT_CONFIG_DIR_NAME]) && is_looked_up_name(config_path.file_name(), &DOT_CONFIG_FILE_NAMES);
   let base_dir = match dir.parent() {
     Some(parent) if is_in_dot_config_dir => parent,
     _ => dir,
@@ -409,7 +408,17 @@ pub fn ensure_allows_reading_config_file(environment: &impl Environment, config_
 /// Gets if the directory is a `.config` directory, which is treated as part
 /// of its parent directory (see [`DOT_CONFIG_DIR_NAME`]).
 pub fn is_dot_config_dir(environment: &impl Environment, dir: &Path) -> bool {
-  dir.file_name().is_some_and(|name| name == DOT_CONFIG_DIR_NAME) && dir.parent().is_some_and(|parent| !is_home_dir(environment, parent))
+  is_dot_config_dir_name(environment, dir) && dir.parent().is_some_and(|parent| !is_home_dir(environment, parent))
+}
+
+/// Gets whether the directory has the name dprint looks up for a `.config`
+/// directory, which a case insensitive file system finds in another case too
+/// (ex. `.Config`) when that's the same directory.
+pub fn is_dot_config_dir_name(environment: &impl Environment, dir: &Path) -> bool {
+  match dir.file_name().and_then(|name| name.to_str()) {
+    Some(name) => name == DOT_CONFIG_DIR_NAME || is_looked_up_path_in_another_case(environment, dir, name, DOT_CONFIG_DIR_NAME),
+    None => false,
+  }
 }
 
 /// The directories of a local config file.
@@ -478,21 +487,12 @@ pub fn get_config_file_lookup<'a>(environment: &impl Environment, config_path: &
   let Some(file_name) = config_path.file_name()?.to_str() else {
     return Some((parent, PathBuf::from(config_path.file_name()?)));
   };
-  let is_looked_up_name = |name: &str, looked_up_name: &str| match is_case_insensitive_file_system() {
-    true => name.eq_ignore_ascii_case(looked_up_name),
-    false => name == looked_up_name,
-  };
   let file_name = POSSIBLE_CONFIG_FILE_NAMES
     .iter()
-    .find(|name| is_looked_up_name(file_name, name))
+    .find(|name| file_name == **name || is_looked_up_path_in_another_case(environment, config_path, file_name, name))
     .copied()
     .unwrap_or(file_name);
-  let is_in_dot_config_dir = DOT_CONFIG_FILE_NAMES.contains(&file_name)
-    && parent
-      .file_name()
-      .and_then(|name| name.to_str())
-      .is_some_and(|name| is_looked_up_name(name, DOT_CONFIG_DIR_NAME))
-    && is_dot_config_dir(environment, &parent.with_file_name(DOT_CONFIG_DIR_NAME));
+  let is_in_dot_config_dir = DOT_CONFIG_FILE_NAMES.contains(&file_name) && is_dot_config_dir(environment, parent);
   match (is_in_dot_config_dir, parent.parent()) {
     (true, Some(base_dir)) => Some((base_dir, Path::new(DOT_CONFIG_DIR_NAME).join(file_name))),
     _ => Some((parent, PathBuf::from(file_name))),
@@ -522,6 +522,42 @@ pub fn get_config_file_found_path(found_path: PathBuf, canonical_path: &Path) ->
 /// on Windows and macOS.
 pub fn is_case_insensitive_file_system() -> bool {
   cfg!(any(windows, target_os = "macos"))
+}
+
+/// Gets whether the path, whose last component has the name, is the path
+/// with the name dprint looks up in another case, which it is on a case
+/// insensitive file system unless the directory or volume is case sensitive
+/// (ex. an APFS volume that is, or a directory created from WSL).
+///
+/// IMPORTANT: The paths are only canonicalized to compare them when reading
+/// them is allowed (see `DownloadPolicy::ensure_allows_path`), because that
+/// contacts the machine they're on.
+fn is_looked_up_path_in_another_case(environment: &impl Environment, path: &Path, name: &str, looked_up_name: &str) -> bool {
+  if !is_case_insensitive_file_system() || name == looked_up_name || !name.eq_ignore_ascii_case(looked_up_name) {
+    return false;
+  }
+  let looked_up_path = path.with_file_name(looked_up_name);
+  let allows_reading = |path: &Path| environment.download_policy().ensure_allows_path(environment, path, path.parent()).is_ok();
+  allows_reading(path)
+    && allows_reading(&looked_up_path)
+    && matches!((environment.canonicalize(path), environment.canonicalize(&looked_up_path)), (Ok(path), Ok(looked_up_path)) if path == looked_up_path)
+}
+
+/// Gets the path of a local config file that was specified (ex. with
+/// `--config`) as it was specified, which is what it's found at (see
+/// `resolve_config_file_dirs_at_path`), and `None` for a url that isn't a file
+/// url. A `~/` path is in the home directory.
+pub fn get_specified_config_path(environment: &impl Environment, config: &str) -> Option<PathBuf> {
+  if let Some(path) = config.strip_prefix("~/") {
+    return Some(environment.get_home_dir()?.join(path));
+  }
+  if config.starts_with("file:") {
+    return url::Url::parse(config).ok()?.to_file_path().ok();
+  }
+  if config.contains("://") || config.starts_with("npm:") {
+    return None;
+  }
+  Some(environment.cwd().as_ref().join(config))
 }
 
 /// Gets the path of a local config file that identifies it (see
