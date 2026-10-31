@@ -602,9 +602,9 @@ pub struct ApprovalItem {
   pub npmrc_uri: Option<Uri>,
   /// The uri of the path in the project of a `networkPath` that reaches the
   /// other machine through a symlink (the path before ` -> `) as the editor
-  /// knows it.
+  /// knows it, which is local while what it reaches isn't.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub uri: Option<Uri>,
+  pub local_uri: Option<Uri>,
   /// The plugin when it was set up before.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub plugin: Option<FilePlugin>,
@@ -1145,7 +1145,7 @@ mod test {
           kind: ApprovalItemKind::Plugin,
           registry: None,
           npmrc_uri: None,
-          uri: None,
+          local_uri: None,
           plugin: Some(FilePlugin {
             name: "dprint-plugin-exec".to_string(),
             version: "0.5.0".to_string(),
@@ -1194,6 +1194,27 @@ mod test {
             "message": "message",
           }],
         },
+      })
+    );
+  }
+
+  #[test]
+  fn should_serialize_the_local_uri_of_a_network_path() {
+    let item = ApprovalItem {
+      specifier: r"C:\project\link -> \\server\share\dir".to_string(),
+      kind: ApprovalItemKind::NetworkPath,
+      registry: None,
+      npmrc_uri: None,
+      local_uri: Some("file:///C:/project/link".parse().unwrap()),
+      plugin: None,
+      configuration: None,
+    };
+    assert_eq!(
+      serde_json::to_value(&item).unwrap(),
+      json!({
+        "specifier": r"C:\project\link -> \\server\share\dir",
+        "kind": "networkPath",
+        "localUri": "file:///C:/project/link",
       })
     );
   }

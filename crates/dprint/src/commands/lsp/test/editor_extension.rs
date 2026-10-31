@@ -1957,7 +1957,7 @@ fn should_approve_the_proxy_of_a_project_npmrc_on_its_own() {
             kind: ApprovalItemKind::NpmrcProxy,
             registry: None,
             npmrc_uri: Some(uri("/project/.npmrc")),
-            uri: None,
+            local_uri: None,
             plugin: None,
             configuration: None,
           }]
@@ -2054,7 +2054,7 @@ fn should_approve_reading_a_config_file_on_another_machine() {
           kind: ApprovalItemKind::NetworkPath,
           registry: None,
           npmrc_uri: None,
-          uri: Some(uri("/src/dprint.json")),
+          local_uri: Some(uri("/src/dprint.json")),
           plugin: None,
           configuration: None,
         }]
