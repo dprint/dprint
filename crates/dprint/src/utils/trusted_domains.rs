@@ -156,16 +156,19 @@ impl DownloadPolicy {
   /// of `UntrustedDownloadError`s) for the rest of the session.
   pub fn allow(&self, downloads: &[String]) {
     if let DownloadPolicy::TrustedDomains(trusted_downloads) = self {
-      trusted_downloads.allowed.lock().extend(downloads.iter().cloned());
+      trusted_downloads
+        .allowed
+        .lock()
+        .extend(downloads.iter().map(|download| normalize_download(download)));
     }
   }
 
   /// Sets what the user denied downloading this session for any config file,
-  /// which an allowed npm registry or directory then doesn't allow even though
-  /// it's under it (see `TrustedDownloads::is_allowed` and `is_path_allowed`).
+  /// which an allowed npm registry or directory above it then doesn't allow
+  /// (see `TrustedDownloads::is_allowed` and `is_path_allowed`).
   pub fn set_denied_downloads(&self, downloads: impl IntoIterator<Item = String>) {
     if let DownloadPolicy::TrustedDomains(trusted_downloads) = self {
-      *trusted_downloads.denied.lock() = downloads.into_iter().collect();
+      *trusted_downloads.denied.lock() = downloads.into_iter().map(|download| normalize_download(&download)).collect();
     }
   }
 
@@ -195,8 +198,9 @@ pub struct TrustedDownloads {
   /// user allowed downloading through (see `NpmrcProxy::to_download`).
   allowed: Mutex<HashSet<String>>,
   /// What the user denied downloading this session, which wins over an npm
-  /// registry or a directory that allows what's under it, but not over
-  /// allowing it exactly.
+  /// registry or a directory above it that allows what's under it, but not
+  /// over allowing it exactly. A denied directory denies what's in it the
+  /// same way, so the most specific decision is what's used.
   denied: Mutex<HashSet<String>>,
 }
 
@@ -290,20 +294,26 @@ impl TrustedDownloads {
   /// another machine). What a path allows is kept in session files and its
   /// text is hashed into approval ids, which other versions read, so it's
   /// never broadened (see `SessionFile`).
+  ///
+  /// IMPORTANT: A path that isn't valid Unicode is never allowed, because its
+  /// text has a replacement character where it isn't (see `Path::display`), so
+  /// another path would have the same text. The user is asked each time.
   fn is_path_allowed(&self, path: &Path, resolved: &Path) -> bool {
+    if path.to_str().is_none() || resolved.to_str().is_none() {
+      return false;
+    }
     let (mut path, mut resolved) = (path, resolved);
-    let mut is_first = true;
     loop {
       let download = get_path_download(path, resolved);
       if self.allowed.lock().contains(&download) {
         return true;
       }
-      // IMPORTANT: A denial wins over allowing a directory it's in (ex. the npm package of another config file),
-      // but not over allowing it exactly.
-      if is_first && self.denied.lock().contains(&download) {
+      // IMPORTANT: A denial of the path or of a directory it's in wins over allowing a directory above that (ex. the
+      // npm package of another config file), so the most specific decision is used, which is an allow when the same
+      // path is both allowed and denied (ex. allowing it exactly for another config file).
+      if self.denied.lock().contains(&download) {
         return false;
       }
-      is_first = false;
       match (path.file_name(), resolved.file_name(), path.parent(), resolved.parent()) {
         (Some(name), Some(resolved_name), Some(parent), Some(resolved_parent)) if name == resolved_name => {
           path = parent;
@@ -592,6 +602,25 @@ pub fn get_download_url_text(download: &str) -> &str {
 /// a slash, a backslash, or a drive letter, which is a scheme of one letter.
 pub fn is_path_download(download: &str) -> bool {
   NpmrcProxy::from_download(download).is_none() && Url::parse(download).map_or(true, |url| url.scheme().len() == 1)
+}
+
+/// Gets the text of a download as this version makes it, which is what it's
+/// compared by. A path download's text is made again from the paths it's of,
+/// because how a path is escaped depends on the version of dprint (ex. the
+/// version of Unicode that tells which characters aren't assigned), so a text
+/// that another version wrote (ex. in a session file) means the same paths.
+pub fn normalize_download(download: &str) -> String {
+  if !is_path_download(download) {
+    return download.to_string();
+  }
+  // an arrow in a path is escaped, so the first one is the one between them
+  match download.split_once(" -> ") {
+    Some((path, resolved)) => get_path_download(Path::new(&unescape_text(path)), Path::new(&unescape_text(resolved))),
+    None => {
+      let path = unescape_text(download);
+      get_path_download(Path::new(&path), Path::new(&path))
+    }
+  }
 }
 
 /// Gets the path in the project of a download that reads a path on another
@@ -1680,6 +1709,43 @@ mod test {
 
   fn url(text: &str) -> Url {
     Url::parse(text).unwrap()
+  }
+
+  #[test]
+  fn should_keep_denying_what_is_in_a_denied_directory_under_one_that_is_allowed() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/project").unwrap();
+    let share_dir = if cfg!(windows) { r"\\server\share\outer" } else { "/net/server/share/outer" };
+    environment.symlink(share_dir, "/project/outer").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let ensure_allows = |path: &str| policy.ensure_allows_path(&environment, Path::new(path), None);
+    let inner_download = ensure_allows("/project/outer/inner").unwrap_err().download;
+    let outer_download = ensure_allows("/project/outer").unwrap_err().download;
+    // the user denied the inner directory for one config file and allowed the outer one for another
+    policy.set_denied_downloads([inner_download]);
+    policy.allow(&[outer_download]);
+    assert!(ensure_allows("/project/outer/inner/plugin.wasm").is_err());
+    assert!(ensure_allows("/project/outer/inner").is_err());
+    assert!(ensure_allows("/project/outer/other/plugin.wasm").is_ok());
+    // but allowing a file in it exactly wins
+    let file_download = ensure_allows("/project/outer/inner/plugin.wasm").unwrap_err().download;
+    policy.allow(&[file_download]);
+    assert!(ensure_allows("/project/outer/inner/plugin.wasm").is_ok());
+  }
+
+  #[test]
+  fn should_compare_a_path_download_by_its_paths() {
+    // a text another version escaped differently (ex. with another version of Unicode)
+    let download = get_path_download(Path::new("/project/pkg"), Path::new("/net/server/share/pkg"));
+    let escaped = download.replace("pkg", "p\\u{6b}g");
+    assert_ne!(escaped, download);
+    assert_eq!(normalize_download(&escaped), download);
+    assert_eq!(normalize_download("/net/server/share/p\\u{6b}g"), "/net/server/share/pkg");
+    // an arrow in a path is still escaped
+    let download = get_path_download(Path::new("/project/a->b"), Path::new("/net/server/share/a->b"));
+    assert_eq!(normalize_download(&download), download);
+    // what isn't a path is kept
+    assert_eq!(normalize_download("https://example.com/p\\u{6b}g"), "https://example.com/p\\u{6b}g");
   }
 
   #[test]

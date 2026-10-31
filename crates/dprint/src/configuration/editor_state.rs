@@ -144,11 +144,16 @@ pub struct EditorState {
 ///   decision for the session. A writer that uses another lock
 ///   (ex. an `fcntl` lock, which doesn't exclude a `flock` lock on Linux) or
 ///   skips it would race with the others, which could lose an "Always Deny"
-///   under an "Always Allow" written at the same time.
+///   under an "Always Allow" written at the same time. No version deletes or
+///   replaces `.editor-approvals.lock`, because a writer that locked the file
+///   it opened doesn't check that the path still names it, so a writer that
+///   opened a new one wouldn't be excluded.
 /// - Decisions are only in the top-level arrays whose names end with
 ///   `Decisions` (ex. `processPluginDecisions`), and each one is an object with
 ///   a top-level `configFile` string in the form of `PathSource::display` (ex.
-///   `/home/user/project/dprint.json`), so that a version that doesn't know
+///   `/home/user/project/dprint.json`), which is the path a config file that's
+///   a symlink was found at (see `get_config_file_found_path`) and was its
+///   canonical path in older versions, so that a version that doesn't know
 ///   their format can forget them. Forgetting the decisions of config files
 ///   removes the ones with their `configFile` from each of those arrays, and
 ///   forgetting every decision empties each of them, including the decisions

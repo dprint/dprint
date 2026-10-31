@@ -742,8 +742,10 @@ pub struct ApproveResult {
   pub notice: Option<Notice>,
 }
 
-/// The error code of `dprint/approve` for an approval that isn't pending
-/// anymore because what needs to be approved changed, which is the language
+/// The error code of `dprint/approve` for when what was approved changed
+/// before the decision was received (ex. the approval isn't pending anymore
+/// because the config file changed, or the downloads of a denial were each
+/// allowed exactly since), so the decision wasn't used, which is the language
 /// server protocol's `RequestFailed`.
 pub const APPROVAL_CHANGED_ERROR_CODE: i64 = -32803;
 
@@ -751,7 +753,8 @@ pub const APPROVAL_CHANGED_ERROR_CODE: i64 = -32803;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ErrorData {
-  /// An approval isn't pending anymore.
+  /// What was approved changed, so the decision wasn't used (see
+  /// `APPROVAL_CHANGED_ERROR_CODE`).
   #[serde(rename_all = "camelCase")]
   ApprovalChanged {
     /// The config file the approval was for and what needs to be approved for
@@ -968,12 +971,12 @@ pub struct ConfigInfoResult {
   /// The other files the config file formats, which `filePatterns` can't
   /// match and only `dprint/fileInfo` says.
   pub other_files: Vec<OtherFiles>,
-  /// The local files besides the config file that it was resolved from (ex.
-  /// a config file it extends), which the editor watches for changes too by
-  /// their directories. A file whose directory may not be read is left out,
-  /// and the config file's own canonical path is in it when that isn't named
-  /// like a config file (ex. a `dprint.json` that's a symlink to a
-  /// `base.json`).
+  /// The local files that the config file was resolved from (ex. a config
+  /// file it extends), and its own canonical path when that isn't the path of
+  /// `config_file.uri` (ex. a `dprint.json` that's a symlink to a `base.json`
+  /// or to a file in `node_modules`), because the editor's watcher of the
+  /// config files doesn't report a change there. The editor watches them too
+  /// by their directories. A file whose directory may not be read is left out.
   pub watch_uris: Vec<Uri>,
   pub status: FormatStatus,
 }
@@ -1046,10 +1049,14 @@ pub enum RangeFormatting {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigFileInfo {
+  /// The config file, which is the path a local one was found or asked about
+  /// at when it's a symlink, not what it points to (see
+  /// `get_config_file_found_path`).
   pub uri: Uri,
   /// The directory whose files it formats, which is the directory it's in
   /// unless that's a `.config` directory (other than the home directory's),
-  /// and the directory it's used for when
+  /// even when it's a symlink to a file in another directory, and the
+  /// directory it's used for when
   /// it's the global config file (ex. the root of a drive). It's the directory
   /// its patterns are relative to for a remote or npm config file.
   pub dir_uri: Uri,

@@ -48,6 +48,8 @@ use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
+use super::resolve_main_config_path::get_config_file_display;
+use super::resolve_main_config_path::get_config_file_path;
 use super::resolve_main_config_path::get_default_config_file_in_ancestor_directories;
 use super::resolve_main_config_path::get_dot_config_file_base_dir;
 use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
@@ -65,6 +67,9 @@ pub struct ResolvedConfig {
   pub anchored_patterns_base_path: Option<CanonicalizedPathBuf>,
   /// Whether this is the user's global configuration file.
   pub is_global: bool,
+  /// The path a local config file was found at when that isn't its canonical
+  /// path (see `get_config_file_found_path`), which is what identifies it.
+  pub found_path: Option<PathBuf>,
   pub includes: Option<Vec<String>>,
   pub excludes: Option<Vec<String>>,
   pub plugins: Vec<PluginSourceReference>,
@@ -95,6 +100,18 @@ pub struct ResolvedConfig {
 }
 
 impl ResolvedConfig {
+  /// Gets the path of a local config file that identifies it, which is the
+  /// path it was found at (see `found_path`).
+  pub fn file_path(&self) -> Option<&Path> {
+    get_config_file_path(&self.source, self.found_path.as_deref())
+  }
+
+  /// Gets the config file as it's shown, which is what identifies it (see
+  /// `file_path`).
+  pub fn display(&self) -> String {
+    get_config_file_display(&self.source, self.found_path.as_deref())
+  }
+
   /// Gets the directories the config file's patterns are relative to.
   pub fn pattern_bases(&self) -> ConfigPatternBases<'_> {
     ConfigPatternBases {
@@ -197,6 +214,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           anchored_patterns_base_path: None,
           source: PathSource::new_local(environment.cwd().join_panic_relative("dprint.json")),
           is_global: false,
+          found_path: None,
           excludes: None,
           includes: None,
           incremental: None,
@@ -367,6 +385,7 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     base_path: config_path_and_text.base_path.clone(),
     anchored_patterns_base_path: config_path_and_text.anchored_patterns_base_path.clone(),
     is_global: config_path_and_text.is_global_config,
+    found_path: config_path_and_text.found_path.clone(),
     config_map,
     trusted_config_map,
     extended_only_plugin_config_keys: HashSet::new(),
@@ -1425,6 +1444,7 @@ mod tests {
       anchored_patterns_base_path: None,
       source: PathSource::new_local(canonical),
       is_global_config: false,
+      found_path: None,
       is_first_download: false,
     };
     resolve_config_from_path_with_bytes(&config_path, RemoteCacheMode::Use, environment)
@@ -2200,6 +2220,7 @@ mod tests {
         anchored_patterns_base_path: None,
         source: PathSource::new_local(source),
         is_global: false,
+        found_path: None,
         includes: None,
         excludes: None,
         plugins: Vec::new(),
@@ -3515,6 +3536,7 @@ mod tests {
       base_path: CanonicalizedPathBuf::new_for_testing("/"),
       anchored_patterns_base_path: None,
       is_global: false,
+      found_path: None,
       includes: Some(vec!["**/*.txt".to_string()]),
       // both patterns match at any depth, so both rebase into the nested directory
       excludes: Some(vec!["**/node_modules".to_string(), "dist".to_string()]),
@@ -3549,6 +3571,7 @@ mod tests {
       base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
       anchored_patterns_base_path: None,
       is_global: false,
+      found_path: None,
       includes: None,
       excludes: Some(vec!["sub-excludes".to_string()]),
       // a plugin specified in the child has precedence over the ancestor's
@@ -3704,6 +3727,7 @@ mod tests {
       base_path: CanonicalizedPathBuf::new_for_testing("/"),
       anchored_patterns_base_path: None,
       is_global: false,
+      found_path: None,
       includes: None,
       excludes: None,
       plugins: Vec::new(),
@@ -3728,6 +3752,7 @@ mod tests {
       base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
       anchored_patterns_base_path: None,
       is_global: false,
+      found_path: None,
       includes: None,
       excludes: None,
       plugins: Vec::new(),

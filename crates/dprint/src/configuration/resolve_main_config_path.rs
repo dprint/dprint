@@ -40,9 +40,24 @@ pub struct ResolvedConfigPathWithText {
   /// directory for a config file in one.
   pub anchored_patterns_base_path: Option<CanonicalizedPathBuf>,
   pub is_global_config: bool,
+  /// The path a local config file was found at when that isn't its canonical
+  /// path (see `get_config_file_found_path`), which is what identifies it.
+  pub found_path: Option<PathBuf>,
 }
 
 impl ResolvedConfigPathWithText {
+  /// Gets the path of a local config file that identifies it, which is the
+  /// path it was found at (see `found_path`).
+  pub fn file_path(&self) -> Option<&Path> {
+    get_config_file_path(&self.source, self.found_path.as_deref())
+  }
+
+  /// Gets the config file as it's shown, which is what identifies it (see
+  /// `file_path`).
+  pub fn display(&self) -> String {
+    get_config_file_display(&self.source, self.found_path.as_deref())
+  }
+
   pub fn as_file_path_with_text_ref(&self) -> ResolvedFilePathWithTextRef<'_> {
     ResolvedFilePathWithTextRef {
       content: &self.content,
@@ -89,9 +104,10 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
 
     if let Some((path, content)) = maybe_config_file {
       let anchored_patterns_base_path = get_found_config_file_anchored_patterns_dir(&start_search_dir, start_search_dir.as_ref(), &path);
-      let path = environment.canonicalize(path)?;
+      let canonical_path = environment.canonicalize(&path)?;
       Ok(Some(ResolvedConfigPathWithText {
-        source: PathSource::new_local(path),
+        found_path: get_found_config_file_path(&start_search_dir, start_search_dir.as_ref(), &path, canonical_path.as_ref()),
+        source: PathSource::new_local(canonical_path),
         is_first_download: false,
         content,
         base_path: start_search_dir,
@@ -149,6 +165,7 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
       is_global_config: false,
+      found_path: None,
     }))
   } else if matches!(config_discovery, ConfigDiscovery::Global) {
     resolve_global_config_path_or_error(environment).map(Some)
@@ -160,7 +177,7 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
     && args.plugins.is_empty()
     && let ResolveGlobalConfigPathResult::Found(path) = resolve_global_config_path_and_text_detail(environment)?
   {
-    Ok(Some(path))
+    Ok(Some(*path))
   } else {
     Ok(None)
   }
@@ -168,7 +185,7 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
 
 fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result<ResolvedConfigPathWithText> {
   match resolve_global_config_path_and_text_detail(environment)? {
-    ResolveGlobalConfigPathResult::Found(resolved_config_path) => Ok(resolved_config_path),
+    ResolveGlobalConfigPathResult::Found(resolved_config_path) => Ok(*resolved_config_path),
     ResolveGlobalConfigPathResult::NotFound => anyhow::bail!("Could not find global dprint.json file. Create one with `dprint init --global`"),
     ResolveGlobalConfigPathResult::FailedResolvingSystemDir(err) => Err(anyhow::Error::from(err).context(concat!(
       "Could not find system config directory. ",
@@ -180,7 +197,7 @@ fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result
 
 pub fn resolve_global_config_path_and_text(environment: &impl Environment) -> std::io::Result<Option<ResolvedConfigPathWithText>> {
   match resolve_global_config_path_and_text_detail(environment)? {
-    ResolveGlobalConfigPathResult::Found(resolved_config_text) => Ok(Some(resolved_config_text)),
+    ResolveGlobalConfigPathResult::Found(resolved_config_text) => Ok(Some(*resolved_config_text)),
     ResolveGlobalConfigPathResult::NotFound | ResolveGlobalConfigPathResult::FailedResolvingSystemDir { .. } => Ok(None),
   }
 }
@@ -202,7 +219,7 @@ pub fn resolve_global_config_path_and_text_at_path_root(environment: &impl Envir
 }
 
 enum ResolveGlobalConfigPathResult {
-  Found(ResolvedConfigPathWithText),
+  Found(Box<ResolvedConfigPathWithText>),
   NotFound,
   FailedResolvingSystemDir(std::io::Error),
 }
@@ -215,14 +232,15 @@ fn resolve_global_config_path_and_text_detail(environment: &impl Environment) ->
   for name in ["dprint.jsonc", "dprint.json"] {
     let file_path = global_folder.join_panic_relative(name);
     if let Some(content) = environment.maybe_read_file(&file_path)? {
-      return Ok(ResolveGlobalConfigPathResult::Found(ResolvedConfigPathWithText {
+      return Ok(ResolveGlobalConfigPathResult::Found(Box::new(ResolvedConfigPathWithText {
         source: PathSource::new_local(file_path),
         is_first_download: false,
         content,
         base_path: environment.cwd(),
         anchored_patterns_base_path: None,
         is_global_config: true,
-      }));
+        found_path: None,
+      })));
     }
   }
   Ok(ResolveGlobalConfigPathResult::NotFound)
@@ -332,8 +350,10 @@ pub fn get_default_config_file_in_ancestor_directories(environment: &impl Enviro
   {
     if let Some((ancestor_config_path, content)) = get_config_file_in_dir(ancestor_dir, environment, &ancestor_paths, start_dir)? {
       let base_path = environment.canonicalize(ancestor_dir)?;
+      let canonical_path = environment.canonicalize(&ancestor_config_path)?;
       return Ok(Some(ResolvedConfigPathWithText {
-        source: PathSource::new_local(environment.canonicalize(&ancestor_config_path)?),
+        found_path: get_found_config_file_path(&base_path, ancestor_dir, &ancestor_config_path, canonical_path.as_ref()),
+        source: PathSource::new_local(canonical_path),
         is_first_download: false,
         content,
         anchored_patterns_base_path: get_found_config_file_anchored_patterns_dir(&base_path, ancestor_dir, &ancestor_config_path),
@@ -421,6 +441,73 @@ pub fn resolve_local_config_file_dirs(environment: &impl Environment, config_pat
   }
 }
 
+/// Resolves the directories of a local config file at a path that didn't
+/// come from looking for it (ex. the uri of one that an editor sent), with the
+/// path it's at where the directory it's used for is canonicalized (see
+/// `get_config_file_found_path`).
+///
+/// Unlike `resolve_local_config_file_dirs`, it's used for the directory it's
+/// in (or the parent of its `.config` directory) rather than the directory of
+/// its canonical path, like when it's found for a file in that directory.
+pub fn resolve_config_file_dirs_at_path(environment: &impl Environment, config_path: &Path) -> std::io::Result<(LocalConfigFileDirs, PathBuf)> {
+  let (Some(dir), Some(file_name)) = (config_path.parent(), config_path.file_name()) else {
+    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "The config file path has no directory."));
+  };
+  match get_dot_config_file_base_dir(environment, config_path) {
+    Some(base_dir) => {
+      let base_path = environment.canonicalize(base_dir)?;
+      let dot_config_dir = base_path.join_panic_relative(DOT_CONFIG_DIR_NAME);
+      let path = dot_config_dir.as_ref().join(file_name);
+      let dirs = LocalConfigFileDirs {
+        anchored_patterns_base_path: Some(dot_config_dir),
+        base_path,
+      };
+      Ok((dirs, path))
+    }
+    None => {
+      let base_path = environment.canonicalize(dir)?;
+      let path = base_path.as_ref().join(file_name);
+      let dirs = LocalConfigFileDirs {
+        base_path,
+        anchored_patterns_base_path: None,
+      };
+      Ok((dirs, path))
+    }
+  }
+}
+
+/// Gets the path a local config file was found at to identify it by when
+/// that isn't its canonical path, which is when it's a symlink to another
+/// file (ex. `~/proj/dprint.json -> ~/dotfiles/dprint.json`) or it's in a
+/// `.config` directory that's a symlink. The path that's provided has the
+/// directory it was found for canonicalized.
+///
+/// A user knows the config file by where it was found, which is also where
+/// it's used, so two symlinks to the same file are two config files. It's
+/// still resolved from its canonical path (ex. what it extends is relative to
+/// that). A canonical name that's only different in case (ex. on a case
+/// insensitive file system) isn't another file.
+pub fn get_config_file_found_path(found_path: PathBuf, canonical_path: &Path) -> Option<PathBuf> {
+  let file_name = |path: &Path| path.file_name().and_then(|name| name.to_str()).map(|name| name.to_ascii_lowercase());
+  let is_canonical = found_path.parent() == canonical_path.parent() && file_name(&found_path).is_some_and(|name| Some(name) == file_name(canonical_path));
+  (!is_canonical).then_some(found_path)
+}
+
+/// Gets the path of a local config file that identifies it (see
+/// `get_config_file_found_path`).
+pub fn get_config_file_path<'a>(source: &'a PathSource, found_path: Option<&'a Path>) -> Option<&'a Path> {
+  found_path.or_else(|| source.maybe_local_path().map(|path| path.as_ref()))
+}
+
+/// Gets how a config file is shown, which is what identifies it (see
+/// `get_config_file_path`).
+pub fn get_config_file_display(source: &PathSource, found_path: Option<&Path>) -> String {
+  match found_path {
+    Some(path) => path.display().to_string(),
+    None => source.display(),
+  }
+}
+
 /// Gets the directory a config file in a `.config` directory applies to,
 /// which is the parent of the `.config` directory.
 pub fn get_dot_config_file_base_dir<'a>(environment: &impl Environment, config_path: &'a Path) -> Option<&'a Path> {
@@ -490,6 +577,13 @@ fn get_config_file_in_dir(dir: &Path, environment: &impl Environment, ancestor_p
 /// Gets the directory the anchored patterns of a config file found in the
 /// provided directory by [`get_config_file_in_dir`] are relative to, which is
 /// its `.config` directory when that's where the config file was found.
+/// Gets the path a config file that was found in the directory is known by
+/// (see `get_config_file_found_path`).
+fn get_found_config_file_path(base_path: &CanonicalizedPathBuf, dir: &Path, config_path: &Path, canonical_path: &Path) -> Option<PathBuf> {
+  let relative_path = config_path.strip_prefix(dir).ok()?;
+  get_config_file_found_path(base_path.as_ref().join(relative_path), canonical_path)
+}
+
 fn get_found_config_file_anchored_patterns_dir(base_path: &CanonicalizedPathBuf, dir: &Path, config_path: &Path) -> Option<CanonicalizedPathBuf> {
   (config_path.parent() != Some(dir)).then(|| base_path.join_panic_relative(DOT_CONFIG_DIR_NAME))
 }

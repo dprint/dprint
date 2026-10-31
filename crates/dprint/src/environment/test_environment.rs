@@ -397,6 +397,13 @@ impl TestEnvironment {
     self.canonical_paths.lock().push((self.clean_path(path), self.clean_path(canonical_path)));
   }
 
+  /// Removes the canonical path that was added for the path (see
+  /// `add_canonical_path`), which is like replacing a symlink with a file.
+  pub fn remove_canonical_path(&self, path: impl AsRef<Path>) {
+    let path = self.clean_path(path);
+    self.canonical_paths.lock().retain(|(added_path, _)| *added_path != path);
+  }
+
   /// Gets the number of times the path was looked up following its symlinks
   /// (ex. `path_exists` or `fs_metadata`), which reaches another machine on a
   /// real file system when it's a symlink to one.

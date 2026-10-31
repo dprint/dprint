@@ -209,6 +209,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
       is_global_config: options.global,
+      found_path: None,
     },
     options.remote_cache_mode,
     environment,

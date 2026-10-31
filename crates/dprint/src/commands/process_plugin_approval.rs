@@ -160,12 +160,7 @@ pub async fn allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) {
   if let Err(err) = allow_process_plugins_in_editors(environment, config, plugin_resolver).await {
-    log_warn!(
-      environment,
-      "Failed allowing the process plugins of {} in editors: {:#}",
-      config.source.display(),
-      err
-    );
+    log_warn!(environment, "Failed allowing the process plugins of {} in editors: {:#}", config.display(), err);
   }
 }
 
@@ -193,12 +188,7 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   let stored = match read_editor_approvals(environment) {
     Ok(approvals) => approvals,
     Err(err) => {
-      log_debug!(
-        environment,
-        "Not allowing the process plugins of {} in editors. {:#}",
-        config.source.display(),
-        err
-      );
+      log_debug!(environment, "Not allowing the process plugins of {} in editors. {:#}", config.display(), err);
       return Ok(());
     }
   };

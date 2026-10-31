@@ -16,7 +16,9 @@ use crate::configuration::Permissions;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
+use crate::configuration::get_config_file_found_path;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
+use crate::configuration::resolve_config_file_dirs_at_path;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
@@ -104,6 +106,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
         is_first_download: false,
         content,
         is_global_config: false,
+        found_path: None,
       })
     } else {
       match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
@@ -128,11 +131,14 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     let Some(content) = self.environment.maybe_read_file(path)? else {
       return Ok(None);
     };
-    let dirs = resolve_local_config_file_dirs(&self.environment, path)?;
+    // it's used for its own directory and known by its path there, like when it's found for a file in it
+    let (dirs, found_path) = resolve_config_file_dirs_at_path(&self.environment, path)?;
+    let canonical_path = self.environment.canonicalize(path)?;
     Ok(Some(ResolvedConfigPathWithText {
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
-      source: PathSource::new_local(self.environment.canonicalize(path)?),
+      found_path: get_config_file_found_path(found_path, canonical_path.as_ref()),
+      source: PathSource::new_local(canonical_path),
       is_first_download: false,
       content,
       is_global_config: false,
@@ -177,12 +183,12 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       // the configuration of a process plugin that the user allowed setting up is known now
       match record_set_up_process_plugins(&self.environment, &self.session_permissions, &config, &self.plugin_resolver).await {
         // a failure from before isn't the last result anymore
-        Ok(()) => self.session_permissions.clear_process_plugin_store_error(&config.source.display()),
+        Ok(()) => self.session_permissions.clear_process_plugin_store_error(&config.display()),
         Err(err) => {
           let message = get_process_plugin_store_error_message(&err);
           log_warn!(self.environment, "{}", message);
           // the approval that set them up tells the user (see `take_process_plugin_store_error`)
-          self.session_permissions.set_process_plugin_store_error(config.source.display(), message);
+          self.session_permissions.set_process_plugin_store_error(config.display(), message);
         }
       }
       let permissions = self.session_permissions.read(&self.environment);
@@ -269,5 +275,10 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 pub fn get_config_file_key(config_file: &ResolvedConfigPathWithText) -> String {
   // the base path is part of the key because the global config
   // file has a different one for each root directory (ex. drive)
-  format!("{}\n{}", config_file.source.display(), config_file.base_path.display())
+  let config_file_text = match config_file.file_path() {
+    // a path that was joined with another separator (ex. the path a symlink was found at) is the same key
+    Some(path) => path.components().collect::<PathBuf>().display().to_string(),
+    None => config_file.display(),
+  };
+  format!("{}\n{}", config_file_text, config_file.base_path.display())
 }

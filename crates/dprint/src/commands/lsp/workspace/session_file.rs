@@ -206,7 +206,14 @@ impl std::error::Error for SessionFileWriteError {}
 ///   url it doesn't know and never as a path (see `is_path_download`).
 /// - A denial of downloads is kept with the downloads it's for, and its
 ///   approval id is made from them when it's read, so a change to how the
-///   ids are made doesn't lose it.
+///   ids are made doesn't lose it. Its `configKey` is only compared with the
+///   keys of the same version, so one that another version made another way
+///   (ex. of another form of uri) is still a denial of its downloads for any
+///   config file on purpose, and it's forgotten by the `configFile` it was
+///   shown with too (see `is_denial_for`).
+/// - The text of a path download is compared by the paths it's of (see
+///   `normalize_download`), because another version may escape a path another
+///   way (ex. with another version of Unicode).
 /// - A file and its temporary files are written with mode `0600` on Unix
 ///   (`SESSION_FILE_MODE`), because they may have the credentials of an
 ///   `.npmrc` proxy setting.
@@ -218,7 +225,11 @@ impl std::error::Error for SessionFileWriteError {}
 /// - A server takes an exclusive lock of the whole `<id>.lock` file before it
 ///   uses `<id>.json` and holds it until the session ends, when it deletes
 ///   both. It's `flock(2)` on Unix and `LockFileEx` of the whole file on
-///   Windows (see `Environment::try_lock_file`). A server that can't
+///   Windows (see `Environment::try_lock_file`). After taking it, a server
+///   checks that `<id>.lock` still exists and otherwise takes it again,
+///   because another version may have deleted it while it opened it (see
+///   `remove_unless_locked`), and a lock of a file that was deleted doesn't
+///   keep another server or a cleanup from using the session's files. A server that can't
 ///   take it (another server that's running holds it, or it fails) neither
 ///   reads nor writes `<id>.json`. It keeps trying, and once it takes it, it
 ///   writes its own decisions to `<id>.json` right away, so the file never has

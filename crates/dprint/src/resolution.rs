@@ -40,10 +40,12 @@ use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
+use crate::configuration::get_config_file_found_path;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
 use crate::configuration::get_settings_file_path;
+use crate::configuration::resolve_config_file_dirs_at_path;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
@@ -1052,6 +1054,8 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
   ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
     log_debug!(self.environment, "Analyzing config file {}", config_file_path.display());
     let dirs = resolve_local_config_file_dirs(self.environment, &config_file_path)?;
+    // it's known by the path it was found at, like in the editors (see `get_config_file_found_path`)
+    let found_path = resolve_config_file_dirs_at_path(self.environment, &config_file_path).ok().map(|(_, path)| path);
     let config_file_path = self.environment.canonicalize(&config_file_path)?;
     if Some(&config_file_path) == root_config_path.as_ref() {
       // config file specified via `--config` so ignore it
@@ -1061,6 +1065,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       content: self.environment.read_file(&config_file_path)?,
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
+      found_path: found_path.and_then(|path| get_config_file_found_path(path, config_file_path.as_ref())),
       source: PathSource::new_local(config_file_path),
       is_global_config: false,
       is_first_download: false,
@@ -1473,7 +1478,7 @@ pub fn get_unapproved_process_plugins<TEnvironment: Environment>(
   environment: &TEnvironment,
   permissions: &Permissions,
 ) -> Vec<(PluginSourceReference, Option<ProcessPluginApproval>)> {
-  let config_file = config.source.display();
+  let config_file = config.display();
   let trusted_config_hash = get_trusted_config_hash(config);
   get_process_plugin_approvals(config, plugin_resolver, environment)
     .into_iter()
@@ -1548,7 +1553,7 @@ fn get_unapproved_process_plugins_of_config<TEnvironment: Environment>(
   if plugins.is_empty() {
     return None;
   }
-  let config_file = config.source.display();
+  let config_file = config.display();
   log_debug!(
     environment,
     "Not using the plugins of {} because its process plugins weren't approved",
@@ -1579,7 +1584,7 @@ fn is_allowed_before_set_up(
   unpinned_file_checksum: Option<String>,
   permissions: &Permissions,
 ) -> bool {
-  let Some(allowed) = permissions.get_latest_allow(&config.source.display(), &plugin.to_full_string()) else {
+  let Some(allowed) = permissions.get_latest_allow(&config.display(), &plugin.to_full_string()) else {
     return false;
   };
   let is_allowed_config = |plugin_config: Option<&ConfigMapValue>| {
@@ -1608,7 +1613,7 @@ fn get_process_plugin_approval(
     config.trusted_config_map.get(config_key),
   );
   ProcessPluginApproval {
-    config_file: config.source.display(),
+    config_file: config.display(),
     plugin: plugin.to_full_string(),
     config_hash: Some(config_hash),
     config_key: Some(config_key.to_string()),
@@ -1782,6 +1787,7 @@ mod test {
         anchored_patterns_base_path: None,
         source: PathSource::new_local(base_path.join_panic_relative("dprint.json")),
         is_global: false,
+        found_path: None,
         excludes: None,
         includes: None,
         incremental: None,
