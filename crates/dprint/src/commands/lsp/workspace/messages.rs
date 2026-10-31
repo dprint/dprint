@@ -619,7 +619,7 @@ pub struct ApprovalItem {
   /// The uri of the path in the project of a `networkPath` that reaches the
   /// other machine through a symlink (the path before ` -> `) as the editor
   /// knows it, which is local while what it reaches isn't, so the editor
-  /// doesn't open, read, or watch it before it's allowed.
+  /// doesn't open or read it before it's allowed.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub local_uri: Option<Uri>,
   /// The plugin when it was set up before.
@@ -962,7 +962,8 @@ pub struct ConfigInfoResult {
   /// match and only `dprint/fileInfo` says.
   pub other_files: Vec<OtherFiles>,
   /// The local files besides the config file that it was resolved from (ex.
-  /// a config file it extends), which the editor watches for changes too.
+  /// a config file it extends), which the editor watches for changes too by
+  /// their directories. A file whose directory may not be read is left out.
   pub watch_uris: Vec<Uri>,
   pub status: FormatStatus,
 }
@@ -1047,9 +1048,10 @@ pub struct ConfigFileInfo {
   /// directory of the workspace folders or the global config file isn't.
   pub in_workspace: bool,
   /// Whether it was found on another machine and reading it isn't allowed
-  /// yet, so the editor doesn't open, read, or watch it (or its directory),
-  /// which would reach the other machine. `dprint/configChanged` is sent once
-  /// it's allowed.
+  /// yet, so the editor doesn't open or read it, which would reach the other
+  /// machine, and only watches it like any file, with a watcher of its
+  /// directory that doesn't follow symlinks. `dprint/configChanged` is sent
+  /// once it's allowed.
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub on_another_machine: bool,
 }
