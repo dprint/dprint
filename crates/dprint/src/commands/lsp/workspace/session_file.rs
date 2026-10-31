@@ -195,9 +195,18 @@ impl std::error::Error for SessionFileWriteError {}
 ///   narrows an allow or adds denials, which an older server would ignore).
 ///   An item of an approval of a kind a server doesn't know is left out,
 ///   because the items are only shown.
+/// - A newer server reads an older file with the meaning it was written
+///   with. The text of a download (ex. a url, `npm-registry:<url>/`, or
+///   `npmrc-proxy:...`, see `UntrustedDownloadError`) is kept as it is, so
+///   what allowing an existing form covers is never broadened, and a broader
+///   allow gets a new form instead, which older versions match against
+///   nothing.
 /// - A denial of downloads is kept with the downloads it's for, and its
 ///   approval id is made from them when it's read, so a change to how the
 ///   ids are made doesn't lose it.
+/// - A file and its temporary files are written with mode `0600` on Unix
+///   (`SESSION_FILE_MODE`), because they may have the credentials of an
+///   `.npmrc` proxy setting.
 /// - The allows and set-up grants of a file are only restored when its
 ///   `approvalsFileFingerprint` is the approvals file's (see
 ///   `SessionPermissions::restore`), so a file without it fails closed.
@@ -220,8 +229,12 @@ impl std::error::Error for SessionFileWriteError {}
 /// - Every version only deletes a file in the directory that has one of the
 ///   names above, is stale, and whose session's lock it can take (a lock only
 ///   once the session's `<id>.json` is gone), apart from what a server deletes
-///   of its own session. It doesn't look in the directory when it's a
-///   symlink.
+///   of its own session. It never creates a lock to delete a file whose
+///   session has none, and it doesn't look in the directory when it's a
+///   symlink. `dprint clear-cache` deletes the files of every session whose
+///   lock it can take whatever their age, but older versions of it delete
+///   the whole directory, so a lock may be deleted under a server that's
+///   running.
 ///
 /// So never raise the refresh interval or the check interval to near the
 /// stale age, never lower the stale age, and never use another lock or
@@ -416,10 +429,18 @@ impl SessionFile {
     }
   }
 
-  /// Deletes the file once the session ended (ex. the client stopped the
-  /// server), which is never written again after. The session's lock is
-  /// deleted and released too. Nothing is deleted when the lock isn't held,
-  /// because the file is then another server's.
+  /// Stops writing the file once the client asked the server to shut down,
+  /// which is kept until the session ends (see `delete`), so a server that's
+  /// killed after it (ex. a client stopping a server that stopped responding)
+  /// leaves it for a server that's started again for the session.
+  pub fn close(&self) {
+    self.is_closed.set(true);
+  }
+
+  /// Deletes the file once the session ended (ex. the client exited the
+  /// server after shutting it down), which is never written again after. The
+  /// session's lock is deleted and released too. Nothing is deleted when the
+  /// lock isn't held, because the file is then another server's.
   pub fn delete(&self, environment: &impl Environment) {
     self.is_closed.set(true);
     // it's deleted while it's held so another server doesn't take it in between
@@ -480,39 +501,24 @@ pub fn is_valid_session_id(session_id: &str) -> bool {
 /// started again). It only deletes the files of the sessions no server that's
 /// running uses (see `SessionFile`).
 pub fn remove_stale_session_files(environment: &impl Environment) {
-  let dir_path = get_sessions_dir(environment);
-  // IMPORTANT: Don't follow a symlink, which would delete the files of another directory.
-  if environment.path_kind(&dir_path) != Some(PathKind::Dir) {
-    return;
-  }
-  let Ok(entries) = environment.dir_info(&dir_path) else {
-    return;
-  };
   let now = environment.sys_time_now();
-  let mut stale_lock_session_ids = Vec::new();
-  for entry in entries {
-    let DirEntry::File { path } = entry else {
-      continue;
-    };
-    // IMPORTANT: Only delete the files of sessions, which may be in a directory with others.
-    let Some((session_id, kind)) = path.file_name().and_then(|name| name.to_str()).and_then(parse_session_dir_file_name) else {
-      continue;
-    };
-    if !is_stale(environment, &path, now) {
-      continue;
-    }
-    match kind {
-      SessionDirFileKind::Session | SessionDirFileKind::Temp => remove_unless_locked(environment, &dir_path.join(format!("{}.lock", session_id)), &path),
-      SessionDirFileKind::Lock => stale_lock_session_ids.push(session_id.to_string()),
-    }
+  remove_session_files(environment, |path| is_stale(environment, path, now));
+}
+
+/// Deletes the session files whatever their age (ex. `dprint clear-cache`),
+/// apart from the ones of the sessions that a server that's running uses (see
+/// `SessionFile`), and the directory when nothing's left in it.
+pub fn remove_unused_session_files(environment: &impl Environment) {
+  remove_session_files(environment, |_| true);
+  let dir_path = get_sessions_dir(environment);
+  if environment.path_kind(&dir_path) == Some(PathKind::Dir) && environment.dir_info(&dir_path).is_ok_and(|entries| entries.is_empty()) {
+    environment.try_remove_dir_all(&dir_path);
   }
-  // a lock is only deleted once the file of its session is gone
-  for session_id in stale_lock_session_ids {
-    if !environment.path_exists(dir_path.join(format!("{}.json", session_id))) {
-      let lock_path = dir_path.join(format!("{}.lock", session_id));
-      remove_unless_locked(environment, &lock_path, &lock_path);
-    }
-  }
+}
+
+/// Gets the directory in the cache directory with the session files.
+pub fn get_sessions_dir(environment: &impl Environment) -> PathBuf {
+  environment.get_cache_dir().join(SESSIONS_DIR_NAME)
 }
 
 /// What's written to a session file.
@@ -623,8 +629,42 @@ fn parse_session_file(text: &str) -> Result<SessionState, String> {
   serde_json::from_value::<SessionState>(value).map_err(|err| format!("it can't be read ({})", err))
 }
 
-fn get_sessions_dir(environment: &impl Environment) -> PathBuf {
-  environment.get_cache_dir().join(SESSIONS_DIR_NAME)
+/// Deletes the files in the sessions directory that `is_removed` says to,
+/// apart from the ones of the sessions that a server that's running uses (see
+/// `SessionFile`).
+fn remove_session_files(environment: &impl Environment, is_removed: impl Fn(&Path) -> bool) {
+  let dir_path = get_sessions_dir(environment);
+  // IMPORTANT: Don't follow a symlink, which would delete the files of another directory.
+  if environment.path_kind(&dir_path) != Some(PathKind::Dir) {
+    return;
+  }
+  let Ok(entries) = environment.dir_info(&dir_path) else {
+    return;
+  };
+  let mut removed_lock_session_ids = Vec::new();
+  for entry in entries {
+    let DirEntry::File { path } = entry else {
+      continue;
+    };
+    // IMPORTANT: Only delete the files of sessions, which may be in a directory with others.
+    let Some((session_id, kind)) = path.file_name().and_then(|name| name.to_str()).and_then(parse_session_dir_file_name) else {
+      continue;
+    };
+    if !is_removed(&path) {
+      continue;
+    }
+    match kind {
+      SessionDirFileKind::Session | SessionDirFileKind::Temp => remove_unless_locked(environment, &dir_path.join(format!("{}.lock", session_id)), &path),
+      SessionDirFileKind::Lock => removed_lock_session_ids.push(session_id.to_string()),
+    }
+  }
+  // a lock is only deleted once the file of its session is gone
+  for session_id in removed_lock_session_ids {
+    if !environment.path_exists(dir_path.join(format!("{}.json", session_id))) {
+      let lock_path = dir_path.join(format!("{}.lock", session_id));
+      remove_unless_locked(environment, &lock_path, &lock_path);
+    }
+  }
 }
 
 #[cfg(test)]
@@ -714,6 +754,42 @@ mod test {
     file.write(&environment, &SessionState::default(), true).unwrap();
     assert!(!environment.path_exists(&file.file_path));
     assert!(!file.needs_refresh(&environment));
+  }
+
+  #[test]
+  fn should_keep_the_session_file_without_writing_it_once_it_is_closed() {
+    let environment = TestEnvironment::new();
+    let file = open_locked(&environment, SESSION_ID);
+    file.write(&environment, &SessionState::default(), false).unwrap();
+    let text = environment.read_file(&file.file_path).unwrap();
+    // ex. the client asked the server to shut down
+    file.close();
+    file.write(&environment, &new_allowed_state(), true).unwrap();
+    assert!(!file.needs_refresh(&environment));
+    assert_eq!(environment.read_file(&file.file_path).unwrap(), text);
+    // until the session ends
+    file.delete(&environment);
+    assert!(!environment.path_exists(&file.file_path));
+  }
+
+  #[test]
+  fn should_remove_the_session_files_no_server_uses_whatever_their_age() {
+    let environment = TestEnvironment::new();
+    let running = open_locked(&environment, "running-0123456789");
+    running.write(&environment, &SessionState::default(), false).unwrap();
+    let exited = open_locked(&environment, "exited-0123456789");
+    exited.write(&environment, &SessionState::default(), false).unwrap();
+    let (exited_file_path, exited_lock_path) = (exited.file_path.clone(), exited.lock_path.clone());
+    drop(exited);
+    remove_unused_session_files(&environment);
+    assert!(!environment.path_exists(&exited_file_path));
+    assert!(!environment.path_exists(&exited_lock_path));
+    assert!(environment.path_exists(&running.file_path));
+    assert!(environment.path_exists(&running.lock_path));
+    // and the directory once nothing's left
+    running.delete(&environment);
+    remove_unused_session_files(&environment);
+    assert!(!environment.path_exists(get_sessions_dir(&environment)));
   }
 
   #[test]

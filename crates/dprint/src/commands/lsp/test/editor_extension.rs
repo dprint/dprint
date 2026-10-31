@@ -3574,13 +3574,18 @@ fn should_delete_the_session_file_when_the_client_stops_the_server() {
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
         client.approve(&approval.id, ApprovalDecision::Deny).await;
         // it's kept before the decision is responded to
-        let text = environment.read_file(get_session_file_path(&environment, SESSION_ID)).unwrap();
+        let session_file_path = get_session_file_path(&environment, SESSION_ID);
+        let text = environment.read_file(&session_file_path).unwrap();
         assert!(text.contains(UNTRUSTED_PLUGIN_URL), "{}", text);
+        // the session only ends on the exit after the shutdown, so a server that's killed
+        // after shutting down (ex. one that stopped responding) keeps it
+        client.backend.shutdown().await.unwrap();
+        assert_eq!(environment.read_file(&session_file_path).unwrap(), text);
       }
       .boxed_local()
     }
   });
-  // the session ended
+  // the session ended once the client exited the server
   assert!(!environment.path_exists(get_session_file_path(&environment, SESSION_ID)));
   run_session_with(&environment, session_params(SESSION_ID), |client| {
     async move {

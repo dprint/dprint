@@ -160,7 +160,9 @@ use self::session_file::SessionFile;
 use self::session_file::SessionFileWriteError;
 use self::session_file::SessionLockError;
 use self::session_file::SessionState;
+pub(crate) use self::session_file::get_sessions_dir;
 use self::session_file::remove_stale_session_files;
+pub(crate) use self::session_file::remove_unused_session_files;
 
 /// The error for approving what isn't pending anymore (ex. what needs to be
 /// approved changed because the config file changed).
@@ -678,14 +680,24 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.scope_container.shutdown().await;
   }
 
-  /// Stops the plugins once the client stopped the server, which ends the
-  /// session, so its session file is deleted.
+  /// Stops the plugins once the client asked the server to shut down. The
+  /// session file isn't written anymore, but it's only deleted once the
+  /// session ends (see `end_session`), so a client that kills the server
+  /// after this (ex. one that stopped responding) keeps the session.
   pub async fn shutdown(&self) {
     self.stopped.cancel();
     if let Some(session_file) = &*self.session_file.borrow() {
-      session_file.delete(&self.environment);
+      session_file.close();
     }
     self.scope_container.shutdown().await;
+  }
+
+  /// Ends the session once the client exited the server after shutting it
+  /// down, which deletes its session file.
+  pub fn end_session(&self) {
+    if let Some(session_file) = &*self.session_file.borrow() {
+      session_file.delete(&self.environment);
+    }
   }
 
   /// Handles the config files the editor says were created, changed, or

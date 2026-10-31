@@ -341,6 +341,7 @@ fn start_message_handler<TEnvironment: Environment>(
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
     let mut workspace = None;
+    let mut shutdown_received = false;
     let pending_count = Rc::new(Cell::new(0usize));
     while let Some(message) = rx.recv().await {
       match message {
@@ -387,8 +388,8 @@ fn start_message_handler<TEnvironment: Environment>(
             Some(workspace) => workspace.shutdown().await,
             None => scope_container.shutdown().await,
           }
+          shutdown_received = true;
           let _ = sender.send(());
-          return true; // exit
         }
         #[cfg(test)]
         ChannelMessage::HasPending(sender) => {
@@ -396,7 +397,12 @@ fn start_message_handler<TEnvironment: Environment>(
         }
       }
     }
-    false
+    // the client exited the server (or disconnected) after shutting it down, which ends the session, while
+    // a server that's killed after shutting down keeps its session file
+    if shutdown_received && let Some(workspace) = &workspace {
+      workspace.end_session();
+    }
+    shutdown_received
   })
 }
 
@@ -4472,6 +4478,7 @@ mod test {
         assert_eq!(test_client.take_registered_methods(), Vec::<String>::new());
         backend.initialized(InitializedParams {}).await;
         backend.shutdown().await.unwrap();
+        drop(backend);
         recv_task.await.unwrap();
 
         assert_eq!(
@@ -4819,8 +4826,10 @@ mod test {
     let shutdown_received = environment.clone().run_in_runtime(async move {
       let (backend, recv_task, _test_client) = setup_backend(environment.clone());
       backend.shutdown().await.unwrap();
-      // a second one after the message handler stopped should not hang
+      // a second one should not hang
       backend.shutdown().await.unwrap();
+      // the client exits, which drops the backend
+      drop(backend);
       recv_task.await.unwrap()
     });
     assert!(shutdown_received);
