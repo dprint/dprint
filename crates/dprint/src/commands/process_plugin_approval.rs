@@ -356,7 +356,7 @@ mod test {
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
-      let is_stored = store_process_plugin_action(
+      store_process_plugin_action(
         &environment,
         &session_permissions,
         &unapproved(Some(approval())),
@@ -365,7 +365,6 @@ mod test {
       .await
       .unwrap();
       // it's stored for the versions that use the settings
-      assert!(is_stored);
       assert_eq!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.len(), 1);
       assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
       // but isn't used by another session
