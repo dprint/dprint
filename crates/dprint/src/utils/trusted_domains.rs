@@ -911,12 +911,18 @@ impl PathWalk {
         if let OwnedComponent::Parent = component {
           let parent = self.resolved.parent().map(|parent| (parent.to_path_buf(), self.get_location(parent, rules).0));
           match parent {
+            // IMPORTANT: The system doesn't apply the `..` of a verbatim path (ex.
+            // `\\?\UNC\server\share\..`), so where one that would leave its root is read from isn't known.
+            None if is_verbatim(&self.resolved) => {
+              push_parent_dir(&mut self.resolved);
+              self.set_location(PathLocation::LeftShare, None);
+            }
             // ex. the root of a UNC path, which can't be left
             None => {}
             Some((parent, location)) if location == self.location => self.resolved = parent,
             // IMPORTANT: Leaving the share (ex. `/net/host/..`) may reach another machine.
             Some(_) => {
-              self.resolved.push("..");
+              push_parent_dir(&mut self.resolved);
               self.set_location(PathLocation::LeftShare, None);
             }
           }
@@ -939,7 +945,13 @@ impl PathWalk {
       }
       OwnedComponent::Parent => {
         // the parent of the root is the root
-        self.resolved.pop();
+        if !self.resolved.pop() && is_verbatim(&self.resolved) {
+          // IMPORTANT: The system doesn't apply the `..` of a verbatim path (ex.
+          // `\\?\Volume{...}\..\UNC\server\share`), so where one that would leave its root is read from isn't known.
+          push_parent_dir(&mut self.resolved);
+          self.set_location(PathLocation::Unresolved, None);
+          return;
+        }
         // ex. it left the followed share (`/net/host/..`), which is followed like a local path
         let (location, automount_root) = self.get_location(&self.resolved, rules);
         self.set_location(location, automount_root);
@@ -1112,7 +1124,7 @@ impl OwnedComponent {
   fn push_to(self, path: &mut PathBuf) {
     match self {
       OwnedComponent::Root(root) => path.push(root),
-      OwnedComponent::Parent => path.push(".."),
+      OwnedComponent::Parent => push_parent_dir(path),
       OwnedComponent::Normal(name) => path.push(name),
       OwnedComponent::Stream(stream) => append_stream(path, &stream),
     }
@@ -1150,8 +1162,7 @@ impl<'a> WindowsName<'a> {
       Some(index) => (&name[..index], Some(&name[index..])),
       None => (name, None),
     };
-    let is_verbatim = matches!(dir.components().next(), Some(Component::Prefix(prefix)) if prefix.kind().is_verbatim());
-    if !is_verbatim && (file_name.ends_with(['.', ' ']) || is_dos_device_name(file_name)) {
+    if !is_verbatim(dir) && (file_name.ends_with(['.', ' ']) || is_dos_device_name(file_name)) {
       return WindowsName::Changed;
     }
     match stream {
@@ -1191,6 +1202,18 @@ fn append_stream(path: &mut PathBuf, stream: &OsStr) {
   }
 }
 
+/// Adds `..` to the text of a path without applying it, which `PathBuf::push`
+/// does to a verbatim path (ex. `\\?\C:\` stays the same).
+fn push_parent_dir(path: &mut PathBuf) {
+  let mut text = std::mem::take(path).into_os_string();
+  let needs_separator = text.as_encoded_bytes().last().is_some_and(|last| !std::path::is_separator(*last as char));
+  if needs_separator {
+    text.push(std::path::MAIN_SEPARATOR_STR);
+  }
+  text.push("..");
+  *path = PathBuf::from(text);
+}
+
 /// Gets the path a symlink in the directory points at, where a relative target
 /// is relative to the directory and an absolute one replaces it.
 ///
@@ -1207,10 +1230,19 @@ fn get_symlink_target_path(dir: &Path, target: &Path, rules: PathRules) -> PathB
 /// Applies the `.` and `..` of a path to its text like Win32 does before it
 /// opens a path, where the parent of the root is the root. A verbatim path
 /// (ex. `\\?\C:\dir`) is used as it is.
+///
+/// IMPORTANT: The root of a device path is `\\.\`, so a `..` may remove its
+/// device (ex. `\\.\Volume{...}\..\UNC\server\share` is `\\.\UNC\server\share`).
 fn normalize_lexically(path: &Path) -> Cow<'_, Path> {
   let mut components = path.components();
-  let is_verbatim = matches!(components.next(), Some(Component::Prefix(prefix)) if prefix.kind().is_verbatim());
-  if is_verbatim || !path.components().any(|component| matches!(component, Component::CurDir | Component::ParentDir)) {
+  match components.next() {
+    Some(Component::Prefix(prefix)) if prefix.kind().is_verbatim() => return Cow::Borrowed(path),
+    Some(Component::Prefix(prefix)) if let Prefix::DeviceNS(device) = prefix.kind() => {
+      return Cow::Owned(normalize_device_path_lexically(device, components));
+    }
+    _ => {}
+  }
+  if !path.components().any(|component| matches!(component, Component::CurDir | Component::ParentDir)) {
     return Cow::Borrowed(path);
   }
   let mut normalized = PathBuf::new();
@@ -1230,6 +1262,43 @@ fn normalize_lexically(path: &Path) -> Cow<'_, Path> {
     }
   }
   Cow::Owned(normalized)
+}
+
+/// Applies the `.` and `..` of a device path (ex. `\\.\Volume{...}\dir`) like
+/// `GetFullPathNameW` does, where the device is a name in `\\.\` like the
+/// ones after it.
+fn normalize_device_path_lexically(device: &OsStr, components: std::path::Components<'_>) -> PathBuf {
+  let mut has_root = false;
+  let mut names: Vec<&OsStr> = Vec::new();
+  let rest = components.filter_map(|component| match component {
+    Component::RootDir => {
+      has_root = true;
+      None
+    }
+    component => Some(component.as_os_str()),
+  });
+  for name in std::iter::once(device).chain(rest) {
+    match name.as_encoded_bytes() {
+      b"." => {}
+      // the parent of the root is the root
+      b".." => {
+        names.pop();
+      }
+      _ => names.push(name),
+    }
+  }
+  let mut text = OsString::from(r"\\.\");
+  for (index, name) in names.iter().enumerate() {
+    if index > 0 {
+      text.push(r"\");
+    }
+    text.push(name);
+  }
+  // ex. the root directory of a volume, which isn't the volume
+  if has_root && names.len() == 1 {
+    text.push(r"\");
+  }
+  PathBuf::from(text)
 }
 
 /// Gets the parent of the directory from its text like
@@ -1255,7 +1324,9 @@ fn get_parent_on_share_with(dir: &Path, is_net_automounted: bool) -> Option<&Pat
 /// `\\?\Volume{...}\`, which is a drive without a letter) is known to be
 /// local. A UNC path isn't, and neither is any other kind of prefix because
 /// some of them also reach another machine (ex. `\\.\UNC\server\share` or
-/// `\\?\GLOBALROOT\Device\Mup\server\share`). On macOS and Linux, a path in
+/// `\\?\GLOBALROOT\Device\Mup\server\share`). That includes a volume in a
+/// device path (`\\.\Volume{...}\`), whose `..` Win32 applies to the volume
+/// too (see `normalize_lexically`). On macOS and Linux, a path in
 /// `/net` is on another machine because the automounter mounts it (when
 /// Linux has one), and so is one in `/System/Volumes/Data/net`, which is
 /// where `/net` is on the data volume of macOS (it's treated the same even
@@ -1264,7 +1335,7 @@ fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
   match path.components().next()? {
     Component::Prefix(prefix) => match prefix.kind() {
       Prefix::Disk(_) | Prefix::VerbatimDisk(_) => None,
-      Prefix::Verbatim(name) | Prefix::DeviceNS(name) if is_volume_name(name) => None,
+      Prefix::Verbatim(name) if is_volume_name(name) => None,
       Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => Some(format!(
         "{}\\{}",
         server.to_string_lossy().to_lowercase(),
@@ -1291,6 +1362,12 @@ fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
     }
     _ => None,
   }
+}
+
+/// Gets whether a path is verbatim (ex. `\\?\C:\dir`), which Win32 opens as
+/// it is.
+fn is_verbatim(path: &Path) -> bool {
+  matches!(path.components().next(), Some(Component::Prefix(prefix)) if prefix.kind().is_verbatim())
 }
 
 /// Gets whether a prefix's name is the name of a volume (ex. `Volume{...}`).
@@ -1655,6 +1732,69 @@ mod test {
     assert_eq!(share(r"\\server\share\a\..\plugin.wasm").as_deref(), Some(r"server\share"));
   }
 
+  #[cfg(windows)]
+  #[test]
+  fn should_let_a_parent_directory_remove_the_device_of_a_device_path_like_win32() {
+    let environment = TestEnvironment::new();
+    let resolve = |path: &str| resolve_network_share(&environment, Path::new(path), WINDOWS, None).map(|network_path| network_path.resolved);
+    // the root is `\\.\`, so this reads a UNC share
+    for path in [
+      r"\\.\Volume{x}\..\UNC\h\s\p.wasm",
+      r"\\.\Volume{x}/../UNC/h/s/p.wasm",
+      r"//./Volume{x}/../UNC/h/s/p.wasm",
+      r"\\.\Volume{x}\dir\.\..\..\..\UNC\h\s\p.wasm",
+      r"\\.\C:\..\UNC\h\s\p.wasm",
+      r"\\.\UNC\other\s\..\..\h\s\p.wasm",
+    ] {
+      assert_eq!(resolve(path), Some(PathBuf::from(r"\\.\UNC\h\s\p.wasm")), "{}", path);
+    }
+    assert_eq!(normalize_lexically(Path::new(r"\\.\Volume{x}\a\.\..\b")), Path::new(r"\\.\Volume{x}\b"));
+    assert_eq!(normalize_lexically(Path::new(r"\\.\Volume{x}\a\..")), Path::new(r"\\.\Volume{x}\"));
+    assert_eq!(normalize_lexically(Path::new(r"\\.\UNC\h\s\..\..\..\..\x")), Path::new(r"\\.\x"));
+    // and a device path is on another machine even when its device is a volume or a drive
+    assert!(resolve(r"\\.\Volume{x}\p.wasm").is_some());
+    assert!(resolve(r"\\.\C:\p.wasm").is_some());
+    // which is shown with what Win32 reads, also to a config file on the volume
+    let policy = DownloadPolicy::for_editor(&environment);
+    let path = Path::new(r"\\.\Volume{x}\..\UNC\h\s\p.wasm");
+    for base in [r"C:\project", r"\\.\Volume{x}\project\dprint.json", r"\\.\UNC\h\s\dprint.json"] {
+      let err = policy.ensure_allows_path(&environment, path, Some(Path::new(base))).unwrap_err();
+      assert_eq!(err.download, r"\\.\Volume{x}\..\UNC\h\s\p.wasm -> \\.\UNC\h\s\p.wasm", "{}", base);
+    }
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_not_follow_a_parent_directory_that_leaves_the_root_of_a_verbatim_path_on_windows() {
+    let environment = TestEnvironment::new();
+    let resolve = |path: &str| resolve_network_share(&environment, Path::new(path), WINDOWS, None);
+    // the system doesn't apply it, so where it's read from isn't known
+    for path in [
+      r"\\?\Volume{x}\..\UNC\h\s\p.wasm",
+      r"\\?\C:\..\UNC\h\s\p.wasm",
+      r"\\?\UNC\h\s\..\..\other\s\p.wasm",
+    ] {
+      let network_path = resolve(path).unwrap_or_else(|| panic!("{}", path));
+      assert_eq!(network_path.resolved, Path::new(path));
+      assert_eq!(network_path.share, path.to_lowercase());
+    }
+    // but one that stays in it is followed like before
+    let network_path = resolve(r"\\?\UNC\h\s\a\..\p.wasm").unwrap();
+    assert_eq!(network_path.share, r"h\s");
+    assert_eq!(network_path.resolved, Path::new(r"\\?\UNC\h\s\p.wasm"));
+    assert!(resolve(r"\\?\Volume{x}\a\..\p.wasm").is_none());
+    // and a config file on the share can't use what leaves it
+    let policy = DownloadPolicy::for_editor(&environment);
+    let base = Some(Path::new(r"\\?\UNC\h\s\project\dprint.json"));
+    assert!(policy.ensure_allows_path(&environment, Path::new(r"\\?\UNC\h\s\project\p.wasm"), base).is_ok());
+    let err = policy
+      .ensure_allows_path(&environment, Path::new(r"\\?\UNC\h\s\..\..\other\s\p.wasm"), base)
+      .unwrap_err();
+    assert_eq!(err.download, r"\\?\UNC\h\s\..\..\other\s\p.wasm");
+    // the root of a drive stays the root when Win32 applies `..`
+    assert!(resolve(r"C:\..\..\p.wasm").is_none());
+  }
+
   #[test]
   fn should_apply_parent_directories_to_the_text_first_like_windows() {
     let environment = TestEnvironment::new();
@@ -1951,10 +2091,8 @@ mod test {
     let volume = r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}";
     let dir = PathBuf::from(format!(r"{}\repo\src", volume));
     assert_eq!(get_network_share(&dir, false), None);
-    assert_eq!(
-      get_network_share(Path::new(r"\\.\Volume{01234567-89ab-cdef-0123-456789abcdef}\repo"), false),
-      None
-    );
+    // but not one in a device path, whose `..` Win32 applies to the volume too
+    assert!(get_network_share(Path::new(r"\\.\Volume{01234567-89ab-cdef-0123-456789abcdef}\repo"), false).is_some());
     assert!(policy.ensure_allows_path(&environment, &dir.join("plugin.wasm"), None).is_ok());
     // the ancestors of a path on a volume or with a prefix whose share isn't known aren't stopped at the first directory
     let ancestors = |dir: &Path| policy.ancestor_paths(dir).ancestors(&environment).len();
