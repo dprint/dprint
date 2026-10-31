@@ -247,7 +247,8 @@ mod test {
       set_setting(&environment, &["editor", "allowProcessPlugins"], serde_json::json!(false)).unwrap(),
       file_path
     );
-    // the file it points to is written rather than the symlink being replaced
+    // the file it points to is written rather than a file at the symlink's path, which a real symlink is tested
+    // with in `RealEnvironment`
     assert_eq!(
       environment.read_file("/dotfiles/settings.json").unwrap(),
       "{

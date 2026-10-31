@@ -1071,6 +1071,61 @@ mod test {
   }
 
   #[test]
+  #[allow(clippy::disallowed_methods)]
+  fn should_write_a_file_atomically_through_a_symlink() {
+    let environment = RealEnvironment::new(RealEnvironmentOptions {
+      log_level: LogLevel::Info,
+      is_stdout_machine_readable: false,
+    })
+    .unwrap();
+    let temp_dir = tempfile::tempdir().unwrap();
+    // ex. a dotfiles repository
+    let target_path = temp_dir.path().join("dotfiles").join("settings.json");
+    fs::create_dir_all(target_path.parent().unwrap()).unwrap();
+    fs::write(&target_path, "{}").unwrap();
+    let link_path = temp_dir.path().join("settings.json");
+    #[cfg(unix)]
+    let result = std::os::unix::fs::symlink(&target_path, &link_path);
+    #[cfg(windows)]
+    let result = std::os::windows::fs::symlink_file(&target_path, &link_path);
+    // creating a symlink needs developer mode or elevation on Windows
+    if result.is_err() {
+      return;
+    }
+    #[cfg(unix)]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      fs::set_permissions(&target_path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    environment.atomic_write_file_bytes_through_symlinks(&link_path, b"new").unwrap();
+    // the file it leads to is written with its permissions, and it's still a symlink to it
+    assert_eq!(fs::read_to_string(&target_path).unwrap(), "new");
+    assert!(fs::symlink_metadata(&link_path).unwrap().file_type().is_symlink());
+    #[cfg(unix)]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      assert_eq!(fs::metadata(&target_path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+    // a file that doesn't exist yet is created
+    let new_path = temp_dir.path().join("new.json");
+    environment.atomic_write_file_bytes_through_symlinks(&new_path, b"new").unwrap();
+    assert_eq!(fs::read_to_string(&new_path).unwrap(), "new");
+    // a read-only file isn't written over
+    let mut permissions = fs::metadata(&target_path).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&target_path, permissions.clone()).unwrap();
+    assert!(environment.atomic_write_file_bytes_through_symlinks(&link_path, b"other").is_err());
+    assert_eq!(fs::read_to_string(&target_path).unwrap(), "new");
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    fs::set_permissions(&target_path, permissions).unwrap();
+    // and neither is a symlink that doesn't lead to a file (ex. its volume isn't mounted yet)
+    fs::remove_file(&target_path).unwrap();
+    assert!(environment.atomic_write_file_bytes_through_symlinks(&link_path, b"other").is_err());
+    assert!(fs::symlink_metadata(&link_path).unwrap().file_type().is_symlink());
+  }
+
+  #[test]
   fn should_lock_a_file_once() {
     use dprint_core::async_runtime::FutureExt;
 

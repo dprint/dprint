@@ -650,8 +650,9 @@ async fn resolve_extends_file_with_checksum(specifier: &str, context: &ExtendsCo
     Some(checksum) => {
       let checksum = checksum.to_ascii_lowercase();
       let mut file = resolve_extends_file(specifier_without_checksum, context, context.remote_cache_mode, environment).await?;
-      let reloading = context.remote_cache_mode.reloading();
-      if verify_sha256_checksum(&file.content, &checksum).is_err() && reloading != context.remote_cache_mode {
+      if verify_sha256_checksum(&file.content, &checksum).is_err()
+        && let Some(reloading) = context.remote_cache_mode.reloading()
+      {
         // the cached file might be out of date, so check the server for a newer one
         file = resolve_extends_file(specifier_without_checksum, context, reloading, environment).await?;
       }
@@ -1465,6 +1466,14 @@ mod tests {
   }
 
   async fn resolve_local_config(path: &str, environment: &TestEnvironment) -> ResolvedConfig {
+    resolve_local_config_with(path, RemoteCacheMode::Use, environment).await.unwrap()
+  }
+
+  async fn resolve_local_config_with(
+    path: &str,
+    remote_cache_mode: RemoteCacheMode,
+    environment: &TestEnvironment,
+  ) -> Result<ResolvedConfig, ResolveConfigError> {
     let canonical = environment.canonicalize(path).unwrap();
     let config_path = ResolvedConfigPathWithText {
       content: environment.read_file(&canonical).unwrap(),
@@ -1475,9 +1484,7 @@ mod tests {
       found_path: None,
       is_first_download: false,
     };
-    resolve_config_from_path_with_bytes(&config_path, RemoteCacheMode::Use, environment)
-      .await
-      .unwrap()
+    resolve_config_from_path_with_bytes(&config_path, remote_cache_mode, environment).await
   }
 
   #[test]
@@ -3022,25 +3029,15 @@ mod tests {
       let resolve = |since_secs: u64| {
         let environment = environment.clone();
         async move {
-          let canonical = environment.canonicalize("/test.json").unwrap();
-          let config_path = ResolvedConfigPathWithText {
-            content: environment.read_file(&canonical).unwrap(),
-            base_path: canonical.parent().unwrap(),
-            anchored_patterns_base_path: None,
-            source: PathSource::new_local(canonical),
-            is_global_config: false,
-            found_path: None,
-            is_first_download: false,
-          };
           let mode = RemoteCacheMode::ReceivedSince { since_secs, reload: false };
-          resolve_config_from_path_with_bytes(&config_path, mode, &environment).await
+          resolve_local_config_with("/test.json", mode, &environment).await
         }
       };
-      // a cached one from before that doesn't match is downloaded again, which still doesn't match
       crate::utils::resolve_url_or_file_path_to_file_with_cache(url, &PathSource::new_local(environment.cwd()), RemoteCacheMode::Use, &environment)
         .await
         .unwrap();
       environment.set_fs_time(1001);
+      // a cached one from before that doesn't match is downloaded again, which still doesn't match
       assert!(resolve(1001).await.is_err());
       assert_eq!(environment.remote_file_request_count(url), 2);
       // and isn't downloaded again until the time changes

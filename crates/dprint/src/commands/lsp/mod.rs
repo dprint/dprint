@@ -331,7 +331,7 @@ fn start_message_handler<TEnvironment: Environment>(
     environment.clone(),
     plugin_resolver.clone(),
     config_override,
-    remote_cache_mode,
+    remote_cache_mode == RemoteCacheMode::Reload,
     session_permissions.clone(),
   ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
@@ -5017,6 +5017,14 @@ mod test {
     environment: TestEnvironment,
     config_override: Option<PathBuf>,
   ) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
+    setup_backend_with_options(environment, config_override, RemoteCacheMode::Use)
+  }
+
+  fn setup_backend_with_options(
+    environment: TestEnvironment,
+    config_override: Option<PathBuf>,
+    remote_cache_mode: RemoteCacheMode,
+  ) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, Default::default()));
     let (tx, rx) = mpsc::unbounded_channel();
@@ -5026,7 +5034,7 @@ mod test {
       &environment,
       &plugin_resolver,
       config_override,
-      RemoteCacheMode::Use,
+      remote_cache_mode,
       session_permissions.clone(),
       rx,
     );

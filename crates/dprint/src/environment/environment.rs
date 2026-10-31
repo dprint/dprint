@@ -318,19 +318,36 @@ pub trait Environment:
   /// (ex. in a dotfiles repository), which replaces the file the symlink
   /// leads to rather than the symlink, in that file's directory so it's
   /// renamed on the same file system, and keeps that file's permissions.
+  ///
+  /// It fails rather than writing over what may have something the writer
+  /// couldn't read: a symlink that doesn't lead to a file (ex. its volume
+  /// isn't mounted yet) and a read-only file.
   fn atomic_write_file_bytes_through_symlinks(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     let file_path = file_path.as_ref();
-    // a file that doesn't exist yet is created at the path
     let file_path = match self.canonicalize(file_path) {
       Ok(canonical_path) => canonical_path.into_path_buf(),
+      Err(err) if self.path_kind(file_path) == Some(PathKind::Symlink) => {
+        return Err(io::Error::new(
+          err.kind(),
+          format!("{} is a symlink to a file that can't be found: {:#}", file_path.display(), err),
+        ));
+      }
+      // a file that doesn't exist yet is created at the path
       Err(_) => file_path.to_path_buf(),
     };
     let permissions = self.file_permissions(&file_path).ok();
-    self.atomic_write_file_bytes(&file_path, bytes)?;
-    match permissions {
-      Some(permissions) => self.set_file_permissions(&file_path, permissions),
-      None => Ok(()),
+    if permissions.as_ref().is_some_and(|permissions| permissions.readonly()) {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("{} is read-only.", file_path.display()),
+      ));
     }
+    self.atomic_write_file_bytes(&file_path, bytes)?;
+    // the content was written, which a file system that doesn't support permissions doesn't change
+    if let Some(permissions) = permissions {
+      _ = self.set_file_permissions(&file_path, permissions);
+    }
+    Ok(())
   }
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;

@@ -50,7 +50,8 @@ pub enum RemoteCacheMode {
   ///
   /// The times are in whole seconds, so a response received in the same
   /// second as the time counts as received since it, and one received after
-  /// the current time (the clock went back since) doesn't.
+  /// the current time (the clock went back since) doesn't. The editors lower
+  /// the time to the current one when the clock went back before it.
   ReceivedSince { since_secs: u64, reload: bool },
 }
 
@@ -70,11 +71,12 @@ impl RemoteCacheMode {
   /// Gets the mode to get a remote file with again when what was got doesn't
   /// match its checksum, which checks the server for a newer response, apart
   /// from one that was received since the time of `ReceivedSince`, so that's
-  /// once for each time.
-  pub fn reloading(self) -> Self {
+  /// once for each time. It's `None` when this mode already reloads.
+  pub fn reloading(self) -> Option<Self> {
     match self {
-      Self::Use | Self::Reload => Self::Reload,
-      Self::ReceivedSince { since_secs, .. } => Self::ReceivedSince { since_secs, reload: true },
+      Self::Use => Some(Self::Reload),
+      Self::ReceivedSince { since_secs, reload: false } => Some(Self::ReceivedSince { since_secs, reload: true }),
+      Self::Reload | Self::ReceivedSince { reload: true, .. } => None,
     }
   }
 }
@@ -503,14 +505,16 @@ mod test {
     };
     assert!(mode.uses_cached_at(&metadata(1000, "max-age=300"), 1000));
     assert!(!mode.uses_cached_at(&metadata(999, "max-age=300"), 1000));
-    assert_eq!(RemoteCacheMode::Use.reloading(), RemoteCacheMode::Reload);
+    assert_eq!(RemoteCacheMode::Use.reloading(), Some(RemoteCacheMode::Reload));
+    assert_eq!(RemoteCacheMode::Reload.reloading(), None);
+    assert_eq!(mode.reloading(), None);
     assert_eq!(
       RemoteCacheMode::ReceivedSince {
         since_secs: 1000,
         reload: false
       }
       .reloading(),
-      mode
+      Some(mode)
     );
     assert!(RemoteCacheMode::Use.uses_cached_at(&metadata(999, "max-age=300"), 1000));
     assert!(!RemoteCacheMode::Use.uses_cached_at(&metadata(1000, "no-cache"), 1000));

@@ -1537,6 +1537,13 @@ fn get_winning_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &P
 /// `ProcessPluginDecision::is_used`) for the process plugin of the config file
 /// with any configuration. A denial wins a tie, and otherwise the last one
 /// does, which is the one for the session.
+fn get_latest_decision<'a>(decisions: &'a [ProcessPluginDecision], config_file: &str, plugin: &str) -> Option<&'a ProcessPluginDecision> {
+  decisions
+    .iter()
+    .filter(|decision| decision.approval.config_file == config_file && decision.approval.plugin == plugin && decision.is_used())
+    .max_by_key(|decision| (decision.decided_at, !decision.allowed))
+}
+
 /// Adds what the user dismissed in the other state to the state.
 fn with_dismissals_of(mut state: EditorState, other: EditorState) -> EditorState {
   let notification = &mut state.no_config_notification;
@@ -1545,13 +1552,6 @@ fn with_dismissals_of(mut state: EditorState, other: EditorState) -> EditorState
     .dismissed_workspace_folders
     .extend(other.no_config_notification.dismissed_workspace_folders);
   state
-}
-
-fn get_latest_decision<'a>(decisions: &'a [ProcessPluginDecision], config_file: &str, plugin: &str) -> Option<&'a ProcessPluginDecision> {
-  decisions
-    .iter()
-    .filter(|decision| decision.approval.config_file == config_file && decision.approval.plugin == plugin && decision.is_used())
-    .max_by_key(|decision| (decision.decided_at, !decision.allowed))
 }
 
 #[cfg(test)]

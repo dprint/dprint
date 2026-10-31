@@ -855,6 +855,53 @@ fn should_not_download_a_remote_config_file_again_until_reset() {
 }
 
 #[test]
+fn should_download_a_remote_config_file_once_with_reload() {
+  const URL: &str = "https://plugins.dprint.dev/shared/dprint.json";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("extends", &format!("\"{}\"", URL));
+    })
+    .initialize()
+    .build();
+  environment.add_remote_file_with_headers(URL, br#"{ "excludes": ["file0.txt"] }"#, &[("cache-control", "max-age=300")]);
+  environment.set_fs_time(1000);
+  environment.clone().run_in_runtime(async move {
+    // it's cached and fresh, which `dprint lsp --reload` downloads anyway
+    let base = crate::utils::PathSource::new_local(environment.cwd());
+    crate::utils::resolve_url_or_file_path_to_file_with_cache(URL, &base, RemoteCacheMode::Use, &environment)
+      .await
+      .unwrap();
+    environment.set_fs_time(1001);
+    let (backend, recv_task, test_client) = setup_backend_with_options(environment.clone(), None, RemoteCacheMode::Reload);
+    let backend = Rc::new(backend);
+    let run_test_task = dprint_core::async_runtime::spawn({
+      let environment = environment.clone();
+      let test_client = test_client.clone();
+      async move {
+        initialize_backend(&backend, editor_extension_params()).await;
+        let client = Client {
+          backend: backend.clone(),
+          test_client,
+        };
+        client.file_info("/a/file.txt").await;
+        assert_eq!(environment.remote_file_request_count(URL), 2);
+        // but only once, including for the requests that a change of it causes
+        environment.add_remote_file_with_headers(URL, br#"{ "excludes": ["file1.txt"] }"#, &[("cache-control", "max-age=300")]);
+        for _ in 0..3 {
+          client.config_info("/a/dprint.json").await;
+          client.file_info("/a/file.txt").await;
+        }
+        assert_eq!(environment.remote_file_request_count(URL), 2);
+        backend.shutdown().await.unwrap();
+      }
+    });
+    try_join!(recv_task, run_test_task).unwrap();
+    test_client.take_messages();
+  });
+}
+
+#[test]
 fn should_use_a_remote_config_file_that_another_dprint_downloaded_since() {
   const URL: &str = "https://plugins.dprint.dev/shared/dprint.json";
   let environment = TestEnvironmentBuilder::new()
@@ -2428,22 +2475,31 @@ fn should_not_use_the_path_an_approval_was_asked_about_with_as_the_editors_path_
   environment.symlink(network_path("dprint.json"), "/ws/real/net/dprint.json").unwrap();
   environment.add_canonical_symlink("/ws/a", "/ws/real");
   environment.add_canonical_symlink("/ws/b", "/ws/real");
-  run_session(&environment, |client| {
-    async move {
-      // a document opened through the first one needs an approval
-      let result = client.file_info("/ws/a/net/file.txt").await;
-      assert_eq!(result.status.reason(), Some(NotFormattedReason::ApprovalRequired));
-      // and the editor uses the other one after that, which a config file's uri is through then
-      client.file_info("/ws/b/sub/file.txt").await;
-      let config_file = client.file_info("/ws/real/sub/file.txt").await.config_file.unwrap();
-      assert_eq!(config_file.uri, uri("/ws/b/sub/dprint.json"));
-      // which getting what's pending for the status bar doesn't change
-      assert!(!client.pending_approvals().await.is_empty());
-      let config_file = client.file_info("/ws/real/sub/file.txt").await.config_file.unwrap();
-      assert_eq!(config_file.uri, uri("/ws/b/sub/dprint.json"));
-      client.test_client.take_messages();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // a document opened through the first one needs an approval
+        let result = client.file_info("/ws/a/net/file.txt").await;
+        assert_eq!(result.status.reason(), Some(NotFormattedReason::ApprovalRequired));
+        // and the editor uses the other one after that, which a config file's uri is through then
+        client.file_info("/ws/b/sub/file.txt").await;
+        let config_file = client.file_info("/ws/real/sub/file.txt").await.config_file.unwrap();
+        assert_eq!(config_file.uri, uri("/ws/b/sub/dprint.json"));
+        // which getting what's pending for the status bar doesn't change, and it's provided through it
+        let pending = client.pending_approvals().await;
+        assert_eq!(pending[0].config_file.uri, uri("/ws/b/net/dprint.json"));
+        let config_file = client.file_info("/ws/real/sub/file.txt").await.config_file.unwrap();
+        assert_eq!(config_file.uri, uri("/ws/b/sub/dprint.json"));
+        // and once that points somewhere else, through the first one, which still leads to the directory
+        environment.remove_canonical_path("/ws/b");
+        environment.add_canonical_path("/ws/b", "/ws/other");
+        let pending = client.pending_approvals().await;
+        assert_eq!(pending[0].config_file.uri, uri("/ws/a/net/dprint.json"));
+        client.test_client.take_messages();
+      }
+      .boxed_local()
     }
-    .boxed_local()
   });
 }
 

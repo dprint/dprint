@@ -70,21 +70,19 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     environment: TEnvironment,
     plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
     config_override: Option<PathBuf>,
-    remote_cache_mode: RemoteCacheMode,
+    reload_remote_files: bool,
     session_permissions: Arc<SessionPermissions>,
   ) -> Self {
-    let container = Self {
+    Self {
+      remote_files_since_secs: Cell::new(now_secs(&environment)),
       environment,
       plugin_resolver,
       plugins_scope_by_config: Default::default(),
       config_override,
-      remote_files_since_secs: Default::default(),
-      reload_remote_files: remote_cache_mode == RemoteCacheMode::Reload,
+      reload_remote_files,
       plugins_generation: Default::default(),
       session_permissions,
-    };
-    container.download_remote_files_again();
-    container
+    }
   }
 
   /// Makes the remote files (ex. a config file a config file extends) be
@@ -98,13 +96,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   /// loop when the server's responses change each time (ex. `no-cache` with
   /// another body).
   pub fn download_remote_files_again(&self) {
-    let now_secs = self
-      .environment
-      .sys_time_now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .map(|duration| duration.as_secs())
-      .unwrap_or(0);
-    self.remote_files_since_secs.set(now_secs);
+    self.remote_files_since_secs.set(now_secs(&self.environment));
   }
 
   pub async fn shutdown(&self) {
@@ -304,8 +296,12 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   /// Resolves the config of a config file, merging in the config file of an
   /// ancestor directory when it specifies `"inherit": true`.
   async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText) -> Result<ResolvedConfig> {
+    // a clock that went back before the time would otherwise have every remote file downloaded again until it's
+    // after it again
+    let since_secs = std::cmp::min(self.remote_files_since_secs.get(), now_secs(&self.environment));
+    self.remote_files_since_secs.set(since_secs);
     let remote_cache_mode = RemoteCacheMode::ReceivedSince {
-      since_secs: self.remote_files_since_secs.get(),
+      since_secs,
       reload: self.reload_remote_files,
     };
     Ok(resolve_config_from_path_with_ancestors(config_file, remote_cache_mode, &self.environment).await?)
@@ -322,4 +318,13 @@ pub fn get_config_file_key(config_file: &ResolvedConfigPathWithText) -> String {
     None => config_file.display(),
   };
   format!("{}\n{}", config_file_text, config_file.base_path.display())
+}
+
+/// Gets the current time in seconds since the UNIX epoch.
+fn now_secs(environment: &impl Environment) -> u64 {
+  environment
+    .sys_time_now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|duration| duration.as_secs())
+    .unwrap_or(0)
 }

@@ -935,7 +935,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       file_path: file_path.clone(),
       use_global_config,
     };
-    let scope = match self.resolve_scope(&file_path, use_global_config, true).await? {
+    let scope = match self.resolve_editor_scope(&file_path, use_global_config).await? {
       DocumentConfig::Resolved(scope) => scope,
       DocumentConfig::NotFound => {
         let reason = self.get_no_config_reason(use_global_config);
@@ -1234,9 +1234,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     match target {
       ApprovalTarget::File { file_path, use_global_config } => {
         // the editor's path it was asked about with may not be the one the editor uses now (ex. another symlink to
-        // the same directory), which it's resolved with instead, so the one it was asked about with isn't used again
+        // the same directory), which is the one the paths of its result are through (ex. the config file of a failure)
         let file_path = self.get_current_editor_path(file_path);
-        self.resolve_scope(&file_path, *use_global_config, false).await
+        self.resolve_scope(&file_path, *use_global_config).await
       }
       ApprovalTarget::ConfigFile { file_path, dir_path } => match self.load_config_file(file_path, dir_path.as_deref()) {
         Ok(Some(config_file)) => self.resolve_found_config(config_file).await,
@@ -1318,7 +1318,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
       ConfigTarget::Document(document) => {
         let file_path = self.get_document_file(document)?.candidates.remove(0);
-        let config = self.resolve_scope(&file_path, use_global_config, true).await?;
+        let config = self.resolve_editor_scope(&file_path, use_global_config).await?;
         let target = ApprovalTarget::File { file_path, use_global_config };
         Ok((target, config))
       }
@@ -1361,7 +1361,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       file_path: file_path.clone(),
       use_global_config,
     };
-    let scope = match self.resolve_scope(&file_path, use_global_config, true).await? {
+    let scope = match self.resolve_editor_scope(&file_path, use_global_config).await? {
       DocumentConfig::Resolved(scope) => scope,
       DocumentConfig::NotFound => {
         log_stderr_info!(self.environment, "Path did not have a dprint config file: {}", file_path.display());
@@ -2591,21 +2591,23 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     Some(selection.title)
   }
 
-  /// Resolves the plugins of the config file used for the file, which is
-  /// remembered as the editor's path of it when the editor just provided it
-  /// (see `remember_editor_path`).
-  async fn resolve_scope(self: &Rc<Self>, file_path: &Path, use_global_config: bool, is_editor_path: bool) -> Result<DocumentConfig<TEnvironment>> {
+  /// Resolves the plugins of the config file used for a file the editor just
+  /// provided, whose path is remembered as the editor's path of it first, so
+  /// the config file's problems are published to the editor's path of it (ex.
+  /// through a workspace folder that's a symlink).
+  async fn resolve_editor_scope(self: &Rc<Self>, file_path: &Path, use_global_config: bool) -> Result<DocumentConfig<TEnvironment>> {
+    self.canonicalize_editor_path(file_path.to_path_buf());
+    self.resolve_scope(file_path, use_global_config).await
+  }
+
+  /// Resolves the plugins of the config file used for the file.
+  async fn resolve_scope(self: &Rc<Self>, file_path: &Path, use_global_config: bool) -> Result<DocumentConfig<TEnvironment>> {
     let Some(dir_path) = file_path.parent() else {
       return Err(UnsupportedDocumentError::unsupported(format!(
         "Cannot format non-file path: {}",
         file_path.display()
       )));
     };
-    // the editor's path of the file is remembered before its config file is resolved, so the config file's problems
-    // are published to the editor's path of it (ex. through a workspace folder that's a symlink)
-    if is_editor_path {
-      self.canonicalize_editor_path(file_path.to_path_buf());
-    }
     let config_file = match self.scope_container.find_config_file(dir_path, use_global_config) {
       Ok(config_file) => {
         self.config_find_errors.borrow_mut().remove(dir_path);
@@ -2797,17 +2799,29 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Publishes the problems with the config file when they're different from
   /// the ones that were published before.
   fn publish_config_diagnostics(&self, config_file: ConfigFileRef<'_>, diagnostics: Vec<ConfigDiagnostic>) {
-    // IMPORTANT: One that may not be read now (ex. a `git pull` replaced it with a symlink to a share after it was
-    // resolved) has its problems taken back instead, because the editor would open it from them.
-    if config_file.file_path.is_some_and(|path| !self.allows_reading_path(path)) {
-      if let Some(file_path) = config_file.file_path {
-        self.clear_config_diagnostics(file_path);
-      }
+    if let Some(file_path) = config_file.file_path
+      && self.take_back_diagnostics_if_unreadable(file_path)
+    {
       return;
     }
     if let (Some(uri), Some(editor_uri)) = (config_file.uri(), self.editor_config_file_uri(config_file)) {
       self.publish_diagnostics(&uri, editor_uri, diagnostics);
     }
+  }
+
+  /// Takes back the problems that were published for the config file at the
+  /// path that identifies it when it may not be read now, which provides
+  /// whether it may not.
+  ///
+  /// IMPORTANT: One that may not be read now (ex. a `git pull` replaced it with
+  /// a symlink to a share after it was resolved) doesn't have its problems
+  /// published, because the editor would open it from them.
+  fn take_back_diagnostics_if_unreadable(&self, file_path: &Path) -> bool {
+    let is_unreadable = !self.allows_reading_path(file_path);
+    if is_unreadable {
+      self.clear_config_diagnostics(file_path);
+    }
+    is_unreadable
   }
 
   /// Takes back the problems that were published for the config file at the
@@ -2888,23 +2902,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// another editor's path of the same directory replaced it (see
   /// `add_editor_dir`), so they're still at a path that's checked.
   fn move_diagnostics_under(&self, editor_dir: &Path) {
-    for (uri, _) in self.get_diagnostics_under(editor_dir) {
+    for (uri, diagnostics) in self.get_diagnostics_under(editor_dir) {
       let Some(file_path) = uri_to_file_path(&uri) else {
         continue;
       };
-      // IMPORTANT: The problems of one that may not be read now (ex. a `git pull` replaced it with a symlink to a
-      // share) are taken back instead, because the editor would open it from them (see `publish_config_diagnostics`)
-      if !self.allows_reading_path(&file_path) {
-        self.clear_config_diagnostics(&file_path);
+      if self.take_back_diagnostics_if_unreadable(&file_path) {
         continue;
       }
-      let diagnostics = self
-        .published_diagnostics
-        .borrow()
-        .get(uri.as_str())
-        .map(|(_, diagnostics)| diagnostics.clone());
-      let new_editor_uri = self.editor_config_file_path_uri(&file_path);
-      if let (Some(diagnostics), Some(new_editor_uri)) = (diagnostics, new_editor_uri) {
+      if let Some(new_editor_uri) = self.editor_config_file_path_uri(&file_path) {
         // this takes back the ones published to the previous uri
         self.publish_diagnostics(&uri, new_editor_uri, diagnostics);
       }
@@ -2926,14 +2931,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   /// Gets the uris that identify the config files whose problems were
-  /// published to the editor's uris in the directory, with those uris.
-  fn get_diagnostics_under(&self, editor_dir: &Path) -> Vec<(Uri, Uri)> {
+  /// published to the editor's uris in the directory, with those problems.
+  fn get_diagnostics_under(&self, editor_dir: &Path) -> Vec<(Uri, Vec<ConfigDiagnostic>)> {
     self
       .published_diagnostics
       .borrow()
       .iter()
       .filter(|(_, (editor_uri, _))| uri_to_file_path(editor_uri).is_some_and(|path| path.starts_with(editor_dir)))
-      .filter_map(|(uri, (editor_uri, _))| Some((uri.parse::<Uri>().ok()?, editor_uri.clone())))
+      .filter_map(|(uri, (_, diagnostics))| Some((uri.parse::<Uri>().ok()?, diagnostics.clone())))
       .collect()
   }
 
@@ -4102,7 +4107,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// `EditorPaths`).
   fn get_current_editor_path(&self, editor_path: &Path) -> PathBuf {
     match (editor_path.parent(), editor_path.file_name()) {
-      (Some(dir_path), Some(file_name)) => self.editor_paths.get(&self.canonicalize_without_remembering(dir_path).join(file_name)),
+      (Some(dir_path), Some(file_name)) => self.editor_path(&self.canonicalize_without_remembering(dir_path).join(file_name)),
       _ => editor_path.to_path_buf(),
     }
   }
