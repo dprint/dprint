@@ -84,11 +84,11 @@ pub fn is_url_cached(url: &Url, environment: &impl Environment) -> bool {
   matches!(read_cached_chain(&cache, url, |_| true), Ok(Some(_)))
 }
 
-/// Resolves the url using the cached response while it's fresh (see
-/// `SerializedCachedUrlMetadata::is_fresh_at`). Once it's stale or when
-/// reloading, the server is asked for a newer response, which it can answer
-/// with 304 Not Modified when the cached one is still current. A stale
-/// cached response is used when the server can't be reached.
+/// Resolves the url using the cached response while the cache mode uses it
+/// (see `RemoteCacheMode::uses_cached_at`). Otherwise, the server is asked
+/// for a newer response, which it can answer with 304 Not Modified when the
+/// cached one is still current. A cached response that isn't used is used
+/// when the server can't be reached.
 async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(
   url: &Url,
   cache_mode: RemoteCacheMode,
@@ -166,7 +166,7 @@ fn defer_next_check<Sys: HttpCacheSys>(cache: &HttpCache<Sys>, url: &Url) {
     let Ok(Some(entry)) = cache.get(&key) else {
       return;
     };
-    if !cache.is_fresh(&entry.metadata) {
+    if !cache.uses_cached(&entry.metadata, RemoteCacheMode::Use) {
       // ignore errors
       _ = cache.set(&current_url, entry.metadata.headers.clone(), &entry.content);
     }
@@ -192,7 +192,7 @@ async fn download_through_cache<TEnvironment: Environment>(
 ) -> Result<Option<ResolvedFilePathWithBytes>> {
   let mut current_url = url.clone();
   for i in 0..=MAX_REDIRECTS {
-    // a redirect may lead back to a fresh part of the chain
+    // a redirect may lead back to a part of the chain that the cache mode uses
     if i > 0
       && let Some(cached) = read_cached_chain(cache, &current_url, |metadata| cache.uses_cached(metadata, cache_mode))?
     {
@@ -802,6 +802,31 @@ mod tests {
       assert_eq!(result.content, b"v2");
       assert_eq!(environment.remote_file_request_count(url), 3);
       assert!(environment.take_stderr_messages().is_empty());
+    });
+  }
+
+  #[test]
+  fn should_only_download_once_since_the_time_when_reloading_since_it() {
+    // ex. `dprint lsp --reload`, which downloads each remote file once until it's reset
+    let environment = TestEnvironment::new();
+    let url = "https://dprint.dev/config.json";
+    environment.set_fs_time(1_000);
+    environment.add_remote_file_with_headers(url, b"v1", &[("cache-control", "max-age=300")]);
+    environment.clone().run_in_runtime(async move {
+      let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
+      resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      environment.set_fs_time(1_001);
+      let mode = RemoteCacheMode::ReceivedSince {
+        since_secs: 1_001,
+        reload: true,
+      };
+      // fresh, but received before the time
+      for _ in 0..2 {
+        resolve_url_or_file_path_to_file_with_cache(url, &base, mode, &environment).await.unwrap();
+        assert_eq!(environment.remote_file_request_count(url), 2);
+      }
     });
   }
 

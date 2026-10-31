@@ -650,9 +650,10 @@ async fn resolve_extends_file_with_checksum(specifier: &str, context: &ExtendsCo
     Some(checksum) => {
       let checksum = checksum.to_ascii_lowercase();
       let mut file = resolve_extends_file(specifier_without_checksum, context, context.remote_cache_mode, environment).await?;
-      if verify_sha256_checksum(&file.content, &checksum).is_err() && context.remote_cache_mode != RemoteCacheMode::Reload {
+      let reloading = context.remote_cache_mode.reloading();
+      if verify_sha256_checksum(&file.content, &checksum).is_err() && reloading != context.remote_cache_mode {
         // the cached file might be out of date, so check the server for a newer one
-        file = resolve_extends_file(specifier_without_checksum, context, RemoteCacheMode::Reload, environment).await?;
+        file = resolve_extends_file(specifier_without_checksum, context, reloading, environment).await?;
       }
       if let Err(err) = verify_sha256_checksum(&file.content, &checksum) {
         bail!("Invalid checksum for extended configuration '{}'.\n\n{:#}", specifier, err);
@@ -3003,6 +3004,51 @@ mod tests {
       assert_eq!(environment.remote_file_request_count("https://dprint.dev/shared.json"), 2);
       assert_eq!(result.trusted_config_map.len(), 1);
       assert_eq!(result.trusted_config_map, result.config_map);
+    });
+  }
+
+  #[test]
+  fn should_check_server_for_extended_config_that_does_not_match_checksum_once_for_each_time() {
+    // ex. the editors, which only download a remote file once until they're reset
+    let environment = TestEnvironment::new();
+    let url = "https://dprint.dev/shared.json";
+    environment.add_remote_file_with_headers(url, br#"{ "test": { "prop": "old" } }"#, &[("cache-control", "max-age=300")]);
+    let checksum = get_sha256_checksum(br#"{ "test": { "prop": "new" } }"#);
+    environment
+      .write_file(&PathBuf::from("/test.json"), &format!(r#"{{ "extends": "{url}@{checksum}" }}"#))
+      .unwrap();
+    environment.set_fs_time(1000);
+    environment.clone().run_in_runtime(async move {
+      let resolve = |since_secs: u64| {
+        let environment = environment.clone();
+        async move {
+          let canonical = environment.canonicalize("/test.json").unwrap();
+          let config_path = ResolvedConfigPathWithText {
+            content: environment.read_file(&canonical).unwrap(),
+            base_path: canonical.parent().unwrap(),
+            anchored_patterns_base_path: None,
+            source: PathSource::new_local(canonical),
+            is_global_config: false,
+            found_path: None,
+            is_first_download: false,
+          };
+          let mode = RemoteCacheMode::ReceivedSince { since_secs, reload: false };
+          resolve_config_from_path_with_bytes(&config_path, mode, &environment).await
+        }
+      };
+      // a cached one from before that doesn't match is downloaded again, which still doesn't match
+      crate::utils::resolve_url_or_file_path_to_file_with_cache(url, &PathSource::new_local(environment.cwd()), RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      environment.set_fs_time(1001);
+      assert!(resolve(1001).await.is_err());
+      assert_eq!(environment.remote_file_request_count(url), 2);
+      // and isn't downloaded again until the time changes
+      assert!(resolve(1001).await.is_err());
+      assert_eq!(environment.remote_file_request_count(url), 2);
+      environment.set_fs_time(1002);
+      assert!(resolve(1002).await.is_err());
+      assert_eq!(environment.remote_file_request_count(url), 3);
     });
   }
 

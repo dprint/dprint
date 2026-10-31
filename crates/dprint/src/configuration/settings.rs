@@ -181,9 +181,10 @@ pub(super) fn set_setting(environment: &impl Environment, property_path: &[&str]
     text.push('\n');
   }
   // every version reads it, so it's replaced at once rather than being seen partly written (ex. by a server of
-  // another version, which would fail closed) or left that way
+  // another version, which would fail closed) or left that way, and a symlink to it (ex. in a dotfiles repository) is
+  // kept
   environment
-    .atomic_write_file_bytes(&file_path, text.as_bytes())
+    .atomic_write_file_bytes_through_symlinks(&file_path, text.as_bytes())
     .with_context(|| format!("Failed writing {}", file_path.display()))?;
   Ok(file_path)
 }
@@ -232,6 +233,31 @@ mod test {
     let file_path = set_setting(&environment, &["editor", "allowProcessPlugins"], serde_json::json!(false)).unwrap();
     assert_eq!(file_path, get_settings_file_path(&environment).unwrap());
     assert_eq!(read_settings(&environment).unwrap().unwrap().editor.allow_process_plugins, Some(false));
+  }
+
+  #[test]
+  fn should_set_a_setting_through_a_symlink_to_the_settings_file() {
+    let environment = TestEnvironment::new();
+    ensure_global_config_dir(&environment);
+    let file_path = get_settings_file_path(&environment).unwrap();
+    // ex. a symlink to a dotfiles repository, which the test environment has by the canonical path
+    environment.mk_dir_all("/dotfiles").unwrap();
+    environment.add_canonical_path(&file_path, "/dotfiles/settings.json");
+    assert_eq!(
+      set_setting(&environment, &["editor", "allowProcessPlugins"], serde_json::json!(false)).unwrap(),
+      file_path
+    );
+    // the file it points to is written rather than the symlink being replaced
+    assert_eq!(
+      environment.read_file("/dotfiles/settings.json").unwrap(),
+      "{
+  \"editor\": {
+    \"allowProcessPlugins\": false
+  }
+}
+"
+    );
+    assert!(!environment.path_exists(&file_path));
   }
 
   #[test]

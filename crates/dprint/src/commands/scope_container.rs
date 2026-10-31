@@ -52,8 +52,12 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   /// The absolute path of the config file the server was started with (see
   /// `get_config_override_path`), which is used for every file.
   config_override: Option<PathBuf>,
-  /// How the remote files are downloaded (see `download_remote_files_again`).
-  remote_cache_mode: Cell<RemoteCacheMode>,
+  /// When the remote files that were downloaded since are used whatever their
+  /// caching headers say (see `download_remote_files_again`).
+  remote_files_since_secs: Cell<u64>,
+  /// Whether the remote files are downloaded even when they're fresh, which
+  /// is still only once until `download_remote_files_again` (`--reload`).
+  reload_remote_files: bool,
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
   plugins_generation: Cell<usize>,
@@ -69,13 +73,13 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     remote_cache_mode: RemoteCacheMode,
     session_permissions: Arc<SessionPermissions>,
   ) -> Self {
-    let remote_cache_mode = Cell::new(remote_cache_mode);
     let container = Self {
       environment,
       plugin_resolver,
       plugins_scope_by_config: Default::default(),
       config_override,
-      remote_cache_mode,
+      remote_files_since_secs: Default::default(),
+      reload_remote_files: remote_cache_mode == RemoteCacheMode::Reload,
       plugins_generation: Default::default(),
       session_permissions,
     };
@@ -83,25 +87,24 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     container
   }
 
-  /// Has the remote files (ex. a config file a config file extends) be
-  /// downloaded again when they're stale, and then used until this is called
-  /// again (see `RemoteCacheMode::UseReceivedSince`), which is when the server
-  /// starts and when it's reset.
+  /// Makes the remote files (ex. a config file a config file extends) be
+  /// downloaded again once they're stale (or with `--reload`, whether or not
+  /// they are), and then be used until this is called again (see
+  /// `RemoteCacheMode::ReceivedSince`), which is when the server starts and
+  /// when it's reset.
   ///
   /// IMPORTANT: A remote file that changed has `dprint/configChanged` sent,
   /// whose requests resolve it again, so downloading it again for them would
   /// loop when the server's responses change each time (ex. `no-cache` with
   /// another body).
   pub fn download_remote_files_again(&self) {
-    if self.remote_cache_mode.get() != RemoteCacheMode::Reload {
-      let now_secs = self
-        .environment
-        .sys_time_now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-      self.remote_cache_mode.set(RemoteCacheMode::UseReceivedSince(now_secs));
-    }
+    let now_secs = self
+      .environment
+      .sys_time_now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map(|duration| duration.as_secs())
+      .unwrap_or(0);
+    self.remote_files_since_secs.set(now_secs);
   }
 
   pub async fn shutdown(&self) {
@@ -301,7 +304,11 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   /// Resolves the config of a config file, merging in the config file of an
   /// ancestor directory when it specifies `"inherit": true`.
   async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText) -> Result<ResolvedConfig> {
-    Ok(resolve_config_from_path_with_ancestors(config_file, self.remote_cache_mode.get(), &self.environment).await?)
+    let remote_cache_mode = RemoteCacheMode::ReceivedSince {
+      since_secs: self.remote_files_since_secs.get(),
+      reload: self.reload_remote_files,
+    };
+    Ok(resolve_config_from_path_with_ancestors(config_file, remote_cache_mode, &self.environment).await?)
   }
 }
 

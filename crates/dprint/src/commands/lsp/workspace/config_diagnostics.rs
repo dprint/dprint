@@ -60,7 +60,7 @@ pub fn get_config_diagnostics(
     let prop = root.and_then(|root| root.get(&diagnostic.property_name));
     diagnostics.push(ConfigDiagnostic {
       message: diagnostic.message.clone(),
-      range: prop.and_then(|prop| text.range(prop_name_range(prop))),
+      range: prop.map(|prop| text.range(prop_name_range(prop))),
     });
   }
   for item in plugin_diagnostics {
@@ -70,7 +70,7 @@ pub fn get_config_diagnostics(
     diagnostics.push(ConfigDiagnostic {
       message: item.diagnostic.diagnostic.message.clone(),
       // the plugin's section when the property isn't found (ex. it's in an extended config file)
-      range: prop.or(section).and_then(|prop| text.range(prop_name_range(prop))),
+      range: prop.or(section).map(|prop| text.range(prop_name_range(prop))),
     });
   }
   diagnostics
@@ -79,7 +79,9 @@ pub fn get_config_diagnostics(
 /// Gets the diagnostic of a config file that failed to resolve, which is
 /// where the text doesn't parse when that's why.
 pub fn get_config_error_diagnostic(config_text: &str, err: &anyhow::Error) -> ConfigDiagnostic {
-  let parse_error_range = parse(config_text).err().and_then(|err| ConfigText::new(config_text).range(err.range()));
+  let parse_error_range = parse(config_text)
+    .err()
+    .map(|err| to_lsp_range(config_text, &LineIndex::new(config_text), err.range()));
   ConfigDiagnostic {
     message: format!("{:#}", err),
     range: parse_error_range,
@@ -140,17 +142,18 @@ impl<'a> ConfigText<'a> {
   }
 
   /// Converts the byte range to a range of lines and UTF-16 characters.
-  fn range(&self, range: jsonc_parser::common::Range) -> Option<Range> {
-    let len = self.text.len();
-    let position = |offset: usize| {
-      self
-        .line_index
-        .position_utf16_from_utf8_offset(TextSize::from(std::cmp::min(offset, len) as u32))
-    };
-    Some(Range {
-      start: position(range.start),
-      end: position(range.end),
-    })
+  fn range(&self, range: jsonc_parser::common::Range) -> Range {
+    to_lsp_range(self.text, &self.line_index, range)
+  }
+}
+
+/// Converts the byte range of the text to a range of lines and UTF-16
+/// characters.
+fn to_lsp_range(text: &str, line_index: &LineIndex, range: jsonc_parser::common::Range) -> Range {
+  let position = |offset: usize| line_index.position_utf16_from_utf8_offset(TextSize::from(std::cmp::min(offset, text.len()) as u32));
+  Range {
+    start: position(range.start),
+    end: position(range.end),
   }
 }
 

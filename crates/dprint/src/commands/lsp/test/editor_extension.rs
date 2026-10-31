@@ -855,6 +855,39 @@ fn should_not_download_a_remote_config_file_again_until_reset() {
 }
 
 #[test]
+fn should_use_a_remote_config_file_that_another_dprint_downloaded_since() {
+  const URL: &str = "https://plugins.dprint.dev/shared/dprint.json";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("extends", &format!("\"{}\"", URL));
+    })
+    .initialize()
+    .build();
+  environment.add_remote_file_with_headers(URL, br#"{ "excludes": ["file0.txt"] }"#, &[("cache-control", "no-cache")]);
+  environment.set_fs_time(1000);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.file_info("/a/file.txt").await;
+        let request_count = environment.remote_file_request_count(URL);
+        client.take_config_changes();
+        // ex. `dprint fmt`, which downloaded a newer one
+        environment.set_fs_time(1001);
+        let cache = crate::cache::HttpCache::new(environment.clone(), environment.get_cache_dir().join("remote"));
+        let headers = crate::cache::HeadersMap::from([("cache-control".to_string(), "no-cache".to_string())]);
+        cache.set(&url::Url::parse(URL).unwrap(), headers, br#"{ "excludes": ["file1.txt"] }"#).unwrap();
+        client.file_info("/a/file.txt").await;
+        assert_eq!(environment.remote_file_request_count(URL), request_count);
+        assert!(client.take_config_changes().contains(&uri("/a/dprint.json")));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_tell_the_editor_when_a_config_file_starts_failing_because_of_its_global_config() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
@@ -2376,6 +2409,114 @@ fn should_tell_about_a_config_file_known_through_a_replaced_alias_after_a_reset(
         environment.add_canonical_path("/ws/a", "/ws/other");
         client.file_info("/ws/b/file.txt").await;
         assert!(client.take_config_changes().contains(&uri("/ws/a/dprint.json")));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_not_use_the_path_an_approval_was_asked_about_with_as_the_editors_path_again() {
+  let environment = TestEnvironmentBuilder::new().add_remote_wasm_plugin().build();
+  environment.mk_dir_all("/ws/real").unwrap();
+  // ex. a config file that's a symlink to a share, which needs reading it to be allowed
+  environment.symlink(network_path("dprint.json"), "/ws/real/dprint.json").unwrap();
+  environment.add_canonical_symlink("/ws/a", "/ws/real");
+  environment.add_canonical_symlink("/ws/b", "/ws/real");
+  run_session(&environment, |client| {
+    async move {
+      // a document opened through the first one needs an approval
+      let result = client.file_info("/ws/a/file.txt").await;
+      assert_eq!(result.status.reason(), Some(NotFormattedReason::ApprovalRequired));
+      // and the editor uses the other one after that
+      client.config_info("/ws/b/dprint.json").await;
+      // which getting what's pending for the status bar doesn't change
+      assert!(!client.pending_approvals().await.is_empty());
+      let config_file = client.file_info("/ws/real/file.txt").await.config_file.unwrap();
+      assert_eq!(config_file.uri, uri("/ws/b/dprint.json"));
+      client.test_client.take_messages();
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_not_tell_about_the_global_config_file_through_an_alias_that_points_elsewhere_now() {
+  // ex. Fedora Silverblue, where `/home` is a symlink to `/var/home`
+  let environment = TestEnvironmentBuilder::new().add_remote_wasm_plugin().initialize().build();
+  environment.mk_dir_all("/var/home/u/proj").unwrap();
+  environment.mk_dir_all("/var/home/u/.config/dprint").unwrap();
+  environment
+    .write_file(
+      "/var/home/u/.config/dprint/dprint.json",
+      r#"{ "unknownProperty": 1, "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"] }"#,
+    )
+    .unwrap();
+  environment.set_env_var("DPRINT_CONFIG_DIR", Some("/var/home/u/.config/dprint"));
+  environment.add_canonical_symlink("/home", "/var/home");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client
+          .backend
+          .did_change_configuration(DidChangeConfigurationParams {
+            settings: json!({ "useGlobalConfig": true }),
+          })
+          .await;
+        let config_file = client.file_info("/home/u/proj/file.txt").await.config_file.unwrap();
+        assert_eq!(config_file.kind, ConfigFileKind::Global);
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.last().unwrap().0, uri("/home/u/.config/dprint/dprint.json"));
+        client.take_config_changes();
+        // a `dprint.jsonc` is the global config file's name that's looked for first now, and the alias points
+        // somewhere else
+        environment.write_file("/var/home/u/.config/dprint/dprint.jsonc", "{}").unwrap();
+        environment.remove_canonical_path("/home");
+        environment.add_canonical_path("/home", "/elsewhere");
+        client.file_info("/var/home/u/proj/file.txt").await;
+        // so its problems are taken back, but it's not told about through it, which is for each directory
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert!(
+          diagnostics.contains(&(uri("/home/u/.config/dprint/dprint.json"), Vec::new())),
+          "{:?}",
+          diagnostics
+        );
+        assert!(!client.take_config_changes().contains(&uri("/home/u/.config/dprint/dprint.json")));
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_take_back_the_diagnostics_of_a_config_file_on_another_machine_now_instead_of_moving_them() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+    })
+    .initialize()
+    .build();
+  environment.add_canonical_symlink("/ws/a", "/ws/real");
+  environment.add_canonical_symlink("/ws/b", "/ws/real");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.file_info("/ws/a/file.txt").await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.last().unwrap().0, uri("/ws/a/dprint.json"));
+        // ex. a `git pull` replaced it with a symlink to a share, which isn't reported yet
+        environment.remove_file("/ws/real/dprint.json").unwrap();
+        environment.symlink(network_path("dprint.json"), "/ws/real/dprint.json").unwrap();
+        // so the editor using the other path only takes them back
+        client.file_info("/ws/b/file.txt").await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert!(diagnostics.iter().all(|(_, diagnostics)| diagnostics.is_empty()), "{:?}", diagnostics);
+        assert!(diagnostics.contains(&(uri("/ws/a/dprint.json"), Vec::new())), "{:?}", diagnostics);
+        client.test_client.take_messages();
       }
       .boxed_local()
     }

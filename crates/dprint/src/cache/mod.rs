@@ -42,11 +42,16 @@ pub enum RemoteCacheMode {
   Reload,
   /// Use a cached response that was received since the time (seconds since
   /// the UNIX epoch) whatever its caching headers say, and otherwise like
-  /// `Use`. The editors use it from when the server starts, so a remote file
-  /// is only downloaded once until they're reset, because a request that a
-  /// change of the file caused would otherwise download it again, and a
-  /// server whose responses change each time would have them change forever.
-  UseReceivedSince(u64),
+  /// `Use`, or like `Reload` when reloading. The editors use it from when the
+  /// server starts, so a remote file is downloaded at most once until they're
+  /// reset, because a request that a change of the file caused would
+  /// otherwise download it again, and a server whose responses change each
+  /// time would have them change forever.
+  ///
+  /// The times are in whole seconds, so a response received in the same
+  /// second as the time counts as received since it, and one received after
+  /// the current time (the clock went back since) doesn't.
+  ReceivedSince { since_secs: u64, reload: bool },
 }
 
 impl RemoteCacheMode {
@@ -56,7 +61,20 @@ impl RemoteCacheMode {
     match self {
       Self::Use => metadata.is_fresh_at(now_secs),
       Self::Reload => false,
-      Self::UseReceivedSince(since_secs) => metadata.time.is_some_and(|secs| secs >= *since_secs) || metadata.is_fresh_at(now_secs),
+      Self::ReceivedSince { since_secs, reload } => {
+        metadata.time.is_some_and(|secs| secs >= *since_secs && secs <= now_secs) || !*reload && metadata.is_fresh_at(now_secs)
+      }
+    }
+  }
+
+  /// Gets the mode to get a remote file with again when what was got doesn't
+  /// match its checksum, which checks the server for a newer response, apart
+  /// from one that was received since the time of `ReceivedSince`, so that's
+  /// once for each time.
+  pub fn reloading(self) -> Self {
+    match self {
+      Self::Use | Self::Reload => Self::Reload,
+      Self::ReceivedSince { since_secs, .. } => Self::ReceivedSince { since_secs, reload: true },
     }
   }
 }
@@ -221,12 +239,6 @@ impl<Sys: HttpCacheSys> HttpCache<Sys> {
   #[cfg(test)]
   pub fn set_for_testing(&self, url: &Url, content: &[u8], metadata: SerializedCachedUrlMetadata) -> std::io::Result<()> {
     cache_file::write(&self.sys, &self.local_path_for_url(url)?, content, &metadata)
-  }
-
-  /// Whether the cached response can be used now without checking the server
-  /// for a newer one.
-  pub fn is_fresh(&self, metadata: &SerializedCachedUrlMetadata) -> bool {
-    metadata.is_fresh_at(self.now_secs())
   }
 
   /// Whether the cached response is used now with the cache mode without
@@ -474,11 +486,32 @@ mod test {
         time: Some(time),
       }
     }
-    let mode = RemoteCacheMode::UseReceivedSince(1000);
+    let mode = RemoteCacheMode::ReceivedSince {
+      since_secs: 1000,
+      reload: false,
+    };
     assert!(mode.uses_cached_at(&metadata(1000, "no-cache"), 2000));
     assert!(!mode.uses_cached_at(&metadata(999, "no-cache"), 2000));
+    // but not one received after the current time, which is when the clock went back
+    assert!(!mode.uses_cached_at(&metadata(2001, "no-cache"), 2000));
     // and otherwise like `Use`
     assert!(mode.uses_cached_at(&metadata(999, "max-age=300"), 1000));
+    // or like `Reload`
+    let mode = RemoteCacheMode::ReceivedSince {
+      since_secs: 1000,
+      reload: true,
+    };
+    assert!(mode.uses_cached_at(&metadata(1000, "max-age=300"), 1000));
+    assert!(!mode.uses_cached_at(&metadata(999, "max-age=300"), 1000));
+    assert_eq!(RemoteCacheMode::Use.reloading(), RemoteCacheMode::Reload);
+    assert_eq!(
+      RemoteCacheMode::ReceivedSince {
+        since_secs: 1000,
+        reload: false
+      }
+      .reloading(),
+      mode
+    );
     assert!(RemoteCacheMode::Use.uses_cached_at(&metadata(999, "max-age=300"), 1000));
     assert!(!RemoteCacheMode::Use.uses_cached_at(&metadata(1000, "no-cache"), 1000));
     assert!(!RemoteCacheMode::Reload.uses_cached_at(&metadata(1000, "max-age=300"), 1000));

@@ -1122,7 +1122,8 @@ fn edit_editor_approvals(
   if let Some(dir_path) = file_path.parent() {
     environment.mk_dir_all(dir_path)?;
   }
-  environment.atomic_write_file_bytes(file_path, text.as_bytes())?;
+  // a symlink to it is kept like for the settings file (see `set_setting`)
+  environment.atomic_write_file_bytes_through_symlinks(file_path, text.as_bytes())?;
   Ok(())
 }
 
@@ -1175,16 +1176,6 @@ pub fn read_editor_state(environment: &impl Environment) -> EditorState {
     (Some(state), Some(legacy_state)) => with_dismissals_of(state, legacy_state),
     (state, legacy_state) => state.or(legacy_state).unwrap_or_default(),
   }
-}
-
-/// Adds what the user dismissed in the other state to the state.
-fn with_dismissals_of(mut state: EditorState, other: EditorState) -> EditorState {
-  let notification = &mut state.no_config_notification;
-  notification.dismissed |= other.no_config_notification.dismissed;
-  notification
-    .dismissed_workspace_folders
-    .extend(other.no_config_notification.dismissed_workspace_folders);
-  state
 }
 
 pub(crate) fn update_editor_state_without_lock(environment: &impl Environment, update: impl FnOnce(&mut EditorState)) -> Result<()> {
@@ -1546,6 +1537,16 @@ fn get_winning_decision<'a>(decisions: &'a [ProcessPluginDecision], approval: &P
 /// `ProcessPluginDecision::is_used`) for the process plugin of the config file
 /// with any configuration. A denial wins a tie, and otherwise the last one
 /// does, which is the one for the session.
+/// Adds what the user dismissed in the other state to the state.
+fn with_dismissals_of(mut state: EditorState, other: EditorState) -> EditorState {
+  let notification = &mut state.no_config_notification;
+  notification.dismissed |= other.no_config_notification.dismissed;
+  notification
+    .dismissed_workspace_folders
+    .extend(other.no_config_notification.dismissed_workspace_folders);
+  state
+}
+
 fn get_latest_decision<'a>(decisions: &'a [ProcessPluginDecision], config_file: &str, plugin: &str) -> Option<&'a ProcessPluginDecision> {
   decisions
     .iter()

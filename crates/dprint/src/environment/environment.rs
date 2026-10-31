@@ -314,6 +314,24 @@ pub trait Environment:
   fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     crate::utils::fs::atomic_write_file_with_retries(self, file_path.as_ref(), bytes, 0o644)
   }
+  /// An atomic write of a file the user may keep elsewhere through a symlink
+  /// (ex. in a dotfiles repository), which replaces the file the symlink
+  /// leads to rather than the symlink, in that file's directory so it's
+  /// renamed on the same file system, and keeps that file's permissions.
+  fn atomic_write_file_bytes_through_symlinks(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
+    let file_path = file_path.as_ref();
+    // a file that doesn't exist yet is created at the path
+    let file_path = match self.canonicalize(file_path) {
+      Ok(canonical_path) => canonical_path.into_path_buf(),
+      Err(_) => file_path.to_path_buf(),
+    };
+    let permissions = self.file_permissions(&file_path).ok();
+    self.atomic_write_file_bytes(&file_path, bytes)?;
+    match permissions {
+      Some(permissions) => self.set_file_permissions(&file_path, permissions),
+      None => Ok(()),
+    }
+  }
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;

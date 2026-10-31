@@ -935,7 +935,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       file_path: file_path.clone(),
       use_global_config,
     };
-    let scope = match self.resolve_scope(&file_path, use_global_config).await? {
+    let scope = match self.resolve_scope(&file_path, use_global_config, true).await? {
       DocumentConfig::Resolved(scope) => scope,
       DocumentConfig::NotFound => {
         let reason = self.get_no_config_reason(use_global_config);
@@ -1232,7 +1232,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Resolves the config file of something that needs to be approved.
   async fn resolve_approval_target(self: &Rc<Self>, target: &ApprovalTarget) -> Result<DocumentConfig<TEnvironment>> {
     match target {
-      ApprovalTarget::File { file_path, use_global_config } => self.resolve_scope(file_path, *use_global_config).await,
+      // the editor's path it was asked about with may not be what the editor uses now (ex. another symlink to it)
+      ApprovalTarget::File { file_path, use_global_config } => self.resolve_scope(file_path, *use_global_config, false).await,
       ApprovalTarget::ConfigFile { file_path, dir_path } => match self.load_config_file(file_path, dir_path.as_deref()) {
         Ok(Some(config_file)) => self.resolve_found_config(config_file).await,
         Ok(None) => Ok(DocumentConfig::NotFound),
@@ -1313,7 +1314,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
       ConfigTarget::Document(document) => {
         let file_path = self.get_document_file(document)?.candidates.remove(0);
-        let config = self.resolve_scope(&file_path, use_global_config).await?;
+        let config = self.resolve_scope(&file_path, use_global_config, true).await?;
         let target = ApprovalTarget::File { file_path, use_global_config };
         Ok((target, config))
       }
@@ -1356,7 +1357,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       file_path: file_path.clone(),
       use_global_config,
     };
-    let scope = match self.resolve_scope(&file_path, use_global_config).await? {
+    let scope = match self.resolve_scope(&file_path, use_global_config, true).await? {
       DocumentConfig::Resolved(scope) => scope,
       DocumentConfig::NotFound => {
         log_stderr_info!(self.environment, "Path did not have a dprint config file: {}", file_path.display());
@@ -2586,8 +2587,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     Some(selection.title)
   }
 
-  /// Resolves the plugins of the config file used for the file.
-  async fn resolve_scope(self: &Rc<Self>, file_path: &Path, use_global_config: bool) -> Result<DocumentConfig<TEnvironment>> {
+  /// Resolves the plugins of the config file used for the file, which is
+  /// remembered as the editor's path of it when the editor just provided it
+  /// (see `remember_editor_path`).
+  async fn resolve_scope(self: &Rc<Self>, file_path: &Path, use_global_config: bool, is_editor_path: bool) -> Result<DocumentConfig<TEnvironment>> {
     let Some(dir_path) = file_path.parent() else {
       return Err(UnsupportedDocumentError::unsupported(format!(
         "Cannot format non-file path: {}",
@@ -2596,7 +2599,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     };
     // the editor's path of the file is remembered before its config file is resolved, so the config file's problems
     // are published to the editor's path of it (ex. through a workspace folder that's a symlink)
-    self.canonicalize_editor_path(file_path.to_path_buf());
+    if is_editor_path {
+      self.canonicalize_editor_path(file_path.to_path_buf());
+    }
     let config_file = match self.scope_container.find_config_file(dir_path, use_global_config) {
       Ok(config_file) => {
         self.config_find_errors.borrow_mut().remove(dir_path);
@@ -2880,12 +2885,21 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// `add_editor_dir`), so they're still at a path that's checked.
   fn move_diagnostics_under(&self, editor_dir: &Path) {
     for (uri, _) in self.get_diagnostics_under(editor_dir) {
+      let Some(file_path) = uri_to_file_path(&uri) else {
+        continue;
+      };
+      // IMPORTANT: The problems of one that may not be read now (ex. a `git pull` replaced it with a symlink to a
+      // share) are taken back instead, because the editor would open it from them (see `publish_config_diagnostics`)
+      if !self.allows_reading_path(&file_path) {
+        self.clear_config_diagnostics(&file_path);
+        continue;
+      }
       let diagnostics = self
         .published_diagnostics
         .borrow()
         .get(uri.as_str())
         .map(|(_, diagnostics)| diagnostics.clone());
-      let new_editor_uri = uri_to_file_path(&uri).and_then(|file_path| self.editor_config_file_path_uri(&file_path));
+      let new_editor_uri = self.editor_config_file_path_uri(&file_path);
       if let (Some(diagnostics), Some(new_editor_uri)) = (diagnostics, new_editor_uri) {
         // this takes back the ones published to the previous uri
         self.publish_diagnostics(&uri, new_editor_uri, diagnostics);
@@ -2905,18 +2919,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .filter(|file_path| file_path.starts_with(canonical_dir))
       .map(|file_path| file_path.to_path_buf())
       .collect()
-  }
-
-  /// Gets whether a local config file was used in the canonical directory
-  /// (see `get_used_local_config_paths_under`).
-  fn has_used_local_config_under(&self, canonical_dir: &Path) -> bool {
-    self
-      .used_configs
-      .borrow()
-      .values()
-      .filter(|config_file| !config_file.is_global_config)
-      .filter_map(|config_file| config_file.file_path())
-      .any(|file_path| file_path.starts_with(canonical_dir))
   }
 
   /// Gets the uris that identify the config files whose problems were
@@ -3696,7 +3698,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     for (canonical_dir, editor_dir) in self.editor_paths.replaced_dirs() {
       // there's nothing to tell about without a config file that was used in it, so it's only checked once there is,
       // and it's kept for then (ex. the config files were used again after `reset`)
-      if !self.has_used_local_config_under(&canonical_dir) {
+      if self.get_used_local_config_paths_under(&canonical_dir).is_empty() {
         continue;
       }
       if !self.is_alias_of(&editor_dir, &canonical_dir) {
