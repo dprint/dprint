@@ -743,7 +743,7 @@ mod test {
     );
     assert!(
       stderr_messages[0].contains(concat!(
-        "dprint only formats with it once you allow them by running `dprint config install --config \"/dprint.json\"` ",
+        "dprint only formats with it once you allow them by running `dprint config install` in the directory of the configuration file ",
         "or when \"editor.allowProcessPlugins\" isn't false in"
       )),
       "{stderr_messages:?}"
