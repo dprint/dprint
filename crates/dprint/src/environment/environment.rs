@@ -42,6 +42,19 @@ pub enum DirEntry {
   File { path: PathBuf },
 }
 
+/// An exclusive lock of a file, which is released when it's dropped (see
+/// `Environment::try_lock_file`).
+pub struct FileLock {
+  _guard: Box<dyn std::any::Any + Send + Sync>,
+}
+
+impl FileLock {
+  /// Gets a lock that's released when the guard is dropped.
+  pub fn new(guard: impl std::any::Any + Send + Sync) -> Self {
+    Self { _guard: Box::new(guard) }
+  }
+}
+
 /// The kind of entry at a path on the file system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathKind {
@@ -308,6 +321,11 @@ pub trait Environment:
     }
   }
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
+  /// Tries to take an exclusive lock of the file, which is created when it
+  /// doesn't exist. The lock is held until it's dropped or the process exits,
+  /// and it's `None` when the file is locked already, including by another
+  /// lock of this process.
+  fn try_lock_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<FileLock>>;
   /// Kills any running process whose executable lives under the given directory
   /// and returns how many were killed. Used when clearing the cache so a process
   /// plugin that's still running can't stop its executable from being deleted

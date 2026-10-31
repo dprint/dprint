@@ -39,6 +39,7 @@ use super::DirEntry;
 use super::DownloadOptions;
 use super::DownloadedFile;
 use super::Environment;
+use super::FileLock;
 use super::FilePermissions;
 use super::FilesWatcher;
 use super::PathKind;
@@ -454,6 +455,25 @@ impl Environment for RealEnvironment {
     }
 
     Ok(entries)
+  }
+
+  fn try_lock_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<FileLock>> {
+    let file_path = file_path.as_ref();
+    log_debug!(self, "Locking file: {}", file_path.display());
+    let with_context = |err: io::Error| io::Error::new(err.kind(), format!("Error locking file '{}': {:#}", file_path.display(), err));
+    let file = fs::OpenOptions::new()
+      .read(true)
+      .write(true)
+      .create(true)
+      .truncate(false)
+      .open(file_path)
+      .map_err(with_context)?;
+    match file.try_lock() {
+      // closing the file releases the lock
+      Ok(()) => Ok(Some(FileLock::new(file))),
+      Err(fs::TryLockError::WouldBlock) => Ok(None),
+      Err(fs::TryLockError::Error(err)) => Err(with_context(err)),
+    }
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
@@ -1008,6 +1028,28 @@ mod test {
         assert!(matches!(change, Ok(Some(()))));
         // a directory that doesn't exist can't be watched
         assert!(environment.watch_files(&[temp_dir.path().join("missing").join("settings.json")]).is_err());
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  fn should_lock_a_file_once() {
+    use dprint_core::async_runtime::FutureExt;
+
+    RealEnvironment::run_test_with_real_env(|environment| {
+      async move {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("session.lock");
+        let lock = environment.try_lock_file(&file_path).unwrap().unwrap();
+        assert!(environment.path_exists(&file_path));
+        // including by another lock of this process
+        assert!(environment.try_lock_file(&file_path).unwrap().is_none());
+        // a held lock can be deleted
+        environment.remove_file(&file_path).unwrap();
+        drop(lock);
+        let lock = environment.try_lock_file(&file_path).unwrap();
+        assert!(lock.is_some());
       }
       .boxed_local()
     });

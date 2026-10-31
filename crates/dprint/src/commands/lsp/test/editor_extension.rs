@@ -3547,6 +3547,90 @@ fn should_forget_the_decisions_of_the_session_in_its_session_file() {
   });
 }
 
+#[test]
+fn should_not_keep_what_was_forgotten_in_a_session_file_that_failed_to_be_written() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build();
+  disallow_process_plugins(&environment);
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        client.approve(&approval.id, ApprovalDecision::Allow).await;
+        let session_file_path = get_session_file_path(&environment, SESSION_ID);
+        assert!(environment.path_exists(&session_file_path));
+        // ex. the disk is full and another process has the file open
+        environment.set_file_write_fails(&session_file_path, true);
+        environment.set_file_remove_fails(&session_file_path, true);
+        let forget = || async {
+          client
+            .backend
+            .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
+            .await
+            .unwrap()
+        };
+        // so the allow may come back, which the user is told about
+        let notice = forget().await.notice.unwrap();
+        assert!(notice.message.contains("may come back if dprint restarts"), "{}", notice.message);
+        assert!(environment.path_exists(&session_file_path));
+        // otherwise the file is deleted
+        environment.set_file_remove_fails(&session_file_path, false);
+        assert_eq!(forget().await.notice, None);
+        assert!(!environment.path_exists(&session_file_path));
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+  // so a server started again for the session asks again
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
+      assert_eq!(approvals[0].kind, ApprovalKind::ProcessPlugins);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_not_use_the_session_file_of_a_session_id_another_server_uses() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  // ex. the editor extension gave the server of another executable the same id
+  let session_file_path = get_session_file_path(&environment, SESSION_ID);
+  environment.mk_dir_all(session_file_path.parent().unwrap()).unwrap();
+  let other_server_lock = environment.try_lock_file(session_file_path.with_extension("lock")).unwrap().unwrap();
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+      assert!(client.approve(&approval.id, ApprovalDecision::Deny).await[0].denied);
+      let messages = client.test_client.take_messages();
+      assert!(
+        messages
+          .iter()
+          .any(|(_, message)| message.contains("because another dprint language server that's running uses it")),
+        "{:?}",
+        messages
+      );
+    }
+    .boxed_local()
+  });
+  // so it doesn't overwrite what that server decided
+  assert!(!environment.path_exists(&session_file_path));
+  drop(other_server_lock);
+}
+
 /// An editor extension using the `dprint/*` methods.
 struct Client {
   backend: Rc<Backend<TestEnvironment>>,

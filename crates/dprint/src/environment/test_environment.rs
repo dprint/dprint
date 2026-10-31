@@ -57,6 +57,7 @@ use super::DirEntry;
 use super::DownloadOptions;
 use super::DownloadedFile;
 use super::Environment;
+use super::FileLock;
 use super::FilePermissions;
 use super::FilesWatcher;
 use super::PathKind;
@@ -215,6 +216,12 @@ pub struct TestEnvironment {
   remove_dir_all_failures: Arc<Mutex<usize>>,
   /// The files that are watched with what's told when one changes.
   file_watchers: Arc<Mutex<Vec<(Vec<PathBuf>, tokio::sync::mpsc::UnboundedSender<()>)>>>,
+  /// The files that are locked (see `Environment::try_lock_file`).
+  locked_files: Arc<Mutex<HashSet<PathBuf>>>,
+  /// The files that fail to be written (ex. the disk is full).
+  failing_file_writes: Arc<Mutex<HashSet<PathBuf>>>,
+  /// The files that fail to be deleted (ex. another process has them open).
+  failing_file_removes: Arc<Mutex<HashSet<PathBuf>>>,
 }
 
 impl TestEnvironment {
@@ -266,6 +273,9 @@ impl TestEnvironment {
       running_processes: Default::default(),
       remove_dir_all_failures: Default::default(),
       file_watchers: Default::default(),
+      locked_files: Default::default(),
+      failing_file_writes: Default::default(),
+      failing_file_removes: Default::default(),
     };
     env.mk_dir_all("/").unwrap();
     env
@@ -519,6 +529,16 @@ impl TestEnvironment {
     *self.remove_dir_all_failures.lock() = count;
   }
 
+  /// Sets whether writing the file fails, which includes an atomic write.
+  pub fn set_file_write_fails(&self, file_path: impl AsRef<Path>, fails: bool) {
+    set_contains(&self.failing_file_writes, self.clean_path(file_path), fails);
+  }
+
+  /// Sets whether deleting the file fails.
+  pub fn set_file_remove_fails(&self, file_path: impl AsRef<Path>, fails: bool) {
+    set_contains(&self.failing_file_removes, self.clean_path(file_path), fails);
+  }
+
   /// Creates a symlink at `link` that points at `original`, which may be
   /// relative to the symlink's directory.
   pub fn symlink(&self, original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
@@ -559,6 +579,47 @@ impl TestEnvironment {
     .clean();
     PathBuf::from(path.to_string_lossy().replace("\\", "/"))
   }
+}
+
+impl TestEnvironment {
+  fn ensure_file_write_succeeds(&self, file_path: &Path) -> io::Result<()> {
+    match self.failing_file_writes.lock().contains(&self.clean_path(file_path)) {
+      true => Err(io::Error::new(io::ErrorKind::StorageFull, format!("Failed writing '{}'.", file_path.display()))),
+      false => Ok(()),
+    }
+  }
+
+  fn ensure_file_remove_succeeds(&self, file_path: &Path) -> io::Result<()> {
+    let file_path = self.clean_path(file_path);
+    // a file that doesn't exist isn't found instead
+    match self.failing_file_removes.lock().contains(&file_path) && self.sys.fs_exists_no_err(&file_path) {
+      true => Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("Failed deleting '{}'.", file_path.display()),
+      )),
+      false => Ok(()),
+    }
+  }
+}
+
+/// Releases a lock of a file when it's dropped (see `Environment::try_lock_file`).
+struct TestFileLockGuard {
+  file_path: PathBuf,
+  locked_files: Arc<Mutex<HashSet<PathBuf>>>,
+}
+
+impl Drop for TestFileLockGuard {
+  fn drop(&mut self) {
+    self.locked_files.lock().remove(&self.file_path);
+  }
+}
+
+fn set_contains(set: &Mutex<HashSet<PathBuf>>, path: PathBuf, contains: bool) {
+  let mut set = set.lock();
+  match contains {
+    true => set.insert(path),
+    false => set.remove(&path),
+  };
 }
 
 impl Drop for TestEnvironment {
@@ -627,6 +688,7 @@ impl BaseFsRead for TestEnvironment {
 
 impl BaseFsRemoveFile for TestEnvironment {
   fn base_fs_remove_file(&self, path: &Path) -> io::Result<()> {
+    self.ensure_file_remove_succeeds(path)?;
     (*self.sys).base_fs_remove_file(path)?;
     self.notify_file_watchers(&self.clean_path(path));
     Ok(())
@@ -635,6 +697,7 @@ impl BaseFsRemoveFile for TestEnvironment {
 
 impl BaseFsRename for TestEnvironment {
   fn base_fs_rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+    self.ensure_file_write_succeeds(to)?;
     (*self.sys).base_fs_rename(from, to)?;
     // ex. an atomic write
     self.notify_file_watchers(&self.clean_path(from));
@@ -741,6 +804,7 @@ impl Environment for TestEnvironment {
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
+    self.ensure_file_write_succeeds(&file_path)?;
     self.sys.fs_write(&file_path, bytes)?;
     self.notify_file_watchers(&file_path);
     Ok(())
@@ -757,6 +821,7 @@ impl Environment for TestEnvironment {
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
+    self.ensure_file_remove_succeeds(&file_path)?;
     self.sys.fs_remove_file(&file_path)?;
     self.notify_file_watchers(&file_path);
     Ok(())
@@ -824,6 +889,20 @@ impl Environment for TestEnvironment {
     }
 
     Ok(entries)
+  }
+
+  fn try_lock_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<FileLock>> {
+    let file_path = self.clean_path(file_path);
+    if !self.sys.fs_exists_no_err(&file_path) {
+      self.sys.fs_write(&file_path, b"")?;
+    }
+    if !self.locked_files.lock().insert(file_path.clone()) {
+      return Ok(None);
+    }
+    Ok(Some(FileLock::new(TestFileLockGuard {
+      file_path,
+      locked_files: self.locked_files.clone(),
+    })))
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {

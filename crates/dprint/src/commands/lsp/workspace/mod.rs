@@ -152,9 +152,11 @@ use self::messages::Severity;
 use self::messages::ShowPolicy;
 use self::session_file::AllowedDownload;
 use self::session_file::DeniedDownload;
-use self::session_file::SESSION_FILE_REFRESH_INTERVAL;
+use self::session_file::SESSION_FILE_CHECK_INTERVAL;
 use self::session_file::SessionFile;
+use self::session_file::SessionFileOpenError;
 use self::session_file::SessionState;
+use self::session_file::StaleSessionFileError;
 use self::session_file::remove_stale_session_files;
 
 /// The error for approving what isn't pending anymore (ex. what needs to be
@@ -586,29 +588,46 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Keeps what the user decides for the session in the session file of the
   /// session id the client provided, which has what was decided before when a
   /// server of the same session stopped without the session ending (ex. it
-  /// crashed). It's only used when the id is valid, which is logged otherwise.
-  /// The session files that weren't written for a while are deleted too.
+  /// crashed). It's only used when the id is valid and no other server that's
+  /// running uses it, which is logged otherwise. The session files that
+  /// weren't written for a while are deleted too.
   pub fn use_session(self: &Rc<Self>, session_id: Option<&serde_json::Value>) {
     let session_file = session_id.and_then(|session_id| {
-      let session_file = session_id.as_str().and_then(|session_id| SessionFile::new(&self.environment, session_id));
-      if session_file.is_none() {
-        log_warn!(
-          self.environment,
-          "Ignoring the session id {} because it isn't a string of 16 to 128 letters, digits, underscores, and hyphens, so what's decided for the session is lost when the server stops.",
-          session_id
-        );
+      let result = match session_id.as_str() {
+        Some(session_id_text) => SessionFile::open(&self.environment, session_id_text),
+        None => Err(SessionFileOpenError::InvalidId),
+      };
+      match result {
+        Ok(session_file) => Some(session_file),
+        Err(SessionFileOpenError::InvalidId) => {
+          log_warn!(
+            self.environment,
+            "Ignoring the session id {} because it isn't a string of 16 to 128 letters, digits, underscores, and hyphens, so what's decided for the session is lost when the server stops.",
+            session_id
+          );
+          None
+        }
+        Err(SessionFileOpenError::InUse) => {
+          log_warn!(
+            self.environment,
+            "Ignoring the session id {} because another dprint language server that's running uses it, so what's decided for the session is lost when the server stops. The editor extension needs to give each server its own session id.",
+            session_id
+          );
+          None
+        }
       }
-      session_file
     });
     if let Some(session_file) = session_file {
       let session_file = Rc::new(session_file);
       if let Some(state) = session_file.read(&self.environment) {
         self.restore_session_state(state);
         // so it isn't stale
-        session_file.write(&self.environment, &self.get_session_state(), true);
+        if let Err(err) = session_file.write(&self.environment, &self.get_session_state(), true) {
+          log_warn!(self.environment, "{}", err);
+        }
       }
-      *self.session_file.borrow_mut() = Some(session_file.clone());
-      self.keep_session_file(session_file);
+      *self.session_file.borrow_mut() = Some(session_file);
+      self.keep_session_file();
     }
     remove_stale_session_files(&self.environment);
   }
@@ -1485,7 +1504,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       dprint_core::async_runtime::spawn(async move { workspace.resolve_used_configs_again().await });
     }
     // the decision is kept before responding so a server started again for the session uses it
-    self.save_session();
+    if let Err(err) = self.save_session() {
+      let message = err.to_string();
+      log_warn!(self.environment, "{}", message);
+      push_warning_notice(&mut notice, message);
+    }
     let config = config?;
     // a config file that still fails didn't resolve to something else, so the editor is told it was denied
     if let DocumentConfig::Failed(failure) = &config
@@ -1597,11 +1620,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .denied_downloads
       .borrow_mut()
       .retain(|_, denied| config_file.as_ref().is_some_and(|(_, key)| *key != denied.config_key));
-    self.save_session();
+    let session_result = self.save_session();
     let stored_result = self.forget_stored_decisions(&is_config_file).await;
     self.resolve_used_configs_again().await;
     // what was forgotten for the session still is when the stored decisions can't be
-    let notice = stored_result.err().map(|err| {
+    let mut notice = stored_result.err().map(|err| {
       let message = match err.chain().find_map(|err| err.downcast_ref::<NewerApprovalsFileError>()) {
         // this version never writes to the file (see `EditorApprovals`)
         Some(err) => format!(
@@ -1613,6 +1636,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       log_warn!(self.environment, "{}", message);
       new_warning_notice(message)
     });
+    // the session file may still have the decisions that were forgotten
+    if let Err(err) = session_result {
+      let message = err.to_string();
+      log_warn!(self.environment, "{}", message);
+      push_warning_notice(&mut notice, message);
+    }
     Ok((forgotten, notice))
   }
 
@@ -2615,33 +2644,48 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Writes the session file whenever what the session decided about process
   /// plugins changes (ex. a plugin the user allowed was set up, or a denial
-  /// stored elsewhere replaced an allow), and again once in a while so that it
-  /// isn't stale while the session lasts. It stops once the server shuts down.
-  fn keep_session_file(self: &Rc<Self>, session_file: Rc<SessionFile>) {
+  /// stored elsewhere replaced an allow), and again when it needs to be so
+  /// that it isn't stale while the session lasts or after a write failed (see
+  /// `SessionFile::needs_refresh`). It stops once the server shuts down.
+  fn keep_session_file(self: &Rc<Self>) {
     let workspace = Rc::downgrade(self);
     let session_permissions = self.session_permissions.clone();
     let stopped = self.stopped.clone();
     dprint_core::async_runtime::spawn(async move {
+      // the checks aren't delayed by the changes, and one that was missed (ex. while the machine was asleep) is done once
+      let mut checks = tokio::time::interval_at(tokio::time::Instant::now() + SESSION_FILE_CHECK_INTERVAL, SESSION_FILE_CHECK_INTERVAL);
+      checks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
       loop {
-        let force = tokio::select! {
+        let is_check = tokio::select! {
           _ = stopped.cancelled() => return,
           _ = session_permissions.changed() => false,
-          _ = tokio::time::sleep(SESSION_FILE_REFRESH_INTERVAL) => true,
+          _ = checks.tick() => true,
         };
         let Some(workspace) = workspace.upgrade() else {
           return;
         };
-        session_file.write(&workspace.environment, &workspace.get_session_state(), force);
+        let session_file = workspace.session_file.borrow().clone();
+        let Some(session_file) = session_file else {
+          return;
+        };
+        if is_check && !session_file.needs_refresh(&workspace.environment) {
+          continue;
+        }
+        if let Err(err) = session_file.write(&workspace.environment, &workspace.get_session_state(), is_check) {
+          log_warn!(workspace.environment, "{}", err);
+        }
       }
     });
   }
 
   /// Writes what the user decided for the session to the session file when
-  /// it changed and there's one.
-  fn save_session(&self) {
+  /// it changed and there's one, which errors when the file may have what was
+  /// decided before (see `SessionFile::write`).
+  fn save_session(&self) -> Result<(), StaleSessionFileError> {
     let session_file = self.session_file.borrow().clone();
-    if let Some(session_file) = session_file {
-      session_file.write(&self.environment, &self.get_session_state(), false);
+    match session_file {
+      Some(session_file) => session_file.write(&self.environment, &self.get_session_state(), false),
+      None => Ok(()),
     }
   }
 
@@ -3403,6 +3447,22 @@ fn new_warning_notice(message: String) -> Notice {
     show: ShowPolicy::Always,
     severity: Severity::Warning,
     actions: Vec::new(),
+  }
+}
+
+/// Adds a warning the user is always told about to the notice, which is after
+/// what the notice says already when there's one.
+fn push_warning_notice(notice: &mut Option<Notice>, message: String) {
+  match notice {
+    Some(notice) => {
+      notice.message.push(' ');
+      notice.message.push_str(&message);
+      notice.show = ShowPolicy::Always;
+      if notice.severity == Severity::Info {
+        notice.severity = Severity::Warning;
+      }
+    }
+    None => *notice = Some(new_warning_notice(message)),
   }
 }
 
