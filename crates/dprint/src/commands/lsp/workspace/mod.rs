@@ -1454,6 +1454,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           for (url, item) in urls.iter().zip(&stored.approval.items) {
             allowed_items.insert(url.clone(), item.clone());
           }
+          // a denial of what's allowed now (ex. with the approve command) is replaced, because an allowed
+          // download is allowed for every config file
+          let allowed = self.environment.download_policy().allowed_downloads().into_iter().collect::<HashSet<_>>();
+          self
+            .denied_downloads
+            .borrow_mut()
+            .retain(|_, denied| !denied.downloads.iter().all(|download| allowed.contains(download)));
         } else {
           self.denied_downloads.borrow_mut().insert(
             stored.approval.id.clone(),
@@ -1629,6 +1636,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .filter(|decision| decision.config_file.is_some())
       .collect::<Vec<_>>();
     let is_config_file = |source: &str| config_file.as_ref().is_none_or(|(config_source, _)| config_source == source);
+    // an "Always" decision that's still being stored (ex. while another process holds the approvals
+    // file's lock) is forgotten too, which the stores wait on until the stored decisions are forgotten
+    let paused_stores = self.session_permissions.pause_stores().await;
     self.session_permissions.forget_process_plugin_decisions(&is_config_file);
     self
       .denied_downloads
@@ -1636,6 +1646,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .retain(|_, denied| config_file.as_ref().is_some_and(|(_, key)| *key != denied.config_key));
     let session_result = self.save_session();
     let stored_result = self.forget_stored_decisions(&is_config_file).await;
+    // resolving them may store what the user always allowed once it's set up
+    drop(paused_stores);
     self.resolve_used_configs_again().await;
     // what was forgotten for the session still is when the stored decisions can't be
     let mut notice = stored_result.err().map(|err| {
@@ -1939,7 +1951,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         let approval = match &subject {
           ApprovalSubject::Downloads(urls) => {
             let id = get_approval_id("download", &config_key, urls);
-            let denied = self.denied_downloads.borrow().contains_key(&id);
+            let denied = self.is_download_denied(&config_key, urls);
             PendingApproval {
               denied,
               // a download is only denied for the session
@@ -2468,6 +2480,18 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.register_watch_files();
   }
 
+  /// Gets whether the user denied downloading the downloads for the config
+  /// file this session, which includes a denial of more of them (ex. one of
+  /// them was allowed for another config file since), so what they denied
+  /// isn't asked about again.
+  fn is_download_denied(&self, config_key: &str, downloads: &[String]) -> bool {
+    self
+      .denied_downloads
+      .borrow()
+      .values()
+      .any(|denied| denied.config_key == config_key && downloads.iter().all(|download| denied.downloads.contains(download)))
+  }
+
   /// Gets whether the download and the process plugins that need to be
   /// approved for the scope were denied.
   fn get_scope_denials(&self, scope: &PluginsScope<TEnvironment>) -> (bool, bool) {
@@ -2477,7 +2501,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let config_key = get_config_key(config);
     let is_download_denied = get_download_groups(&scope.untrusted_downloads)
       .iter()
-      .any(|urls| self.denied_downloads.borrow().contains_key(&get_approval_id("download", &config_key, urls)));
+      .any(|urls| self.is_download_denied(&config_key, urls));
     let is_process_plugins_denied = scope
       .unapproved_process_plugins
       .as_ref()

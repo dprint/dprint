@@ -548,8 +548,12 @@ impl NotFormattedReason {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingApproval {
-  /// Identifies exactly what's approved, which changes when it does (ex. the
-  /// configuration of a process plugin).
+  /// Identifies exactly what's approved, which changes when what's shown does
+  /// (ex. the configuration of a process plugin, or once its process plugins
+  /// are set up) and is the same in another server of the same version of
+  /// dprint, but may change between versions, so the same approval is
+  /// recognized by what it approves instead (its config file, kind, and the
+  /// specifiers of its items).
   pub id: String,
   pub kind: ApprovalKind,
   /// A short description of what's approved (ex. for a status bar item or
@@ -609,7 +613,8 @@ pub struct ApprovalItem {
   pub npmrc_uri: Option<Uri>,
   /// The uri of the path in the project of a `networkPath` that reaches the
   /// other machine through a symlink (the path before ` -> `) as the editor
-  /// knows it, which is local while what it reaches isn't.
+  /// knows it, which is local while what it reaches isn't, so the editor
+  /// doesn't open, read, or watch it before it's allowed.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub local_uri: Option<Uri>,
   /// The plugin when it was set up before.
@@ -722,7 +727,9 @@ pub struct ApproveResult {
   pub config_approvals: ConfigApprovals,
   /// What to tell the user about the decision or one made before for the
   /// same config file (ex. it couldn't be stored, so it's only used for the
-  /// session, or the session file couldn't be written or deleted).
+  /// session, or the session file couldn't be written or deleted, or the
+  /// session's decisions aren't kept yet because another server that's
+  /// running uses the session id or its lock can't be taken).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notice: Option<Notice>,
 }
@@ -802,7 +809,8 @@ pub struct ForgetDecisionsResult {
   pub decisions: Vec<Decision>,
   /// What to tell the user about forgetting them (ex. the stored decisions
   /// couldn't be forgotten, or the session file couldn't be written or
-  /// deleted).
+  /// deleted, or the session's decisions aren't kept yet because another
+  /// server that's running uses the session id or its lock can't be taken).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notice: Option<Notice>,
 }
@@ -841,9 +849,11 @@ pub struct Decision {
   /// approval's items (ex. the process plugins or the setting of a proxy).
   pub specifiers: Vec<String>,
   /// What it's for like an approval's items in the order of the specifiers,
-  /// which is provided for downloads so a proxy or a path on another machine
-  /// can be told apart from a url and shown with its file (an `npmrcProxy`
-  /// with its `npmrc_uri`, or a `networkPath` with its `local_uri`).
+  /// which is usually provided for downloads so a proxy or a path on another
+  /// machine can be told apart from a url and shown with its file (an
+  /// `npmrcProxy` with its `npmrc_uri`, or a `networkPath` with its
+  /// `local_uri`). It's missing when they aren't known (ex. a denial kept by
+  /// another version of dprint).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub items: Option<Vec<ApprovalItem>>,
   pub allows: bool,
@@ -915,6 +925,10 @@ pub struct ConfigParams {
 }
 
 /// What identifies a config file.
+///
+/// It's also kept in the session file (see `SessionFile`), where another
+/// version of dprint may read it, so a change to it is a change to that
+/// format too.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigFileIdentifier {
@@ -1028,7 +1042,9 @@ pub struct ConfigFileInfo {
   /// directory of the workspace folders or the global config file isn't.
   pub in_workspace: bool,
   /// Whether it was found on another machine and reading it isn't allowed
-  /// yet, so the editor doesn't open it, which would read it from there.
+  /// yet, so the editor doesn't open, read, or watch it (or its directory),
+  /// which would reach the other machine. `dprint/configChanged` is sent once
+  /// it's allowed.
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub on_another_machine: bool,
 }

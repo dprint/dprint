@@ -3927,6 +3927,102 @@ fn should_restore_a_denial_of_downloads_with_items_that_are_not_known() {
   });
 }
 
+#[test]
+fn should_keep_denying_downloads_that_were_denied_together() {
+  const FIRST_URL: &str = "https://example.com/first/test-plugin.wasm";
+  const SECOND_URL: &str = "https://example.com/second/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(FIRST_URL)
+    .add_remote_wasm_plugin_at_url(SECOND_URL)
+    .with_local_config("/both/dprint.json", |c| {
+      c.add_plugin(FIRST_URL).add_plugin(SECOND_URL);
+    })
+    .with_local_config("/first/dprint.json", |c| {
+      c.add_plugin(FIRST_URL);
+    })
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      let approval = client.config_info("/both/dprint.json").await.status.approvals()[0].clone();
+      assert_eq!(specifiers(&approval), vec![FIRST_URL, SECOND_URL]);
+      client.approve(&approval.id, ApprovalDecision::Deny).await;
+      // one of them is allowed for another config file
+      let approval = client.config_info("/first/dprint.json").await.status.approvals()[0].clone();
+      client.approve(&approval.id, ApprovalDecision::Allow).await;
+      // so the other is what's needed now, which is still denied
+      let approval = client.config_info("/both/dprint.json").await.status.approvals()[0].clone();
+      assert_eq!(specifiers(&approval), vec![SECOND_URL]);
+      assert!(approval.denied);
+      assert_eq!(approval.previous_decision, Some(ApprovalDecision::Deny));
+
+      // and allowing it (ex. with the approve command) replaces the denial
+      client.approve(&approval.id, ApprovalDecision::Allow).await;
+      let decisions = client.decisions().await;
+      assert!(!decisions.iter().any(|decision| !decision.allows), "{:?}", decisions);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_forget_an_always_allow_that_is_still_being_stored() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
+        // ex. `dprint fmt` is storing its decisions
+        let lock_path = crate::configuration::get_editor_approvals_file_path(&environment)
+          .unwrap()
+          .with_file_name(".editor-approvals.lock");
+        let other_lock = environment.try_lock_file(&lock_path).unwrap().unwrap();
+        let approve = client.backend.dprint_approve(
+          ApproveParams {
+            id: approval.id.clone(),
+            decision: ApprovalDecision::AlwaysAllow,
+            work_done_token: None,
+          },
+          CancellationToken::new(),
+        );
+        // the user forgets the decisions while it waits for the lock
+        let forget = async {
+          tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+          client
+            .backend
+            .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
+            .await
+            .unwrap()
+        };
+        let release = async {
+          tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+          drop(other_lock);
+        };
+        let (approve_result, _, ()) = dprint_core::async_runtime::future::join3(approve, forget, release).await;
+        approve_result.unwrap();
+        // forgetting waited for it to be stored, so it's forgotten too
+        let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
+        assert!(decisions.iter().all(|decision| !decision.allowed), "{:?}", decisions);
+        assert_eq!(
+          client.config_info("/dprint.json").await.status.approvals()[0].kind,
+          ApprovalKind::ProcessPlugins
+        );
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
 /// An editor extension using the `dprint/*` methods.
 struct Client {
   backend: Rc<Backend<TestEnvironment>>,

@@ -132,10 +132,12 @@ pub struct EditorState {
 ///   always denied) and can't store anything.
 /// - Every writer takes the same lock for the whole read and write of the
 ///   file: an exclusive lock of the whole `.editor-approvals.lock` file in the
-///   file's directory, which is `flock(2)` on Unix and `LockFileEx` on Windows
-///   (std's `File::lock` and `File::try_lock`, see `lock_editor_approvals`).
-///   It never writes without it: one that can't take it in time fails, which
-///   only keeps the decision for the session. A writer that uses another lock
+///   file's directory, which is `flock(2)` on Unix and `LockFileEx` of the
+///   whole file on Windows (see `Environment::try_lock_file`), tried again
+///   until a timeout (see `lock_editor_approvals`). It never writes without
+///   it: one that can't take it (ex. another process holds it for too long, or
+///   the file system doesn't support locks) fails, which only keeps the
+///   decision for the session. A writer that uses another lock
 ///   (ex. an `fcntl` lock, which doesn't exclude a `flock` lock on Linux) or
 ///   skips it would race with the others, which could lose an "Always Deny"
 ///   under an "Always Allow" written at the same time.
@@ -226,6 +228,10 @@ pub struct NoConfigNotificationState {
 
 /// A process plugin of a config file with its configuration, which is what the
 /// user allows or denies running.
+///
+/// It's also kept in the session file (see `SessionFile`), where another
+/// version of dprint may read it, so a change to it is a change to that
+/// format too.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessPluginApproval {
@@ -270,6 +276,11 @@ impl ProcessPluginApproval {
 
 /// Whether the user allowed or denied running a process plugin of a config
 /// file with its configuration.
+///
+/// It's also kept in the session file (see `SessionFile`), where another
+/// version of dprint may read it, so a change to it is a change to that
+/// format too. A change that raises the approvals file's
+/// `minVersion` (see `EditorApprovals`) raises `SESSION_FILE_VERSION` too.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessPluginDecision {
@@ -303,6 +314,10 @@ impl ProcessPluginDecision {
 /// The user allowing a process plugin of a config file to be set up for the
 /// session, which runs it, before its configuration is known. Once it's set
 /// up, it's allowed with its configuration (see `ProcessPluginApproval`).
+///
+/// It's also kept in the session file (see `SessionFile`), where another
+/// version of dprint may read it, so a change to it is a change to that
+/// format too.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessPluginSetUpGrant {
@@ -489,6 +504,9 @@ pub struct SessionPermissions {
   logged_settings_problems: Mutex<HashSet<String>>,
   /// Notified when what's in `SessionPermissionsState` changes (see `changed`).
   changes: Notify,
+  /// Held to read while a decision is stored and to write while the stored
+  /// decisions are forgotten (see `pause_stores`).
+  stores: tokio::sync::RwLock<()>,
 }
 
 /// What the session decided about process plugins, which is what an editor
@@ -703,6 +721,21 @@ impl SessionPermissions {
     let mut reads = self.stored_denial_reads.lock();
     reads.denials = state.seen_stored_denials.into_iter().collect();
     reads.approvals_file_fingerprint = fingerprint;
+  }
+
+  /// Marks that a decision the user always uses is being stored until the
+  /// guard is dropped, which waits while stores are paused (see
+  /// `pause_stores`).
+  pub async fn start_store(&self) -> tokio::sync::RwLockReadGuard<'_, ()> {
+    self.stores.read().await
+  }
+
+  /// Waits for the decisions that are being stored to be stored and keeps
+  /// others from being stored until the guard is dropped, so forgetting the
+  /// stored decisions forgets one the user made before (ex. one that waited
+  /// for the approvals file's lock).
+  pub async fn pause_stores(&self) -> tokio::sync::RwLockWriteGuard<'_, ()> {
+    self.stores.write().await
   }
 
   /// Waits until what's in `SessionPermissionsState` changed since the last

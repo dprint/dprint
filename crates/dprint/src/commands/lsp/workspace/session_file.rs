@@ -43,10 +43,15 @@ pub const SESSION_FILE_REFRESH_INTERVAL: Duration = Duration::from_secs(24 * 60 
 /// the machine was asleep (ex. on Linux and macOS).
 pub const SESSION_FILE_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
+/// The permissions of a session file on Unix, which only the user may read
+/// and write.
+const SESSION_FILE_MODE: u32 = 0o600;
 /// The directory in the cache directory with the session files.
 const SESSIONS_DIR_NAME: &str = "editor-sessions";
-/// The version of the format of a session file, where a file of another
-/// version is ignored, which only means the user is asked again.
+/// The version of the format of a session file that this version writes,
+/// which is raised for any change an older server can't read or would read
+/// with another meaning (see `SessionFile`). A file of a version this one
+/// can't use is ignored, which only means the user is asked again.
 const SESSION_FILE_VERSION: u64 = 1;
 /// How many times a server tries to take the lock of its session when it
 /// starts, which is several times because the server that exited
@@ -198,8 +203,8 @@ impl std::error::Error for SessionFileWriteError {}
 ///   `SessionPermissions::restore`), so a file without it fails closed.
 /// - A server takes an exclusive lock of the whole `<id>.lock` file before it
 ///   uses `<id>.json` and holds it until the session ends, when it deletes
-///   both. It's `flock(2)` on Unix and `LockFileEx` on Windows (std's
-///   `File::try_lock`, see `Environment::try_lock_file`). A server that can't
+///   both. It's `flock(2)` on Unix and `LockFileEx` of the whole file on
+///   Windows (see `Environment::try_lock_file`). A server that can't
 ///   take it (another server that's running holds it, or it fails) neither
 ///   reads nor writes `<id>.json`. It keeps trying, and once it takes it, it
 ///   writes its own decisions to `<id>.json` right away, so the file never has
@@ -376,7 +381,9 @@ impl SessionFile {
       Some(dir_path) => environment.mk_dir_all(dir_path),
       None => Ok(()),
     }
-    .and_then(|()| environment.atomic_write_file_bytes(&self.file_path, text.as_bytes()));
+    // only the user may read it on Unix because it may have the credentials in a proxy setting of an
+    // `.npmrc` file (see `NpmrcProxy::to_download`)
+    .and_then(|()| crate::utils::fs::atomic_write_file_with_retries(environment, &self.file_path, text.as_bytes(), SESSION_FILE_MODE));
     match result {
       Ok(()) => {
         *self.last_text.borrow_mut() = Some(text);
@@ -565,6 +572,11 @@ fn is_stale(environment: &impl Environment, file_path: &Path, now: SystemTime) -
 /// Deletes a file of a session unless a server that's running holds the
 /// session's lock, which is also kept when it can't be told.
 fn remove_unless_locked(environment: &impl Environment, lock_path: &Path, file_path: &Path) {
+  // no server holds a lock without its file (see `SessionFile::lock_once`), so it isn't created for this
+  if !environment.path_exists(lock_path) {
+    remove_session_dir_file(environment, file_path);
+    return;
+  }
   match environment.try_lock_file(lock_path) {
     Ok(Some(lock)) => {
       remove_session_dir_file(environment, file_path);
@@ -657,6 +669,16 @@ mod test {
     drop(file);
     let file = open_locked(&environment, SESSION_ID);
     assert_eq!(file.read(&environment), Some(state));
+  }
+
+  #[test]
+  fn should_only_let_the_user_read_the_session_file() {
+    let environment = TestEnvironment::new();
+    let file = open_locked(&environment, SESSION_ID);
+    file.write(&environment, &new_allowed_state(), false).unwrap();
+    // ex. it has the credentials in the proxy setting of an `.npmrc` file
+    let mode = environment.fs_metadata(&file.file_path).unwrap().mode().unwrap();
+    assert_eq!(mode & 0o777, 0o600);
   }
 
   #[test]
@@ -922,6 +944,21 @@ mod test {
     for name in kept {
       assert!(environment.path_exists(dir_path.join(name)), "{}", name);
     }
+  }
+
+  #[test]
+  fn should_not_leave_a_lock_behind_when_removing_a_stale_file_without_one() {
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(1_000_000);
+    let dir_path = get_sessions_dir(&environment);
+    environment.mk_dir_all(&dir_path).unwrap();
+    // ex. a write failed and the session ended later, which deleted its file and lock
+    let temp_path = dir_path.join("0123456789abcdef.0a1b2c3d.tmp");
+    environment.write_file(&temp_path, "{}").unwrap();
+    environment.set_fs_time(1_000_000 + 8 * DAY_SECS);
+    remove_stale_session_files(&environment);
+    assert!(!environment.path_exists(&temp_path));
+    assert!(!environment.path_exists(dir_path.join("0123456789abcdef.lock")));
   }
 
   #[test]

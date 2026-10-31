@@ -256,6 +256,7 @@ async fn add_process_plugin_decision<TEnvironment: Environment>(
   always: bool,
 ) -> Result<()> {
   if always {
+    let _store = session_permissions.start_store().await;
     let result = store_process_plugin_decision(environment, decision.clone()).await;
     if result.is_err() || (decision.allowed && read_ignored_settings_message(environment).is_some()) {
       session_permissions.add_process_plugin_decision(decision);

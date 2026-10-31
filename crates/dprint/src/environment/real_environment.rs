@@ -468,11 +468,14 @@ impl Environment for RealEnvironment {
       .truncate(false)
       .open(file_path)
       .map_err(with_context)?;
-    match file.try_lock() {
+    // IMPORTANT: Every version of dprint needs to take the same kind of lock (see `EditorApprovals` and
+    // `SessionFile`), which is `flock(2)` on Unix and `LockFileEx` of the whole file on Windows. fs3 calls
+    // them directly, unlike std's `File::try_lock`, which may change what it uses with the toolchain.
+    match fs3::FileExt::try_lock_exclusive(&file) {
       // closing the file releases the lock
       Ok(()) => Ok(Some(FileLock::new(file))),
-      Err(fs::TryLockError::WouldBlock) => Ok(None),
-      Err(fs::TryLockError::Error(err)) => Err(with_context(err)),
+      Err(err) if err.raw_os_error().is_some() && err.raw_os_error() == fs3::lock_contended_error().raw_os_error() => Ok(None),
+      Err(err) => Err(with_context(err)),
     }
   }
 

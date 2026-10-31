@@ -331,6 +331,10 @@ pub trait Environment:
   /// doesn't exist. The lock is held until it's dropped or the process exits,
   /// and it's `None` when the file is locked already, including by another
   /// lock of this process.
+  ///
+  /// IMPORTANT: It's `flock(2)` on Unix and `LockFileEx` of the whole file on
+  /// Windows, which every version of dprint uses for the same files (see
+  /// `EditorApprovals` and `SessionFile`), so it never changes.
   fn try_lock_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<FileLock>>;
   /// Kills any running process whose executable lives under the given directory
   /// and returns how many were killed. Used when clearing the cache so a process
