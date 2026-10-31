@@ -15,16 +15,16 @@ pub struct EditorPaths {
 impl EditorPaths {
   /// Remembers the editor's path of a canonical directory, which is an alias
   /// of it (ex. a symlink to it), and replaces the one remembered for it and
-  /// the directory the editor's path was an alias of before. That directory
-  /// is provided when there was one, because the editor's paths in it name
-  /// other files now. Another editor's path of the same directory (ex. two
-  /// symlinks to it) still leads to the same files.
-  pub fn add(&self, editor_dir: &Path, canonical_dir: &Path) -> Option<PathBuf> {
+  /// the directory the editor's path was an alias of before, which are
+  /// provided (see `ReplacedEditorPaths`).
+  pub fn add(&self, editor_dir: &Path, canonical_dir: &Path) -> ReplacedEditorPaths {
     let mut dirs = self.dirs.borrow_mut();
-    let mut replaced = None;
+    let mut replaced = ReplacedEditorPaths::default();
     dirs.retain(|(dir, dir_editor_path)| {
       if dir_editor_path == editor_dir && dir != canonical_dir {
-        replaced = Some(dir.clone());
+        replaced.other_canonical_dir = Some(dir.clone());
+      } else if dir == canonical_dir && dir_editor_path != editor_dir {
+        replaced.other_editor_dir = Some(dir_editor_path.clone());
       }
       dir != canonical_dir && dir_editor_path != editor_dir
     });
@@ -77,6 +77,17 @@ impl EditorPaths {
   }
 }
 
+/// What `EditorPaths::add` replaced.
+#[derive(Debug, Default, PartialEq)]
+pub struct ReplacedEditorPaths {
+  /// The canonical directory the editor's path was an alias of before, whose
+  /// editor's paths name other files now.
+  pub other_canonical_dir: Option<PathBuf>,
+  /// The editor's path the canonical directory had before (ex. another
+  /// symlink to it), which still leads to the same files.
+  pub other_editor_dir: Option<PathBuf>,
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
@@ -95,12 +106,21 @@ mod test {
     assert_eq!(paths.get(Path::new("/elsewhere/a.ts")), PathBuf::from("/link/project/nested-link/a.ts"));
     assert_eq!(paths.get(Path::new("/real/project/a.ts")), PathBuf::from("/link/project/a.ts"));
     // the most recent path replaces the one before it, which still leads to it
-    assert_eq!(paths.add(Path::new("/other-link"), Path::new("/real/project")), None);
+    assert_eq!(
+      paths.add(Path::new("/other-link"), Path::new("/real/project")),
+      ReplacedEditorPaths {
+        other_canonical_dir: None,
+        other_editor_dir: Some(PathBuf::from("/link/project")),
+      }
+    );
     assert_eq!(paths.get(Path::new("/real/project/a.ts")), PathBuf::from("/other-link/a.ts"));
     // and an editor's path that's an alias of another directory now isn't one of the one before, which is provided
     assert_eq!(
       paths.add(Path::new("/other-link"), Path::new("/real/moved")),
-      Some(PathBuf::from("/real/project"))
+      ReplacedEditorPaths {
+        other_canonical_dir: Some(PathBuf::from("/real/project")),
+        other_editor_dir: None,
+      }
     );
     assert_eq!(paths.get(Path::new("/real/project/a.ts")), PathBuf::from("/real/project/a.ts"));
     assert_eq!(paths.get(Path::new("/real/moved/a.ts")), PathBuf::from("/other-link/a.ts"));

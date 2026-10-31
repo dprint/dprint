@@ -95,8 +95,11 @@ pub struct EditorState {
 ///   edits the file in place, so it keeps them, and it never lowers `version`
 ///   or `minVersion`.
 /// - `minVersion` is only raised for a change that an older reader can't
-///   safely ignore (ex. a property of a decision that narrows what an allow
-///   covers). It can't narrow what an older version does without asking (ex.
+///   safely ignore (ex. a change to how denials are read), which is
+///   permanent, because it's never lowered. A change that narrows what an
+///   allow covers is made to each allow instead (ex. with a new version of its
+///   `configHash`, which an older reader doesn't use, see `is_used`), so older
+///   versions still use the file. It can't narrow what an older version does without asking (ex.
 ///   downloading from a trusted domain), because a reader that refuses the
 ///   file still trusts the domains of the settings file, so a decision like
 ///   that is an `editor` setting of the settings file instead, which an older
@@ -165,9 +168,10 @@ pub struct EditorState {
 ///     file's own name when it was given with `--config`), which is the path it
 ///     was found at when that isn't its canonical path (ex. a symlink, or those
 ///     names in another case on disk, see `get_config_file_found_path`). The
-///     canonical path is the one `dunce::canonicalize` makes, which keeps `\\?\`
-///     on Windows when it can't be left out (ex. a path that's too long, or a
-///     share is `\\?\UNC\...`).
+///     global config file is the canonical path of the directory it's in joined
+///     with its name. The canonical path is the one `dunce::canonicalize`
+///     makes, which keeps `\\?\` on Windows when it can't be left out (ex. a
+///     path that's too long, or a share is `\\?\UNC\...`).
 ///   - A remote config file is its url as `Url::to_string` makes it, and an npm
 ///     one is its specifier (see `NpmSpecifier::display`).
 ///   - A plugin is `PluginSourceReference::to_full_string`.
@@ -177,6 +181,11 @@ pub struct EditorState {
 ///   stores a denial or forgets, like what's stored with another config hash
 ///   version (see `PROCESS_PLUGIN_CONFIG_HASH_VERSION`). Every version forgets
 ///   a decision by the `configFile` that `dprint/decisions` lists for it too.
+/// - Every version applies a denial (which is stored for any configuration of
+///   the plugin, see `ProcessPluginApproval::any_config`) over an allow of the
+///   same `configFile` and `plugin` in a format it doesn't know whatever their
+///   times say, because the version that stored the denial may not have known
+///   that allow, so it couldn't time the denial after it or remove it.
 #[derive(Debug, Default)]
 pub struct EditorApprovals {
   /// The decisions with the most recent last, which leaves out the ones in a

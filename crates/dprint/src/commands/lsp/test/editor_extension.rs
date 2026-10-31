@@ -1014,6 +1014,52 @@ fn should_not_resolve_a_deleted_config_file_again_when_dprints_own_files_change(
 }
 
 #[test]
+fn should_resolve_the_global_config_file_again_when_what_it_extends_changes() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_global_config(|c| {
+      c.add_remote_wasm_plugin().add_config_section("extends", r#""./base.json""#);
+    })
+    .build();
+  let global_config_path = crate::configuration::resolve_global_config_path_and_text(&environment)
+    .unwrap()
+    .unwrap()
+    .source
+    .display();
+  let base_path = Path::new(&global_config_path).parent().unwrap().join("base.json");
+  environment.write_file(&base_path, "{}").unwrap();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let global_uri = file_path_to_uri(Path::new(&global_config_path)).unwrap();
+        let mut params = config_params("/dprint.json");
+        params.config_file = Some(ConfigFileIdentifier {
+          uri: global_uri.clone(),
+          dir_uri: None,
+        });
+        let config_info = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap();
+        assert_eq!(config_info.status, FormatStatus::ready());
+        client.take_config_changes();
+        // what it extends changed, which the editor reports because it's in its `watchUris`
+        environment.write_file(&base_path, r#"{ "test-plugin": { "ending": "changed" } }"#).unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: file_path_to_uri(&base_path).unwrap(),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_config_changes().await, vec![global_uri]);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_get_the_global_config_file_when_asked_about_it() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_process_plugin()
@@ -2041,6 +2087,53 @@ fn should_take_back_the_diagnostics_published_through_a_directory_symlink_that_p
 }
 
 #[test]
+fn should_move_the_diagnostics_of_a_directory_to_another_symlink_that_leads_to_it_too() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+    })
+    .initialize()
+    .build();
+  environment.add_canonical_symlink("/ws/a", "/ws/real");
+  environment.add_canonical_symlink("/ws/b", "/ws/real");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // the problems are published through the first symlink
+        client.file_info("/ws/a/file.txt").await;
+        let text = environment.read_file("/ws/real/dprint.json").unwrap();
+        environment
+          .write_file("/ws/real/dprint.json", &text.replacen('{', r#"{ "otherUnknownProperty": 1, "#, 1))
+          .unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/ws/real/dprint.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        client.wait_for_config_changes().await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.last().unwrap().0, uri("/ws/a/dprint.json"));
+        // so they're moved to the other one once it's what the editor knows the directory by, which is checked
+        client.file_info("/ws/b/file.txt").await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.len(), 2, "{:?}", diagnostics);
+        assert_eq!(diagnostics[0], (uri("/ws/a/dprint.json"), Vec::new()));
+        assert_eq!(diagnostics[1].0, uri("/ws/b/dprint.json"));
+        assert_eq!(diagnostics[1].1.len(), 2);
+        assert_eq!(client.take_config_changes(), Vec::<Uri>::new());
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_not_take_back_the_diagnostics_of_a_directory_another_symlink_leads_to_too() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
@@ -2277,6 +2370,94 @@ fn should_watch_the_config_files_in_any_case_where_the_file_system_finds_them() 
     crate::commands::lsp::get_config_file_glob(true),
     "**/{[dD][pP][rR][iI][nN][tT],.[dD][pP][rR][iI][nN][tT]}.{[jJ][sS][oO][nN],[jJ][sS][oO][nN][cC]}"
   );
+}
+
+#[test]
+fn should_forget_the_decisions_of_another_config_file_than_the_one_the_server_was_started_with() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/repo/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  run_session_with_config(&environment, editor_extension_params(), Some(PathBuf::from("/repo/dprint.json")), {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // ex. stored for another project
+        let decision = crate::configuration::ProcessPluginDecision::new(
+          &environment,
+          crate::configuration::ProcessPluginApproval {
+            config_file: Path::new("/other").join("dprint.json").display().to_string(),
+            plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
+            config_hash: Some("1:hash".to_string()),
+            config_key: None,
+          },
+          true,
+          &[],
+        );
+        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
+        let listed = client.decisions().await[0].config_file.clone().unwrap();
+        let params = ForgetDecisionsParams {
+          config_file: Some(listed),
+          work_done_token: None,
+        };
+        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+        assert_eq!(forgotten.decisions.len(), 1);
+        assert!(
+          crate::configuration::read_editor_approvals(&environment)
+            .unwrap()
+            .process_plugin_decisions
+            .is_empty()
+        );
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_list_the_denial_of_the_config_file_a_symlinked_dot_config_dir_points_to_by_its_own_path() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/repo/.config/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .with_local_config("/repo/packages/a/.config/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  environment.add_canonical_path("/repo/packages/a/.config", "/repo/.config");
+  run_session(&environment, |client| {
+    async move {
+      let approval = client.config_info("/repo/.config/dprint.json").await.status.approvals()[0].clone();
+      client.approve(&approval.id, ApprovalDecision::Deny).await;
+      // the server learns the package's path of the directory it points to
+      client
+        .backend
+        .did_change_watched_files(DidChangeWatchedFilesParams {
+          changes: vec![FileEvent {
+            uri: uri("/repo/packages/a/.config/dprint.json"),
+            typ: FileChangeType::CHANGED,
+          }],
+        })
+        .await;
+      client.wait_for_config_changes().await;
+      // which doesn't make the root's config file known by the package's path
+      let decisions = client.decisions().await;
+      let denial = decisions.iter().find(|decision| !decision.allows).unwrap();
+      let listed = denial.config_file.clone().unwrap();
+      assert_eq!(listed.uri, uri("/repo/.config/dprint.json"));
+      let params = ForgetDecisionsParams {
+        config_file: Some(listed),
+        work_done_token: None,
+      };
+      client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+      assert!(!client.decisions().await.iter().any(|decision| !decision.allows));
+    }
+    .boxed_local()
+  });
 }
 
 #[test]

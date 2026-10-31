@@ -1078,6 +1078,14 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
             true => Vec::new(),
             false => CONFIG_FILE_NAMES.iter().map(|name| format!("**/{}", name)).collect(),
           }),
+          config_file_names: Some(match self.has_config_override {
+            true => Vec::new(),
+            false => crate::configuration::POSSIBLE_CONFIG_FILE_NAMES.iter().map(|name| name.to_string()).collect(),
+          }),
+          dot_config_file_names: Some(match self.has_config_override {
+            true => Vec::new(),
+            false => crate::configuration::DOT_CONFIG_FILE_NAMES.iter().map(|name| name.to_string()).collect(),
+          }),
           message: None,
         },
         None => ServerExperimentalCapability {
@@ -1086,6 +1094,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           features: Default::default(),
           files: None,
           config_file_globs: None,
+          config_file_names: None,
+          dot_config_file_names: None,
           message: Some(get_unsupported_versions_message(&client_versions, &self.environment.cli_version())),
         },
       };

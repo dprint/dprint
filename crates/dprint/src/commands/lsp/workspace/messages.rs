@@ -132,6 +132,16 @@ pub struct ServerExperimentalCapability {
   /// are empty for `dprint lsp --config` and `None` without a `version`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file_globs: Option<Vec<String>>,
+  /// The names of the config files that are looked up in a directory (ex.
+  /// one of the ancestor directories of the workspace folders), which are
+  /// empty for `dprint lsp --config` and `None` without a `version`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub config_file_names: Option<Vec<String>>,
+  /// The names of the config files that are looked up in the `.config`
+  /// directory of a directory, which are empty for `dprint lsp --config` and
+  /// `None` without a `version`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub dot_config_file_names: Option<Vec<String>>,
   /// What to tell the user when there isn't a `version` (ex. that dprint or
   /// the editor extension needs to be updated).
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -953,7 +963,8 @@ pub struct ConfigFileIdentifier {
   /// which together with the uri identifies it. It's the directory the
   /// global config file is used for, which is the root of the current
   /// directory when `None`, and the directory to find the config file the
-  /// server was started with from (`kind: "cli"`). For `dprint/decisions` and
+  /// server was started with from (`kind: "cli"`), which is the current
+  /// directory when `None`. For `dprint/decisions` and
   /// `dprint/forgetDecisions`, a config file without one is of each directory
   /// it's used for instead.
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1175,11 +1186,13 @@ mod test {
       features: Default::default(),
       files: None,
       config_file_globs: Some(Vec::new()),
+      config_file_names: Some(Vec::new()),
+      dot_config_file_names: Some(Vec::new()),
       message: None,
     };
     assert_eq!(
       serde_json::to_value(&capability).unwrap(),
-      json!({ "version": 1, "versions": [1], "configFileGlobs": [] })
+      json!({ "version": 1, "versions": [1], "configFileGlobs": [], "configFileNames": [], "dotConfigFileNames": [] })
     );
   }
 
