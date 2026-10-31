@@ -62,7 +62,6 @@ use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::ConfigFileOnAnotherMachineError;
 use crate::configuration::ConfigMapValue;
 use crate::configuration::NewerApprovalsFileError;
-use crate::configuration::ProcessPluginStoreResult;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
@@ -1379,10 +1378,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// cancelled while what was allowed is set up.
   ///
   /// It's with what to tell the user about the decision (ex. it couldn't be
-  /// stored), and the decision groups of the decisions to always use that
-  /// were stored and that couldn't be, which may be of a decision made
-  /// before (ex. an "Always Allow" for process plugins that weren't set up
-  /// is stored once this sets them up).
+  /// stored), which may be about a decision made before (ex. an "Always
+  /// Allow" for process plugins that weren't set up is stored once this sets
+  /// them up).
   pub async fn approve(self: &Rc<Self>, id: &str, decision: ApprovalDecision) -> Result<ApproveResult> {
     let stored = self.approvals.borrow().values().flatten().find(|stored| stored.approval.id == id).cloned();
     let Some(stored) = stored else {
@@ -1411,12 +1409,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if !stored.approval.decisions.iter().any(|option| option.decision == decision) {
       return Err(InvalidParamsError(format!("The decision {:?} isn't one of the approval's decisions.", decision)).into());
     }
-    // storing a decision for process plugins once they're set up is only told about
+    // failing to store a decision for process plugins once they're set up is only told about
     // when what this allows sets them up (ex. not when it was a while ago)
-    let store_mark = self.session_permissions.process_plugin_store_mark();
+    let store_error_mark = self.session_permissions.process_plugin_store_error_mark();
     let mut notice = None;
-    let mut stored_decision_groups = Vec::new();
-    let mut unstored_decision_groups = Vec::new();
     match &stored.subject {
       ApprovalSubject::Downloads(urls) => {
         if decision.is_allowed() {
@@ -1443,16 +1439,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
       ApprovalSubject::ProcessPlugins(unapproved) => {
         let title = get_process_plugin_action_title(decision);
-        match store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, Some(title)).await {
-          Ok(true) => stored_decision_groups.push(stored.approval.decision_group.clone()),
-          // it's only for the session, or it's stored once the plugins are set up
-          Ok(false) => {}
-          Err(err) => {
-            let message = get_process_plugin_store_error_message(&err);
-            log_warn!(self.environment, "{}", message);
-            notice = Some(new_warning_notice(message));
-            unstored_decision_groups.push(stored.approval.decision_group.clone());
-          }
+        if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, Some(title)).await {
+          let message = get_process_plugin_store_error_message(&err);
+          log_warn!(self.environment, "{}", message);
+          notice = Some(new_warning_notice(message));
         }
       }
     }
@@ -1465,19 +1455,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     // which is usually while resolving it here (ex. after allowing it or what it needed downloaded)
     if let Ok(DocumentConfig::Resolved(scope)) = &config
       && let Some(config) = &scope.config
-      && let Some(result) = self.session_permissions.take_process_plugin_store_result(&config.source.display(), store_mark)
+      && let Some(message) = self
+        .session_permissions
+        .take_process_plugin_store_error(&config.source.display(), store_error_mark)
     {
-      let decision_group = get_process_plugins_decision_group(&get_config_key(config));
-      // the result of storing this approval's decision is the one for its group
-      if !stored_decision_groups.contains(&decision_group) && !unstored_decision_groups.contains(&decision_group) {
-        match result {
-          ProcessPluginStoreResult::Stored => stored_decision_groups.push(decision_group),
-          ProcessPluginStoreResult::Failed(message) => {
-            notice = Some(new_warning_notice(message));
-            unstored_decision_groups.push(decision_group);
-          }
-        }
-      }
+      notice = Some(new_warning_notice(message));
     }
     let is_download_pending = match &config {
       Ok(DocumentConfig::Resolved(scope)) => !scope.untrusted_downloads.is_empty(),
@@ -1527,8 +1509,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         status,
       },
       notice,
-      stored_decision_groups,
-      unstored_decision_groups,
     })
   }
 
@@ -1911,8 +1891,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               denied,
               // a download is only denied for the session
               previous_decision: denied.then_some(ApprovalDecision::Deny),
-              // the decisions of downloads don't replace each other
-              decision_group: id.clone(),
               id,
               kind: ApprovalKind::Downloads,
               title: get_download_group_title(urls).to_string(),
@@ -1922,38 +1900,32 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               // a download is only allowed for the session
               decisions: get_decision_options(ApprovalKind::Downloads, &[ApprovalDecision::Allow, ApprovalDecision::Deny]),
               message: self.get_untrusted_download_message(urls),
-              previous_ids: Vec::new(),
             }
           }
-          ApprovalSubject::ProcessPlugins(unapproved) => {
-            let (id, previous_ids) = get_process_plugins_approval_ids(&config_key, unapproved);
-            PendingApproval {
-              id,
-              previous_ids,
-              decision_group: get_process_plugins_decision_group(&config_key),
-              kind: ApprovalKind::ProcessPlugins,
-              title: "Run process plugins".to_string(),
-              config_file: config_file.clone(),
-              trusted_configuration: trusted_configuration.clone(),
-              items,
-              decisions: get_decision_options(
-                ApprovalKind::ProcessPlugins,
-                &[
-                  ApprovalDecision::Allow,
-                  ApprovalDecision::AlwaysAllow,
-                  ApprovalDecision::Deny,
-                  ApprovalDecision::AlwaysDeny,
-                ],
-              ),
-              denied: unapproved.is_denied(&permissions),
-              previous_decision: match unapproved.is_denied(&permissions) {
-                true if unapproved.is_always_denied(&permissions) => Some(ApprovalDecision::AlwaysDeny),
-                true => Some(ApprovalDecision::Deny),
-                false => None,
-              },
-              message: unapproved.message(&permissions),
-            }
-          }
+          ApprovalSubject::ProcessPlugins(unapproved) => PendingApproval {
+            id: get_process_plugins_approval_id(&config_key, unapproved),
+            kind: ApprovalKind::ProcessPlugins,
+            title: "Run process plugins".to_string(),
+            config_file: config_file.clone(),
+            trusted_configuration: trusted_configuration.clone(),
+            items,
+            decisions: get_decision_options(
+              ApprovalKind::ProcessPlugins,
+              &[
+                ApprovalDecision::Allow,
+                ApprovalDecision::AlwaysAllow,
+                ApprovalDecision::Deny,
+                ApprovalDecision::AlwaysDeny,
+              ],
+            ),
+            denied: unapproved.is_denied(&permissions),
+            previous_decision: match unapproved.is_denied(&permissions) {
+              true if unapproved.is_always_denied(&permissions) => Some(ApprovalDecision::AlwaysDeny),
+              true => Some(ApprovalDecision::Deny),
+              false => None,
+            },
+            message: unapproved.message(&permissions),
+          },
         };
         StoredApproval {
           config_key: config_key.clone(),
@@ -3672,37 +3644,14 @@ fn encode_id_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
   text
 }
 
-/// Gets the approval id of the process plugins of a config file and the ids
-/// it had before (`previousIds`), which is the id it had before they were set
-/// up once every one of them is set up.
+/// Gets the approval id of the process plugins of a config file.
 ///
 /// The id has the configuration of each plugin once every one is set up. Until
 /// then, it has the trusted configuration of the config file instead, which
 /// each plugin's configuration is from, so it's the same however many of them
-/// were set up before (ex. a plugin that another project set up). A server
-/// started before may have provided it, which allowed running them with the
-/// same trusted configuration.
-fn get_process_plugins_approval_ids(config_key: &str, unapproved: &UnapprovedProcessPlugins) -> (String, Vec<String>) {
-  let id_while_not_set_up = get_process_plugins_approval_id(config_key, unapproved, false);
-  match unapproved.plugins.iter().all(|plugin| plugin.approval.is_some()) {
-    true => (get_process_plugins_approval_id(config_key, unapproved, true), vec![id_while_not_set_up]),
-    false => (id_while_not_set_up, Vec::new()),
-  }
-}
-
-/// Gets the group of the session decisions about the process plugins of a
-/// config file (`decisionGroup`), which is the same for each of its approvals
-/// so that a decision replaces the ones for its previous configurations (ex. a
-/// denial replaces allowing them). It's made like an approval id, so it's the
-/// same in another server.
-fn get_process_plugins_decision_group(config_key: &str) -> String {
-  get_approval_id("processPluginsDecisionGroup", config_key, &[])
-}
-
-/// Gets the approval id of the process plugins of a config file with the
-/// configuration of each plugin when they're set up, and with the trusted
-/// configuration of the config file otherwise.
-fn get_process_plugins_approval_id(config_key: &str, unapproved: &UnapprovedProcessPlugins, is_set_up: bool) -> String {
+/// were set up before (ex. a plugin that another project set up).
+fn get_process_plugins_approval_id(config_key: &str, unapproved: &UnapprovedProcessPlugins) -> String {
+  let is_set_up = unapproved.plugins.iter().all(|plugin| plugin.approval.is_some());
   // the registry an npm plugin is from when it isn't the default one is part of what's approved too
   let mut parts = unapproved
     .plugins
@@ -3897,7 +3846,6 @@ mod test {
     let mut approval = PendingApproval {
       id: "1".to_string(),
       kind: ApprovalKind::ProcessPlugins,
-      decision_group: "group".to_string(),
       title: "Run process plugins".to_string(),
       config_file: ConfigFileInfo {
         uri: "file:///dprint.json".parse().unwrap(),
@@ -3922,7 +3870,6 @@ mod test {
       denied: false,
       previous_decision: None,
       message: "Allow them?".to_string(),
-      previous_ids: Vec::new(),
       trusted_configuration: None,
     };
     assert_eq!(
@@ -4036,7 +3983,7 @@ mod test {
       trusted_config_hash: "1:trusted".to_string(),
       plugins,
     };
-    let get_id = |plugins| get_process_plugins_approval_ids("file:///a/dprint.json", &unapproved(plugins)).0;
+    let get_id = |plugins| get_process_plugins_approval_id("file:///a/dprint.json", &unapproved(plugins));
     // ex. a local plugin whose path has newlines
     assert_ne!(get_id(vec![plugin("a"), plugin("b")]), get_id(vec![plugin("a\nnotSetUp\nb")]));
     assert_ne!(get_id(vec![plugin("a"), plugin("b")]), get_id(vec![plugin("a\n8:notSetUp\n1:b")]));
@@ -4069,16 +4016,14 @@ mod test {
       trusted_config_hash: "1:trusted".to_string(),
       plugins,
     };
-    let get_ids = |plugins| get_process_plugins_approval_ids("file:///a/dprint.json", &unapproved(plugins));
-    let (id, previous_ids) = get_ids(vec![plugin("a", None), plugin("b", None)]);
-    assert_eq!(previous_ids, Vec::<String>::new());
+    let get_id = |plugins| get_process_plugins_approval_id("file:///a/dprint.json", &unapproved(plugins));
+    let id = get_id(vec![plugin("a", None), plugin("b", None)]);
     // ex. `a` was set up by another project
-    assert_eq!(get_ids(vec![plugin("a", Some("1:a")), plugin("b", None)]), (id.clone(), Vec::new()));
-    let (set_up_id, previous_ids) = get_ids(vec![plugin("a", Some("1:a")), plugin("b", Some("1:b"))]);
+    assert_eq!(get_id(vec![plugin("a", Some("1:a")), plugin("b", None)]), id);
+    let set_up_id = get_id(vec![plugin("a", Some("1:a")), plugin("b", Some("1:b"))]);
     assert_ne!(set_up_id, id);
-    assert_eq!(previous_ids, vec![id]);
     // the configuration of a plugin is part of it once they're set up
-    assert_ne!(get_ids(vec![plugin("a", Some("1:a")), plugin("b", Some("1:other"))]).0, set_up_id);
+    assert_ne!(get_id(vec![plugin("a", Some("1:a")), plugin("b", Some("1:other"))]), set_up_id);
   }
 
   #[test]

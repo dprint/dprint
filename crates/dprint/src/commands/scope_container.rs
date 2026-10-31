@@ -13,7 +13,6 @@ use crate::cache::RemoteCacheMode;
 use crate::commands::process_plugin_approval::get_process_plugin_store_error_message;
 use crate::commands::process_plugin_approval::record_set_up_process_plugins;
 use crate::configuration::Permissions;
-use crate::configuration::ProcessPluginStoreResult;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
@@ -175,20 +174,15 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     let permissions = if new_scope.plugins.is_empty() {
       permissions
     } else {
-      // the configuration of a process plugin that the user allowed setting up is known now, and the
-      // approval that set it up tells the editor whether it was stored (see `take_process_plugin_store_result`)
+      // the configuration of a process plugin that the user allowed setting up is known now
       match record_set_up_process_plugins(&self.environment, &self.session_permissions, &config, &self.plugin_resolver).await {
-        // nothing the user always allowed was set up
-        Ok(false) => {}
-        Ok(true) => self
-          .session_permissions
-          .set_process_plugin_store_result(config.source.display(), ProcessPluginStoreResult::Stored),
+        // a failure from before isn't the last result anymore
+        Ok(()) => self.session_permissions.clear_process_plugin_store_error(&config.source.display()),
         Err(err) => {
           let message = get_process_plugin_store_error_message(&err);
           log_warn!(self.environment, "{}", message);
-          self
-            .session_permissions
-            .set_process_plugin_store_result(config.source.display(), ProcessPluginStoreResult::Failed(message));
+          // the approval that set them up tells the user (see `take_process_plugin_store_error`)
+          self.session_permissions.set_process_plugin_store_error(config.source.display(), message);
         }
       }
       let permissions = self.session_permissions.read(&self.environment);

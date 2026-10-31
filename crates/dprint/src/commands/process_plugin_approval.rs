@@ -32,23 +32,20 @@ pub const PROCESS_PLUGIN_ACTION_TITLES: [&str; 4] = [ALLOW_ACTION_TITLE, ALWAYS_
 /// `record_set_up_process_plugins`). Denying a plugin denies it with any
 /// configuration so that changing it doesn't ask the user again.
 ///
-/// It's whether the decision is stored in the approvals file now, which it
-/// isn't when it's only for the session or when a plugin it allows isn't set
-/// up yet (it's stored once they're set up then). The decision is used for
-/// the session even when storing it fails, and a plugin it allows that isn't
-/// set up is then only allowed for the session too, so that the decision
-/// isn't partly stored later.
+/// The decision is used for the session even when storing it fails, and a
+/// plugin it allows that isn't set up is then only allowed for the session
+/// too, so that the decision isn't partly stored later.
 pub async fn store_process_plugin_action<TEnvironment: Environment>(
   environment: &TEnvironment,
   session_permissions: &SessionPermissions,
   unapproved: &UnapprovedProcessPlugins,
   action_title: Option<&str>,
-) -> Result<bool> {
+) -> Result<()> {
   let allowed = match action_title {
     Some(ALLOW_ACTION_TITLE | ALWAYS_ALLOW_ACTION_TITLE) => true,
     Some(DENY_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE) => false,
     // the editor responded with an action that wasn't offered
-    Some(_) | None => return Ok(false),
+    Some(_) | None => return Ok(()),
   };
   let always = matches!(action_title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE));
   // what the user decided now is more recent than what they decided before
@@ -86,22 +83,19 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
       &decisions,
     ));
   }
-  result.map(|()| always && not_set_up.is_empty())
+  result
 }
 
 /// Allows the process plugins that the user allowed setting up with their
 /// configuration now that they're set up and it's known, which is remembered
 /// when the user chose to always allow them.
-///
-/// It's whether what the user always allowed was stored in the approvals file.
 pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
   environment: &TEnvironment,
   session_permissions: &SessionPermissions,
   config: &ResolvedConfig,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<bool> {
+) -> Result<()> {
   let mut result = Ok(());
-  let mut stored = false;
   let trusted_config_hash = get_trusted_config_hash(config);
   let permissions = session_permissions.read(environment);
   for (plugin, approval) in get_process_plugin_approvals(config, plugin_resolver, environment) {
@@ -129,12 +123,11 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
       allowed: true,
       decided_at: grant.decided_at,
     };
-    match add_process_plugin_decision(environment, session_permissions, decision, grant.always).await {
-      Ok(()) => stored |= grant.always,
-      Err(err) => result = Err(err),
+    if let Err(err) = add_process_plugin_decision(environment, session_permissions, decision, grant.always).await {
+      result = Err(err);
     }
   }
-  result.map(|()| stored)
+  result
 }
 
 /// Allows the editors to run the process plugins of the config file with its
@@ -337,13 +330,12 @@ mod test {
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
-      let is_stored = store_process_plugin_action(&environment, &session_permissions, &unapproved(None), Some(ALWAYS_ALLOW_ACTION_TITLE))
+      store_process_plugin_action(&environment, &session_permissions, &unapproved(None), Some(ALWAYS_ALLOW_ACTION_TITLE))
         .await
         .unwrap();
       let permissions = session_permissions.read(&environment);
       assert!(permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash", None));
       // its configuration isn't known yet, so nothing is stored
-      assert!(!is_stored);
       assert!(!permissions.is_process_plugin_allowed(&approval()));
       assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
     });
@@ -403,7 +395,7 @@ mod test {
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
-      let is_stored = store_process_plugin_action(
+      store_process_plugin_action(
         &environment,
         &session_permissions,
         &unapproved(Some(approval())),
@@ -411,7 +403,6 @@ mod test {
       )
       .await
       .unwrap();
-      assert!(is_stored);
       // changing its configuration doesn't ask the user again
       let other_config = ProcessPluginApproval {
         config_hash: Some("1:b".to_string()),
