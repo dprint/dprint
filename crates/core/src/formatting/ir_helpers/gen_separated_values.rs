@@ -205,6 +205,9 @@ where
   let start_lscn = LineStartColumnNumber::new("startSeparatedValues");
   let end_ln = LineNumber::new("endSeparatedValues");
   let value_datas: ValueDatas<'a> = arena.bump().alloc(RefCell::new(bumpalo::collections::Vec::new_in(arena.bump())));
+  // the infos about the values are kept correct when the values move
+  let region = ir_helpers::InfoRegion::new(arena);
+  region.add(end_ln);
   let multi_line_options = opts.multi_line_options;
   let mut is_start_standalone_line = get_is_start_standalone_line(arena, start_cn, start_lscn);
   let is_start_standalone_line_ref = is_start_standalone_line.create_reference();
@@ -229,7 +232,7 @@ where
   items.push_info(start_cn);
   items.push_info(start_lscn);
   items.push_info(start_ln);
-  items.extend(clear_resolutions_on_position_change(arena, value_datas, end_ln));
+  items.extend(region.gen_start(arena));
   items.push_condition(is_start_standalone_line);
   items.push_condition(is_multi_line_condition);
 
@@ -247,6 +250,11 @@ where
     opts.max_blank_lines,
     value_datas,
   );
+  for value_data in value_datas.borrow().iter() {
+    region.add(value_data.line_number);
+    region.add(value_data.is_start_of_line);
+    region.add(value_data.line_start_indent_level);
+  }
   let generated_values_items = inner_gen_result.into_rc_path();
   items.push_condition(Condition::new(
     "multiLineOrHanging",
@@ -472,54 +480,6 @@ where
 
     items
   }
-}
-
-fn clear_resolutions_on_position_change<'a>(arena: &'a Arena, value_datas: ValueDatas<'a>, end_line_number: LineNumber) -> PrintItems<'a> {
-  let mut items = PrintItems::new(arena);
-  let column_number = ColumnNumber::new("clearer");
-  let line_number = LineNumber::new("clearer");
-  items.push_condition(Condition::new(
-    "clearWhenPositionChanges",
-    ConditionProperties {
-      condition: arena.alloc_resolver(move |condition_context| {
-        let column_number = condition_context.resolved_column_number(column_number)?;
-        let line_number = condition_context.resolved_line_number(line_number)?;
-        if column_number != condition_context.writer_info.column_number {
-          // The values now begin at a different column, so they may break differently and nothing
-          // recorded about them can be trusted. Clear it all so it gets worked out again.
-          for value_data in value_datas.borrow().iter() {
-            condition_context.clear_info(value_data.line_number);
-            condition_context.clear_info(value_data.is_start_of_line);
-            condition_context.clear_info(value_data.line_start_indent_level);
-          }
-          condition_context.clear_info(end_line_number);
-        } else {
-          let delta = condition_context.writer_info.line_number as isize - line_number as isize;
-          if delta != 0 {
-            // The values only moved up or down the page. Beginning at the same column they break the
-            // same way, so every line number within moved by the same amount, and only the distances
-            // between them are ever compared. Shifting them keeps them usable.
-            //
-            // Clearing here instead would be correct but ruinously slow: each value would have to be
-            // worked out again, along with every value nested inside it, so a group nested n deep
-            // would be printed 2^n times. Whether the values start at the start of a line, and at
-            // what indent, does not depend on which line they are on, so those stay as they are.
-            for value_data in value_datas.borrow().iter() {
-              condition_context.shift_line_number(value_data.line_number, delta);
-            }
-            condition_context.shift_line_number(end_line_number, delta);
-          }
-        }
-
-        None
-      }),
-      false_path: None,
-      true_path: None,
-    },
-  ));
-  items.push_info(line_number);
-  items.push_info(column_number);
-  items
 }
 
 fn get_is_start_standalone_line(arena: &Arena, start_cn: ColumnNumber, start_lscn: LineStartColumnNumber) -> Condition<'_> {
