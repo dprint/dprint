@@ -627,7 +627,9 @@ fn plugin_mark(preferences: &InitPreferences, plugin: &InfoFilePluginInfo) -> Op
 /// are in the order they were shown in, and the ones they avoid. The ones that
 /// were remembered that the info file doesn't have are kept (the preferred
 /// ones after what they were after), since the user wasn't shown those to say
-/// otherwise.
+/// otherwise, and so are the properties this version doesn't know of the
+/// preferences and of a plugin that's still preferred (ex. ones a newer
+/// version of dprint added).
 fn get_updated_preferences(
   old_preferences: &InitPreferences,
   plugins: &[InfoFilePluginInfo],
@@ -642,6 +644,12 @@ fn get_updated_preferences(
       excluded_file_extensions: choices[index].excluded_extensions.clone(),
       excluded_file_names: choices[index].excluded_file_names.clone(),
       config: choices[index].config.clone(),
+      unknown: old_preferences
+        .preferred_plugins
+        .iter()
+        .find(|old| old.name == plugins[index].name)
+        .map(|old| old.unknown.clone())
+        .unwrap_or_default(),
     })
     .collect::<Vec<_>>();
   let old_plugins = &old_preferences.preferred_plugins;
@@ -665,6 +673,7 @@ fn get_updated_preferences(
   InitPreferences {
     preferred_plugins,
     avoided_plugins,
+    unknown: old_preferences.unknown.clone(),
   }
 }
 
@@ -3508,6 +3517,7 @@ mod test {
     let preferences = InitPreferences {
       preferred_plugins: vec![preferred("b")],
       avoided_plugins: vec!["removed".to_string()],
+      ..Default::default()
     };
     write_init_preferences(&environment, &preferences).unwrap();
     environment.clone().run_in_runtime({
@@ -3522,6 +3532,7 @@ mod test {
           InitPreferences {
             preferred_plugins: vec![preferred("b")],
             avoided_plugins: vec!["a".to_string(), "removed".to_string()],
+            ..Default::default()
           }
         );
 
@@ -3530,6 +3541,46 @@ mod test {
         prompt_for_init_preferences(&environment, None).await.unwrap();
         assert_eq!(take_screens(&environment)[0], vec!["> [x] b (.ts)", "  [-] a (.ts)"]);
         assert_eq!(read_init_preferences(&environment), preferences);
+        environment.take_stdout_messages();
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_keep_what_a_newer_version_added_to_the_preferences() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    create_preferences_dir(&environment);
+    let settings_file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+    // ex. properties of a newer version of dprint that this one can parse around
+    environment
+      .write_file(
+        &settings_file_path,
+        r#"{ "init": { "preferredPlugins": [{ "name": "b", "version": "1.0.0" }], "defaultExcludes": ["**/dist"] } }"#,
+      )
+      .unwrap();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        // `a` goes from neither to preferred to avoided
+        press_keys(&environment, &["down", "space", "space", "enter"]);
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        let settings = serde_json::from_str::<serde_json::Value>(&environment.read_file(&settings_file_path).unwrap()).unwrap();
+        assert_eq!(
+          settings,
+          serde_json::json!({
+            "init": {
+              "preferredPlugins": [{ "name": "b", "version": "1.0.0" }],
+              "avoidedPlugins": ["a"],
+              "defaultExcludes": ["**/dist"],
+            }
+          })
+        );
         environment.take_stdout_messages();
         environment.take_stderr_messages();
       }

@@ -16,6 +16,10 @@ use super::set_setting;
 const LEGACY_INIT_PREFERENCES_FILE_NAME: &str = "init.json";
 
 /// What the user told `dprint init` to remember for the next time it runs.
+///
+/// IMPORTANT: Every version of dprint that's installed uses the same settings
+/// file, so the properties this version doesn't know (ex. ones a newer
+/// version added) are kept in `unknown` and written back (see `Settings`).
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitPreferences {
@@ -27,6 +31,9 @@ pub struct InitPreferences {
   /// others. Preferring a plugin wins when it's in both.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub avoided_plugins: Vec<String>,
+  /// The properties this version doesn't know, which are kept as they are.
+  #[serde(flatten)]
+  pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 impl InitPreferences {
@@ -39,6 +46,8 @@ impl InitPreferences {
   }
 }
 
+/// A plugin the user prefers, which keeps the properties this version
+/// doesn't know like `InitPreferences`.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreferredPlugin {
@@ -53,6 +62,9 @@ pub struct PreferredPlugin {
   /// The options to write to the plugin's config block.
   #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
   pub config: serde_json::Map<String, serde_json::Value>,
+  /// The properties this version doesn't know, which are kept as they are.
+  #[serde(flatten)]
+  pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Reads what the user prefers, which is nothing when it was never saved or
@@ -86,6 +98,8 @@ pub fn read_init_preferences(environment: &impl Environment) -> InitPreferences 
 /// It's `None` when the preferences in the settings file couldn't be parsed,
 /// which are kept and warned about instead, because they may be in a shape
 /// of a newer version of dprint (see `Settings`) that this one would lose.
+/// What a newer version added that this one can parse around is kept in
+/// the preferences (see `InitPreferences::unknown`).
 pub fn write_init_preferences(environment: &impl Environment, preferences: &InitPreferences) -> Result<Option<PathBuf>> {
   if let Ok(Some(Settings { init: Some(stored), .. })) = read_settings(environment)
     && let Err(err) = serde_json::from_value::<InitPreferences>(stored)
@@ -159,6 +173,7 @@ mod test {
           excluded_file_extensions: vec!["yaml".to_string()],
           excluded_file_names: vec![],
           config: serde_json::json!({ "indentStyle": "space" }).as_object().unwrap().clone(),
+          ..Default::default()
         },
         PreferredPlugin {
           name: "dprint-plugin-json".to_string(),
@@ -166,6 +181,7 @@ mod test {
         },
       ],
       avoided_plugins: vec!["dprint-plugin-prettier".to_string()],
+      ..Default::default()
     };
     write_init_preferences(&environment, &preferences).unwrap();
     assert_eq!(
@@ -230,6 +246,7 @@ mod test {
         ..Default::default()
       }],
       avoided_plugins: vec!["a".to_string(), "b".to_string()],
+      ..Default::default()
     };
     assert!(preferences.is_preferred("a"));
     assert!(!preferences.is_avoided("a"));
