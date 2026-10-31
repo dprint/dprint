@@ -329,8 +329,15 @@ pub trait Environment:
   /// Gets whether the directory is the root of an automounter's file system
   /// (ex. `autofs` for `/net` on Linux and macOS), where looking up a child
   /// may mount it from another machine. It doesn't look up the children, so
-  /// it doesn't mount them, and it's `false` when it can't be told.
+  /// it doesn't mount them, and on Linux it doesn't mount what an automounter
+  /// mounts at the directory itself either (ex. the share of a direct map).
+  /// It's `false` when it can't be told.
   fn is_automount_dir(&self, dir_path: impl AsRef<Path>) -> bool;
+  /// Gets whether the path is where a share is mounted from another machine
+  /// when it's looked up (ex. what Linux marks as an automount point, like an
+  /// AFS cell or a DFS link of a CIFS share), without mounting it. It's
+  /// `false` when it can't be told.
+  fn is_automount_point(&self, path: impl AsRef<Path>) -> bool;
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   /// Canonicalizes a path that might not exist (ex. an unsaved file in an editor)
   /// by canonicalizing its closest existing ancestor and adding back the rest.

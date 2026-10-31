@@ -492,6 +492,11 @@ impl Environment for RealEnvironment {
     is_automount_dir(dir_path.as_ref())
   }
 
+  fn is_automount_point(&self, path: impl AsRef<Path>) -> bool {
+    log_debug!(self, "Getting whether a share is mounted at: {}", path.as_ref().display());
+    is_automount_point(path.as_ref())
+  }
+
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     canonicalize_path(path)
   }
@@ -854,9 +859,46 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> io::R
 }
 
 /// Gets whether the directory is the root of an automounter's file system
+/// (see `Environment::is_automount_dir`) from the type of its file system.
+///
+/// IMPORTANT: Linux's `statfs` mounts what an automounter mounts at the
+/// directory (ex. the share of a direct map), so the type is gotten from a
+/// descriptor that `O_PATH` opens, which doesn't mount it, and that doesn't
+/// look up the directory's children either.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn is_automount_dir(dir_path: &Path) -> bool {
+  use std::os::fd::AsRawFd;
+  use std::os::fd::FromRawFd;
+  use std::os::fd::OwnedFd;
+  use std::os::unix::ffi::OsStrExt;
+
+  let Ok(dir_path) = std::ffi::CString::new(dir_path.as_os_str().as_bytes()) else {
+    return false;
+  };
+  // SAFETY: the path is nul terminated
+  let fd = unsafe { libc::open(dir_path.as_ptr(), libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+  if fd < 0 {
+    return false;
+  }
+  // SAFETY: the descriptor was just opened and nothing else owns it
+  let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+  let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
+  // SAFETY: the descriptor is open and the buffer has the size of what's written to it
+  if unsafe { libc::fstatfs(fd.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
+    return false;
+  }
+  // SAFETY: it succeeded, so it was written
+  let stat = unsafe { stat.assume_init() };
+  // the type's size and sign differ between the targets
+  #[allow(clippy::unnecessary_cast)]
+  let is_autofs = stat.f_type as u64 == AUTOFS_SUPER_MAGIC;
+  is_autofs
+}
+
+/// Gets whether the directory is the root of an automounter's file system
 /// (see `Environment::is_automount_dir`) from the type of its file system,
 /// which `statfs` gets without looking up the directory's children.
-#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple", target_os = "freebsd"))]
+#[cfg(any(target_vendor = "apple", target_os = "freebsd"))]
 fn is_automount_dir(dir_path: &Path) -> bool {
   use std::os::unix::ffi::OsStrExt;
 
@@ -870,19 +912,9 @@ fn is_automount_dir(dir_path: &Path) -> bool {
   }
   // SAFETY: it succeeded, so it was written
   let stat = unsafe { stat.assume_init() };
-  #[cfg(any(target_os = "linux", target_os = "android"))]
-  {
-    // the type's size and sign differ between the targets
-    #[allow(clippy::unnecessary_cast)]
-    let is_autofs = stat.f_type as u64 == AUTOFS_SUPER_MAGIC;
-    is_autofs
-  }
-  #[cfg(not(any(target_os = "linux", target_os = "android")))]
-  {
-    // SAFETY: the name is nul terminated
-    let type_name = unsafe { std::ffi::CStr::from_ptr(stat.f_fstypename.as_ptr()) };
-    type_name.to_bytes() == b"autofs"
-  }
+  // SAFETY: the name is nul terminated
+  let type_name = unsafe { std::ffi::CStr::from_ptr(stat.f_fstypename.as_ptr()) };
+  type_name.to_bytes() == b"autofs"
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple", target_os = "freebsd")))]
@@ -890,9 +922,71 @@ fn is_automount_dir(_dir_path: &Path) -> bool {
   false
 }
 
+/// Gets whether a share is mounted at the path when it's looked up (see
+/// `Environment::is_automount_point`) from `statx`, which doesn't mount it
+/// with `AT_NO_AUTOMOUNT`.
+///
+/// It's called with `syscall` because the C libraries that dprint is built
+/// with may not have it (musl, and glibc before 2.28), and it's `false` when
+/// the kernel doesn't have it either (before Linux 4.11).
+#[cfg(target_os = "linux")]
+fn is_automount_point(path: &Path) -> bool {
+  use std::os::unix::ffi::OsStrExt;
+
+  let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+    return false;
+  };
+  let mut stat = Statx {
+    _mask_and_block_size: [0; 2],
+    stx_attributes: 0,
+    _rest: [0; 30],
+  };
+  // SAFETY: the path is nul terminated and the buffer has the size of what the kernel writes to it
+  let result = unsafe {
+    libc::syscall(
+      libc::SYS_statx,
+      libc::AT_FDCWD,
+      path.as_ptr(),
+      libc::AT_SYMLINK_NOFOLLOW | libc::AT_NO_AUTOMOUNT,
+      STATX_TYPE,
+      &mut stat as *mut Statx,
+    )
+  };
+  result == 0 && (stat.stx_attributes & STATX_ATTR_AUTOMOUNT) != 0
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_automount_point(_path: &Path) -> bool {
+  false
+}
+
 /// The `f_type` of an `autofs` file system on Linux.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const AUTOFS_SUPER_MAGIC: u64 = 0x0187;
+
+/// What `statx` is asked for, which is only the type because the attributes
+/// are always gotten. The `libc` crate only has it and the attribute below
+/// for some C libraries (ex. not musl).
+#[cfg(target_os = "linux")]
+const STATX_TYPE: libc::c_uint = 0x0001;
+
+/// The attribute of `statx` for an automount point.
+#[cfg(target_os = "linux")]
+const STATX_ATTR_AUTOMOUNT: u64 = 0x1000;
+
+/// The `statx` struct of Linux, which is 256 bytes on every architecture,
+/// where only the attributes are read.
+#[cfg(target_os = "linux")]
+#[repr(C)]
+struct Statx {
+  /// `stx_mask` and `stx_blksize`.
+  _mask_and_block_size: [u32; 2],
+  stx_attributes: u64,
+  _rest: [u64; 30],
+}
+
+#[cfg(target_os = "linux")]
+const _: () = assert!(std::mem::size_of::<Statx>() == 256);
 
 #[cfg(test)]
 mod test {

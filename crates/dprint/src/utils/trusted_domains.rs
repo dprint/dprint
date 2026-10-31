@@ -687,7 +687,9 @@ struct PathRules {
   /// looked up, and the one of Linux does with its `-hosts` map. That's from
   /// its text, which is what the share of the file a path is relative to is
   /// from. A directory of an automounter is also found from its file system,
-  /// wherever it is (see `Environment::is_automount_dir`).
+  /// wherever it is (see `Environment::is_automount_dir`), and so is where a
+  /// share is mounted when it's looked up (see
+  /// `Environment::is_automount_point`), without mounting anything.
   is_net_automounted: bool,
   /// Whether `..` is applied to the text of a path before anything in it is
   /// followed, like Win32 does, instead of to where the path before it
@@ -1007,6 +1009,12 @@ impl PathWalk {
         self.resolved = next;
         self.set_location(PathLocation::Unresolved, None);
         return;
+      }
+      // IMPORTANT: Looking up what's in where a share is mounted when it's looked up (ex. an AFS
+      // cell on Linux) mounts it from another machine. The share is the path as it is like above.
+      if kind == Some(PathKind::Dir) && location == PathLocation::Local && environment.is_automount_point(&lookup_path) {
+        location = PathLocation::Share(next.to_string_lossy().into_owned());
+        automount_root = Some(next.clone());
       }
       self.is_missing = kind.is_none();
       self.resolved = next;
@@ -2183,6 +2191,41 @@ mod test {
     );
     let local_ancestor_paths = AncestorPaths::new(&policy, Path::new("/local/proj"), MACOS);
     assert_eq!(local_ancestor_paths.ancestors(&environment).len(), 3);
+  }
+
+  #[test]
+  fn should_treat_what_is_in_an_automount_point_as_on_another_machine() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/mnt/data/dir").unwrap();
+    environment.mk_dir_all("/project").unwrap();
+    environment.add_automount_point("/mnt/data");
+    environment.symlink("/mnt/data", "/project/tools").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let DownloadPolicy::TrustedDomains(downloads) = &policy else {
+      unreachable!();
+    };
+    let ensure_allows = |path: &str, base: &str| {
+      downloads
+        .ensure_allows_path(&environment, Path::new(path), Some(Path::new(base)), MACOS)
+        .map_err(|err| err.download.replace('\\', "/"))
+    };
+    // what's in it isn't looked up because that may mount it from another machine
+    let count = environment.path_kind_count();
+    assert_eq!(
+      ensure_allows("/project/tools/dir/plugin.wasm", "/project"),
+      Err("/project/tools/dir/plugin.wasm -> /mnt/data/dir/plugin.wasm".to_string())
+    );
+    // only `project`, `tools`, `mnt` and `data`, and the directory of the config file to see whether it's on a share
+    assert_eq!(environment.path_kind_count(), count + 5);
+    // a config file on the share may use what's on it
+    assert_eq!(ensure_allows("/mnt/data/dir/plugin.wasm", "/mnt/data/dir"), Ok(()));
+    // and leaving it with `..` reaches what is local again
+    assert_eq!(ensure_allows("/mnt/data/../plugin.wasm", "/mnt/data/dir"), Ok(()));
+    // but not when it was reached through a symlink, like a share in the text of a path
+    assert!(ensure_allows("/mnt/data/dir/plugin.wasm", "/project/tools/dir").is_err());
+    // and the walks of ancestor directories stop at it
+    let ancestor_paths = AncestorPaths::new(&policy, Path::new("/mnt/data/dir"), MACOS);
+    assert_eq!(ancestor_paths.ancestors(&environment), [Path::new("/mnt/data/dir"), Path::new("/mnt/data")]);
   }
 
   #[test]

@@ -178,6 +178,9 @@ pub struct TestEnvironment {
   /// The directories that are the roots of an automounter's file system (see
   /// `Environment::is_automount_dir`).
   automount_dirs: Arc<Mutex<HashSet<PathBuf>>>,
+  /// The paths where a share is mounted from another machine when they're
+  /// looked up (see `Environment::is_automount_point`).
+  automount_points: Arc<Mutex<HashSet<PathBuf>>>,
   /// URLs whose requests never get a response.
   unresponsive_remote_files: Arc<Mutex<Vec<String>>>,
   selection_result: Arc<Mutex<usize>>,
@@ -237,6 +240,7 @@ impl TestEnvironment {
       file_read_counts: Default::default(),
       path_kind_count: Default::default(),
       automount_dirs: Default::default(),
+      automount_points: Default::default(),
       unresponsive_remote_files: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       prompt_terminal: Default::default(),
@@ -358,6 +362,13 @@ impl TestEnvironment {
   pub fn add_automount_dir(&self, dir_path: impl AsRef<Path>) {
     let dir_path = self.clean_path(dir_path);
     self.automount_dirs.lock().insert(dir_path);
+  }
+
+  /// Makes the path where a share is mounted from another machine when it's
+  /// looked up (ex. an AFS cell, see `Environment::is_automount_point`).
+  pub fn add_automount_point(&self, path: impl AsRef<Path>) {
+    let path = self.clean_path(path);
+    self.automount_points.lock().insert(path);
   }
 
   /// Makes requests of the URL not get a response, which models a host
@@ -844,6 +855,11 @@ impl Environment for TestEnvironment {
   fn is_automount_dir(&self, dir_path: impl AsRef<Path>) -> bool {
     let dir_path = self.clean_path(dir_path);
     self.automount_dirs.lock().contains(&dir_path)
+  }
+
+  fn is_automount_point(&self, path: impl AsRef<Path>) -> bool {
+    let path = self.clean_path(path);
+    self.automount_points.lock().contains(&path)
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
