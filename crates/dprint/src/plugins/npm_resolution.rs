@@ -1979,7 +1979,6 @@ mod tests {
     assert_eq!(environment.file_read_count("/home/repo/.npmrc"), 2);
   }
 
-  #[cfg(windows)]
   #[test]
   fn should_not_look_up_the_other_plugin_file_on_another_machine_in_the_editors() {
     use crate::environment::TestEnvironment;
@@ -1999,6 +1998,7 @@ mod tests {
     assert_eq!(environment.stat_count("/repo/node_modules/evil-pkg/plugin.json"), 0);
   }
 
+  #[cfg(windows)]
   #[test]
   fn find_package_in_node_modules_needs_reading_one_on_another_machine_allowed_in_the_editors() {
     use crate::environment::TestEnvironment;
