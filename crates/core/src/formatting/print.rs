@@ -26,7 +26,8 @@ impl PrintOptions {
 /// Creates the print items with the provided closure and prints them out as a string.
 ///
 /// Use [`Arena::new`] and [`print`] instead when the print items need to borrow data
-/// that's created outside the closure, such as the text of the file being formatted.
+/// that's created outside the closure, such as the text of the file being formatted,
+/// or use [`ArenaPool::create_arena`] to reuse the memory of the arena between formats.
 pub fn format(get_print_items: impl for<'a> FnOnce(&'a Arena) -> PrintItems<'a>, options: PrintOptions) -> String {
   let arena = Arena::new();
   let print_items = get_print_items(&arena);

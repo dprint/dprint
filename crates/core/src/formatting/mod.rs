@@ -24,6 +24,7 @@ pub mod tokens;
 pub mod utils;
 
 pub use arena::Arena;
+pub use arena::ArenaPool;
 pub use print::PrintOptions;
 #[cfg(feature = "tracing")]
 pub use print::TracingResult;
