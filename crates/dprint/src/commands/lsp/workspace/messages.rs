@@ -586,7 +586,9 @@ pub struct ApprovalItem {
   /// machine through a symlink is followed by ` -> ` and the path on that
   /// machine, and an `->` in a path is escaped so the one between them is the
   /// only one (see `DownloadPolicy::ensure_allows_path`). It's from the
-  /// project, so it's escaped (see `escape_text`).
+  /// project, so it's escaped (see `escape_text`), and each path of a
+  /// `networkPath` is escaped like the text the message quotes (see
+  /// `get_path_download`).
   pub specifier: String,
   pub kind: ApprovalItemKind,
   /// The npm registry an npm plugin is from when it isn't the default one
@@ -646,7 +648,7 @@ pub struct ApprovalDecisionOption {
   pub label: String,
   /// Whether it allows what's approved, which is otherwise denied.
   pub allows: bool,
-  /// Whether it's remembered after the server stops (in the
+  /// Whether it's remembered after the session ends (in the
   /// `editor-approvals.json` file), which is otherwise only for the session.
   pub always: bool,
   /// What it does, which is to show with it (ex. as a tooltip).
@@ -831,12 +833,13 @@ pub struct Decision {
   /// approval's items (ex. the process plugins or the setting of a proxy).
   pub specifiers: Vec<String>,
   /// What it's for like an approval's items in the order of the specifiers,
-  /// which is provided for downloads so a proxy can be told apart from a url
-  /// and shown with its `.npmrc` file.
+  /// which is provided for downloads so a proxy or a path on another machine
+  /// can be told apart from a url and shown with its file (an `npmrcProxy`
+  /// with its `npmrc_uri`, or a `networkPath` with its `uri`).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub items: Option<Vec<ApprovalItem>>,
   pub allows: bool,
-  /// Whether it's remembered after the server stops, which includes running
+  /// Whether it's remembered after the session ends, which includes running
   /// dprint with the config file (ex. `dprint fmt`).
   pub always: bool,
 }
