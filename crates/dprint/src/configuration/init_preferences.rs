@@ -82,7 +82,21 @@ pub fn read_init_preferences(environment: &impl Environment) -> InitPreferences 
 }
 
 /// Writes what the user prefers to the settings file, providing its path.
-pub fn write_init_preferences(environment: &impl Environment, preferences: &InitPreferences) -> Result<PathBuf> {
+///
+/// It's `None` when the preferences in the settings file couldn't be parsed,
+/// which are kept and warned about instead, because they may be in a shape
+/// of a newer version of dprint (see `Settings`) that this one would lose.
+pub fn write_init_preferences(environment: &impl Environment, preferences: &InitPreferences) -> Result<Option<PathBuf>> {
+  if let Ok(Some(Settings { init: Some(stored), .. })) = read_settings(environment)
+    && let Err(err) = serde_json::from_value::<InitPreferences>(stored)
+  {
+    log_warn!(
+      environment,
+      "Not saving the preferences because the ones in the settings couldn't be parsed, which may be from a newer version of dprint: {:#}",
+      err
+    );
+    return Ok(None);
+  }
   let file_path = set_setting(environment, &["init"], serde_json::to_value(preferences)?)?;
   // the preferences were moved to the settings file
   if let Some(legacy_file_path) = get_legacy_init_preferences_path(environment)
@@ -91,7 +105,7 @@ pub fn write_init_preferences(environment: &impl Environment, preferences: &Init
   {
     log_debug!(environment, "Failed removing {}: {:#}", legacy_file_path.display(), err);
   }
-  Ok(file_path)
+  Ok(Some(file_path))
 }
 
 /// Reads the preferences from the file they were in before they were in the
@@ -241,6 +255,17 @@ mod test {
     assert!(messages[0].contains("Ignoring the preferences in the settings"), "{}", messages[0]);
     // the editors still use the settings
     assert_eq!(read_settings(&environment).unwrap().unwrap().editor.allow_process_plugins, Some(true));
+    // and they aren't written over, which would lose them
+    let text = environment.read_file("/config/dprint/settings.json").unwrap();
+    let preferences = InitPreferences {
+      avoided_plugins: vec!["dprint-plugin-prettier".to_string()],
+      ..Default::default()
+    };
+    assert_eq!(write_init_preferences(&environment, &preferences).unwrap(), None);
+    let messages = environment.take_stderr_messages();
+    assert_eq!(messages.len(), 1);
+    assert!(messages[0].contains("Not saving the preferences"), "{}", messages[0]);
+    assert_eq!(environment.read_file("/config/dprint/settings.json").unwrap(), text);
   }
 
   #[test]

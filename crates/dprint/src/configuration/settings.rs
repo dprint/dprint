@@ -41,8 +41,9 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 ///   outside of `editor` that a version doesn't know is only logged.
 /// - A property outside of `editor` may change its shape (ex. the type of a
 ///   value in `init`), because only `editor` is parsed strictly. A version
-///   that can't parse another property only ignores it (ex. `dprint init`
-///   warns and uses its defaults).
+///   that can't parse another property only ignores it and doesn't write
+///   over it (ex. `dprint init` warns, uses its defaults, and doesn't save
+///   the preferences).
 #[derive(Debug, Default)]
 pub struct Settings {
   /// The settings of the editor integrations (the language server and the

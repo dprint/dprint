@@ -395,8 +395,10 @@ pub async fn prompt_for_init_preferences(environment: &impl Environment, options
     log_stdout_info!(environment, "\nThe plugin preferences are the same as they were.");
     return Ok(());
   }
-  let file_path = write_init_preferences(environment, &new_preferences)?;
-  log_stdout_info!(environment, "\nSaved the plugin preferences to {}", file_path.display());
+  // the preferences that couldn't be parsed are kept, which is warned about
+  if let Some(file_path) = write_init_preferences(environment, &new_preferences)? {
+    log_stdout_info!(environment, "\nSaved the plugin preferences to {}", file_path.display());
+  }
   Ok(())
 }
 
