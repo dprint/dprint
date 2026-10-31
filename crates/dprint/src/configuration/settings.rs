@@ -29,21 +29,28 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 ///
 /// - The editors don't use `editor` when it has a property or a value that the
 ///   version doesn't know (ex. an `editor.trustedDomains` entry that isn't a
-///   domain). They only trust the default domains and ask before running
-///   process plugins instead, like when the file can't be read, and say why in
-///   the messages that ask the user (see `Settings::get_editor_problem`).
+///   domain), like when the file can't be read. They fail closed to the
+///   narrowest state instead, and say why in the messages that ask the user
+///   (see `Settings::get_editor_problem`): they trust no domains, not even the
+///   default ones, so every download needs to be approved, and they ask before
+///   running process plugins, where they apply the stored denials but not the
+///   stored allows (like with an approvals file from a newer version, see
+///   `EditorApprovals`).
 /// - So a setting that narrows what the editors allow goes in `editor`, as a
 ///   property or as a value of one that an older version rejects (ex. a
-///   syntax for not trusting a default domain in `editor.trustedDomains`).
+///   syntax for not trusting a default domain in `editor.trustedDomains`, or
+///   a value of `editor.allowProcessPlugins` that never allows them), which
+///   the older versions honor by failing closed.
 /// - A setting that doesn't narrow anything goes outside of `editor`, because
-///   any new property in it has the older versions ignore
-///   `editor.allowProcessPlugins` and `editor.trustedDomains`. A property
+///   any new property in it has the older versions fail closed. A property
 ///   outside of `editor` that a version doesn't know is only logged.
 /// - A property outside of `editor` may change its shape (ex. the type of a
 ///   value in `init`), because only `editor` is parsed strictly. A version
 ///   that can't parse another property only ignores it and doesn't write
 ///   over it (ex. `dprint init` warns, uses its defaults, and doesn't save
-///   the preferences).
+///   the preferences). A version that can parse it keeps what it doesn't know
+///   in it when it writes it (ex. `dprint init` keeps a property of `init`
+///   or of a preferred plugin that a newer version added).
 #[derive(Debug, Default)]
 pub struct Settings {
   /// The settings of the editor integrations (the language server and the
@@ -63,6 +70,7 @@ impl Settings {
   /// Gets why the editors don't use `editor`, which is when it has a property
   /// or a value that this version of dprint doesn't know, and is `None` when
   /// they use it. The editors treat that like settings that can't be read
+  /// (they trust no domains and don't use the stored allows, see `Settings`)
   /// because it may be a setting of a newer version of dprint that narrows
   /// what's allowed (ex. trusting fewer domains). A misspelled property or a
   /// value that isn't a domain is treated that way too.

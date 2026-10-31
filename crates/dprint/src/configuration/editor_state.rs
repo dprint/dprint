@@ -521,11 +521,12 @@ impl SessionPermissions {
       (_, Some(reason)) => {
         // IMPORTANT: Don't allow what the user may have tried to disallow, and a property or
         // value this version doesn't know may be a setting of a newer version that narrows
-        // what's allowed, so don't allow more than the defaults (the trusted domains do the same).
+        // what's allowed, so fail closed to the narrowest state (see `Settings`), which the
+        // trusted domains do too.
         self.log_settings_problem(
           environment,
           format!(
-            "Requiring approval to run process plugins and only trusting the default domains in editors because {}.",
+            "Requiring approval to run process plugins and to download from any domain in editors, and not using the stored \"Always Allow\" decisions, because {}.",
             reason
           ),
         );
@@ -534,11 +535,14 @@ impl SessionPermissions {
       (Ok(Some(settings)), None) => settings.editor.allow_process_plugins,
       (_, None) => None,
     };
-    let ignored_settings_message = ignored_reason.map(|reason| get_ignored_settings_message(environment, &reason));
     // only read the decisions when they're used
     let mut process_plugin_decisions = if allow_process_plugins != Some(true) {
       let read_number = self.start_stored_decisions_read();
       let decisions = match read_editor_approvals(environment) {
+        // IMPORTANT: The settings may have a setting of a newer version that the stored allows
+        // shouldn't be used with (ex. one that never allows process plugins), so only use the
+        // denials, like with a file this version can't read (see `Settings`).
+        Ok(approvals) if ignored_reason.is_some() => Some(get_unreplaced_denials(&approvals.process_plugin_decisions)),
         Ok(approvals) => Some(approvals.process_plugin_decisions),
         Err(err) => {
           // IMPORTANT: Don't allow what may not have been allowed, but keep denying
@@ -557,6 +561,7 @@ impl SessionPermissions {
     } else {
       Vec::new()
     };
+    let ignored_settings_message = ignored_reason.map(|reason| get_ignored_settings_message(environment, &reason));
     let stored_process_plugin_decision_count = process_plugin_decisions.len();
     process_plugin_decisions.extend(self.process_plugin_decisions.lock().iter().cloned());
     Permissions {
@@ -741,8 +746,8 @@ pub fn is_more_recent_at(decided_at: u64, allowed: bool, other_decided_at: u64, 
 /// Reads why the editors don't use the settings file, which is a message for
 /// the user that's `None` when they use it. They don't when it can't be read
 /// or `editor` has a property or a value that this version doesn't know (see
-/// `Settings`), and then only trust the default domains and ask before running
-/// process plugins.
+/// `Settings`), and then trust no domains and ask before running process
+/// plugins without using the stored allows.
 pub fn read_ignored_settings_message(environment: &impl Environment) -> Option<String> {
   let reason = get_ignored_settings_reason(environment, &read_settings(environment))?;
   Some(get_ignored_settings_message(environment, &reason))
@@ -854,8 +859,13 @@ fn try_read_editor_approval_denials(environment: &impl Environment) -> Option<Ve
     // a decision that's in another format is left out
     .filter_map(parse_process_plugin_decision)
     .collect::<Vec<_>>();
-  // a denial that a more recent decision replaced isn't used, which is a later one on a tie
-  let denials = decisions
+  Some(get_unreplaced_denials(&decisions))
+}
+
+/// Gets the stored decisions that deny a process plugin, apart from the ones
+/// that a more recent decision replaced, which is a later one on a tie.
+fn get_unreplaced_denials(decisions: &[ProcessPluginDecision]) -> Vec<ProcessPluginDecision> {
+  decisions
     .iter()
     .enumerate()
     .filter(|(index, decision)| {
@@ -867,8 +877,7 @@ fn try_read_editor_approval_denials(environment: &impl Environment) -> Option<Ve
         })
     })
     .map(|(_, decision)| decision.clone())
-    .collect();
-  Some(denials)
+    .collect()
 }
 
 pub(crate) fn update_editor_approvals_without_lock(environment: &impl Environment, update: impl FnOnce(&mut EditorApprovals)) -> Result<()> {
@@ -1742,7 +1751,7 @@ mod test {
         format!("Unknown property in {}: editor.allowProcessPlugin", file_path.display()),
         format!("Unknown property in {}: other", file_path.display()),
         format!(
-          "Requiring approval to run process plugins and only trusting the default domains in editors because {} has a property in \"editor\" that this version of dprint doesn't know (editor.allowProcessPlugin).",
+          "Requiring approval to run process plugins and to download from any domain in editors, and not using the stored \"Always Allow\" decisions, because {} has a property in \"editor\" that this version of dprint doesn't know (editor.allowProcessPlugin).",
           file_path.display()
         ),
       ]
@@ -1772,7 +1781,7 @@ mod test {
     );
     assert_eq!(permissions.ignored_settings_message.as_deref(), Some(message.as_str()));
     assert_eq!(read_ignored_settings_message(&environment), Some(message));
-    // what was decided is still used
+    // what was decided for the session is still used
     let permissions = read_permissions(&environment, &[decision("/a/dprint.json", "1:a", true)]);
     assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     // an unknown property outside of "editor" is only logged
@@ -1783,6 +1792,51 @@ mod test {
     assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     assert_eq!(permissions.ignored_settings_message, None);
     assert_eq!(read_ignored_settings_message(&environment), None);
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_only_use_the_stored_denials_when_the_settings_are_not_used() {
+    let environment = TestEnvironment::new();
+    let file_path = get_settings_file_path(&environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    environment.write_file(&file_path, r#"{ "editor": {} }"#).unwrap();
+    let allowed = approval("/a/dprint.json", "1:a");
+    let denied = approval("/b/dprint.json", "1:b");
+    let replaced = approval("/c/dprint.json", "1:c");
+    for decision in [
+      decision("/a/dprint.json", "1:a", true),
+      decision("/b/dprint.json", "1:b", false),
+      ProcessPluginDecision {
+        approval: ProcessPluginApproval::any_config(replaced.config_file.clone(), replaced.plugin.clone()),
+        allowed: false,
+        decided_at: 0,
+      },
+      ProcessPluginDecision {
+        approval: replaced.clone(),
+        allowed: true,
+        decided_at: 1,
+      },
+    ] {
+      update_editor_approvals_without_lock(&environment, |approvals| approvals.add_process_plugin_decision(decision)).unwrap();
+    }
+    let permissions = read_permissions(&environment, &[]);
+    assert!(permissions.is_process_plugin_allowed(&allowed));
+    assert!(permissions.is_process_plugin_allowed(&replaced));
+    assert!(permissions.is_process_plugin_always_denied(&denied));
+    // ex. a setting of a newer version of dprint that never allows process plugins
+    environment
+      .write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": "never" } }"#)
+      .unwrap();
+    let permissions = read_permissions(&environment, &[]);
+    assert_eq!(permissions.allow_process_plugins, Some(false));
+    assert!(!permissions.is_process_plugin_allowed(&allowed));
+    assert!(!permissions.is_process_plugin_denied(&allowed));
+    assert_eq!(permissions.get_latest_allow(&allowed.config_file, &allowed.plugin), None);
+    assert!(permissions.is_process_plugin_always_denied(&denied));
+    // and a denial that an allow replaced isn't used either
+    assert!(!permissions.is_process_plugin_allowed(&replaced));
+    assert!(!permissions.is_process_plugin_denied(&replaced));
     environment.take_stderr_messages();
   }
 
@@ -1809,7 +1863,7 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![format!(
-        "Requiring approval to run process plugins and only trusting the default domains in editors because {}.",
+        "Requiring approval to run process plugins and to download from any domain in editors, and not using the stored \"Always Allow\" decisions, because {}.",
         reason
       )]
     );
@@ -2503,7 +2557,7 @@ mod test {
     assert_eq!(messages.len(), 1);
     assert!(
       messages[0]
-        .starts_with("Requiring approval to run process plugins and only trusting the default domains in editors because the settings couldn't be read: "),
+        .starts_with("Requiring approval to run process plugins and to download from any domain in editors, and not using the stored \"Always Allow\" decisions, because the settings couldn't be read: "),
       "{}",
       messages[0]
     );

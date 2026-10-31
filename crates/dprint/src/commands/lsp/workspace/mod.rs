@@ -1633,10 +1633,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   fn get_decisions(&self, config_file: Option<&(String, String)>) -> Vec<Decision> {
     let is_config_file = |source: &str| config_file.is_none_or(|(config_source, _)| config_source == source);
     // the stored decisions are read even when the settings allow every process plugin
-    // the denials of a file that can't be read are still used, so they're provided too
-    let stored = read_editor_approvals(&self.environment)
-      .map(|approvals| approvals.process_plugin_decisions)
-      .unwrap_or_else(|_| read_editor_approval_denials(&self.environment));
+    // the denials of a file that can't be read are still used, so they're provided too, and
+    // only they're used when the settings aren't (see `SessionPermissions::read`)
+    let stored = match read_ignored_settings_message(&self.environment) {
+      Some(_) => read_editor_approval_denials(&self.environment),
+      None => read_editor_approvals(&self.environment)
+        .map(|approvals| approvals.process_plugin_decisions)
+        .unwrap_or_else(|_| read_editor_approval_denials(&self.environment)),
+    };
     let session = self.session_permissions.session_process_plugin_decisions();
     // allowing a plugin that isn't set up is a grant until it's set up
     let grants = self.session_permissions.process_plugin_set_up_grants();

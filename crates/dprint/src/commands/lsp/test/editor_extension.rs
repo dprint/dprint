@@ -1802,6 +1802,42 @@ fn should_say_why_the_settings_file_is_not_used_when_asking() {
 }
 
 #[test]
+fn should_approve_downloads_from_the_default_domains_when_the_settings_file_is_not_used() {
+  const PLUGIN_URL: &str = "https://plugins.dprint.dev/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(PLUGIN_URL);
+    })
+    .build();
+  ensure_global_config_dir(&environment);
+  let settings_file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+  // ex. a setting of a newer version of dprint that doesn't trust a default domain
+  environment
+    .write_file(&settings_file_path, r#"{ "editor": { "untrustedDomains": ["plugins.dprint.dev"] } }"#)
+    .unwrap();
+  run_session(&environment, {
+    move |client| {
+      async move {
+        let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0].kind, ApprovalKind::Downloads);
+        assert_eq!(approvals[0].items[0].specifier, PLUGIN_URL);
+        assert!(
+          approvals[0].message.ends_with(&format!(
+            "doesn't use its settings file in editors because {} has a property in \"editor\" that this version of dprint doesn't know (editor.untrustedDomains). Update dprint or change the file to use it.",
+            settings_file_path.display()
+          )),
+          "{}",
+          approvals[0].message
+        );
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
   use crate::test_helpers::WASM_PLUGIN_BYTES;
   use crate::test_helpers::create_test_npm_tarball;

@@ -8,6 +8,7 @@ use crate::configuration::ProcessPluginSetUpGrant;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::SessionPermissions;
 use crate::configuration::read_editor_approvals;
+use crate::configuration::read_ignored_settings_message;
 use crate::configuration::store_process_plugin_decision;
 use crate::configuration::update_editor_approvals;
 use crate::environment::Environment;
@@ -245,7 +246,9 @@ const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 
 /// Uses the decision, which is stored when it's always used. A decision that's
 /// stored is only read from the approvals file so that changing the file (ex.
-/// deleting it) is used, and the session uses it when storing it fails.
+/// deleting it) is used, and the session uses it when storing it fails. The
+/// session also uses an allow that's stored while the editors don't use the
+/// settings, because they don't use the stored allows then (see `Settings`).
 async fn add_process_plugin_decision<TEnvironment: Environment>(
   environment: &TEnvironment,
   session_permissions: &SessionPermissions,
@@ -254,7 +257,7 @@ async fn add_process_plugin_decision<TEnvironment: Environment>(
 ) -> Result<()> {
   if always {
     let result = store_process_plugin_decision(environment, decision.clone()).await;
-    if result.is_err() {
+    if result.is_err() || (decision.allowed && read_ignored_settings_message(environment).is_some()) {
       session_permissions.add_process_plugin_decision(decision);
     }
     result
@@ -338,6 +341,69 @@ mod test {
       // its configuration isn't known yet, so nothing is stored
       assert!(!permissions.is_process_plugin_allowed(&approval()));
       assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
+    });
+  }
+
+  #[test]
+  fn should_use_an_always_allow_for_the_session_when_the_settings_are_not_used() {
+    let environment = TestEnvironment::new();
+    let settings_file_path = get_settings_file_path(&environment).unwrap();
+    environment.mk_dir_all(settings_file_path.parent().unwrap()).unwrap();
+    // ex. a setting of a newer version of dprint, which has the stored allows not be used
+    environment
+      .write_file(&settings_file_path, r#"{ "editor": { "useStoredApprovals": false } }"#)
+      .unwrap();
+    let session_permissions = SessionPermissions::default();
+
+    environment.clone().run_in_runtime(async move {
+      let is_stored = store_process_plugin_action(
+        &environment,
+        &session_permissions,
+        &unapproved(Some(approval())),
+        Some(ALWAYS_ALLOW_ACTION_TITLE),
+      )
+      .await
+      .unwrap();
+      // it's stored for the versions that use the settings
+      assert!(is_stored);
+      assert_eq!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.len(), 1);
+      assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
+      // but isn't used by another session
+      assert!(!SessionPermissions::default().read(&environment).is_process_plugin_allowed(&approval()));
+
+      // the same goes for a plugin that's allowed once it's set up
+      let session_permissions = SessionPermissions::default();
+      let grant = ProcessPluginSetUpGrant::new(
+        &environment,
+        "/dprint.json".to_string(),
+        PLUGIN.to_string(),
+        "hash".to_string(),
+        None,
+        true,
+        &[],
+      );
+      let decision = ProcessPluginDecision {
+        approval: approval(),
+        allowed: true,
+        decided_at: grant.decided_at,
+      };
+      add_process_plugin_decision(&environment, &session_permissions, decision, grant.always)
+        .await
+        .unwrap();
+      assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
+      // and a denial is only stored, because the stored denials are used
+      let session_permissions = SessionPermissions::default();
+      store_process_plugin_action(
+        &environment,
+        &session_permissions,
+        &unapproved(Some(approval())),
+        Some(ALWAYS_DENY_ACTION_TITLE),
+      )
+      .await
+      .unwrap();
+      assert!(session_permissions.session_process_plugin_decisions().is_empty());
+      assert!(SessionPermissions::default().read(&environment).is_process_plugin_denied(&approval()));
+      environment.take_stderr_messages();
     });
   }
 

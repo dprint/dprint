@@ -24,7 +24,8 @@ use crate::environment::PathKind;
 use crate::resolution::ResolvePluginsError;
 
 /// The domains that the editors download plugins and configuration files from
-/// without asking, which the `editor.trustedDomains` setting adds to.
+/// without asking, which the `editor.trustedDomains` setting adds to. They're
+/// not trusted when the editors don't use the settings (see `Settings`).
 pub const DEFAULT_TRUSTED_DOMAINS: [&str; 4] = ["registry.npmjs.org", "plugins.dprint.dev", "github.com", "githubusercontent.com"];
 
 /// What may be downloaded without asking the user, which the environment
@@ -611,22 +612,29 @@ pub struct TrustedDomains(Vec<String>);
 
 impl TrustedDomains {
   /// Gets the default trusted domains along with the ones of the
-  /// `editor.trustedDomains` setting. It's only a setting and not something
-  /// like an environment variable because what the editor is started with
-  /// may come from the project (ex. a terminal in the project's directory).
+  /// `editor.trustedDomains` setting, which is none at all when the editors
+  /// don't use the settings (see `Settings`). It's only a setting and not
+  /// something like an environment variable because what the editor is
+  /// started with may come from the project (ex. a terminal in the project's
+  /// directory).
   pub fn from_settings(environment: &impl Environment) -> Self {
+    let settings = match read_settings(environment) {
+      Ok(Some(settings)) if settings.get_editor_problem().is_none() => Some(settings),
+      Ok(Some(_)) | Err(_) => {
+        // IMPORTANT: A property or value in `editor` this version doesn't know may be a
+        // setting of a newer version that trusts less (ex. not a default domain), so no
+        // domain is trusted then, like when the settings can't be read. A warning for
+        // either is logged when reading the permissions.
+        return TrustedDomains(Vec::new());
+      }
+      Ok(None) => None,
+    };
     let mut domains = DEFAULT_TRUSTED_DOMAINS.iter().map(|domain| domain.to_string()).collect::<Vec<_>>();
-    // IMPORTANT: A property or value in `editor` this version doesn't know may be a
-    // setting of a newer version that trusts less, so only the default domains are
-    // trusted then, like when the settings can't be read. A warning for either is
-    // logged when reading the permissions.
-    if let Ok(Some(settings)) = read_settings(environment)
-      && settings.get_editor_problem().is_none()
-    {
-      for domain in settings.editor.trusted_domains.iter().filter_map(|domain| Self::parse_domain(domain)) {
-        if !domains.contains(&domain) {
-          domains.push(domain);
-        }
+    for domain in settings.iter().flat_map(|settings| &settings.editor.trusted_domains) {
+      if let Some(domain) = Self::parse_domain(domain)
+        && !domains.contains(&domain)
+      {
+        domains.push(domain);
       }
     }
     TrustedDomains(domains)
@@ -2594,7 +2602,7 @@ mod test {
   }
 
   #[test]
-  fn should_only_trust_the_default_domains_with_an_unknown_editor_setting() {
+  fn should_trust_no_domains_with_an_unknown_editor_setting() {
     let environment = TestEnvironment::new();
     let file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
@@ -2605,9 +2613,11 @@ mod test {
         r#"{ "editor": { "trustedDomains": ["npm.example.com"], "trustDefaultDomains": false } }"#,
       )
       .unwrap();
+    // not even the default ones, so every download needs to be approved
     let trusted_domains = TrustedDomains::from_settings(&environment);
+    assert_eq!(trusted_domains, TrustedDomains(Vec::new()));
     assert!(!trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
-    assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
+    assert!(!trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
     // an unknown property outside of "editor" doesn't change them
     environment
       .write_file(&file_path, r#"{ "editor": { "trustedDomains": ["npm.example.com"] }, "other": 1 }"#)
@@ -2643,16 +2653,31 @@ mod test {
   }
 
   #[test]
-  fn should_only_trust_the_default_domains_with_a_trusted_domain_this_version_does_not_know() {
+  fn should_trust_no_domains_with_a_trusted_domain_this_version_does_not_know() {
     let environment = TestEnvironment::new();
     let file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
-    // ex. a newer version of dprint that lets the user not trust a default domain
+    // ex. a newer version of dprint that lets the user not trust a default domain, which this one honors
     environment
       .write_file(&file_path, r#"{ "editor": { "trustedDomains": ["!github.com", "npm.example.com"] } }"#)
       .unwrap();
     let trusted_domains = TrustedDomains::from_settings(&environment);
     assert!(!trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
-    assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
+    assert!(!trusted_domains.is_trusted(&url("https://github.com/dprint/plugin.wasm")));
+    assert!(!trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
+  }
+
+  #[test]
+  fn should_trust_no_domains_when_the_settings_do_not_parse() {
+    let environment = TestEnvironment::new();
+    let file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    for text in ["{ nope", "[]", r#"{ "editor": { "trustedDomains": "npm.example.com" } }"#] {
+      environment.write_file(&file_path, text).unwrap();
+      assert_eq!(TrustedDomains::from_settings(&environment), TrustedDomains(Vec::new()), "{}", text);
+    }
+    // the default ones are trusted without a settings file
+    environment.remove_file(&file_path).unwrap();
+    assert!(TrustedDomains::from_settings(&environment).is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
   }
 }
