@@ -1,11 +1,12 @@
 use std::rc::Rc;
 
+use super::Arena;
 use super::print_items::*;
 
-pub fn if_column_number_changes(inner_action: impl Fn(&mut ConditionResolverContext) + 'static) -> PrintItems {
-  let mut items = PrintItems::new();
+pub fn if_column_number_changes(arena: &Arena, inner_action: impl Fn(&mut ConditionResolverContext) + 'static) -> PrintItems<'_> {
+  let mut items = PrintItems::new(arena);
   let column_number = ColumnNumber::new("columnNumber");
-  items.extend(action("actionIfColChanges", move |context| {
+  items.extend(action(arena, "actionIfColChanges", move |context| {
     if let Some(column_number) = context.resolved_column_number(column_number)
       && column_number != context.writer_info.column_number
     {
@@ -16,7 +17,7 @@ pub fn if_column_number_changes(inner_action: impl Fn(&mut ConditionResolverCont
   items
 }
 
-pub fn action(name: &'static str, action: impl Fn(&mut ConditionResolverContext) + 'static) -> PrintItems {
+pub fn action<'a>(arena: &'a Arena, name: &'static str, action: impl Fn(&mut ConditionResolverContext) + 'static) -> PrintItems<'a> {
   Condition::new(
     name,
     ConditionProperties {
@@ -28,5 +29,5 @@ pub fn action(name: &'static str, action: impl Fn(&mut ConditionResolverContext)
       false_path: None,
     },
   )
-  .into()
+  .into_print_items(arena)
 }

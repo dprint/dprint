@@ -8,6 +8,7 @@ pub mod condition_resolvers;
 pub mod conditions;
 pub mod ir_helpers;
 
+mod arena;
 mod collections;
 mod infinite_reevaluation_protection;
 mod print;
@@ -22,6 +23,7 @@ mod writer;
 pub mod tokens;
 pub mod utils;
 
+pub use arena::Arena;
 pub use print::PrintOptions;
 #[cfg(feature = "tracing")]
 pub use print::TracingResult;

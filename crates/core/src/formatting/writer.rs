@@ -1,11 +1,11 @@
 #[cfg(debug_assertions)]
 use std::collections::VecDeque;
 
+use super::Arena;
 use super::StringContainer;
 use super::WriteItem;
 use super::collections::GraphNode;
 use super::print_items::WriterInfo;
-use super::thread_state::BumpAllocator;
 
 #[derive(Clone)]
 pub struct WriterState<'a> {
@@ -49,7 +49,7 @@ pub struct WriterOptions {
 }
 
 pub struct Writer<'a> {
-  bump: &'a BumpAllocator,
+  arena: &'a Arena,
   state: WriterState<'a>,
   indent_width: u8,
   #[cfg(feature = "tracing")]
@@ -57,9 +57,9 @@ pub struct Writer<'a> {
 }
 
 impl<'a> Writer<'a> {
-  pub fn new(bump: &'a BumpAllocator, options: WriterOptions) -> Writer<'a> {
+  pub fn new(arena: &'a Arena, options: WriterOptions) -> Writer<'a> {
     Writer {
-      bump,
+      arena,
       indent_width: options.indent_width,
       state: WriterState {
         current_line_column: 0,
@@ -215,7 +215,7 @@ impl<'a> Writer<'a> {
     self.push_item(WriteItem::Space);
   }
 
-  pub fn write(&mut self, text: &'a StringContainer) {
+  pub fn write(&mut self, text: &'a StringContainer<'a>) {
     self.handle_first_column();
     self.state.current_line_column += text.char_count;
     self.push_item(WriteItem::String(text));
@@ -246,7 +246,7 @@ impl<'a> Writer<'a> {
 
   fn push_item(&mut self, item: WriteItem<'a>) {
     let previous = self.state.items.take();
-    let graph_node = self.bump.alloc_write_item_graph_node(GraphNode::new(item, previous));
+    let graph_node = self.arena.alloc_write_item_graph_node(GraphNode::new(item, previous));
     self.state.items = Some(graph_node);
 
     #[cfg(feature = "tracing")]
@@ -304,9 +304,7 @@ impl<'a> Writer<'a> {
 
 #[cfg(test)]
 mod test {
-  use std::borrow::Cow;
-
-  use crate::formatting::thread_state;
+  use crate::formatting::Arena;
 
   use super::super::Indentation;
   use super::super::WriteItemsPrinter;
@@ -316,63 +314,53 @@ mod test {
 
   #[test]
   fn write_singleword_writes() {
-    thread_state::with_bump_allocator(|bump| {
-      let mut writer = create_writer(bump);
-      write_text(&mut writer, "test", bump);
-      assert_writer_equal(writer, "test");
-      bump.reset();
-    });
+    let arena = Arena::new();
+    let mut writer = create_writer(&arena);
+    write_text(&mut writer, "test", &arena);
+    assert_writer_equal(writer, "test");
   }
 
   #[test]
   fn write_multiple_lines_writes() {
-    thread_state::with_bump_allocator(|bump| {
-      let mut writer = create_writer(bump);
-      write_text(&mut writer, "1", bump);
-      writer.new_line();
-      write_text(&mut writer, "2", bump);
-      assert_writer_equal(writer, "1\n2");
-      bump.reset();
-    });
+    let arena = Arena::new();
+    let mut writer = create_writer(&arena);
+    write_text(&mut writer, "1", &arena);
+    writer.new_line();
+    write_text(&mut writer, "2", &arena);
+    assert_writer_equal(writer, "1\n2");
   }
 
   #[test]
   fn write_indented_writes() {
-    thread_state::with_bump_allocator(|bump| {
-      let mut writer = create_writer(bump);
-      write_text(&mut writer, "1", bump);
-      writer.new_line();
-      writer.start_indent();
-      write_text(&mut writer, "2", bump);
-      writer.finish_indent();
-      writer.new_line();
-      write_text(&mut writer, "3", bump);
-      assert_writer_equal(writer, "1\n  2\n3");
-      bump.reset();
-    });
+    let arena = Arena::new();
+    let mut writer = create_writer(&arena);
+    write_text(&mut writer, "1", &arena);
+    writer.new_line();
+    writer.start_indent();
+    write_text(&mut writer, "2", &arena);
+    writer.finish_indent();
+    writer.new_line();
+    write_text(&mut writer, "3", &arena);
+    assert_writer_equal(writer, "1\n  2\n3");
   }
 
   #[test]
   fn write_singleindent_writes() {
-    thread_state::with_bump_allocator(|bump| {
-      let mut writer = create_writer(bump);
-      writer.single_indent();
-      write_text(&mut writer, "t", bump);
-      assert_writer_equal(writer, "  t");
-      bump.reset();
-    });
+    let arena = Arena::new();
+    let mut writer = create_writer(&arena);
+    writer.single_indent();
+    write_text(&mut writer, "t", &arena);
+    assert_writer_equal(writer, "  t");
   }
 
   #[test]
   fn markexpectnewline_writesnewline() {
-    thread_state::with_bump_allocator(|bump| {
-      let mut writer = create_writer(bump);
-      write_text(&mut writer, "1", bump);
-      writer.mark_expect_new_line();
-      write_text(&mut writer, "2", bump);
-      assert_writer_equal(writer, "1\n2");
-      bump.reset();
-    });
+    let arena = Arena::new();
+    let mut writer = create_writer(&arena);
+    write_text(&mut writer, "1", &arena);
+    writer.mark_expect_new_line();
+    write_text(&mut writer, "2", &arena);
+    assert_writer_equal(writer, "1\n2");
   }
 
   fn assert_writer_equal(writer: Writer, text: &str) {
@@ -383,14 +371,14 @@ mod test {
     assert_eq!(p.print(writer.items().unwrap()), String::from(text));
   }
 
-  fn write_text(writer: &mut Writer, text: &'static str, bump: &BumpAllocator) {
-    let string_container = bump.alloc_string(Cow::Borrowed(text));
+  fn write_text<'a>(writer: &mut Writer<'a>, text: &'static str, arena: &'a Arena) {
+    let string_container = arena.alloc_string_container(text);
     writer.write(string_container);
   }
 
-  fn create_writer(bump: &BumpAllocator) -> Writer<'_> {
+  fn create_writer(arena: &Arena) -> Writer<'_> {
     Writer::new(
-      bump,
+      arena,
       WriterOptions {
         indent_width: 2,
         #[cfg(feature = "tracing")]

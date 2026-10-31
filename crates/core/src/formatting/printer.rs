@@ -2,12 +2,12 @@ use std::hash::BuildHasherDefault;
 
 type BumpHashMap<'a, K, V> = hashbrown::HashMap<K, V, BuildHasherDefault<rustc_hash::FxHasher>, &'a bumpalo::Bump>;
 
+use super::Arena;
 use super::WriteItem;
 use super::collections::*;
 use super::infinite_reevaluation_protection::InfiniteReevaluationProtector;
 use super::print_items::*;
 use super::thread_state;
-use super::thread_state::BumpAllocator;
 use super::writer::*;
 
 pub struct SavePoint<'a> {
@@ -18,7 +18,7 @@ pub struct SavePoint<'a> {
   pub force_no_newlines_depth: u8,
   pub writer_state: WriterState<'a>,
   pub possible_new_line_save_point: Option<&'a SavePoint<'a>>,
-  pub node: Option<PrintItemPath>,
+  pub node: Option<PrintItemPath<'a>>,
   pub look_ahead_condition_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
   pub look_ahead_line_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
   pub look_ahead_column_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
@@ -46,11 +46,11 @@ pub struct PrinterOptions {
 }
 
 pub struct Printer<'a> {
-  bump: &'a BumpAllocator,
+  arena: &'a Arena,
   possible_new_line_save_point: Option<&'a SavePoint<'a>>,
   new_line_group_depth: u16,
   force_no_newlines_depth: u8,
-  current_node: Option<PrintItemPath>,
+  current_node: Option<PrintItemPath<'a>>,
   writer: Writer<'a>,
   // Use a hash map here because only some conditions are stored (not all).
   resolved_conditions: BumpHashMap<'a, u32, Option<bool>>,
@@ -74,7 +74,7 @@ pub struct Printer<'a> {
   look_ahead_line_start_indent_level_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
   infinite_reevaluation_protector: InfiniteReevaluationProtector,
   next_node_stack: NodeStack<'a>,
-  stored_condition_save_points: BumpHashMap<'a, u32, (&'a Condition, &'a SavePoint<'a>)>,
+  stored_condition_save_points: BumpHashMap<'a, u32, (&'a Condition<'a>, &'a SavePoint<'a>)>,
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
@@ -85,22 +85,22 @@ pub struct Printer<'a> {
 }
 
 impl<'a> Printer<'a> {
-  pub fn new(bump: &'a BumpAllocator, start_node: Option<PrintItemPath>, options: PrinterOptions) -> Printer<'a> {
+  pub fn new(arena: &'a Arena, start_node: Option<PrintItemPath<'a>>, options: PrinterOptions) -> Printer<'a> {
     Printer {
-      bump,
+      arena,
       possible_new_line_save_point: None,
       new_line_group_depth: 0,
       force_no_newlines_depth: 0,
       current_node: start_node,
       writer: Writer::new(
-        bump,
+        arena,
         WriterOptions {
           indent_width: options.indent_width,
           #[cfg(feature = "tracing")]
           enable_tracing: options.enable_tracing,
         },
       ),
-      resolved_conditions: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      resolved_conditions: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
       resolved_line_number_anchors: VecU32U32Map::with_capacity(thread_state::next_line_number_anchor_id()),
       resolved_line_numbers: VecU32U32Map::with_capacity(thread_state::next_line_number_id()),
       resolved_column_numbers: VecU32U32Map::with_capacity(thread_state::next_column_number_id()),
@@ -108,15 +108,15 @@ impl<'a> Printer<'a> {
       resolved_indent_levels: VecU32U8Map::with_capacity(thread_state::next_indent_level_id()),
       resolved_line_start_column_numbers: VecU32U32Map::with_capacity(thread_state::next_line_start_column_number_id()),
       resolved_line_start_indent_levels: VecU32U8Map::with_capacity(thread_state::next_line_start_indent_level_id()),
-      look_ahead_condition_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
-      look_ahead_line_number_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
-      look_ahead_column_number_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
-      look_ahead_is_start_of_line_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
-      look_ahead_indent_level_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
-      look_ahead_line_start_column_number_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
-      look_ahead_line_start_indent_level_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      look_ahead_condition_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
+      look_ahead_line_number_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
+      look_ahead_column_number_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
+      look_ahead_is_start_of_line_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
+      look_ahead_indent_level_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
+      look_ahead_line_start_column_number_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
+      look_ahead_line_start_indent_level_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
       infinite_reevaluation_protector: InfiniteReevaluationProtector::with_capacity(thread_state::next_condition_reevaluation_id()),
-      stored_condition_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      stored_condition_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
       next_node_stack: NodeStack::default(),
       max_width: options.max_width,
       skip_moving_next: false,
@@ -297,7 +297,7 @@ impl<'a> Printer<'a> {
   }
 
   #[inline]
-  fn handle_print_node(&mut self, print_node: &PrintNode) {
+  fn handle_print_node(&mut self, print_node: &PrintNode<'a>) {
     match &print_node.item {
       PrintItem::String(text) => self.handle_string(text),
       PrintItem::Condition(condition) => self.handle_condition(condition, &print_node.next),
@@ -314,8 +314,8 @@ impl<'a> Printer<'a> {
     self.possible_new_line_save_point = None;
   }
 
-  fn create_save_point(&self, _name: &'static str, next_node: Option<PrintItemPath>) -> &'a SavePoint<'a> {
-    self.bump.alloc_save_point(SavePoint {
+  fn create_save_point(&self, _name: &'static str, next_node: Option<PrintItemPath<'a>>) -> &'a SavePoint<'a> {
+    self.arena.alloc_save_point(SavePoint {
       #[cfg(debug_assertions)]
       name: _name,
       possible_new_line_save_point: self.possible_new_line_save_point,
@@ -556,7 +556,7 @@ impl<'a> Printer<'a> {
   }
 
   #[inline]
-  fn handle_condition(&mut self, condition: &'a Condition, next_node: &Option<PrintItemPath>) {
+  fn handle_condition(&mut self, condition: &'a Condition<'a>, next_node: &Option<PrintItemPath<'a>>) {
     let condition_id = condition.unique_id();
 
     if condition.store_save_point {
@@ -580,23 +580,23 @@ impl<'a> Printer<'a> {
       if let Some(true_path) = condition.true_path {
         self.current_node = Some(true_path);
         if let Some(path) = next_node {
-          self.next_node_stack.push(path, self.bump);
+          self.next_node_stack.push(path, self.arena);
         }
         self.skip_moving_next = true;
       }
     } else if let Some(false_path) = condition.false_path {
       self.current_node = Some(false_path);
       if let Some(path) = next_node {
-        self.next_node_stack.push(path, self.bump);
+        self.next_node_stack.push(path, self.arena);
       }
       self.skip_moving_next = true;
     }
   }
 
   #[inline]
-  fn handle_rc_path(&mut self, print_item_path: &PrintItemPath, next_node: &Option<PrintItemPath>) {
+  fn handle_rc_path(&mut self, print_item_path: &PrintItemPath<'a>, next_node: &Option<PrintItemPath<'a>>) {
     if let Some(path) = next_node {
-      self.next_node_stack.push(path, self.bump);
+      self.next_node_stack.push(path, self.arena);
     }
     self.current_node = Some(print_item_path);
     self.skip_moving_next = true;

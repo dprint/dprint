@@ -126,8 +126,11 @@ fn it_formats_as_multi_line_when_items_exceed_print_width() {
 }
 
 fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
-  let result = dprint_core::formatting::format(
-    || gen_node(Node::ArrayLiteralExpression(expr)),
+  // the arena is created after the expression, so the print items can borrow from it
+  let arena = Arena::new();
+  let print_items = gen_node(&arena, Node::ArrayLiteralExpression(expr));
+  let result = dprint_core::formatting::print(
+    print_items,
     PrintOptions {
       indent_width: 2,
       max_width: 40,
@@ -140,17 +143,17 @@ fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
 
 // IR generation functions
 
-fn gen_node(node: Node) -> PrintItems {
+fn gen_node<'a>(arena: &'a Arena, node: Node<'a>) -> PrintItems<'a> {
   // in a real implementation this function would deal with surrounding comments
 
   match node {
-    Node::ArrayLiteralExpression(expr) => gen_array_literal_expression(expr),
-    Node::ArrayElement(array_element) => gen_array_element(array_element),
+    Node::ArrayLiteralExpression(expr) => gen_array_literal_expression(arena, expr),
+    Node::ArrayElement(array_element) => gen_array_element(arena, array_element),
   }
 }
 
-fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
-  let mut items = PrintItems::new();
+fn gen_array_literal_expression<'a>(arena: &'a Arena, expr: &'a ArrayLiteralExpression) -> PrintItems<'a> {
+  let mut items = PrintItems::new(arena);
   let start_ln = LineNumber::new("start");
   let end_ln = LineNumber::new("end");
   let is_multiple_lines = create_is_multiple_lines_resolver(
@@ -162,7 +165,7 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
 
   // actions::if_column_number_changes is a helper that uses lower level IR to tell when the column number
   // changes at this point
-  items.extend(actions::if_column_number_changes(move |context| {
+  items.extend(actions::if_column_number_changes(arena, move |context| {
     context.clear_info(end_ln);
   }));
 
@@ -170,37 +173,45 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   items.push_anchor(LineNumberAnchor::new(end_ln)); // updates the line number of end_ln when this changes
 
   items.push_str_runtime_width_computed("[");
-  items.push_condition(conditions::if_true("arrayStartNewLine", is_multiple_lines.clone(), Signal::NewLine.into()));
+  items.push_condition(conditions::if_true(
+    "arrayStartNewLine",
+    is_multiple_lines.clone(),
+    Signal::NewLine.into_print_items(arena),
+  ));
 
-  let generated_elements = gen_elements(&expr.elements, &is_multiple_lines).into_rc_path();
+  let generated_elements = gen_elements(arena, &expr.elements, &is_multiple_lines).into_rc_path();
   items.push_condition(conditions::if_true_or(
     "indentIfMultipleLines",
     is_multiple_lines.clone(),
-    ir_helpers::with_indent(generated_elements.into()),
-    generated_elements.into(),
+    ir_helpers::with_indent(generated_elements.into_print_items(arena)),
+    generated_elements.into_print_items(arena),
   ));
 
-  items.push_condition(conditions::if_true("arrayEndNewLine", is_multiple_lines, Signal::NewLine.into()));
+  items.push_condition(conditions::if_true(
+    "arrayEndNewLine",
+    is_multiple_lines,
+    Signal::NewLine.into_print_items(arena),
+  ));
   items.push_str_runtime_width_computed("]");
 
   items.push_info(end_ln);
 
   return items;
 
-  fn gen_elements(elements: &[ArrayElement], is_multiple_lines: &ConditionResolver) -> PrintItems {
-    let mut items = PrintItems::new();
+  fn gen_elements<'a>(arena: &'a Arena, elements: &'a [ArrayElement], is_multiple_lines: &ConditionResolver) -> PrintItems<'a> {
+    let mut items = PrintItems::new(arena);
     let elements_len = elements.len();
 
     for (i, elem) in elements.iter().enumerate() {
-      items.extend(gen_node(Node::ArrayElement(elem)));
+      items.extend(gen_node(arena, Node::ArrayElement(elem)));
 
       if i < elements_len - 1 {
         items.push_str_runtime_width_computed(",");
         items.push_condition(conditions::if_true_or(
           "afterCommaSeparator",
           is_multiple_lines.clone(),
-          Signal::NewLine.into(),
-          Signal::SpaceOrNewLine.into(),
+          Signal::NewLine.into_print_items(arena),
+          Signal::SpaceOrNewLine.into_print_items(arena),
         ));
       }
     }
@@ -209,8 +220,9 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   }
 }
 
-fn gen_array_element(element: &ArrayElement) -> PrintItems {
-  element.text.to_string().into()
+fn gen_array_element<'a>(arena: &'a Arena, element: &'a ArrayElement) -> PrintItems<'a> {
+  // the text outlives the arena, so it doesn't need to be copied
+  element.text.as_str().into_print_items(arena)
 }
 
 // helper functions

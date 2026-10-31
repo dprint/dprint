@@ -3,19 +3,20 @@ use std::rc::Rc;
 
 use crate::formatting::condition_helpers;
 
+use super::super::Arena;
 use super::super::condition_resolvers;
 use super::super::conditions::*;
 use super::super::ir_helpers;
 use super::super::print_items::*;
 
-pub struct GenSeparatedValuesOptions {
+pub struct GenSeparatedValuesOptions<'a> {
   pub prefer_hanging: bool,
   pub force_use_new_lines: bool,
   /// The maximum number of consecutive blank lines to keep between values
   /// when multi-line, based on their `lines_span`. Use `0` to not keep any.
   pub max_blank_lines: u32,
   pub indent_width: u8,
-  pub single_line_options: SingleLineOptions,
+  pub single_line_options: SingleLineOptions<'a>,
   pub multi_line_options: MultiLineOptions,
   /// Forces a possible newline at the start when there are values.
   /// If this isn't used, then a possible newline won't happen when
@@ -28,14 +29,14 @@ pub enum BoolOrCondition {
   Condition(ConditionResolver),
 }
 
-pub struct SingleLineOptions {
+pub struct SingleLineOptions<'a> {
   pub space_at_start: bool,
   pub space_at_end: bool,
-  pub separator: PrintItems,
+  pub separator: PrintItems<'a>,
 }
 
-impl SingleLineOptions {
-  pub fn separated_same_line(separator: PrintItems) -> Self {
+impl<'a> SingleLineOptions<'a> {
+  pub fn separated_same_line(separator: PrintItems<'a>) -> Self {
     SingleLineOptions {
       space_at_start: false,
       space_at_end: false,
@@ -43,23 +44,23 @@ impl SingleLineOptions {
     }
   }
 
-  pub fn same_line_maybe_space_separated() -> Self {
-    Self::separated_same_line(Signal::SpaceOrNewLine.into())
+  pub fn same_line_maybe_space_separated(arena: &'a Arena) -> Self {
+    Self::separated_same_line(Signal::SpaceOrNewLine.into_print_items(arena))
   }
 
-  pub fn separated_line_starting_with_space() -> Self {
+  pub fn separated_line_starting_with_space(arena: &'a Arena) -> Self {
     SingleLineOptions {
       space_at_start: true,
       space_at_end: false,
-      separator: Signal::SpaceOrNewLine.into(),
+      separator: Signal::SpaceOrNewLine.into_print_items(arena),
     }
   }
 
-  pub fn surrounded_line() -> Self {
+  pub fn surrounded_line(arena: &'a Arena) -> Self {
     SingleLineOptions {
       space_at_start: true,
       space_at_end: true,
-      separator: Signal::SpaceOrNewLine.into(),
+      separator: Signal::SpaceOrNewLine.into_print_items(arena),
     }
   }
 }
@@ -131,8 +132,8 @@ pub struct LinesSpan {
   pub end_line: usize,
 }
 
-pub struct GeneratedValue {
-  pub items: PrintItems,
+pub struct GeneratedValue<'a> {
+  pub items: PrintItems<'a>,
   pub lines_span: Option<LinesSpan>,
   /// Whether this value is allowed to start on the same line as the
   /// previous token and finish on the same line as the next token
@@ -155,9 +156,9 @@ pub struct GeneratedValue {
   pub is_known_multi_line: bool,
 }
 
-impl GeneratedValue {
+impl<'a> GeneratedValue<'a> {
   /// Use this when you don't care about blank lines.
-  pub fn from_items(items: PrintItems) -> GeneratedValue {
+  pub fn from_items(items: PrintItems<'a>) -> GeneratedValue<'a> {
     GeneratedValue {
       items,
       lines_span: None,
@@ -168,8 +169,8 @@ impl GeneratedValue {
   }
 }
 
-pub struct GenSeparatedValuesResult {
-  pub items: PrintItems,
+pub struct GenSeparatedValuesResult<'a> {
+  pub items: PrintItems<'a>,
   pub is_multi_line_condition_ref: ConditionReference,
 }
 
@@ -182,10 +183,11 @@ struct GeneratedValueData {
   is_known_multi_line: bool,
 }
 
-pub fn gen_separated_values(
-  generated_values: impl FnOnce(&ConditionReference) -> Vec<GeneratedValue>,
-  opts: GenSeparatedValuesOptions,
-) -> GenSeparatedValuesResult {
+pub fn gen_separated_values<'a>(
+  generated_values: impl FnOnce(&ConditionReference) -> Vec<GeneratedValue<'a>>,
+  opts: GenSeparatedValuesOptions<'a>,
+) -> GenSeparatedValuesResult<'a> {
+  let arena = opts.single_line_options.separator.arena();
   let indent_width = opts.indent_width;
   let start_ln = LineNumber::new("startSeparatedValues");
   let start_cn = ColumnNumber::new("startSeparatedValues");
@@ -212,11 +214,11 @@ pub fn gen_separated_values(
   let is_multi_line_condition_ref = is_multi_line_condition.create_reference();
   let is_multi_line = is_multi_line_condition_ref.create_resolver();
 
-  let mut items = PrintItems::new();
+  let mut items = PrintItems::new(arena);
   items.push_info(start_cn);
   items.push_info(start_lscn);
   items.push_info(start_ln);
-  items.extend(clear_resolutions_on_position_change(value_datas.clone(), end_ln));
+  items.extend(clear_resolutions_on_position_change(arena, value_datas.clone(), end_ln));
   items.push_condition(is_start_standalone_line);
   items.push_condition(is_multi_line_condition);
 
@@ -225,6 +227,7 @@ pub fn gen_separated_values(
   );
   let has_values = !generated_values.is_empty();
   let inner_gen_result = inner_gen(
+    arena,
     generated_values,
     is_multi_line.clone(),
     opts.single_line_options.separator,
@@ -242,14 +245,14 @@ pub fn gen_separated_values(
           "newLineIndentedIfNotStandalone",
           Rc::new(move |context| Some(!context.resolved_condition(&is_start_standalone_line_ref)?)),
           {
-            let mut items = PrintItems::new();
+            let mut items = PrintItems::new(arena);
             if multi_line_options.newline_at_start {
               items.push_signal(Signal::NewLine);
             }
             if multi_line_options.with_indent {
               items.push_signal(Signal::StartIndent);
             }
-            items.extend(generated_values_items.into());
+            items.extend(generated_values_items.into_print_items(arena));
             if multi_line_options.with_indent {
               items.push_signal(Signal::FinishIndent);
             }
@@ -258,12 +261,12 @@ pub fn gen_separated_values(
             }
             items
           },
-          generated_values_items.into(),
+          generated_values_items.into_print_items(arena),
         )
-        .into(),
+        .into_print_items(arena),
       ),
       false_path: Some({
-        let mut items = PrintItems::new();
+        let mut items = PrintItems::new(arena);
         let has_start_space = opts.single_line_options.space_at_start;
         if has_start_space {
           items.push_signal(Signal::SpaceIfNotTrailing);
@@ -277,10 +280,10 @@ pub fn gen_separated_values(
             } else {
               indent_width + if has_start_space { 1 } else { 0 }
             },
-            Signal::PossibleNewLine.into(),
+            Signal::PossibleNewLine.into_print_items(arena),
           ));
         }
-        items.extend(generated_values_items.into());
+        items.extend(generated_values_items.into_print_items(arena));
         if opts.single_line_options.space_at_end {
           items.push_space();
         }
@@ -297,19 +300,20 @@ pub fn gen_separated_values(
     is_multi_line_condition_ref,
   };
 
-  struct InnerGenResult {
-    items: PrintItems,
+  struct InnerGenResult<'a> {
+    items: PrintItems<'a>,
     value_datas: Vec<GeneratedValueData>,
   }
 
-  fn inner_gen(
-    generated_values: Vec<GeneratedValue>,
+  fn inner_gen<'a>(
+    arena: &'a Arena,
+    generated_values: Vec<GeneratedValue<'a>>,
     is_multi_line: ConditionResolver,
-    single_line_separator: PrintItems,
+    single_line_separator: PrintItems<'a>,
     multi_line_options: &MultiLineOptions,
     max_blank_lines: u32,
-  ) -> InnerGenResult {
-    let mut items = PrintItems::new();
+  ) -> InnerGenResult<'a> {
+    let mut items = PrintItems::new(arena);
     let mut value_datas = Vec::new();
     let values_count = generated_values.len();
     let single_line_separator = single_line_separator.into_rc_path();
@@ -337,7 +341,7 @@ pub fn gen_separated_values(
           items.push_condition(if_false(
             "isNotStartOfLine",
             condition_resolvers::is_start_of_line(),
-            Signal::PossibleNewLine.into(),
+            Signal::PossibleNewLine.into_print_items(arena),
           ));
         }
 
@@ -360,7 +364,7 @@ pub fn gen_separated_values(
           ConditionProperties {
             condition: is_multi_line.clone(),
             true_path: {
-              let mut items = PrintItems::new();
+              let mut items = PrintItems::new(arena);
               for _ in 0..blank_line_count {
                 items.push_signal(Signal::NewLine);
               }
@@ -373,12 +377,12 @@ pub fn gen_separated_values(
                     if_true_or(
                       "newlineIfHanging",
                       Rc::new(move |context| condition_helpers::is_hanging(context, last_line_start_indent_level, None)),
-                      Signal::NewLine.into(),
-                      single_line_separator.into(),
+                      Signal::NewLine.into_print_items(arena),
+                      single_line_separator.into_print_items(arena),
                     )
-                    .into()
+                    .into_print_items(arena)
                   } else {
-                    single_line_separator.into()
+                    single_line_separator.into_print_items(arena)
                   }
                 };
                 if i == values_count - 1 && !had_newline {
@@ -389,7 +393,7 @@ pub fn gen_separated_values(
                     "forcedNewLineIfNoNewLine",
                     Rc::new(move |context| condition_helpers::is_on_different_line(context, first_line_number)),
                     space_or_newline,
-                    Signal::NewLine.into(),
+                    Signal::NewLine.into_print_items(arena),
                   ))
                 } else {
                   items.extend(space_or_newline);
@@ -400,27 +404,27 @@ pub fn gen_separated_values(
                 BoolOrCondition::Bool(with_hanging_indent) => {
                   if *with_hanging_indent {
                     items.push_condition(indent_if_start_of_line({
-                      let mut items = PrintItems::new();
+                      let mut items = PrintItems::new(arena);
                       items.push_info(start_line_number);
                       items.push_info(start_is_start_of_line);
                       items.push_info(start_line_start_indent_level);
-                      items.extend(generated_value.into());
+                      items.extend(generated_value.into_print_items(arena));
                       items
                     }));
                   } else {
                     items.push_info(start_line_number);
                     items.push_info(start_is_start_of_line);
                     items.push_info(start_line_start_indent_level);
-                    items.extend(generated_value.into());
+                    items.extend(generated_value.into_print_items(arena));
                   }
                 }
                 BoolOrCondition::Condition(condition) => {
                   let inner_items = {
-                    let mut items = PrintItems::new();
+                    let mut items = PrintItems::new(arena);
                     items.push_info(start_line_number);
                     items.push_info(start_is_start_of_line);
                     items.push_info(start_line_start_indent_level);
-                    items.extend(generated_value.into());
+                    items.extend(generated_value.into_print_items(arena));
                     items
                   }
                   .into_rc_path();
@@ -428,8 +432,8 @@ pub fn gen_separated_values(
                     "valueHangingIndent",
                     ConditionProperties {
                       condition: condition.clone(),
-                      true_path: Some(ir_helpers::with_indent(inner_items.into())),
-                      false_path: Some(inner_items.into()),
+                      true_path: Some(ir_helpers::with_indent(inner_items.into_print_items(arena))),
+                      false_path: Some(inner_items.into_print_items(arena)),
                     },
                   ));
                 }
@@ -438,14 +442,14 @@ pub fn gen_separated_values(
               Some(items)
             },
             false_path: {
-              let mut items = PrintItems::new();
-              items.extend(single_line_separator.into()); // ex. Signal::SpaceOrNewLine
+              let mut items = PrintItems::new(arena);
+              items.extend(single_line_separator.into_print_items(arena)); // ex. Signal::SpaceOrNewLine
               items.push_condition(indent_if_start_of_line({
-                let mut items = PrintItems::new();
+                let mut items = PrintItems::new(arena);
                 items.push_info(start_line_number);
                 items.push_info(start_is_start_of_line);
                 items.push_info(start_line_start_indent_level);
-                items.extend(generated_value.into());
+                items.extend(generated_value.into_print_items(arena));
                 items
               }));
               Some(items)
@@ -462,8 +466,8 @@ pub fn gen_separated_values(
   }
 }
 
-fn clear_resolutions_on_position_change(value_datas: Rc<RefCell<Vec<GeneratedValueData>>>, end_line_number: LineNumber) -> PrintItems {
-  let mut items = PrintItems::new();
+fn clear_resolutions_on_position_change(arena: &Arena, value_datas: Rc<RefCell<Vec<GeneratedValueData>>>, end_line_number: LineNumber) -> PrintItems<'_> {
+  let mut items = PrintItems::new(arena);
   let column_number = ColumnNumber::new("clearer");
   let line_number = LineNumber::new("clearer");
   items.push_condition(Condition::new(
@@ -510,7 +514,7 @@ fn clear_resolutions_on_position_change(value_datas: Rc<RefCell<Vec<GeneratedVal
   items
 }
 
-fn get_is_start_standalone_line(start_cn: ColumnNumber, start_lscn: LineStartColumnNumber) -> Condition {
+fn get_is_start_standalone_line<'a>(start_cn: ColumnNumber, start_lscn: LineStartColumnNumber) -> Condition<'a> {
   Condition::new(
     "isStartStandaloneLine",
     ConditionProperties {
@@ -526,7 +530,7 @@ fn get_is_start_standalone_line(start_cn: ColumnNumber, start_lscn: LineStartCol
   )
 }
 
-fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<GeneratedValueData>>>, is_start_standalone_line_ref: ConditionReference) -> Condition {
+fn get_is_multi_line_for_hanging<'a>(value_datas: Rc<RefCell<Vec<GeneratedValueData>>>, is_start_standalone_line_ref: ConditionReference) -> Condition<'a> {
   Condition::new(
     "isMultiLineForHanging",
     ConditionProperties {
@@ -552,12 +556,12 @@ fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<GeneratedValueData>
   )
 }
 
-fn get_is_multi_line_for_multi_line(
+fn get_is_multi_line_for_multi_line<'a>(
   start_ln: LineNumber,
   value_datas: Rc<RefCell<Vec<GeneratedValueData>>>,
   is_start_standalone_line_ref: ConditionReference,
   end_ln: LineNumber,
-) -> Condition {
+) -> Condition<'a> {
   let last_result = Rc::new(RefCell::new(false));
   return Condition::new(
     "isMultiLineForMultiLine",

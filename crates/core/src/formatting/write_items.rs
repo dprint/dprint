@@ -3,7 +3,7 @@ use super::StringContainer;
 
 #[derive(Clone, Copy)]
 pub enum WriteItem<'a> {
-  String(&'a StringContainer),
+  String(&'a StringContainer<'a>),
   Indent(u8),
   NewLine,
   Tab,
