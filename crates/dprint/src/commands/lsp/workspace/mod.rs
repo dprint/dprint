@@ -102,6 +102,7 @@ use crate::utils::get_bytes_hash;
 use crate::utils::get_download_url_text;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
+use crate::utils::get_npm_registry_download_url;
 use crate::utils::get_path_download_local_path;
 use crate::utils::get_sha256_checksum;
 use crate::utils::get_untrusted_download_message;
@@ -505,6 +506,10 @@ struct DocumentFile {
   /// The file paths in order of preference, which are in the same directory
   /// and never empty.
   candidates: Vec<PathBuf>,
+  /// Whether the candidate is the path of the document itself, which the
+  /// editor opened, rather than a file it's formatted as (ex. a `fileUri` or
+  /// the file of an untitled document), which may not exist.
+  is_document_path: bool,
   /// The notebook's path when the document is one of its cells.
   notebook_path: Option<PathBuf>,
 }
@@ -1629,6 +1634,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       Some((uri, dir_uri)) => Some(self.get_decisions_config_file(&uri, dir_uri.as_ref())?),
       None => None,
     };
+    // an "Always" decision that's still being stored (ex. while another process holds the approvals
+    // file's lock) is forgotten too, which the stores wait on until the stored decisions are forgotten
+    let paused_stores = self.session_permissions.pause_stores().await;
     // the downloads allowed for the session stay allowed (ex. they're in the cache already)
     let forgotten = self
       .get_decisions(config_file.as_ref())
@@ -1636,9 +1644,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .filter(|decision| decision.config_file.is_some())
       .collect::<Vec<_>>();
     let is_config_file = |source: &str| config_file.as_ref().is_none_or(|(config_source, _)| config_source == source);
-    // an "Always" decision that's still being stored (ex. while another process holds the approvals
-    // file's lock) is forgotten too, which the stores wait on until the stored decisions are forgotten
-    let paused_stores = self.session_permissions.pause_stores().await;
     self.session_permissions.forget_process_plugin_decisions(&is_config_file);
     self
       .denied_downloads
@@ -2295,10 +2300,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// IMPORTANT: A watcher follows symlinks like reading does, which would
   /// contact the other machine before the user allows it.
   fn stop_watching_config_file(&self, config_path: &Path) {
+    // the config files are known by their canonicalized paths, which the path may not be (ex. the editor's
+    // path of a workspace opened through a symlink), and its directory is what's canonicalized
+    let canonical_path = self.canonicalize_editor_path(config_path.to_path_buf());
     let removed = {
       let mut config_dependencies = self.config_dependencies.borrow_mut();
       let count = config_dependencies.len();
-      config_dependencies.retain(|_, (config_file_path, _)| config_file_path != config_path);
+      config_dependencies.retain(|_, (config_file_path, _)| config_file_path != config_path && *config_file_path != canonical_path);
       config_dependencies.len() != count
     };
     if removed {
@@ -2670,10 +2678,23 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           .ok()
           .flatten()
       } else {
-        previous
-          .source
-          .maybe_local_path()
-          .and_then(|path| self.scope_container.load_config_file(path.as_ref()).ok().flatten())
+        let Some(file_path) = previous.source.maybe_local_path() else {
+          continue;
+        };
+        // IMPORTANT: It's read like a config file from the editor, because it may be on another machine now
+        // (ex. a `git pull` replaced it with a symlink to a share), which reading or canonicalizing it would
+        // contact. Such a config file is forgotten instead and the editor is told it changed, so it's asked about.
+        match self.load_config_file(file_path.as_ref(), None) {
+          Ok(config_file) => config_file,
+          Err(err) => {
+            if let Some(err) = find_config_file_on_another_machine(&err) {
+              self.forget_config_file(file_path.as_ref());
+              self.stop_watching_config_file(&err.config_path);
+              self.send_file_config_changed(file_path.as_ref(), ConfigChange::Changed);
+            }
+            continue;
+          }
+        }
       };
       let Some(config_file) = config_file else {
         // the editor isn't told when the global config file is deleted
@@ -3188,6 +3209,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       };
       return Ok(DocumentFile {
         candidates: vec![file_path],
+        is_document_path: false,
         notebook_path: None,
       });
     }
@@ -3207,12 +3229,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       };
       return Ok(DocumentFile {
         candidates: get_language_file_paths(dir_path, "code_block", document)?,
+        is_document_path: false,
         notebook_path: Some(notebook_path),
       });
     }
     if is_untitled_uri(&document.uri) {
       return Ok(DocumentFile {
         candidates: get_language_file_paths(&self.get_untitled_dir_path(&document.uri)?, "Untitled", document)?,
+        is_document_path: false,
         notebook_path: None,
       });
     }
@@ -3225,6 +3249,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
     Ok(DocumentFile {
       candidates: vec![file_path],
+      is_document_path: true,
       notebook_path: None,
     })
   }
@@ -3260,11 +3285,15 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Chooses the file to format the document as, which is the first one the
   /// scope can format or otherwise the first one.
   fn choose_file(&self, scope: &PluginsScope<TEnvironment>, document_file: DocumentFile, file_bytes: Option<&[u8]>) -> ChosenFile {
-    let notebook_path = document_file.notebook_path.map(|path| self.canonicalize_editor_path(path));
+    // the editor opened the document and the notebook, which reading them doesn't change
+    let notebook_path = document_file.notebook_path.map(|path| self.canonicalize(path));
     let mut first = None;
     for candidate in document_file.candidates {
-      // ex. the file an untitled document is formatted as may be a symlink in the workspace to another machine
-      let file_path = self.canonicalize_editor_path(candidate);
+      let file_path = match document_file.is_document_path {
+        true => self.canonicalize(candidate),
+        // ex. the file an untitled document is formatted as may be a symlink in the workspace to another machine
+        false => self.canonicalize_editor_path(candidate),
+      };
       let cant_format_reason = self.get_cant_format_reason(scope, &file_path, notebook_path.as_deref(), file_bytes);
       if cant_format_reason.is_none() {
         return ChosenFile { file_path, cant_format_reason };
@@ -3785,7 +3814,8 @@ fn get_download_items(downloads: &[String], kind: ApprovalItemKind, editor_paths
       None => ApprovalItem {
         specifier: escape_text(get_download_url_text(download)),
         kind,
-        registry: None,
+        // the registry itself, which allows every url under it unlike another url
+        registry: get_npm_registry_download_url(download).map(escape_text),
         npmrc_uri: None,
         local_uri: None,
         plugin: None,

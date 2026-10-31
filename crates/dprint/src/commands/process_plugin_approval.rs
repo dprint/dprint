@@ -49,6 +49,11 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
     Some(_) | None => return Ok(()),
   };
   let always = matches!(action_title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE));
+  // forgetting the decisions waits until every plugin's decision is stored (see `SessionPermissions::pause_stores`)
+  let _store = match always {
+    true => Some(session_permissions.start_store().await),
+    false => None,
+  };
   // what the user decided now is more recent than what they decided before
   let decisions = session_permissions.read(environment).process_plugin_decisions;
   let mut result = Ok(());
@@ -96,6 +101,8 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
   config: &ResolvedConfig,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
+  // forgetting the decisions waits until a grant that's taken is stored (see `SessionPermissions::pause_stores`)
+  let _store = session_permissions.start_store().await;
   let mut result = Ok(());
   let trusted_config_hash = get_trusted_config_hash(config);
   let permissions = session_permissions.read(environment);
@@ -244,7 +251,9 @@ const ALWAYS_ALLOW_ACTION_TITLE: &str = "Always Allow";
 const DENY_ACTION_TITLE: &str = "Deny";
 const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 
-/// Uses the decision, which is stored when it's always used. A decision that's
+/// Uses the decision, which is stored when it's always used, while the
+/// caller holds a store of the session permissions (see
+/// `SessionPermissions::start_store`). A decision that's
 /// stored is only read from the approvals file so that changing the file (ex.
 /// deleting it) is used, and the session uses it when storing it fails. The
 /// session also uses an allow that's stored while the editors don't use the
@@ -256,7 +265,6 @@ async fn add_process_plugin_decision<TEnvironment: Environment>(
   always: bool,
 ) -> Result<()> {
   if always {
-    let _store = session_permissions.start_store().await;
     let result = store_process_plugin_decision(environment, decision.clone()).await;
     if result.is_err() || (decision.allowed && read_ignored_settings_message(environment).is_some()) {
       session_permissions.add_process_plugin_decision(decision);
@@ -573,6 +581,46 @@ mod test {
       assert!(get_process_plugin_store_error_message(&err).contains("Failed locking"), "{:#}", err);
       assert!(!environment.path_exists(&approvals_file_path));
       assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
+    });
+  }
+
+  #[test]
+  fn should_wait_for_every_plugin_to_be_stored_before_forgetting() {
+    const OTHER_PLUGIN: &str = "https://plugins.dprint.dev/other.json@checksum";
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let session_permissions = SessionPermissions::default();
+
+    environment.clone().run_in_runtime(async move {
+      let mut unapproved = unapproved(Some(approval()));
+      unapproved.plugins.push(UnapprovedProcessPlugin {
+        plugin: OTHER_PLUGIN.to_string(),
+        registry: None,
+        unpinned_file_checksum: None,
+        approval: Some(ProcessPluginApproval {
+          plugin: OTHER_PLUGIN.to_string(),
+          ..approval()
+        }),
+      });
+      // ex. `dprint fmt` is storing its decisions
+      let lock_path = get_editor_approvals_file_path(&environment).unwrap().with_file_name(".editor-approvals.lock");
+      let other_lock = environment.try_lock_file(&lock_path).unwrap().unwrap();
+      let store = store_process_plugin_action(&environment, &session_permissions, &unapproved, Some(ALWAYS_ALLOW_ACTION_TITLE));
+      // the user forgets the decisions while the first plugin's waits for the lock
+      let forget = async {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let _paused = session_permissions.pause_stores().await;
+        session_permissions.forget_process_plugin_decisions(&|_| true);
+        crate::configuration::forget_editor_approvals(&environment, |_| true).await.unwrap();
+      };
+      let release = async {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        drop(other_lock);
+      };
+      let (store_result, (), ()) = dprint_core::async_runtime::future::join3(store, forget, release).await;
+      store_result.unwrap();
+      // neither plugin's decision is stored after forgetting
+      assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
     });
   }
 

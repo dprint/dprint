@@ -604,7 +604,8 @@ pub struct ApprovalItem {
   pub kind: ApprovalItemKind,
   /// The npm registry an npm plugin is from when it isn't the default one
   /// (ex. a project's `.npmrc` sets another one for its scope), which is
-  /// escaped like the specifier.
+  /// escaped like the specifier. For the download of an npm registry itself,
+  /// it's the registry, which allows every url under it unlike another url.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub registry: Option<String>,
   /// The uri of the `.npmrc` file that sets an `npmrcProxy` as the editor

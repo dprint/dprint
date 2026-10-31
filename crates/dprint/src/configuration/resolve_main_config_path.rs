@@ -513,6 +513,21 @@ mod tests {
   use crate::environment::TestEnvironment;
 
   #[test]
+  fn should_not_canonicalize_a_directory_on_another_machine_to_tell_whether_it_is_the_home_dir() {
+    let env = TestEnvironment::new();
+    env.set_download_policy(crate::utils::DownloadPolicy::for_editor(&env));
+    env.mk_dir_all("/project").unwrap();
+    let network_dir = if cfg!(windows) { r"\\server\share\dir" } else { "/net/server/share/dir" };
+    env.symlink(network_dir, "/project/link").unwrap();
+    // its `.config` directory is an ordinary one, which isn't read to tell
+    assert!(is_dot_config_dir(&env, Path::new("/project/link/.config")));
+    assert_eq!(env.canonicalize_count("/project/link"), 0);
+    // while a local directory is canonicalized
+    assert!(is_dot_config_dir(&env, Path::new("/project/.config")));
+    assert_eq!(env.canonicalize_count("/project"), 1);
+  }
+
+  #[test]
   fn test_resolve_system_config_dir_macos_with_xdg_config_home() {
     let env = TestEnvironment::new();
     env.set_os("macos");

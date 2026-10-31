@@ -622,6 +622,15 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
       urls.iter().map(|url| quote_download(url)).collect::<Vec<_>>().join(", "),
       ignored_settings_message.unwrap_or("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."),
     ));
+    // unlike another url, which only allows itself
+    let registries = urls.iter().filter(|url| get_npm_registry_download_url(url).is_some()).collect::<Vec<_>>();
+    if !registries.is_empty() {
+      messages.push(format!(
+        "{} {} an npm registry, so allowing it allows every url under it (ex. each package from it).",
+        registries.iter().map(|url| quote_download(url)).collect::<Vec<_>>().join(", "),
+        if registries.len() == 1 { "is" } else { "are each" },
+      ));
+    }
   }
   messages.join(" ")
 }

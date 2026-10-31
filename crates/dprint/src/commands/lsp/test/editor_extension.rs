@@ -1629,7 +1629,6 @@ fn should_register_the_files_to_watch_with_the_watch_files_feature() {
   });
 }
 
-#[cfg(windows)]
 #[test]
 fn should_stop_watching_a_config_file_that_is_on_another_machine_now() {
   let environment = TestEnvironmentBuilder::new()
@@ -1656,7 +1655,7 @@ fn should_stop_watching_a_config_file_that_is_on_another_machine_now() {
         assert!(registration_ids().contains(&"dprint-watched-files".to_string()));
         // ex. a `git pull` replaced it with a symlink to a share
         environment.remove_file("/a/dprint.json").unwrap();
-        environment.symlink(r"\\server\share\dprint.json", "/a/dprint.json").unwrap();
+        environment.symlink(network_path("dprint.json"), "/a/dprint.json").unwrap();
         client
           .backend
           .did_change_watched_files(DidChangeWatchedFilesParams {
@@ -2194,13 +2193,17 @@ fn should_not_read_a_config_file_from_the_editor_on_another_machine_before_it_is
   });
 }
 
-#[cfg(windows)]
 #[test]
 fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allowed() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
     .with_local_config("/src/dprint.json", |c| {
-      c.add_remote_wasm_plugin();
+      c.add_remote_wasm_plugin()
+        .add_config_section("shebangs", r##"{ "#!/usr/bin/env test": "txt" }"##);
+    })
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin()
+        .add_config_section("shebangs", r##"{ "#!/usr/bin/env test": "txt" }"##);
     })
     .build();
   run_session(&environment, {
@@ -2208,9 +2211,10 @@ fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allo
     move |client| {
       async move {
         assert_eq!(client.config_info("/src/dprint.json").await.status, FormatStatus::ready());
-        // ex. a `git pull` replaced the config file with a symlink to a share
+        // ex. a `git pull` replaced the config file with a symlink to a share, which the
+        // editor reports as created because the file was deleted and created
         environment.remove_file("/src/dprint.json").unwrap();
-        environment.symlink(r"\\server\share\dprint.json", "/src/dprint.json").unwrap();
+        environment.symlink(network_path("dprint.json"), "/src/dprint.json").unwrap();
         let canonicalize_count = environment.canonicalize_count("/src/dprint.json");
         let read_count = environment.file_read_count("/src/dprint.json");
         client
@@ -2218,7 +2222,7 @@ fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allo
           .did_change_watched_files(DidChangeWatchedFilesParams {
             changes: vec![FileEvent {
               uri: uri("/src/dprint.json"),
-              typ: FileChangeType::CHANGED,
+              typ: FileChangeType::CREATED,
             }],
           })
           .await;
@@ -2233,8 +2237,24 @@ fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allo
         assert_eq!(environment.canonicalize_count("/src/dprint.json"), canonicalize_count);
         assert_eq!(environment.file_read_count("/src/dprint.json"), read_count);
 
+        // nor when the config files that were used are resolved again (ex. after forgetting decisions,
+        // or when the approvals file changed), which tells the editor it changed instead
+        client
+          .backend
+          .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
+          .await
+          .unwrap();
+        assert_eq!(client.take_config_changes(), vec![uri("/src/dprint.json")]);
+        assert_eq!(environment.canonicalize_count("/src/dprint.json"), canonicalize_count);
+        assert_eq!(environment.file_read_count("/src/dprint.json"), read_count);
+        assert!(
+          client.config_info("/src/dprint.json").await.status.approvals()[0]
+            .config_file
+            .on_another_machine
+        );
+
         // the same goes for the file an untitled document is formatted as
-        environment.symlink(r"\\server\share\Untitled.txt", "/Untitled.txt").unwrap();
+        environment.symlink(network_path("Untitled.txt"), "/Untitled.txt").unwrap();
         let mut params = client.format_params("untitled:Untitled-1", "text");
         params.document.language = Some(DocumentLanguage {
           id: "plaintext".to_string(),
@@ -2243,6 +2263,22 @@ fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allo
         });
         client.format_with(params).await;
         assert_eq!(environment.canonicalize_count("/Untitled.txt"), 0);
+        // and its shebang isn't read from the other machine when the editor doesn't provide its text
+        environment.symlink(network_path("run"), "/run").unwrap();
+        let mut document = document_params("untitled:Untitled-2");
+        document.language = Some(DocumentLanguage {
+          id: "shellscript".to_string(),
+          file_extensions: Vec::new(),
+          file_names: vec!["run".to_string()],
+        });
+        let file_info = client
+          .backend
+          .dprint_file_info(FileInfoParams { document, text: None }, CancellationToken::new())
+          .await
+          .unwrap();
+        assert_ne!(file_info.status, FormatStatus::ready());
+        assert_eq!(environment.canonicalize_count("/run"), 0);
+        assert_eq!(environment.file_open_count("/run"), 0);
         client.test_client.take_messages();
       }
       .boxed_local()
@@ -4023,6 +4059,48 @@ fn should_forget_an_always_allow_that_is_still_being_stored() {
   });
 }
 
+#[test]
+fn should_allow_the_packages_of_an_npm_registry_with_a_path() {
+  use crate::test_helpers::WASM_PLUGIN_BYTES;
+  use crate::test_helpers::create_test_npm_tarball;
+
+  const PACKUMENT_URL: &str = "https://corp.example.com/npm/repo/test-plugin";
+  const TARBALL_URL: &str = "https://corp.example.com/npm/repo/test-plugin/-/test-plugin-1.0.0.tgz";
+  let environment = TestEnvironmentBuilder::new()
+    .with_local_config("/project/dprint.json", |c| {
+      c.add_plugin("npm:test-plugin@1.0.0");
+    })
+    .write_file("/project/.npmrc", "registry=https://corp.example.com/npm/repo/")
+    .build();
+  let packument = json!({ "versions": { "1.0.0": { "dist": { "tarball": TARBALL_URL } } } });
+  environment.add_remote_file_bytes(PACKUMENT_URL, packument.to_string().into_bytes());
+  environment.add_remote_file_bytes(TARBALL_URL, create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]));
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      let approval = client.config_info("/project/dprint.json").await.status.approvals()[0].clone();
+      // it's shown as the registry, which allows every url under it unlike another url
+      assert_eq!(specifiers(&approval), vec!["https://corp.example.com/npm/repo/"]);
+      assert_eq!(approval.items[0].registry.as_deref(), Some("https://corp.example.com/npm/repo/"));
+      assert!(
+        approval.message.contains("is an npm registry, so allowing it allows every url under it"),
+        "{}",
+        approval.message
+      );
+      // so its packages are downloaded from under its path
+      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+      assert_eq!(client.config_info("/project/dprint.json").await.status, FormatStatus::ready());
+    }
+    .boxed_local()
+  });
+  // and a server started again for the session still allows it
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      assert_eq!(client.config_info("/project/dprint.json").await.status, FormatStatus::ready());
+    }
+    .boxed_local()
+  });
+}
+
 /// An editor extension using the `dprint/*` methods.
 struct Client {
   backend: Rc<Backend<TestEnvironment>>,
@@ -4399,5 +4477,15 @@ fn uri(path_or_uri: &str) -> Uri {
     Uri::from_str(&format!("file://{}", path_or_uri)).unwrap()
   } else {
     Uri::from_str(path_or_uri).unwrap()
+  }
+}
+
+/// Gets a path on another machine, which is a UNC path on Windows and a path
+/// in `/net` on macOS and Linux.
+fn network_path(path: &str) -> String {
+  if cfg!(windows) {
+    format!(r"\\server\share\{}", path.replace('/', "\\"))
+  } else {
+    format!("/net/server/share/{}", path)
   }
 }
