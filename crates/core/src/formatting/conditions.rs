@@ -89,15 +89,21 @@ pub fn single_indent_if_start_of_line(arena: &Arena) -> Condition<'_> {
   )
 }
 
-/// Prints the provided items when the current relative column number is above
-/// the specified width.
+/// Prints the provided items when the current column number is more than the
+/// specified width past the column the line started at (its indentation).
+///
+/// This doesn't check the line width. It's usually given the indent width to
+/// only allow a newline when breaking would gain columns (ex. `if_above_width(indent_width, Signal::SpaceOrNewLine)`).
 pub fn if_above_width(width: u8, items: PrintItems<'_>) -> Condition<'_> {
   let arena = items.arena();
   if_above_width_or(width, items, PrintItems::new(arena))
 }
 
-/// Prints the provided true_items when the current relative column number is above
-/// the specified width or prints the false_items otherwise.
+/// Prints the provided true_items when the current column number is more than the
+/// specified width past the column the line started at (its indentation) or prints
+/// the false_items otherwise.
+///
+/// This doesn't check the line width. See `if_above_width`.
 pub fn if_above_width_or<'a>(width: u8, true_items: PrintItems<'a>, false_items: PrintItems<'a>) -> Condition<'a> {
   let arena = true_items.arena();
   Condition::new(
