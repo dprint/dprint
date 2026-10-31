@@ -1108,6 +1108,30 @@ mod test {
     assert!(!is_same_file_at_path(&file, &file_path).unwrap());
   }
 
+  #[cfg(windows)]
+  #[test]
+  fn should_keep_the_verbatim_prefix_of_a_long_canonical_path() {
+    use dprint_core::async_runtime::FutureExt;
+
+    // IMPORTANT: A canonical path is how a local config file is stored in the approvals file (see
+    // `EditorApprovals`), which keeps `\\?\` when it's too long to be without it, which every version does too.
+    RealEnvironment::run_test_with_real_env(|environment| {
+      async move {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut dir_path = temp_dir.path().to_path_buf();
+        while dir_path.as_os_str().len() < 300 {
+          dir_path.push("a".repeat(50));
+        }
+        environment.mk_dir_all(&dir_path).unwrap();
+        let canonical_path = environment.canonicalize(&dir_path).unwrap();
+        assert!(canonical_path.to_string_lossy().starts_with(r"\\?\"), "{}", canonical_path.display());
+        let short_path = environment.canonicalize(temp_dir.path()).unwrap();
+        assert!(!short_path.to_string_lossy().starts_with(r"\\?\"), "{}", short_path.display());
+      }
+      .boxed_local()
+    });
+  }
+
   #[test]
   fn should_get_cache_dir_based_on_env_var() {
     let default_dir = dirs::cache_dir().unwrap().join("dprint").join("cache");

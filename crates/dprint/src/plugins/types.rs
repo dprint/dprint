@@ -116,6 +116,28 @@ pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment:
 
 #[cfg(test)]
 mod tests {
+  #[test]
+  fn should_not_change_how_a_plugin_is_shown() {
+    // IMPORTANT: This is how a plugin is stored in the approvals file (see `EditorApprovals`), which every version
+    // makes the same way.
+    let plugin = PluginSourceReference {
+      path_source: PathSource::new_remote_from_str("https://plugins.dprint.dev/exec-0.5.0.json"),
+      checksum: Some("abc".to_string()),
+    };
+    assert_eq!(plugin.to_full_string(), "https://plugins.dprint.dev/exec-0.5.0.json@abc");
+    let plugin = PluginSourceReference {
+      path_source: PathSource::new_remote_from_str("https://plugins.dprint.dev/exec-0.5.0.json"),
+      checksum: None,
+    };
+    assert_eq!(plugin.to_full_string(), "https://plugins.dprint.dev/exec-0.5.0.json");
+    let parsed = crate::utils::parse_npm_specifier("npm:@dprint/exec@0.5.0/plugin.json@abc").unwrap();
+    let plugin = PluginSourceReference {
+      path_source: PathSource::new_npm(parsed.specifier, None),
+      checksum: parsed.checksum,
+    };
+    assert_eq!(plugin.to_full_string(), "npm:@dprint/exec@0.5.0/plugin.json@abc");
+  }
+
   use crate::environment::CanonicalizedPathBuf;
   use crate::environment::TestEnvironment;
 

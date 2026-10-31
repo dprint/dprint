@@ -831,7 +831,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// editor extension that every config file may have changed because it's
   /// used for every file.
   async fn handle_config_override_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange) {
-    let file_path = self.canonicalize_editor_path(file_path.to_path_buf());
+    let file_path = self.canonicalize_config_file_path(file_path.to_path_buf());
     if change == ConfigFileChange::Deleted
       && let (Some(uri), Some(editor_uri)) = (file_path_to_uri(&file_path), self.editor_uri(&file_path))
     {
@@ -974,10 +974,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       DocumentConfig::NotFound => {
         // a config file that's a dangling symlink is still watched by what it points to (see `config_files_changed`)
         let watch_uris = match &target {
-          ApprovalTarget::ConfigFile { file_path, .. } => file_path_to_uri(&self.canonicalize_config_file_path(file_path.clone()))
-            .and_then(|uri| self.config_dependencies.borrow().get(uri.as_str()).cloned())
-            .map(|dependencies| self.get_dependencies_watch_uris(&dependencies))
-            .unwrap_or_default(),
+          ApprovalTarget::ConfigFile { file_path, .. } => self.get_dangling_symlink_watch_uris(file_path),
           ApprovalTarget::File { .. } => Vec::new(),
         };
         return Ok(ConfigInfoResult {
@@ -1300,8 +1297,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   /// Gets whether a file the editor said changed is the config file the
-  /// server was started with or what it points to, which are compared by
-  /// their canonical paths.
+  /// server was started with or what it points to (a change of either is
+  /// one of it), which are compared by their canonical paths.
   fn is_config_override_file(&self, path: &Path) -> bool {
     match self.scope_container.config_override_path() {
       // the one the server was started with is the user's, but the path is from the editor
@@ -1340,8 +1337,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         return Ok((FormatOutcome::NotFormatted(not_formatted), failure.config_file));
       }
     };
+    let outcome = self
+      .format_with_scope(scope.clone(), request, document_file, target, use_global_config, token)
+      .await?;
+    // it's after formatting, which is when it's provided
     let config_file = self.get_config_file_info(&scope);
-    let outcome = self.format_with_scope(scope, request, document_file, target, use_global_config, token).await?;
     Ok((outcome, config_file))
   }
 
@@ -1774,7 +1774,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .into_iter()
       .filter(|decision| decision.config_file.is_some())
       .collect::<Vec<_>>();
-    let is_config_file = |source: &str| config_file.as_ref().is_none_or(|(config_source, _)| config_source == source);
+    let is_config_file = |source: &str| self.is_decisions_config_file(source, config_file.as_ref(), identifier.as_ref());
     self.session_permissions.forget_process_plugin_decisions(&is_config_file);
     self
       .denied_downloads
@@ -1825,7 +1825,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// decisions have it with its key, or for every config file when `None`.
   /// The identifier is what the editor sent for it (see `is_denial_for`).
   fn get_decisions(&self, config_file: Option<&(String, String)>, identifier: Option<&(Uri, Option<Uri>)>) -> Vec<Decision> {
-    let is_config_file = |source: &str| config_file.is_none_or(|(config_source, _)| config_source == source);
+    let is_config_file = |source: &str| self.is_decisions_config_file(source, config_file, identifier);
     // the stored decisions are read even when the settings allow every process plugin
     // the denials of a file that can't be read are still used, so they're provided too, and
     // only they're used when the settings aren't (see `SessionPermissions::read`)
@@ -1885,23 +1885,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let global_config_path = self.get_global_config_path();
     let mut decisions = Vec::new();
     for (config_file, plugin, allows, always, _) in plugin_decisions {
-      // it's a path unless it's a remote or npm config file
-      let is_remote = ["http://", "https://", "npm:"].iter().any(|prefix| config_file.starts_with(prefix));
-      let config_file = match is_remote {
-        true => config_file.parse().ok().map(|uri| ConfigFileIdentifier { uri, dir_uri: None }),
-        false => {
-          let path = Path::new(&config_file);
-          // the decisions of the global config file are for each directory it's used for
-          let dir_uri = match global_config_path.as_deref() == Some(path) {
-            true => None,
-            false => get_config_file_dir(&self.environment, path).and_then(|dir_path| self.editor_uri(dir_path)),
-          };
-          self.editor_uri(path).map(|uri| ConfigFileIdentifier { uri, dir_uri })
-        }
-      };
       decisions.push(Decision {
         kind: ApprovalKind::ProcessPlugins,
-        config_file,
+        config_file: self.get_listed_config_file(&config_file, global_config_path.as_deref()),
         // like the specifier of its item
         specifiers: vec![escape_text(&plugin)],
         items: None,
@@ -1968,6 +1954,57 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
     }));
     decisions
+  }
+
+  /// Gets whether a process plugin decision stored with the config file's text
+  /// is for the config file as the process plugin decisions have it with its
+  /// key, or for every config file when `None`.
+  ///
+  /// It's also for the config file the editor sent when that's how
+  /// `dprint/decisions` lists it, so what's listed can always be forgotten,
+  /// even when the config file's text isn't the one this version makes for it
+  /// (ex. the project was moved since and its old path is a symlink to it, or
+  /// another version made the text another way, see `EditorApprovals`). That
+  /// lists each stored text as it is, and doesn't canonicalize what the editor
+  /// sent, so it never matches another config file that a symlink leads to.
+  fn is_decisions_config_file(&self, config_file_text: &str, config_file: Option<&(String, String)>, identifier: Option<&(Uri, Option<Uri>)>) -> bool {
+    let (Some((config_source, _)), Some((uri, dir_uri))) = (config_file, identifier) else {
+      return true;
+    };
+    if config_source == config_file_text {
+      return true;
+    }
+    let global_config_path = self.get_global_config_path();
+    let Some(listed) = self.get_listed_config_file(config_file_text, global_config_path.as_deref()) else {
+      return false;
+    };
+    let is_same_uri = |uri: &Uri, other: &Uri| match (uri_to_file_path(uri), uri_to_file_path(other)) {
+      (Some(path), Some(other_path)) => path == other_path,
+      _ => uri == other,
+    };
+    is_same_uri(&listed.uri, uri)
+      && match (dir_uri, &listed.dir_uri) {
+        (Some(dir_uri), Some(listed_dir_uri)) => is_same_uri(dir_uri, listed_dir_uri),
+        _ => true,
+      }
+  }
+
+  /// Gets the config file of a process plugin decision as `dprint/decisions`
+  /// lists it from the text it's stored with, which is `None` when that isn't
+  /// a path or url this version can make a uri of.
+  fn get_listed_config_file(&self, config_file_text: &str, global_config_path: Option<&Path>) -> Option<ConfigFileIdentifier> {
+    // it's a path unless it's a remote or npm config file
+    let is_remote = ["http://", "https://", "npm:"].iter().any(|prefix| config_file_text.starts_with(prefix));
+    if is_remote {
+      return config_file_text.parse().ok().map(|uri| ConfigFileIdentifier { uri, dir_uri: None });
+    }
+    let path = Path::new(config_file_text);
+    // the decisions of the global config file are for each directory it's used for
+    let dir_uri = match global_config_path == Some(path) {
+      true => None,
+      false => get_config_file_dir(&self.environment, path).and_then(|dir_path| self.editor_uri(dir_path)),
+    };
+    self.editor_uri(path).map(|uri| ConfigFileIdentifier { uri, dir_uri })
   }
 
   /// Gets the config file a denial is for as the editor knows it now, which
@@ -2403,9 +2440,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         get_config_diagnostics(config_text.as_deref(), scope.global_config_diagnostics(), &plugin_diagnostics),
       );
     }
+    // one that may not be read now isn't offered to be opened (see `publish_config_diagnostics`)
     let actions = scope
       .config
       .as_ref()
+      .filter(|config| config.file_path().is_none_or(|path| self.allows_reading_path(path)))
       .and_then(|config| self.editor_config_file_uri(ConfigFileRef::of_config(config)))
       .map(|uri| vec![open_config_file_action(&uri)])
       .unwrap_or_default();
@@ -2677,6 +2716,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Publishes the problems with the config file when they're different from
   /// the ones that were published before.
   fn publish_config_diagnostics(&self, config_file: ConfigFileRef<'_>, diagnostics: Vec<ConfigDiagnostic>) {
+    // IMPORTANT: One that may not be read now (ex. a `git pull` replaced it with a symlink to a share after it was
+    // resolved) has its problems taken back instead, because the editor would open it from them.
+    if config_file.file_path.is_some_and(|path| !self.allows_reading_path(path)) {
+      if let Some(file_path) = config_file.file_path {
+        self.clear_config_diagnostics(file_path);
+      }
+      return;
+    }
     if let (Some(uri), Some(editor_uri)) = (config_file.uri(), self.editor_config_file_uri(config_file)) {
       self.publish_diagnostics(&uri, editor_uri, diagnostics);
     }
@@ -2694,29 +2741,38 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
-  /// Moves the problems that were published to the editor's uris in the
-  /// directory to the editor's uris of their config files now (see
-  /// `editor_path`).
-  fn move_diagnostics_under(&self, editor_dir: &Path) {
-    let moved = self
-      .published_diagnostics
-      .borrow()
-      .iter()
-      .filter(|(_, (editor_uri, _))| uri_to_file_path(editor_uri).is_some_and(|path| path.starts_with(editor_dir)))
-      .map(|(uri, (_, diagnostics))| (uri.clone(), diagnostics.clone()))
-      .collect::<Vec<_>>();
-    for (uri_text, diagnostics) in moved {
-      let uri = uri_text.parse::<Uri>().ok();
-      let new_editor_uri = uri.as_ref().and_then(uri_to_file_path).and_then(|file_path| self.editor_uri(&file_path));
-      match (uri, new_editor_uri) {
-        // this takes back the ones published to the previous uri
-        (Some(uri), Some(new_editor_uri)) => self.publish_diagnostics(&uri, new_editor_uri, diagnostics),
-        _ => {
-          let previous = self.published_diagnostics.borrow_mut().remove(&uri_text);
-          if let Some((editor_uri, _)) = previous {
-            self.client.publish_diagnostics(editor_uri, Vec::new());
-          }
-        }
+  /// Takes back the problems that were published to the editor's uris in the
+  /// directory of an alias that isn't one anymore (see `editor_path`), and
+  /// tells an editor extension that their config files changed, so it gets
+  /// their results again.
+  ///
+  /// IMPORTANT: They aren't published to another uri now, because what that
+  /// leads to isn't known until the config file is resolved again (ex. it may
+  /// be on another machine now too), which publishes them again.
+  fn take_back_diagnostics_under(&self, editor_dir: &Path) {
+    let taken_back = {
+      let mut published_diagnostics = self.published_diagnostics.borrow_mut();
+      let keys = published_diagnostics
+        .iter()
+        .filter(|(_, (editor_uri, _))| uri_to_file_path(editor_uri).is_some_and(|path| path.starts_with(editor_dir)))
+        .map(|(uri, _)| uri.clone())
+        .collect::<Vec<_>>();
+      keys
+        .into_iter()
+        .filter_map(|uri| Some((uri.clone(), published_diagnostics.remove(&uri)?.0)))
+        .collect::<Vec<_>>()
+    };
+    for (uri, editor_uri) in taken_back {
+      self.client.publish_diagnostics(editor_uri.clone(), Vec::new());
+      // they're published again when it's resolved next
+      if let Some(file_path) = uri.parse::<Uri>().ok().as_ref().and_then(uri_to_file_path) {
+        let is_config_file = |key: &String| key.split('\n').next().is_some_and(|source| Path::new(source) == file_path);
+        self.checked_scopes.borrow_mut().retain(|key, _| !is_config_file(key));
+      }
+      if let Some(editor_path) = uri_to_file_path(&editor_uri)
+        && let Some(dir_uri) = get_config_file_dir(&self.environment, &editor_path).and_then(file_path_to_uri)
+      {
+        self.send_config_changed(new_identified_config_changed(editor_uri, dir_uri, ConfigChange::Changed));
       }
     }
   }
@@ -2890,6 +2946,31 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .chain(dependencies.iter().map(|path| path.as_path()))
       .filter_map(|path| self.get_watch_uri(path))
       .collect()
+  }
+
+  /// Gets the uris to watch of a config file that doesn't exist, which are
+  /// what it points to when it's a dangling symlink, so its being created
+  /// again is reported. That's what it was resolved from the last time it
+  /// resolved when this server resolved it before.
+  fn get_dangling_symlink_watch_uris(&self, file_path: &Path) -> Vec<Uri> {
+    let file_path = self.canonicalize_config_file_path(file_path.to_path_buf());
+    let dependencies = file_path_to_uri(&file_path).and_then(|uri| self.config_dependencies.borrow().get(uri.as_str()).cloned());
+    if let Some(dependencies) = dependencies {
+      return self.get_dependencies_watch_uris(&dependencies);
+    }
+    // reading the link doesn't follow it, and its directory was checked when it was looked up
+    let Some(dir_path) = file_path.parent().filter(|dir_path| self.allows_reading_path(dir_path)) else {
+      return Vec::new();
+    };
+    let target = match self.environment.read_link(&file_path) {
+      Ok(target) => self.canonicalize_editor_path(dir_path.join(target)),
+      // what a path that doesn't exist canonicalizes to otherwise (ex. a symlink that canonicalizing resolves)
+      Err(_) => self.canonicalize_editor_path(file_path.clone()),
+    };
+    match target != file_path {
+      true => self.get_watch_uri(&target).into_iter().collect(),
+      false => Vec::new(),
+    }
   }
 
   /// Gets the uris to watch of what a config file was resolved from the last
@@ -3235,6 +3316,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// which isn't resolved again.
   fn forget_config_file(&self, file_path: &Path) {
     let is_config_file = |key: &String| key.split('\n').next().is_some_and(|source| Path::new(source) == file_path);
+    // a task that resolved it before doesn't publish its problems (see `check_config_diagnostics`)
+    self.checked_scopes.borrow_mut().retain(|key, _| !is_config_file(key));
     self.used_configs.borrow_mut().retain(|key, _| !is_config_file(key));
     self.resolved_configs.borrow_mut().retain(|key, _| !is_config_file(key));
     self.failed_configs.borrow_mut().retain(|key| !is_config_file(key));
@@ -3335,8 +3418,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       dir_uri: self.editor_uri(&config_file.dir_path(&self.environment)?)?,
       kind: self.get_config_file_kind(is_global),
       in_workspace: !is_global && config_file.file_path.is_some_and(|path| self.is_in_workspace(path)),
-      // it's been read, so reading it was allowed when it's on another machine
-      on_another_machine: false,
+      // IMPORTANT: It's been read, but it may be on another machine since (ex. a `git pull` replaced it with a
+      // symlink to a share while a format was in progress), which is checked without following it.
+      on_another_machine: !is_global && config_file.file_path.is_some_and(|path| !self.allows_reading_path(path)),
     })
   }
 
@@ -3357,40 +3441,62 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// file than the one dprint read.
   fn editor_path(&self, path: &Path) -> PathBuf {
     while let Some((canonical_dir, editor_dir)) = self.editor_paths.get_alias(path) {
-      if self.checked_editor_dirs.borrow().contains(&canonical_dir) {
+      if self.check_editor_dir(&canonical_dir, &editor_dir) {
         break;
       }
-      // IMPORTANT: It's checked before it's canonicalized, relative to the directory it was an alias of, so
-      // one that leads to the share of that directory is still an alias (ex. a workspace folder that's a
-      // symlink to a share), while one that leads to another machine isn't, and isn't followed.
-      let is_alias = self
-        .environment
-        .download_policy()
-        .ensure_allows_path(&self.environment, &editor_dir, Some(&canonical_dir))
-        .is_ok()
-        && self
-          .environment
-          .canonicalize_maybe_not_exists(&editor_dir)
-          .is_ok_and(|dir| dir.as_ref() == canonical_dir);
-      if is_alias {
-        self.checked_editor_dirs.borrow_mut().insert(canonical_dir);
-        break;
-      }
-      self.editor_paths.remove(&canonical_dir);
-      // IMPORTANT: The problems published through it are moved to the paths the editor knows them by now (ex. the
-      // canonical path), because the editor would open that path from them, which leads somewhere else now (ex.
-      // another machine).
-      self.move_diagnostics_under(&editor_dir);
     }
     self.editor_paths.get(path)
+  }
+
+  /// Checks that the editor's path of the canonical directory is still an
+  /// alias of it (see `editor_path`), which is only done once for each task.
+  /// It's forgotten when it isn't.
+  fn check_editor_dir(&self, canonical_dir: &Path, editor_dir: &Path) -> bool {
+    if self.checked_editor_dirs.borrow().contains(canonical_dir) {
+      return true;
+    }
+    // IMPORTANT: It's checked before it's canonicalized, relative to the directory it was an alias of, so one that
+    // leads to the share of that directory is still an alias (ex. a workspace folder that's a symlink to a share),
+    // while one that leads to another machine isn't, and isn't followed.
+    let is_alias = self
+      .environment
+      .download_policy()
+      .ensure_allows_path(&self.environment, editor_dir, Some(canonical_dir))
+      .is_ok()
+      && self
+        .environment
+        .canonicalize_maybe_not_exists(editor_dir)
+        .is_ok_and(|dir| dir.as_ref() == canonical_dir);
+    if is_alias {
+      self.checked_editor_dirs.borrow_mut().insert(canonical_dir.to_path_buf());
+    } else {
+      self.editor_paths.remove(canonical_dir);
+      self.take_back_diagnostics_under(editor_dir);
+    }
+    is_alias
   }
 
   /// Has the aliases of `editor_paths` checked again before they're used next
   /// (see `editor_path`), which is done at the start of each task of the
   /// language server (ex. a request) and of each one of the workspace's own
   /// that provides paths, so they're checked once for it.
+  ///
+  /// The ones that problems were published through are checked now, because
+  /// the editor may only use paths through them, which don't lead to them
+  /// (see `take_back_diagnostics_under`).
   pub fn check_editor_dirs_again(&self) {
     self.checked_editor_dirs.borrow_mut().clear();
+    let editor_paths = self
+      .published_diagnostics
+      .borrow()
+      .values()
+      .filter_map(|(editor_uri, _)| uri_to_file_path(editor_uri))
+      .collect::<Vec<_>>();
+    for editor_path in editor_paths {
+      if let Some((canonical_dir, editor_dir)) = self.editor_paths.get_alias_of_editor_path(&editor_path) {
+        self.check_editor_dir(&canonical_dir, &editor_dir);
+      }
+    }
   }
 
   /// Gets the uri of a config file as the editor knows it.
@@ -3872,7 +3978,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       dirs = (editor_dir.parent(), canonical_dir.parent());
     }
     if let Some((editor_dir, canonical_dir)) = alias {
-      self.editor_paths.add(editor_dir, canonical_dir);
+      // an editor's path that was an alias of another directory names another file now
+      for replaced_editor_dir in self.editor_paths.add(editor_dir, canonical_dir) {
+        self.take_back_diagnostics_under(&replaced_editor_dir);
+      }
       // it was found to be an alias by following it, which only happens when that's allowed
       self.checked_editor_dirs.borrow_mut().insert(canonical_dir.to_path_buf());
     }

@@ -854,8 +854,11 @@ pub struct DecisionsResult {
 pub struct Decision {
   pub kind: ApprovalKind,
   /// The config file it's for, which is `None` for a download that's allowed
-  /// for every config file. It doesn't have a `dir_uri` when it's for each
-  /// directory the config file is used for (ex. the global config file).
+  /// for every config file, and for a process plugin decision whose config
+  /// file isn't a path or url this version can make a uri of (ex. one stored
+  /// on another operating system). A decision without one can't be forgotten
+  /// on its own. It doesn't have a `dir_uri` when it's for each directory the
+  /// config file is used for (ex. the global config file).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file: Option<ConfigFileIdentifier>,
   /// The urls, paths, or specifiers it's for like the `specifier`s of an
@@ -972,10 +975,12 @@ pub struct ConfigInfoResult {
   /// match and only `dprint/fileInfo` says.
   pub other_files: Vec<OtherFiles>,
   /// The local files that the config file was resolved from (ex. a config
-  /// file it extends), and what it points to when it's a local config file
-  /// that's a symlink (or is in a `.config` directory that's one), because the
-  /// editor's watcher of the config files doesn't report a change there. The
-  /// editor watches them too by their directories. Each is the editor's path
+  /// file it extends), and the canonical path of a local config file when the
+  /// editor's watcher of the config files doesn't report a change there, which
+  /// is when it's a symlink (or is in a `.config` directory that's one), when
+  /// its names are in another case on disk, and when it's reached through a
+  /// directory that's a symlink the editor doesn't watch through. The editor
+  /// watches them too by their directories. Each is the editor's path
   /// when that's through a workspace folder or one of its ancestors that it
   /// knows by another path, and the canonical path otherwise, because the
   /// editor doesn't watch through another symlink. A file whose directory may
@@ -1071,8 +1076,10 @@ pub struct ConfigFileInfo {
   /// yet, so the editor doesn't open or read it, which would reach the other
   /// machine. Its directory is watched like any other, which is never when
   /// it's a symlink that isn't a workspace folder or one of its ancestors (see
-  /// "Lifecycle" in the editor extension docs).
-  /// `dprint/configChanged` is sent once it's allowed.
+  /// "Lifecycle" in the editor extension docs). `dprint/configChanged` is sent
+  /// once it's allowed, and when a config file becomes one on another machine
+  /// (ex. a `git pull` replaced it with a symlink to a share), when its
+  /// diagnostics are taken back.
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub on_another_machine: bool,
 }

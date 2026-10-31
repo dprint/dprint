@@ -1988,7 +1988,7 @@ fn take_back_diagnostics_of_config_file_on_another_machine(environment: &TestEnv
 }
 
 #[test]
-fn should_move_the_diagnostics_published_through_a_directory_symlink_that_points_elsewhere_now() {
+fn should_take_back_the_diagnostics_published_through_a_directory_symlink_that_points_elsewhere_now() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
     .with_local_config("/repo/libs/pkg/dprint.json", |c| {
@@ -2022,7 +2022,8 @@ fn should_move_the_diagnostics_published_through_a_directory_symlink_that_points
         let last = diagnostics.last().unwrap();
         assert_eq!(last.0, uri("/repo/pkg/dprint.json"));
         assert_eq!(last.1.len(), 2);
-        // it points somewhere else now, so the config file's problems are where the editor knows it now
+        // it points somewhere else now, so the problems are taken back and published again where the editor knows
+        // the config file now
         environment.remove_canonical_path("/repo/pkg");
         environment.add_canonical_path("/repo/pkg", "/repo/other");
         client.file_info("/repo/libs/pkg/file.txt").await;
@@ -2031,6 +2032,98 @@ fn should_move_the_diagnostics_published_through_a_directory_symlink_that_points
         assert_eq!(diagnostics[0], (uri("/repo/pkg/dprint.json"), Vec::new()));
         assert_eq!(diagnostics[1].0, uri("/repo/libs/pkg/dprint.json"));
         assert_eq!(diagnostics[1].1.len(), 2);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_take_back_the_diagnostics_published_through_an_alias_that_is_only_used_by_its_path_after_it_points_elsewhere() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/repo/libs/pkg/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+    })
+    .initialize()
+    .build();
+  environment.add_canonical_symlink("/repo/pkg", "/repo/libs/pkg");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.file_info("/repo/pkg/file.txt").await;
+        let text = environment.read_file("/repo/libs/pkg/dprint.json").unwrap();
+        environment
+          .write_file("/repo/libs/pkg/dprint.json", &text.replacen('{', r#"{ "otherUnknownProperty": 1, "#, 1))
+          .unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/repo/libs/pkg/dprint.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        client.wait_for_config_changes().await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.last().unwrap().0, uri("/repo/pkg/dprint.json"));
+        // it points somewhere else now, and the editor only uses paths through it
+        environment.remove_canonical_path("/repo/pkg");
+        environment.add_canonical_path("/repo/pkg", "/repo/other");
+        client.file_info("/repo/pkg/file.txt").await;
+        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(diagnostics.first(), Some(&(uri("/repo/pkg/dprint.json"), Vec::new())), "{:?}", diagnostics);
+        // and an editor extension is told its config file changed, so it gets its result again
+        assert!(client.take_config_changes().contains(&uri("/repo/pkg/dprint.json")));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_watch_what_a_config_file_that_is_a_dangling_symlink_points_to_without_resolving_it_before() {
+  let environment = TestEnvironmentBuilder::new().add_remote_wasm_plugin().build();
+  environment.mk_dir_all("/a").unwrap();
+  environment.mk_dir_all("/shared").unwrap();
+  // ex. a symlink, whose target was deleted while the editor was closed
+  environment.add_canonical_path("/a/dprint.json", "/shared/base.json");
+  run_session(&environment, |client| {
+    async move {
+      let config_info = client.config_info("/a/dprint.json").await;
+      assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ConfigFileMissing));
+      assert_eq!(config_info.watch_uris, vec![uri("/shared/base.json")]);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_answer_with_a_config_file_that_is_on_another_machine_after_formatting() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(client.file_info("/a/file.txt").await.status, FormatStatus::ready());
+        // ex. a `git pull` replaced it with a symlink to a share after it was resolved, which isn't reported yet
+        environment.remove_file("/a/dprint.json").unwrap();
+        environment.symlink(network_path("dprint.json"), "/a/dprint.json").unwrap();
+        let config_file = client
+          .backend
+          .dprint_format(client.format_params("/a/file.txt", "text"), CancellationToken::new())
+          .await
+          .unwrap()
+          .config_file;
+        assert!(config_file.is_none_or(|config_file| config_file.on_another_machine));
+        client.test_client.take_messages();
       }
       .boxed_local()
     }
@@ -2092,6 +2185,55 @@ fn should_take_back_the_diagnostics_of_a_config_file_that_is_on_another_machine_
           .await;
         assert_eq!(client.wait_for_published_diagnostics().await, vec![(uri("/a/dprint.json"), Vec::new())]);
         client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_forget_a_decision_by_the_config_file_it_is_listed_with_after_the_project_moved() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/home/u/code/proj/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  // the project was moved, and its old path is a symlink to it
+  environment.add_canonical_symlink("/home/u/proj", "/home/u/code/proj");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // ex. stored by running `dprint fmt` before it was moved
+        let decision = crate::configuration::ProcessPluginDecision::new(
+          &environment,
+          crate::configuration::ProcessPluginApproval {
+            config_file: Path::new("/home/u/proj").join("dprint.json").display().to_string(),
+            plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
+            config_hash: Some("1:hash".to_string()),
+            config_key: None,
+          },
+          true,
+          &[],
+        );
+        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
+        let decisions = client.decisions().await;
+        let listed = decisions.iter().find(|decision| decision.always).unwrap().config_file.clone().unwrap();
+        assert_eq!(listed.uri, uri("/home/u/proj/dprint.json"));
+        // which is forgotten by what it's listed with, though that's another path of the config file now
+        let params = ForgetDecisionsParams {
+          config_file: Some(listed),
+          work_done_token: None,
+        };
+        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+        assert_eq!(forgotten.decisions.len(), 1);
+        assert!(
+          crate::configuration::read_editor_approvals(&environment)
+            .unwrap()
+            .process_plugin_decisions
+            .is_empty()
+        );
       }
       .boxed_local()
     }

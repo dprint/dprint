@@ -152,21 +152,31 @@ pub struct EditorState {
 ///   `Decisions` (ex. `processPluginDecisions`), and each one is an object with
 ///   a top-level `configFile` string in the form of `PathSource::display` (ex.
 ///   `/home/user/project/dprint.json`), so that a version that doesn't know
-///   their format can forget them.
-/// - IMPORTANT: How the `configFile` of a local config file is made is part of
-///   the format. It's the canonical path of the directory it's used for joined
-///   with the names dprint looked up (ex. `.config/dprint.json`), which is the
-///   path it was found at when that isn't its canonical path (ex. a symlink, or
-///   those names in another case on disk, see `get_config_file_found_path`). A
-///   version that changes how it's made stores a denial under each older form
-///   it can make too, and removes the allows under them when it stores a
-///   denial or forgets, like what's stored with another config hash version
-///   (see `PROCESS_PLUGIN_CONFIG_HASH_VERSION`), and it forgets a decision by
-///   the `configFile` text it lists for it too. Forgetting the decisions of config files
+///   their format can forget them. Forgetting the decisions of config files
 ///   removes the ones with their `configFile` from each of those arrays, and
 ///   forgetting every decision empties each of them, including the decisions
 ///   in a format it doesn't know. The other top-level properties don't have
 ///   decisions.
+/// - IMPORTANT: How a decision's `configFile` and `plugin` texts are made is
+///   part of the format, because a decision is only replaced by one with the
+///   same texts:
+///   - A local config file is the canonical path of the directory it's used for
+///     joined with the names dprint looked up (ex. `.config/dprint.json`, or the
+///     file's own name when it was given with `--config`), which is the path it
+///     was found at when that isn't its canonical path (ex. a symlink, or those
+///     names in another case on disk, see `get_config_file_found_path`). The
+///     canonical path is the one `dunce::canonicalize` makes, which keeps `\\?\`
+///     on Windows when it can't be left out (ex. a path that's too long, or a
+///     share is `\\?\UNC\...`).
+///   - A remote config file is its url as `Url::to_string` makes it, and an npm
+///     one is its specifier (see `NpmSpecifier::display`).
+///   - A plugin is `PluginSourceReference::to_full_string`.
+///
+///   A version that changes how any of them is made stores a denial under each
+///   older form it can make too, and removes the allows under them when it
+///   stores a denial or forgets, like what's stored with another config hash
+///   version (see `PROCESS_PLUGIN_CONFIG_HASH_VERSION`). Every version forgets
+///   a decision by the `configFile` that `dprint/decisions` lists for it too.
 #[derive(Debug, Default)]
 pub struct EditorApprovals {
   /// The decisions with the most recent last, which leaves out the ones in a

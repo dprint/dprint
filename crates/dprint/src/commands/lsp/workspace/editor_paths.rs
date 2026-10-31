@@ -15,11 +15,33 @@ pub struct EditorPaths {
 impl EditorPaths {
   /// Remembers the editor's path of a canonical directory, which is an alias
   /// of it (ex. a symlink to it), and replaces the one remembered for it and
-  /// the directory the editor's path was an alias of before.
-  pub fn add(&self, editor_dir: &Path, canonical_dir: &Path) {
+  /// the directory the editor's path was an alias of before, whose editor's
+  /// paths are provided (ex. `[editor_dir]` when it was an alias of another
+  /// directory).
+  pub fn add(&self, editor_dir: &Path, canonical_dir: &Path) -> Vec<PathBuf> {
     let mut dirs = self.dirs.borrow_mut();
-    dirs.retain(|(dir, dir_editor_path)| dir != canonical_dir && dir_editor_path != editor_dir);
+    let mut replaced = Vec::new();
+    dirs.retain(|(dir, dir_editor_path)| {
+      let is_replaced = dir == canonical_dir || dir_editor_path == editor_dir;
+      if is_replaced && (dir != canonical_dir || dir_editor_path != editor_dir) {
+        replaced.push(dir_editor_path.clone());
+      }
+      !is_replaced
+    });
     dirs.push((canonical_dir.to_path_buf(), editor_dir.to_path_buf()));
+    replaced
+  }
+
+  /// Gets the alias whose editor's path the path is in, which is a canonical
+  /// directory with the editor's path of it.
+  pub fn get_alias_of_editor_path(&self, editor_path: &Path) -> Option<(PathBuf, PathBuf)> {
+    self
+      .dirs
+      .borrow()
+      .iter()
+      .filter(|(_, editor_dir)| editor_path.starts_with(editor_dir))
+      .max_by_key(|(_, editor_dir)| editor_dir.components().count())
+      .cloned()
   }
 
   /// Gets the editor's path of the canonical path, which is the canonical path
