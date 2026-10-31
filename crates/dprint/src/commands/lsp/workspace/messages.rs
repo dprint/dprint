@@ -719,10 +719,15 @@ pub struct ApproveResult {
   /// same config file (ex. it couldn't be stored).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notice: Option<Notice>,
+  /// The `decision_group` of each decision to always use that this stored in
+  /// the approvals file. It may be of a decision made before this one for the
+  /// same config file (ex. an "Always Allow" for process plugins that weren't
+  /// set up is stored once this sets them up).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stored_decision_groups: Vec<String>,
   /// The `decision_group` of each decision to always use that couldn't be
   /// stored, which is only used for the session. It may be of a decision made
-  /// before this one for the same config file (ex. an "Always Allow" for
-  /// process plugins that weren't set up is stored once this sets them up).
+  /// before this one for the same config file like `stored_decision_groups`.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub unstored_decision_groups: Vec<String>,
 }
@@ -1244,6 +1249,7 @@ mod test {
           status: FormatStatus::ready(),
         },
         notice: None,
+        stored_decision_groups: Vec::new(),
         unstored_decision_groups: Vec::new(),
       })
       .unwrap(),

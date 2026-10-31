@@ -62,6 +62,7 @@ use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::ConfigFileOnAnotherMachineError;
 use crate::configuration::ConfigMapValue;
 use crate::configuration::NewerApprovalsFileError;
+use crate::configuration::ProcessPluginStoreResult;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
@@ -1342,7 +1343,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   ///
   /// It's with what to tell the user about the decision (ex. it couldn't be
   /// stored), and the decision groups of the decisions to always use that
-  /// couldn't be stored, which may be of a decision made before.
+  /// were stored and that couldn't be, which may be of a decision made
+  /// before (ex. an "Always Allow" for process plugins that weren't set up
+  /// is stored once this sets them up).
   pub async fn approve(self: &Rc<Self>, id: &str, decision: ApprovalDecision) -> Result<ApproveResult> {
     let stored = self.approvals.borrow().values().flatten().find(|stored| stored.approval.id == id).cloned();
     let Some(stored) = stored else {
@@ -1371,10 +1374,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if !stored.approval.decisions.iter().any(|option| option.decision == decision) {
       return Err(InvalidParamsError(format!("The decision {:?} isn't one of the approval's decisions.", decision)).into());
     }
-    // a failure to store a decision for process plugins is only told about
-    // when what this allows sets them up (ex. not one from a while ago)
-    let store_error_mark = self.session_permissions.process_plugin_store_error_mark();
+    // storing a decision for process plugins once they're set up is only told about
+    // when what this allows sets them up (ex. not when it was a while ago)
+    let store_mark = self.session_permissions.process_plugin_store_mark();
     let mut notice = None;
+    let mut stored_decision_groups = Vec::new();
     let mut unstored_decision_groups = Vec::new();
     match &stored.subject {
       ApprovalSubject::Downloads(urls) => {
@@ -1401,11 +1405,16 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
       ApprovalSubject::ProcessPlugins(unapproved) => {
         let title = get_process_plugin_action_title(decision);
-        if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, Some(title)).await {
-          let message = get_process_plugin_store_error_message(&err);
-          log_warn!(self.environment, "{}", message);
-          notice = Some(new_warning_notice(message));
-          unstored_decision_groups.push(stored.approval.decision_group.clone());
+        match store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, Some(title)).await {
+          Ok(true) => stored_decision_groups.push(stored.approval.decision_group.clone()),
+          // it's only for the session, or it's stored once the plugins are set up
+          Ok(false) => {}
+          Err(err) => {
+            let message = get_process_plugin_store_error_message(&err);
+            log_warn!(self.environment, "{}", message);
+            notice = Some(new_warning_notice(message));
+            unstored_decision_groups.push(stored.approval.decision_group.clone());
+          }
         }
       }
     }
@@ -1416,15 +1425,21 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let config = self.resolve_approval_target(target).await;
     // what the user always allowed for a process plugin that wasn't set up is stored once it's set up,
     // which is usually while resolving it here (ex. after allowing it or what it needed downloaded)
-    if notice.is_none()
-      && let Ok(DocumentConfig::Resolved(scope)) = &config
+    if let Ok(DocumentConfig::Resolved(scope)) = &config
       && let Some(config) = &scope.config
-      && let Some(message) = self
-        .session_permissions
-        .take_process_plugin_store_error(&config.source.display(), store_error_mark)
+      && let Some(result) = self.session_permissions.take_process_plugin_store_result(&config.source.display(), store_mark)
     {
-      notice = Some(new_warning_notice(message));
-      unstored_decision_groups.push(get_process_plugins_decision_group(&get_config_key(config)));
+      let decision_group = get_process_plugins_decision_group(&get_config_key(config));
+      // the result of storing this approval's decision is the one for its group
+      if !stored_decision_groups.contains(&decision_group) && !unstored_decision_groups.contains(&decision_group) {
+        match result {
+          ProcessPluginStoreResult::Stored => stored_decision_groups.push(decision_group),
+          ProcessPluginStoreResult::Failed(message) => {
+            notice = Some(new_warning_notice(message));
+            unstored_decision_groups.push(decision_group);
+          }
+        }
+      }
     }
     let is_download_pending = match &config {
       Ok(DocumentConfig::Resolved(scope)) => !scope.untrusted_downloads.is_empty(),
@@ -1472,6 +1487,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         status,
       },
       notice,
+      stored_decision_groups,
       unstored_decision_groups,
     })
   }

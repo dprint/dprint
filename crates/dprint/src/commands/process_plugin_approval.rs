@@ -32,23 +32,29 @@ pub const PROCESS_PLUGIN_ACTION_TITLES: [&str; 4] = [ALLOW_ACTION_TITLE, ALWAYS_
 /// `record_set_up_process_plugins`). Denying a plugin denies it with any
 /// configuration so that changing it doesn't ask the user again.
 ///
-/// The decision is used for the session even when storing it fails.
+/// It's whether the decision is stored in the approvals file now, which it
+/// isn't when it's only for the session or when a plugin it allows isn't set
+/// up yet (it's stored once they're set up then). The decision is used for
+/// the session even when storing it fails, and a plugin it allows that isn't
+/// set up is then only allowed for the session too, so that the decision
+/// isn't partly stored later.
 pub async fn store_process_plugin_action<TEnvironment: Environment>(
   environment: &TEnvironment,
   session_permissions: &SessionPermissions,
   unapproved: &UnapprovedProcessPlugins,
   action_title: Option<&str>,
-) -> Result<()> {
+) -> Result<bool> {
   let allowed = match action_title {
     Some(ALLOW_ACTION_TITLE | ALWAYS_ALLOW_ACTION_TITLE) => true,
     Some(DENY_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE) => false,
     // the editor responded with an action that wasn't offered
-    Some(_) | None => return Ok(()),
+    Some(_) | None => return Ok(false),
   };
   let always = matches!(action_title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE));
   // what the user decided now is more recent than what they decided before
   let decisions = session_permissions.read(environment).process_plugin_decisions;
   let mut result = Ok(());
+  let mut not_set_up = Vec::new();
   for plugin in &unapproved.plugins {
     let approval = match &plugin.approval {
       _ if !allowed => {
@@ -58,15 +64,7 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
       }
       Some(approval) => approval.clone(),
       None => {
-        session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant::new(
-          environment,
-          unapproved.config_file.clone(),
-          plugin.plugin.clone(),
-          unapproved.trusted_config_hash.clone(),
-          plugin.unpinned_file_checksum.clone(),
-          always,
-          &decisions,
-        ));
+        not_set_up.push(plugin);
         continue;
       }
     };
@@ -75,19 +73,35 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
       result = Err(err);
     }
   }
-  result
+  // the decision is only used for the session once storing it failed
+  let always = always && result.is_ok();
+  for plugin in &not_set_up {
+    session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant::new(
+      environment,
+      unapproved.config_file.clone(),
+      plugin.plugin.clone(),
+      unapproved.trusted_config_hash.clone(),
+      plugin.unpinned_file_checksum.clone(),
+      always,
+      &decisions,
+    ));
+  }
+  result.map(|()| always && not_set_up.is_empty())
 }
 
 /// Allows the process plugins that the user allowed setting up with their
 /// configuration now that they're set up and it's known, which is remembered
 /// when the user chose to always allow them.
+///
+/// It's whether what the user always allowed was stored in the approvals file.
 pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
   environment: &TEnvironment,
   session_permissions: &SessionPermissions,
   config: &ResolvedConfig,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<()> {
+) -> Result<bool> {
   let mut result = Ok(());
+  let mut stored = false;
   let trusted_config_hash = get_trusted_config_hash(config);
   let permissions = session_permissions.read(environment);
   for (plugin, approval) in get_process_plugin_approvals(config, plugin_resolver, environment) {
@@ -115,11 +129,12 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
       allowed: true,
       decided_at: grant.decided_at,
     };
-    if let Err(err) = add_process_plugin_decision(environment, session_permissions, decision, grant.always).await {
-      result = Err(err);
+    match add_process_plugin_decision(environment, session_permissions, decision, grant.always).await {
+      Ok(()) => stored |= grant.always,
+      Err(err) => result = Err(err),
     }
   }
-  result
+  result.map(|()| stored)
 }
 
 /// Allows the editors to run the process plugins of the config file with its
@@ -322,12 +337,13 @@ mod test {
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
-      store_process_plugin_action(&environment, &session_permissions, &unapproved(None), Some(ALWAYS_ALLOW_ACTION_TITLE))
+      let is_stored = store_process_plugin_action(&environment, &session_permissions, &unapproved(None), Some(ALWAYS_ALLOW_ACTION_TITLE))
         .await
         .unwrap();
       let permissions = session_permissions.read(&environment);
       assert!(permissions.may_set_up_process_plugin("/dprint.json", PLUGIN, "hash", None));
       // its configuration isn't known yet, so nothing is stored
+      assert!(!is_stored);
       assert!(!permissions.is_process_plugin_allowed(&approval()));
       assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
     });
@@ -387,7 +403,7 @@ mod test {
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
-      store_process_plugin_action(
+      let is_stored = store_process_plugin_action(
         &environment,
         &session_permissions,
         &unapproved(Some(approval())),
@@ -395,6 +411,7 @@ mod test {
       )
       .await
       .unwrap();
+      assert!(is_stored);
       // changing its configuration doesn't ask the user again
       let other_config = ProcessPluginApproval {
         config_hash: Some("1:b".to_string()),
@@ -475,6 +492,35 @@ mod test {
       let messages = environment.take_stderr_messages();
       assert_eq!(messages.len(), 1);
       assert!(messages[0].starts_with("Asking to allow process plugins again in editors."), "{}", messages[0]);
+    });
+  }
+
+  #[test]
+  fn should_only_allow_setting_up_a_plugin_for_the_session_when_storing_the_decision_fails() {
+    const OTHER_PLUGIN: &str = "https://plugins.dprint.dev/other.json@checksum";
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    // writing the approvals file fails when it's a directory
+    environment.mk_dir_all(get_editor_approvals_file_path(&environment).unwrap()).unwrap();
+    let session_permissions = SessionPermissions::default();
+
+    environment.clone().run_in_runtime(async move {
+      let mut unapproved = unapproved(Some(approval()));
+      unapproved.plugins.push(UnapprovedProcessPlugin {
+        plugin: OTHER_PLUGIN.to_string(),
+        registry: None,
+        unpinned_file_checksum: None,
+        approval: None,
+      });
+      assert!(
+        store_process_plugin_action(&environment, &session_permissions, &unapproved, Some(ALWAYS_ALLOW_ACTION_TITLE))
+          .await
+          .is_err()
+      );
+      // so the decision isn't partly stored once it's set up
+      let grant = session_permissions.take_process_plugin_set_up_grant("/dprint.json", OTHER_PLUGIN).unwrap();
+      assert!(!grant.always);
+      environment.take_stderr_messages();
     });
   }
 }

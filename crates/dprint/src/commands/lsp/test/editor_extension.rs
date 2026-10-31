@@ -2715,6 +2715,7 @@ fn should_say_when_always_allowing_a_process_plugin_that_is_not_set_up_could_not
         );
         // so the editor keeps it as a decision for the session
         assert_eq!(result.unstored_decision_groups, vec![approval.decision_group.clone()]);
+        assert!(result.stored_decision_groups.is_empty());
         // it's used for the session
         assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
 
@@ -2738,6 +2739,7 @@ fn should_say_when_always_allowing_a_process_plugin_that_is_not_set_up_could_not
           .unwrap();
         assert!(result.notice.is_some());
         assert_eq!(result.unstored_decision_groups, vec![approval.decision_group.clone()]);
+        assert!(result.stored_decision_groups.is_empty());
         assert!(result.config_approvals.approvals[0].denied);
         environment.take_stderr_messages();
       }
@@ -2844,6 +2846,7 @@ fn should_say_when_always_allowing_a_process_plugin_could_not_be_stored_once_wha
         let result = approve(approvals[1].id.clone(), ApprovalDecision::AlwaysAllow).await.unwrap();
         assert!(result.notice.is_none());
         assert!(result.unstored_decision_groups.is_empty());
+        assert!(result.stored_decision_groups.is_empty());
         // allowing the download sets them up, which is what says it
         let result = approve(approvals[0].id.clone(), ApprovalDecision::Allow).await.unwrap();
         assert_eq!(result.config_approvals.status, FormatStatus::ready());
@@ -2855,7 +2858,141 @@ fn should_say_when_always_allowing_a_process_plugin_could_not_be_stored_once_wha
         );
         // with the group of the decision that wasn't stored, which isn't this one's
         assert_eq!(result.unstored_decision_groups, vec![approvals[1].decision_group.clone()]);
+        assert!(result.stored_decision_groups.is_empty());
         environment.take_stderr_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_say_when_an_always_decision_for_process_plugins_was_stored() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .with_local_config("/b/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, |client| {
+    async move {
+      let approve = |id: String, decision: ApprovalDecision| {
+        client.backend.dprint_approve(
+          ApproveParams {
+            id,
+            decision,
+            work_done_token: None,
+          },
+          CancellationToken::new(),
+        )
+      };
+      // a denial is stored right away, so it's in the result of its own approval
+      let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+      let result = approve(approval.id.clone(), ApprovalDecision::AlwaysDeny).await.unwrap();
+      assert!(result.config_approvals.approvals[0].denied);
+      assert!(result.notice.is_none());
+      assert_eq!(result.stored_decision_groups, vec![approval.decision_group.clone()]);
+      assert!(result.unstored_decision_groups.is_empty());
+
+      // and so is allowing process plugins that are set up
+      let approval = client.config_info("/b/dprint.json").await.status.approvals()[0].clone();
+      let result = approve(approval.id.clone(), ApprovalDecision::AlwaysAllow).await.unwrap();
+      assert_eq!(result.config_approvals.status, FormatStatus::ready());
+      assert_eq!(result.stored_decision_groups, vec![approval.decision_group.clone()]);
+      assert!(result.unstored_decision_groups.is_empty());
+
+      // a decision for the session isn't stored
+      let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+      let result = approve(approval.id.clone(), ApprovalDecision::Allow).await.unwrap();
+      assert_eq!(result.config_approvals.status, FormatStatus::ready());
+      assert!(result.stored_decision_groups.is_empty());
+      assert!(result.unstored_decision_groups.is_empty());
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_say_when_always_allowing_a_process_plugin_that_is_not_set_up_was_stored() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build(); // not initialized, so the process plugin is only set up when it's allowed
+  disallow_process_plugins(&environment);
+  run_session(&environment, |client| {
+    async move {
+      let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+      // it's stored once it's set up, which approving it does
+      let result = client
+        .backend
+        .dprint_approve(
+          ApproveParams {
+            id: approval.id.clone(),
+            decision: ApprovalDecision::AlwaysAllow,
+            work_done_token: None,
+          },
+          CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+      assert_eq!(result.config_approvals.status, FormatStatus::ready());
+      assert!(result.notice.is_none());
+      assert_eq!(result.stored_decision_groups, vec![approval.decision_group.clone()]);
+      assert!(result.unstored_decision_groups.is_empty());
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_say_when_always_allowing_a_process_plugin_was_stored_once_what_it_needed_downloaded_is_allowed() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL).add_remote_process_plugin();
+    })
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approve = |id: String, decision: ApprovalDecision| {
+          client.backend.dprint_approve(
+            ApproveParams {
+              id,
+              decision,
+              work_done_token: None,
+            },
+            CancellationToken::new(),
+          )
+        };
+        let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
+        // the process plugins can't be set up until the download is allowed, so nothing is stored yet
+        let result = approve(approvals[1].id.clone(), ApprovalDecision::AlwaysAllow).await.unwrap();
+        assert!(result.stored_decision_groups.is_empty());
+        assert!(result.unstored_decision_groups.is_empty());
+        let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+        assert!(!environment.path_exists(&file_path));
+        // allowing the download sets them up, which stores it
+        let result = approve(approvals[0].id.clone(), ApprovalDecision::Allow).await.unwrap();
+        assert_eq!(result.config_approvals.status, FormatStatus::ready());
+        assert!(result.notice.is_none());
+        // with the group of the decision that was stored, which isn't this one's
+        assert_eq!(result.stored_decision_groups, vec![approvals[1].decision_group.clone()]);
+        assert!(result.unstored_decision_groups.is_empty());
+        assert!(environment.path_exists(&file_path));
       }
       .boxed_local()
     }
@@ -3021,6 +3158,7 @@ fn should_only_use_always_decisions_for_the_session_with_the_approvals_of_a_newe
         assert_eq!(result.notice.unwrap().message, expected_message);
         // so the editor keeps it as a decision for the session
         assert_eq!(result.unstored_decision_groups, vec![approval.decision_group.clone()]);
+        assert!(result.stored_decision_groups.is_empty());
         // it's used for the session
         assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
 
@@ -3036,6 +3174,7 @@ fn should_only_use_always_decisions_for_the_session_with_the_approvals_of_a_newe
         let result = approve(approval.id.clone(), ApprovalDecision::AlwaysDeny).await.unwrap();
         assert_eq!(result.notice.unwrap().message, expected_message);
         assert_eq!(result.unstored_decision_groups, vec![approval.decision_group.clone()]);
+        assert!(result.stored_decision_groups.is_empty());
         assert!(result.config_approvals.approvals[0].denied);
         // and it's not an "Always" decision
         assert_eq!(result.config_approvals.approvals[0].previous_decision, Some(ApprovalDecision::Deny));
