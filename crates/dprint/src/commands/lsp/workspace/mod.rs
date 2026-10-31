@@ -3564,7 +3564,7 @@ fn get_download_group_title(downloads: &[String]) -> &'static str {
   } else if downloads.iter().all(|download| is_path_download(download)) {
     "Read from another machine"
   } else {
-    "Download plugins from domains that aren't trusted"
+    "Download from domains that aren't trusted"
   }
 }
 
@@ -4112,7 +4112,7 @@ mod test {
       vec![
         "Download through a proxy that isn't trusted",
         "Read from another machine",
-        "Download plugins from domains that aren't trusted"
+        "Download from domains that aren't trusted"
       ]
     );
 

@@ -1972,7 +1972,7 @@ fn should_approve_the_proxy_of_a_project_npmrc_on_its_own() {
         assert!(!proxy_approval.message.contains("npm.example.com"), "{}", proxy_approval.message);
         let url_approval = approvals[1].clone();
         assert_eq!(url_approval.kind, ApprovalKind::Downloads);
-        assert_eq!(url_approval.title, "Download plugins from domains that aren't trusted");
+        assert_eq!(url_approval.title, "Download from domains that aren't trusted");
         assert_eq!(url_approval.items.len(), 1);
         assert_eq!(url_approval.items[0].kind, ApprovalItemKind::Plugin);
         let registry_url = url_approval.items[0].specifier.clone();
@@ -2166,6 +2166,8 @@ fn should_approve_what_an_allowed_config_file_extends() {
       let approval = client.format("/file.txt", "text").await.approvals()[0].clone();
       assert_eq!(specifiers(&approval), vec![UNTRUSTED_CONFIG_URL]);
       assert_eq!(approval.items[0].kind, ApprovalItemKind::Config);
+      // the title fits a configuration file as well as a plugin
+      assert_eq!(approval.title, "Download from domains that aren't trusted");
       // allowing it only allows what was shown, so what it extends needs to be approved too
       let approval = client.approve(&approval.id, ApprovalDecision::Allow).await[0].clone();
       assert_eq!(approval.kind, ApprovalKind::Downloads);
