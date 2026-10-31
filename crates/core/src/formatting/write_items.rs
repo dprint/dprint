@@ -5,6 +5,8 @@ use super::StringContainer;
 pub enum WriteItem<'a> {
   String(&'a StringContainer<'a>),
   Indent(u8),
+  /// Columns of spaces after the indentation.
+  Align(u32),
   NewLine,
   Tab,
   Space,
@@ -43,6 +45,7 @@ impl WriteItemsPrinter {
           Indentation::Tabs => text.extend(std::iter::repeat_n('\t', n as usize)),
           Indentation::Spaces(width) => text.extend(std::iter::repeat_n(' ', width * n as usize)),
         },
+        WriteItem::Align(columns) => text.extend(std::iter::repeat_n(' ', columns as usize)),
         WriteItem::NewLine => text.push_str(self.newline),
         WriteItem::Tab => text.push('\t'),
         WriteItem::Space => text.push(' '),

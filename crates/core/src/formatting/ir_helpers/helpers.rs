@@ -49,6 +49,33 @@ pub fn with_indent_times(item: PrintItems<'_>, times: u32) -> PrintItems<'_> {
   items
 }
 
+/// Generates the items with the indentation starting from no indentation
+/// instead of the current indentation.
+pub fn with_reset_indent(item: PrintItems<'_>) -> PrintItems<'_> {
+  if item.is_empty() {
+    return item;
+  }
+
+  let mut items = PrintItems::new(item.arena());
+  items.push_signal(Signal::StartResettingIndent);
+  items.extend(item);
+  items.push_signal(Signal::FinishResettingIndent);
+  items
+}
+
+/// Generates the items aligned by the number of columns of spaces after the indentation.
+pub fn with_align(item: PrintItems<'_>, columns: u8) -> PrintItems<'_> {
+  if item.is_empty() || columns == 0 {
+    return item;
+  }
+
+  let mut items = PrintItems::new(item.arena());
+  items.push_signal(Signal::StartAlign(columns));
+  items.extend(item);
+  items.push_signal(Signal::FinishAlign);
+  items
+}
+
 pub fn with_no_new_lines(item: PrintItems<'_>) -> PrintItems<'_> {
   if item.is_empty() {
     return item;

@@ -99,6 +99,10 @@ export type Signal =
   | "SingleIndent"
   | "StartIgnoringIndent"
   | "FinishIgnoringIndent"
+  | "StartResettingIndent"
+  | "FinishResettingIndent"
+  | { StartAlign: number }
+  | "FinishAlign"
   | "StartForceNoNewLines"
   | "FinishForceNoNewLines"
   | "SpaceIfNotTrailing";

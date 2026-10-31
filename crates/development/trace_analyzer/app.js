@@ -103,7 +103,8 @@ function getNodeHoverText(node) {
     case "rcPath":
       return `RcPath (${node.printNodeId})`;
     case "signal":
-      return `Signal: ${printItem.content} (${node.printNodeId})`;
+      // a signal with data is an object (ex. `{ "StartAlign": 2 }`)
+      return `Signal: ${typeof printItem.content === "string" ? printItem.content : JSON.stringify(printItem.content)} (${node.printNodeId})`;
     case "string":
       return `String: ${printItem.content} (${node.printNodeId})`;
     case "anchor":

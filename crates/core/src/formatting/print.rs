@@ -125,6 +125,42 @@ mod test {
     );
   }
 
+  #[test]
+  fn test_reset_indent() {
+    use super::super::Signal;
+
+    assert_eq!(
+      format(
+        |arena| {
+          let mut items = PrintItems::new(arena);
+          items.push_signal(Signal::StartIndent);
+          items.push_str_runtime_width_computed("a");
+          items.push_signal(Signal::NewLine);
+          items.push_signal(Signal::StartIgnoringIndent);
+          items.push_str_runtime_width_computed("    b");
+          items.push_signal(Signal::FinishIgnoringIndent);
+          // indent relative to the text written as is
+          items.push_signal(Signal::StartResettingIndent);
+          items.push_signal(Signal::StartIndent);
+          items.push_signal(Signal::StartIndent);
+          items.push_signal(Signal::StartIndent);
+          items.push_signal(Signal::NewLine);
+          items.push_str_runtime_width_computed("c");
+          items.push_signal(Signal::FinishIndent);
+          items.push_signal(Signal::FinishIndent);
+          items.push_signal(Signal::FinishIndent);
+          items.push_signal(Signal::FinishResettingIndent);
+          items.push_signal(Signal::NewLine);
+          items.push_str_runtime_width_computed("d");
+          items.push_signal(Signal::FinishIndent);
+          items
+        },
+        get_print_options(),
+      ),
+      "  a\n    b\n      c\n  d"
+    );
+  }
+
   fn get_print_options() -> PrintOptions {
     PrintOptions {
       max_width: 40,
