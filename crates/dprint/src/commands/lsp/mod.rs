@@ -82,6 +82,8 @@ use url::Url;
 use crate::arg_parser::CliArgs;
 use crate::cache::RemoteCacheMode;
 use crate::commands::scope_container::PluginsScopeContainer;
+use crate::configuration::DOT_CONFIG_FILE_NAMES;
+use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
 use crate::configuration::SessionPermissions;
 use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
@@ -189,10 +191,6 @@ const FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatSelectio
 /// this is high enough that it doesn't hold up the others (ex. a format on save
 /// for another config file). Formatting is limited separately.
 const MAX_CONCURRENT_MESSAGES: usize = 64;
-
-/// The names of the config files, which are also found in a `.config` directory
-/// (except for the ones starting with a period).
-const CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
 
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
@@ -1067,6 +1065,10 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     // a client that sent the capability is told which versions the server supports
     // when it doesn't support any of the client's, so it can tell an older dprint apart
     let experimental = has_dprint_capability.then(|| {
+      let config_file_names = |names: &[&str]| match self.has_config_override {
+        true => Vec::new(),
+        false => names.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
+      };
       let capability = match methods_version {
         Some(version) => ServerExperimentalCapability {
           version: Some(version),
@@ -1074,18 +1076,14 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           features: features.clone(),
           files: Some(get_dprint_files(&self.environment)),
           // the config file the server was started with is the only one
-          config_file_globs: Some(match self.has_config_override {
-            true => Vec::new(),
-            false => CONFIG_FILE_NAMES.iter().map(|name| format!("**/{}", name)).collect(),
-          }),
-          config_file_names: Some(match self.has_config_override {
-            true => Vec::new(),
-            false => crate::configuration::POSSIBLE_CONFIG_FILE_NAMES.iter().map(|name| name.to_string()).collect(),
-          }),
-          dot_config_file_names: Some(match self.has_config_override {
-            true => Vec::new(),
-            false => crate::configuration::DOT_CONFIG_FILE_NAMES.iter().map(|name| name.to_string()).collect(),
-          }),
+          config_file_globs: Some(
+            config_file_names(&POSSIBLE_CONFIG_FILE_NAMES)
+              .iter()
+              .map(|name| format!("**/{}", name))
+              .collect(),
+          ),
+          config_file_names: Some(config_file_names(&POSSIBLE_CONFIG_FILE_NAMES)),
+          dot_config_file_names: Some(config_file_names(&DOT_CONFIG_FILE_NAMES)),
           message: None,
         },
         None => ServerExperimentalCapability {
@@ -1788,11 +1786,11 @@ fn get_config_file_watcher_registrations(capabilities: &ClientCapabilities) -> V
 /// file system finds too (ex. `Dprint.json`) and a client's glob doesn't match
 /// otherwise.
 fn get_config_file_glob(is_case_insensitive: bool) -> String {
-  let names = |names: [&str; 2]| match is_case_insensitive {
-    true => names.map(workspace::to_case_insensitive_glob).join(","),
-    false => names.join(","),
-  };
-  format!("**/{{{}}}.{{{}}}", names(["dprint", ".dprint"]), names(["json", "jsonc"]))
+  let names = POSSIBLE_CONFIG_FILE_NAMES.map(|name| match is_case_insensitive {
+    true => workspace::to_case_insensitive_glob(name),
+    false => name.to_string(),
+  });
+  format!("**/{{{}}}", names.join(","))
 }
 
 /// Gets whether the client watches files with a glob relative to a uri,

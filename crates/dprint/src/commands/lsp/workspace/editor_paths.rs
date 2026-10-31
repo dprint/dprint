@@ -10,6 +10,9 @@ pub struct EditorPaths {
   /// The canonical path of each directory with the editor's path of it, which
   /// is the most recent one the editor used.
   dirs: RefCell<Vec<(PathBuf, PathBuf)>>,
+  /// The canonical path of each directory with an editor's path of it that
+  /// another one replaced (ex. another symlink to it), which led to it then.
+  replaced_dirs: RefCell<Vec<(PathBuf, PathBuf)>>,
 }
 
 impl EditorPaths {
@@ -29,7 +32,24 @@ impl EditorPaths {
       dir != canonical_dir && dir_editor_path != editor_dir
     });
     dirs.push((canonical_dir.to_path_buf(), editor_dir.to_path_buf()));
+    let mut replaced_dirs = self.replaced_dirs.borrow_mut();
+    replaced_dirs.retain(|(_, dir_editor_path)| dir_editor_path != editor_dir && Some(dir_editor_path) != replaced.other_editor_dir.as_ref());
+    if let Some(other_editor_dir) = &replaced.other_editor_dir {
+      replaced_dirs.push((canonical_dir.to_path_buf(), other_editor_dir.clone()));
+    }
     replaced
+  }
+
+  /// Gets the editor's paths of directories that another one replaced, which
+  /// are canonical directories with an editor's path of each (see `add`).
+  pub fn replaced_dirs(&self) -> Vec<(PathBuf, PathBuf)> {
+    self.replaced_dirs.borrow().clone()
+  }
+
+  /// Forgets an editor's path of a directory that another one replaced (ex.
+  /// because it doesn't lead to it anymore).
+  pub fn remove_replaced(&self, editor_dir: &Path) {
+    self.replaced_dirs.borrow_mut().retain(|(_, dir_editor_path)| dir_editor_path != editor_dir);
   }
 
   /// Gets the alias whose editor's path the path is in, which is a canonical
@@ -113,6 +133,7 @@ mod test {
         other_editor_dir: Some(PathBuf::from("/link/project")),
       }
     );
+    assert_eq!(paths.replaced_dirs(), vec![(PathBuf::from("/real/project"), PathBuf::from("/link/project"))]);
     assert_eq!(paths.get(Path::new("/real/project/a.ts")), PathBuf::from("/other-link/a.ts"));
     // and an editor's path that's an alias of another directory now isn't one of the one before, which is provided
     assert_eq!(
@@ -125,6 +146,18 @@ mod test {
     assert_eq!(paths.get(Path::new("/real/project/a.ts")), PathBuf::from("/real/project/a.ts"));
     assert_eq!(paths.get(Path::new("/real/moved/a.ts")), PathBuf::from("/other-link/a.ts"));
     paths.remove(Path::new("/real/moved"));
+    // and both at once, when the editor's path led to another directory and the directory had another one
+    paths.add(Path::new("/a"), Path::new("/x"));
+    paths.add(Path::new("/b"), Path::new("/y"));
+    assert_eq!(
+      paths.add(Path::new("/a"), Path::new("/y")),
+      ReplacedEditorPaths {
+        other_canonical_dir: Some(PathBuf::from("/x")),
+        other_editor_dir: Some(PathBuf::from("/b")),
+      }
+    );
+    paths.remove_replaced(Path::new("/b"));
+    assert!(!paths.replaced_dirs().iter().any(|(_, editor_dir)| editor_dir == Path::new("/b")));
     assert_eq!(paths.get(Path::new("/real/moved/a.ts")), PathBuf::from("/real/moved/a.ts"));
   }
 }

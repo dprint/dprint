@@ -99,7 +99,8 @@ pub struct EditorState {
 ///   permanent, because it's never lowered. A change that narrows what an
 ///   allow covers is made to each allow instead (ex. with a new version of its
 ///   `configHash`, which an older reader doesn't use, see `is_used`), so older
-///   versions still use the file. It can't narrow what an older version does without asking (ex.
+///   versions still use the file. It can't narrow what an older version does
+///   without asking (ex.
 ///   downloading from a trusted domain), because a reader that refuses the
 ///   file still trusts the domains of the settings file, so a decision like
 ///   that is an `editor` setting of the settings file instead, which an older
@@ -183,9 +184,10 @@ pub struct EditorState {
 ///   a decision by the `configFile` that `dprint/decisions` lists for it too.
 /// - Every version applies a denial (which is stored for any configuration of
 ///   the plugin, see `ProcessPluginApproval::any_config`) over an allow of the
-///   same `configFile` and `plugin` in a format it doesn't know whatever their
-///   times say, because the version that stored the denial may not have known
-///   that allow, so it couldn't time the denial after it or remove it.
+///   same `configFile` and `plugin` in a format the version that stored the
+///   denial may not know (ex. a newer `configHash` version) whatever their
+///   times say, because that version couldn't time the denial after it or
+///   remove it. A version that stores an allow removes the denials of it.
 #[derive(Debug, Default)]
 pub struct EditorApprovals {
   /// The decisions with the most recent last, which leaves out the ones in a

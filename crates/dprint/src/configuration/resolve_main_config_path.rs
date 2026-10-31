@@ -687,6 +687,17 @@ mod tests {
   }
 
   #[test]
+  fn should_not_change_how_the_global_config_file_is_known() {
+    // IMPORTANT: This is how the global config file is stored in the approvals file (see `EditorApprovals`), which
+    // every version makes the same way.
+    let env = crate::environment::TestEnvironmentBuilder::new().with_global_config(|_| {}).build();
+    let config_file = resolve_global_config_path_and_text(&env).unwrap().unwrap();
+    let global_dir = resolve_global_config_dir(&env).unwrap();
+    assert_eq!(config_file.found_path, None);
+    assert_eq!(config_file.display(), global_dir.join_panic_relative("dprint.json").display().to_string());
+  }
+
+  #[test]
   fn should_get_the_path_a_config_file_was_specified_with() {
     let env = TestEnvironment::new();
     env.mk_dir_all("/project").unwrap();
