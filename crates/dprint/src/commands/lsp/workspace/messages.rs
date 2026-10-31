@@ -1016,6 +1016,10 @@ pub struct ConfigFileInfo {
   /// Whether it's in a workspace folder, which a config file in an ancestor
   /// directory of the workspace folders or the global config file isn't.
   pub in_workspace: bool,
+  /// Whether it was found on another machine and reading it isn't allowed
+  /// yet, so the editor doesn't open it, which would read it from there.
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub on_another_machine: bool,
 }
 
 /// How a config file was chosen.
@@ -1131,6 +1135,7 @@ mod test {
           dir_uri: "file:///".parse().unwrap(),
           kind: ConfigFileKind::Local,
           in_workspace: true,
+          on_another_machine: false,
         },
         items: vec![ApprovalItem {
           specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
@@ -1198,6 +1203,7 @@ mod test {
         dir_uri: "file:///a".parse().unwrap(),
         kind: ConfigFileKind::Local,
         in_workspace: false,
+        on_another_machine: false,
       }),
       plugins: None,
       file_patterns: Vec::new(),

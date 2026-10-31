@@ -2006,6 +2006,10 @@ fn should_approve_reading_a_config_file_on_another_machine() {
       assert_eq!(approval.title, "Read from another machine");
       assert_eq!(approval.config_file.uri, uri("/src/dprint.json"));
       assert_eq!(approval.config_file.dir_uri, uri("/src"));
+      // so the editor doesn't open it before it's allowed, which would read it from the other machine
+      assert!(approval.config_file.on_another_machine);
+      assert!(client.file_info("/src/file.txt").await.config_file.unwrap().on_another_machine);
+      assert!(!client.file_info("/file.txt").await.config_file.unwrap().on_another_machine);
       let specifier = format!(r"{} -> \\server\share\dprint.json", Path::new("/src").join("dprint.json").display());
       assert_eq!(
         approval.items,
@@ -3847,6 +3851,7 @@ fn local_config(path: &str) -> ConfigFileInfo {
     kind: ConfigFileKind::Local,
     // the workspace folder is the root directory
     in_workspace: true,
+    on_another_machine: false,
   }
 }
 

@@ -2207,6 +2207,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         dir_uri,
         kind: self.get_config_file_kind(false),
         in_workspace: self.is_in_workspace(&err.config_path),
+        // IMPORTANT: Opening it before it's allowed reads it from the other machine.
+        on_another_machine: true,
       });
     ConfigFailure {
       config_file,
@@ -2775,6 +2777,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       dir_uri: self.editor_uri(&get_config_dir_path(&self.environment, source, is_global, base_path)?)?,
       kind: self.get_config_file_kind(is_global),
       in_workspace: !is_global && source.maybe_local_path().is_some_and(|path| self.is_in_workspace(path.as_ref())),
+      // it's been read, so reading it was allowed when it's on another machine
+      on_another_machine: false,
     })
   }
 
@@ -3852,6 +3856,7 @@ mod test {
         dir_uri: "file:///".parse().unwrap(),
         kind: ConfigFileKind::Local,
         in_workspace: true,
+        on_another_machine: false,
       },
       items: vec![ApprovalItem {
         specifier: "https://plugins.dprint.dev/exec.json@checksum".to_string(),
