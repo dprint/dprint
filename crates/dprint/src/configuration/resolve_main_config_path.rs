@@ -492,18 +492,41 @@ pub fn resolve_config_file_dirs_at_path(environment: &impl Environment, config_p
 /// A user knows the config file by where it was found, which is also where
 /// it's used, so two symlinks to the same file are two config files. It's
 /// still resolved from its canonical path (ex. what it extends is relative to
-/// that). A canonical path that's only different in case (ex. `.Config` on a
-/// case insensitive file system, where it's found as `.config`) isn't another
-/// file, so the config file is known by its canonical path then, which has
-/// the case on disk like the editor's path of it.
+/// that).
+///
+/// The directory it was found for is canonical in both, so only the names
+/// that were looked up (the file name, and a `.config` directory) may be in
+/// another case, which they are on a case insensitive file system when the
+/// file on disk has another case (ex. `.Config`). That isn't another file, so
+/// the config file is known by its canonical path then, which has the case on
+/// disk like the editor's path of it.
 pub fn get_config_file_found_path(found_path: PathBuf, canonical_path: &Path) -> Option<PathBuf> {
-  let fold_case = |path: &Path| {
-    path
-      .components()
-      .map(|component| component.as_os_str().to_string_lossy().to_lowercase())
-      .collect::<Vec<_>>()
-  };
-  (fold_case(&found_path) != fold_case(canonical_path)).then_some(found_path)
+  let found_components = found_path.components().collect::<Vec<_>>();
+  let canonical_components = canonical_path.components().collect::<Vec<_>>();
+  let is_in_dot_config_dir = found_path
+    .parent()
+    .and_then(|dir| dir.file_name())
+    .is_some_and(|name| name == DOT_CONFIG_DIR_NAME);
+  let looked_up_count = if is_in_dot_config_dir { 2 } else { 1 };
+  let first_looked_up_index = found_components.len().saturating_sub(looked_up_count);
+  let is_same = found_components.len() == canonical_components.len()
+    && found_components
+      .iter()
+      .zip(&canonical_components)
+      .enumerate()
+      .all(
+        |(index, (found, canonical))| match index >= first_looked_up_index && is_case_insensitive_file_system() {
+          true => found.as_os_str().eq_ignore_ascii_case(canonical.as_os_str()),
+          false => found == canonical,
+        },
+      );
+  (!is_same).then_some(found_path)
+}
+
+/// Gets whether the file system is case insensitive, which it is by default
+/// on Windows and macOS.
+pub fn is_case_insensitive_file_system() -> bool {
+  cfg!(any(windows, target_os = "macos"))
 }
 
 /// Gets the path of a local config file that identifies it (see
@@ -630,12 +653,19 @@ mod tests {
       get_config_file_found_path(PathBuf::from("/p/.config/dprint.json"), Path::new("/other/dprint.json")),
       Some(PathBuf::from("/p/.config/dprint.json"))
     );
-    // the same file, which may be in another case on a case insensitive file system
-    assert_eq!(get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/p/dprint.json")), None);
-    assert_eq!(get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/p/Dprint.json")), None);
     assert_eq!(
-      get_config_file_found_path(PathBuf::from("/p/.config/dprint.json"), Path::new("/p/.Config/dprint.json")),
-      None
+      get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/P/dprint.json")),
+      Some(PathBuf::from("/p/dprint.json"))
+    );
+    // the same file
+    assert_eq!(get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/p/dprint.json")), None);
+    // which the names that were looked up may be in another case of on a case insensitive file system
+    let in_another_case = |found_path: &str, canonical_path: &str| get_config_file_found_path(PathBuf::from(found_path), Path::new(canonical_path));
+    let expected = |found_path: &str| (!is_case_insensitive_file_system()).then(|| PathBuf::from(found_path));
+    assert_eq!(in_another_case("/p/dprint.json", "/p/Dprint.json"), expected("/p/dprint.json"));
+    assert_eq!(
+      in_another_case("/p/.config/dprint.json", "/p/.Config/dprint.json"),
+      expected("/p/.config/dprint.json")
     );
   }
 

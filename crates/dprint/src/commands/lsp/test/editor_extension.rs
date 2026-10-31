@@ -1744,36 +1744,94 @@ fn should_not_watch_a_directory_of_an_extended_file_that_is_on_another_machine_n
 fn should_check_a_directory_alias_again_before_providing_a_path_through_it() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
-    .with_local_config("/repo/dprint.json", |c| {
-      c.add_remote_wasm_plugin().add_config_section("extends", r#""./libs/shared/sub/base.json""#);
+    .with_local_config("/repo/libs/shared/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
     })
     .build();
-  environment.mk_dir_all("/repo/libs/shared/sub").unwrap();
-  environment.write_file("/repo/libs/shared/sub/base.json", "{}").unwrap();
   environment.add_canonical_symlink("/repo/apps/web/shared", "/repo/libs/shared");
   run_session(&environment, {
     let environment = environment.clone();
     move |client| {
       async move {
-        // a document opened through the symlink makes it an alias of the directory it points to
+        // a document opened through the symlink makes it an alias of the directory it points to, so the config
+        // file is provided through it for a document opened by its canonical path too
         client.file_info("/repo/apps/web/shared/sub/file.txt").await;
-        let config_info = client.config_info("/repo/dprint.json").await;
-        assert_eq!(config_info.watch_uris, vec![uri("/repo/apps/web/shared/sub/base.json")]);
-        // it points somewhere else now (ex. a `git pull` changed it), so it isn't an alias once the editor
-        // says a file changed
+        let config_file = client.file_info("/repo/libs/shared/file.txt").await.config_file.unwrap();
+        assert_eq!(config_file.uri, uri("/repo/apps/web/shared/dprint.json"));
+        // it points somewhere else now (ex. a `git pull` changed it), which the editor doesn't report, so it
+        // isn't an alias for the next request
         environment.remove_canonical_path("/repo/apps/web/shared");
         environment.add_canonical_path("/repo/apps/web/shared", "/repo/other");
+        let config_file = client.file_info("/repo/libs/shared/file.txt").await.config_file.unwrap();
+        assert_eq!(config_file.uri, uri("/repo/libs/shared/dprint.json"));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_watch_a_config_file_in_a_dot_config_dir_that_is_a_symlink_by_what_it_points_to() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/proj/shared-cfg/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/proj/.config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  // ex. a symlink, which is read through it
+  environment.add_canonical_path("/proj/.config", "/proj/shared-cfg");
+  let mut params = editor_extension_params();
+  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
+  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
+    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
+      dynamic_registration: Some(true),
+      relative_pattern_support: Some(true),
+    }),
+    ..Default::default()
+  });
+  run_session_with(&environment, params, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let config_file = client.file_info("/proj/file.txt").await.config_file.unwrap();
+        assert_eq!(config_file, local_config("/proj/.config/dprint.json"));
+        // the editor doesn't watch through the symlink, which isn't a workspace folder, so it's what it points to
+        let watch_uris = client.config_info("/proj/.config/dprint.json").await.watch_uris;
+        assert_eq!(watch_uris, vec![uri("/proj/shared-cfg/dprint.json")]);
+        // which a change of it doesn't change, though the server canonicalized a path through the symlink then
+        let text = environment.read_file("/proj/shared-cfg/dprint.json").unwrap();
+        let text = text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1);
+        environment.write_file("/proj/shared-cfg/dprint.json", &text).unwrap();
+        environment.write_file("/proj/.config/dprint.json", &text).unwrap();
         client
           .backend
           .did_change_watched_files(DidChangeWatchedFilesParams {
             changes: vec![FileEvent {
-              uri: uri("/repo/dprint.json"),
+              uri: uri("/proj/shared-cfg/dprint.json"),
               typ: FileChangeType::CHANGED,
             }],
           })
           .await;
-        let config_info = client.config_info("/repo/dprint.json").await;
-        assert_eq!(config_info.watch_uris, vec![uri("/repo/libs/shared/sub/base.json")]);
+        let mut changes = client.wait_for_config_changes().await;
+        changes.dedup();
+        assert_eq!(changes, vec![uri("/proj/.config/dprint.json")]);
+        let watch_uris = client.config_info("/proj/.config/dprint.json").await.watch_uris;
+        assert_eq!(watch_uris, vec![uri("/proj/shared-cfg/dprint.json")]);
+        // and the registered directories are canonical, so none is the symlink
+        let base_uris = {
+          let registrations = client.test_client.registrations.lock();
+          let registration = registrations.iter().rev().find(|r| r.id == "dprint-watched-files").unwrap();
+          registration.register_options.as_ref().unwrap()["watchers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|watcher| watcher["globPattern"]["baseUri"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(base_uris, vec![uri("/proj/shared-cfg").as_str().to_string()]);
       }
       .boxed_local()
     }
@@ -4778,7 +4836,7 @@ fn should_not_deny_a_download_that_was_allowed_exactly_since() {
       let b_approval = client.config_info("/b/dprint.json").await.status.approvals()[0].clone();
       // the user allows it for one config file while the prompt of the other is still shown
       client.approve(&b_approval.id, ApprovalDecision::Allow).await;
-      let err = client
+      let result = client
         .backend
         .dprint_approve(
           ApproveParams {
@@ -4789,9 +4847,16 @@ fn should_not_deny_a_download_that_was_allowed_exactly_since() {
           CancellationToken::new(),
         )
         .await
-        .unwrap_err();
-      // which is an approval that changed, because the denial wouldn't do anything
-      assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32803));
+        .unwrap();
+      // which doesn't do anything, because it's allowed exactly, so the user is told and it isn't kept
+      let notice = result.notice.unwrap();
+      assert!(
+        notice.message.starts_with("What you denied was allowed for another configuration file since"),
+        "{}",
+        notice.message
+      );
+      assert_eq!(result.config_approvals.approvals, Vec::new());
+      assert_eq!(result.config_approvals.status, FormatStatus::ready());
       assert!(!client.decisions().await.iter().any(|decision| !decision.allows));
       assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::ready());
     }

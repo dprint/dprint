@@ -56,6 +56,7 @@ impl DownloadPolicy {
       trusted_domains: Mutex::new(TrustedDomains::from_settings(environment)),
       allowed: Default::default(),
       denied: Default::default(),
+      not_allowable: Default::default(),
     }))
   }
 
@@ -172,6 +173,15 @@ impl DownloadPolicy {
     }
   }
 
+  /// Gets whether allowing the download would allow it, which it doesn't for
+  /// a path that isn't valid Unicode (see `TrustedDownloads::is_path_allowed`).
+  pub fn is_allowable(&self, download: &str) -> bool {
+    match self {
+      DownloadPolicy::All => true,
+      DownloadPolicy::TrustedDomains(trusted_downloads) => !trusted_downloads.not_allowable.lock().contains(download),
+    }
+  }
+
   /// Gets what the user allowed downloading this session.
   pub fn allowed_downloads(&self) -> Vec<String> {
     match self {
@@ -202,6 +212,9 @@ pub struct TrustedDownloads {
   /// over allowing it exactly. A denied directory denies what's in it the
   /// same way, so the most specific decision is what's used.
   denied: Mutex<HashSet<String>>,
+  /// The downloads of the paths that aren't valid Unicode that were asked
+  /// about, which allowing doesn't allow (see `is_path_allowed`).
+  not_allowable: Mutex<HashSet<String>>,
 }
 
 impl TrustedDownloads {
@@ -275,9 +288,11 @@ impl TrustedDownloads {
       }
       // each share is only allowed once, but a share's symlinks may point elsewhere each time they're read
       if allowed_shares.len() >= MAX_SYMLINKS || !self.is_path_allowed(path, &current.resolved) {
-        return Err(UntrustedDownloadError {
-          download: get_path_download(path, &current.resolved),
-        });
+        let download = get_path_download(path, &current.resolved);
+        if path.to_str().is_none() || current.resolved.to_str().is_none() {
+          self.not_allowable.lock().insert(download.clone());
+        }
+        return Err(UntrustedDownloadError { download });
       }
       allowed_shares.push(current.share);
       network_path = follow(&allowed_shares);

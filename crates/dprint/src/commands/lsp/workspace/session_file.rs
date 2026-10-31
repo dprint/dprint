@@ -226,10 +226,11 @@ impl std::error::Error for SessionFileWriteError {}
 ///   uses `<id>.json` and holds it until the session ends, when it deletes
 ///   both. It's `flock(2)` on Unix and `LockFileEx` of the whole file on
 ///   Windows (see `Environment::try_lock_file`). After taking it, a server
-///   checks that `<id>.lock` still exists and otherwise takes it again,
-///   because another version may have deleted it while it opened it (see
-///   `remove_unless_locked`), and a lock of a file that was deleted doesn't
-///   keep another server or a cleanup from using the session's files. A server that can't
+///   checks that `<id>.lock` still names the file it locked and otherwise
+///   takes it again, because another version may have deleted it while it
+///   opened it (see `remove_unless_locked`), and a lock of a file that was
+///   deleted doesn't keep another server or a cleanup from using the session's
+///   files (ex. another server that created and locked a new one). A server that can't
 ///   take it (another server that's running holds it, or it fails) neither
 ///   reads nor writes `<id>.json`. It keeps trying, and once it takes it, it
 ///   writes its own decisions to `<id>.json` right away, so the file never has

@@ -73,6 +73,7 @@ use crate::configuration::forget_editor_approvals;
 use crate::configuration::get_config_file_found_path;
 use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
+use crate::configuration::is_case_insensitive_file_system;
 use crate::configuration::is_dot_config_dir;
 use crate::configuration::is_more_recent_at;
 use crate::configuration::read_editor_approval_denials;
@@ -169,11 +170,21 @@ pub(crate) use self::session_file::get_sessions_dir;
 use self::session_file::remove_stale_session_files;
 pub(crate) use self::session_file::remove_unused_session_files;
 
-/// The error for approving when what was approved changed (ex. it isn't
-/// pending anymore because the config file changed, or the downloads of a
-/// denial were each allowed exactly since).
+/// What the user is told when they denied downloads that were each allowed
+/// exactly since (ex. for another config file in another window), which is
+/// still allowed then. A new session asks about it again, apart from what was
+/// downloaded to the cache, which isn't downloaded again.
+const ALLOWED_SINCE_MESSAGE: &str = "What you denied was allowed for another configuration file since (ex. in another window), so it's still allowed for this session. Restarting dprint in a new session asks about it again, unless it was downloaded to dprint's cache, which `dprint clear-cache` removes.";
+
+/// What's said of a path on another machine that isn't valid Unicode, which
+/// can't be allowed (see `TrustedDownloads::is_path_allowed`).
+const NOT_ALLOWABLE_PATH_MESSAGE: &str =
+  "It can't be allowed because its path isn't valid Unicode, so it can't be told apart from other paths. Rename it to use it.";
+
+/// The error for approving what isn't pending anymore (ex. what needs to be
+/// approved changed because the config file changed).
 #[derive(Debug, thiserror::Error)]
-#[error("What was approved with id {id} changed, so the decision wasn't used (ex. it isn't pending anymore, or what it denies was allowed since).")]
+#[error("Nothing needs to be approved with id {id}, which may be because what needs to be approved changed.")]
 pub struct ApprovalChangedError {
   id: String,
   /// The config file the approval was for and what needs to be approved for
@@ -401,8 +412,8 @@ pub struct Workspace<TEnvironment: Environment> {
   /// The paths of the directories the editor knows by another path than their
   /// canonical one, which are the paths the server provides.
   editor_paths: EditorPaths,
-  /// The canonical directories of `editor_paths` whose alias was checked since
-  /// the editor last said a file changed (see `editor_path`).
+  /// The canonical directories of `editor_paths` whose alias was checked for
+  /// the request being handled (see `editor_path`).
   checked_editor_dirs: RefCell<HashSet<PathBuf>>,
   /// The ids of the approvals that a language client's user was asked about
   /// this session.
@@ -715,8 +726,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// often change at once (ex. switching branches). Otherwise, a config file is
   /// only read again by the next request that uses it.
   pub fn config_files_changed(self: &Rc<Self>, changes: Vec<WatchedFileChange>) {
-    // a directory the editor knows by another path may lead elsewhere now (ex. after a `git pull`)
-    self.checked_editor_dirs.borrow_mut().clear();
     let mut pending_changes = self.pending_config_changes.borrow_mut();
     let was_empty = pending_changes.is_empty();
     for change in changes {
@@ -730,6 +739,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let workspace = self.clone();
     dprint_core::async_runtime::spawn(async move {
       tokio::time::sleep(CONFIG_CHANGE_DELAY).await;
+      workspace.check_editor_dirs_again();
       let changes = std::mem::take(&mut *workspace.pending_config_changes.borrow_mut());
       for change in changes {
         // a config file that was resolved from the file resolves to something else now, which includes
@@ -855,6 +865,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   pub async fn file_info(self: &Rc<Self>, document: &DocumentInfo, text: Option<&str>, global_config: Option<GlobalConfigUse>) -> Result<FileInfoResult> {
+    self.check_editor_dirs_again();
     let document_file = match self.get_document_file(document) {
       Ok(document_file) => document_file,
       Err(err) => {
@@ -932,6 +943,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   pub async fn config_info(self: &Rc<Self>, target: &ConfigTarget, global_config: Option<GlobalConfigUse>) -> Result<ConfigInfoResult> {
+    self.check_editor_dirs_again();
     let use_global_config = self.resolve_global_config_use(global_config);
     let (target, config) = match self.resolve_config_target(target, use_global_config).await {
       Ok(config) => config,
@@ -1073,6 +1085,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// `config_info` for params that can't be handled (ex. a file that isn't a
   /// config file).
   pub async fn config_schema(self: &Rc<Self>, target: &ConfigTarget, global_config: Option<GlobalConfigUse>) -> Result<(serde_json::Value, bool)> {
+    self.check_editor_dirs_again();
     let mut plugins = Vec::new();
     let use_global_config = self.resolve_global_config_use(global_config);
     // a config file that fails to resolve was shown to the user, so its plugins are only left out
@@ -1123,6 +1136,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self: &Rc<Self>,
     config_file: Option<(Uri, Option<Uri>)>,
   ) -> Result<(Vec<PendingApproval>, Option<(Option<ConfigFileInfo>, FormatStatus)>)> {
+    self.check_editor_dirs_again();
     // what's pending for one config file says whether it's used
     if let Some((uri, dir_uri)) = config_file {
       let (target, config) = match self.resolve_config_target(&ConfigTarget::ConfigFile { uri, dir_uri }, false).await {
@@ -1270,6 +1284,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Formats the document, which says the config file that was used.
   pub async fn format(self: &Rc<Self>, request: FormatRequest, token: &Arc<CancellationToken>) -> Result<(FormatOutcome, Option<ConfigFileInfo>)> {
+    self.check_editor_dirs_again();
     let document_file = match self.get_document_file(&request.document) {
       Ok(document_file) => document_file,
       Err(err) => return Ok((FormatOutcome::NotFormatted(into_unsupported_document(err)?), None)),
@@ -1464,22 +1479,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Allow" for process plugins that weren't set up is stored once this sets
   /// them up).
   pub async fn approve(self: &Rc<Self>, id: &str, decision: ApprovalDecision) -> Result<ApproveResult> {
+    self.check_editor_dirs_again();
     let stored = self.approvals.borrow().values().flatten().find(|stored| stored.approval.id == id).cloned();
     let Some(stored) = stored else {
       return Err(self.new_approval_changed_error(id).await);
     };
     if !stored.approval.decisions.iter().any(|option| option.decision == decision) {
       return Err(InvalidParamsError(format!("The decision {:?} isn't one of the approval's decisions.", decision)).into());
-    }
-    // a denial of downloads that are each allowed exactly since (ex. for another config file) wouldn't do anything,
-    // because an exact allow wins over a denial, so it's for an approval that changed
-    if !decision.is_allowed()
-      && let ApprovalSubject::Downloads(urls) = &stored.subject
-    {
-      let allowed = self.environment.download_policy().allowed_downloads().into_iter().collect::<HashSet<_>>();
-      if urls.iter().all(|url| allowed.contains(url)) {
-        return Err(self.new_approval_changed_error(id).await);
-      }
     }
     // failing to store a decision for process plugins once they're set up is only told about
     // when what this allows sets them up (ex. not when it was a while ago)
@@ -1503,6 +1509,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             .retain(|_, denied| !denied.downloads.iter().all(|download| allowed.contains(download)));
           drop(allowed_items);
           self.denied_downloads_changed();
+        } else if self.is_each_allowed(urls) {
+          // a denial of downloads that are each allowed exactly since (ex. for another config file in another
+          // window) wouldn't do anything, because an exact allow wins over a denial, so it isn't kept
+          notice = Some(new_warning_notice(ALLOWED_SINCE_MESSAGE.to_string()));
         } else {
           self.denied_downloads.borrow_mut().insert(
             stored.approval.id.clone(),
@@ -1608,6 +1618,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     })
   }
 
+  /// Gets whether each download is allowed exactly (see `TrustedDownloads::is_allowed`).
+  fn is_each_allowed(&self, downloads: &[String]) -> bool {
+    let allowed = self.environment.download_policy().allowed_downloads().into_iter().collect::<HashSet<_>>();
+    downloads.iter().all(|download| allowed.contains(download))
+  }
+
   /// Gets the error for approving what isn't pending anymore, which says what
   /// needs to be approved now when the config file is known.
   async fn new_approval_changed_error(self: &Rc<Self>, id: &str) -> anyhow::Error {
@@ -1698,6 +1714,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// It's with what to tell the user about forgetting them (ex. the stored
   /// decisions couldn't be forgotten).
   pub async fn forget_decisions(self: &Rc<Self>, config_file: Option<(Uri, Option<Uri>)>) -> Result<(Vec<Decision>, Option<Notice>)> {
+    self.check_editor_dirs_again();
     // the config file as the process plugin decisions have it and its key, which is found without
     // resolving it because that would run what the user wants to stop allowing
     let identifier = config_file;
@@ -1752,6 +1769,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// when `None`, which says whether the settings file allows every process
   /// plugin.
   pub fn decisions(&self, config_file: Option<(Uri, Option<Uri>)>) -> Result<(Vec<Decision>, bool)> {
+    self.check_editor_dirs_again();
     let identifier = config_file;
     let config_file = match &identifier {
       Some((uri, dir_uri)) => Some(self.get_decisions_config_file(uri, dir_uri.as_ref())?),
@@ -1912,8 +1930,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Gets the config file a denial is for as the editor knows it now, which
   /// may not be the path it was shown with (ex. a directory it's in isn't an
-  /// alias anymore, see `editor_path`). The one it was shown with is kept for
-  /// one whose key isn't of a local config file of this version.
+  /// alias anymore, see `editor_path`). The one it was shown with is kept
+  /// unless its key is the key this version makes for a local config file,
+  /// so what's provided can always be forgotten (see `is_denial_for`).
   fn get_denial_config_file(&self, denied: &DeniedDownload) -> ConfigFileIdentifier {
     let (uri_text, base_path) = match denied.config_key.split_once('\n') {
       Some((uri_text, base_path)) => (uri_text, Some(Path::new(base_path))),
@@ -1923,7 +1942,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .parse::<Uri>()
       .ok()
       .filter(|uri| uri.scheme().as_str() == "file")
-      .and_then(|uri| uri_to_file_path(&uri));
+      .and_then(|uri| uri_to_file_path(&uri))
+      .filter(|file_path| file_path_to_uri(file_path).is_some_and(|uri| uri.as_str() == uri_text));
     let current = file_path.and_then(|file_path| {
       let dir_path = match base_path {
         Some(base_path) => base_path,
@@ -2123,6 +2143,16 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           ApprovalSubject::Downloads(urls) => {
             let id = get_approval_id("download", &config_key, urls);
             let denied = self.is_download_denied(&config_key, urls);
+            // a path that isn't valid Unicode is never allowed, so allowing it isn't offered
+            let is_allowable = urls.iter().all(|url| self.environment.download_policy().is_allowable(url));
+            let options: &[ApprovalDecision] = match is_allowable {
+              true => &[ApprovalDecision::Allow, ApprovalDecision::Deny],
+              false => &[ApprovalDecision::Deny],
+            };
+            let mut message = self.get_untrusted_download_message(urls);
+            if !is_allowable {
+              message.push_str(&format!(" {}", NOT_ALLOWABLE_PATH_MESSAGE));
+            }
             PendingApproval {
               denied,
               // a download is only denied for the session
@@ -2134,8 +2164,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               trusted_configuration: None,
               items,
               // a download is only allowed for the session
-              decisions: get_decision_options(ApprovalKind::Downloads, &[ApprovalDecision::Allow, ApprovalDecision::Deny]),
-              message: self.get_untrusted_download_message(urls),
+              decisions: get_decision_options(ApprovalKind::Downloads, options),
+              message,
             }
           }
           ApprovalSubject::ProcessPlugins(unapproved) => PendingApproval {
@@ -2576,6 +2606,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         .iter()
         .map(|(config_key, diagnostic)| PluginSectionDiagnostic { config_key, diagnostic })
         .collect::<Vec<_>>();
+      workspace.check_editor_dirs_again();
       workspace.publish_config_diagnostics(
         ConfigFileRef::of_found(&config_file),
         get_config_diagnostics(Some(&config_text), scope.global_config_diagnostics(), &plugin_diagnostics),
@@ -2717,17 +2748,27 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
       }
     }
-    // IMPORTANT: Each is watched by its directory, which is canonicalized so it isn't a symlink, and one in a
-    // directory that may not be read is left out because watching it would follow it to another machine (ex. a
-    // directory a `git pull` replaced with a symlink to a share). A watcher of a directory doesn't follow the
-    // symlinks in it (see "Lifecycle" in the editor extension docs), so a file that's a symlink is fine.
-    let mut allowed_dirs = HashMap::new();
-    file_paths.retain(|path| {
-      path
-        .parent()
-        .is_some_and(|dir_path| *allowed_dirs.entry(dir_path.to_path_buf()).or_insert_with(|| self.allows_reading_path(dir_path)))
-    });
+    // IMPORTANT: Each is watched by its canonical directory, so it isn't a symlink (ex. the path a config file in a
+    // `.config` directory that's a symlink was found at is watched as what it points to), and one in a directory
+    // that may not be read is left out because watching it would follow it to another machine (ex. a directory a
+    // `git pull` replaced with a symlink to a share). A watcher of a directory doesn't follow the symlinks in it (see
+    // "Lifecycle" in the editor extension docs), so a file that's a symlink is fine.
+    let mut canonical_dirs = HashMap::new();
+    let mut file_paths = file_paths
+      .into_iter()
+      .filter_map(|path| {
+        let (dir_path, file_name) = (path.parent()?, path.file_name()?);
+        let canonical_dir = canonical_dirs.entry(dir_path.to_path_buf()).or_insert_with(|| {
+          self
+            .allows_reading_path(dir_path)
+            .then(|| self.environment.canonicalize_maybe_not_exists(dir_path).ok())
+            .flatten()
+        });
+        Some(canonical_dir.as_ref()?.as_ref().join(file_name))
+      })
+      .collect::<Vec<_>>();
     file_paths.sort();
+    file_paths.dedup();
     if *registered != file_paths {
       self.client.register_watched_files(&file_paths);
       *registered = file_paths;
@@ -2735,10 +2776,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   /// Gets the uris of the files a config file was resolved from for the
-  /// editor to watch (see `get_watch_uri`), which start with the config
-  /// file's canonical path when that's another path (ex. a `dprint.json` that's
-  /// a symlink to a `base.json` or to a file in `node_modules`), because the
-  /// editor's watcher of the config files doesn't report a change there.
+  /// editor to watch (see `get_watch_uri`), which start with what a local
+  /// config file points to when it's a symlink (or is in a `.config` directory
+  /// that's one), because the editor's watcher of the config files doesn't
+  /// report a change there.
   fn get_watch_uris(&self, canonical_path: Option<&Path>, dependencies: &[PathBuf]) -> Vec<Uri> {
     canonical_path
       .into_iter()
@@ -2747,14 +2788,26 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .collect()
   }
 
-  /// Gets the uri of a file a config file was resolved from as the editor
-  /// knows it, which is `None` when its directory may not be read (see
+  /// Gets the uri of a file a config file was resolved from for the editor to
+  /// watch, which is `None` when its directory may not be read (see
   /// `register_watch_files`), so the editor doesn't watch it.
+  ///
+  /// It's the editor's path when that's through a workspace folder or one of
+  /// its ancestors that the editor knows by another path, and otherwise the
+  /// canonical path, because the editor only watches through a symlink that's
+  /// a workspace folder or one of its ancestors (see "Lifecycle" in the editor
+  /// extension docs), so it wouldn't watch a file through another one (ex. a
+  /// `.config` directory that's a symlink, or an npm package that pnpm links).
   fn get_watch_uri(&self, path: &Path) -> Option<Uri> {
     if !path.parent().is_some_and(|dir_path| self.allows_reading_path(dir_path)) {
       return None;
     }
-    self.editor_uri(path)
+    let editor_path = self.editor_path(path);
+    let is_watchable = match self.editor_paths.get_alias(path) {
+      Some((_, editor_dir)) => self.settings.borrow().workspace_folders.iter().any(|folder| folder.starts_with(&editor_dir)),
+      None => true,
+    };
+    file_path_to_uri(if is_watchable { &editor_path } else { path })
   }
 
   /// Tells an editor extension that what a config file formats may have changed.
@@ -2871,6 +2924,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// changed, which tells an editor extension about the ones whose results
   /// changed (ex. a domain that was trusted lets a plugin be downloaded).
   async fn handle_dprint_files_change(self: &Rc<Self>) {
+    self.check_editor_dirs_again();
     self.environment.download_policy().reload_trusted_domains(&self.environment);
     self.resolve_used_configs_again().await;
     // the documents without a config file may use the global config file now
@@ -3171,12 +3225,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Gets a canonicalized path as the editor knows it (see `EditorPaths`).
   ///
-  /// IMPORTANT: The alias it's through is checked again first when the editor
-  /// said a file changed since it was last checked, because it may lead
-  /// somewhere else now (ex. a `git pull` pointed a symlink in the workspace at
-  /// a share), and it's forgotten then. Otherwise the editor would be given a
-  /// path that it follows to another machine (ex. a directory to watch) or that
-  /// names another file than the one dprint read.
+  /// IMPORTANT: The alias it's through is checked again first, once for each
+  /// request that provides paths (see `check_editor_dirs_again`), because it
+  /// may lead somewhere else now (ex. a `git pull` pointed a symlink in the
+  /// workspace at a share), which the editor doesn't report, and it's
+  /// forgotten then. Otherwise the editor would be given a path that it
+  /// follows to another machine (ex. a file it opens) or that names another
+  /// file than the one dprint read.
   fn editor_path(&self, path: &Path) -> PathBuf {
     while let Some((canonical_dir, editor_dir)) = self.editor_paths.get_alias(path) {
       if self.checked_editor_dirs.borrow().contains(&canonical_dir) {
@@ -3201,6 +3256,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       self.editor_paths.remove(&canonical_dir);
     }
     self.editor_paths.get(path)
+  }
+
+  /// Has the aliases of `editor_paths` checked again before they're used next
+  /// (see `editor_path`), which is done at the start of each request that
+  /// provides paths so they're checked once for it.
+  fn check_editor_dirs_again(&self) {
+    self.checked_editor_dirs.borrow_mut().clear();
   }
 
   /// Gets the uri of a config file as the editor knows it.
@@ -3617,16 +3679,20 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     };
     // the names as dprint finds them, which a case insensitive file system has in another case too (see
     // `get_config_file_found_path`)
+    let is_same_name = |name: &str, found_name: &str| match is_case_insensitive_file_system() {
+      true => name.eq_ignore_ascii_case(found_name),
+      false => name == found_name,
+    };
     let file_name = POSSIBLE_CONFIG_FILE_NAMES
       .iter()
-      .find(|name| name.eq_ignore_ascii_case(file_name))
+      .find(|name| is_same_name(file_name, name))
       .copied()
       .unwrap_or(file_name);
     let is_in_dot_config_dir = DOT_CONFIG_FILE_NAMES.contains(&file_name)
       && parent
         .file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case(DOT_CONFIG_DIR_NAME))
+        .is_some_and(|name| is_same_name(name, DOT_CONFIG_DIR_NAME))
       && is_dot_config_dir(&self.environment, &parent.with_file_name(DOT_CONFIG_DIR_NAME));
     let (dir_path, relative_path) = match (is_in_dot_config_dir, parent.parent()) {
       (true, Some(base_dir)) => (base_dir, Path::new(DOT_CONFIG_DIR_NAME).join(file_name)),

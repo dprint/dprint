@@ -40,14 +40,15 @@ use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
+use crate::configuration::get_config_file_found_path;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
 use crate::configuration::get_settings_file_path;
+use crate::configuration::resolve_config_file_dirs_at_path;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
-use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -1051,9 +1052,12 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     patterns: Rc<FilePatternArgs>,
   ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
     log_debug!(self.environment, "Analyzing config file {}", config_file_path.display());
-    let dirs = resolve_local_config_file_dirs(self.environment, &config_file_path)?;
+    // one that's a symlink (ex. found for a path that was given) is used for the directory it was found in and
+    // known by its path there, like in the editors (see `get_config_file_found_path`)
+    let (dirs, found_path) = resolve_config_file_dirs_at_path(self.environment, &config_file_path)?;
     let config_file_path = self.environment.canonicalize(&config_file_path)?;
-    if Some(&config_file_path) == root_config_path.as_ref() {
+    let found_path = get_config_file_found_path(found_path, config_file_path.as_ref());
+    if found_path.is_none() && Some(&config_file_path) == root_config_path.as_ref() {
       // config file specified via `--config` so ignore it
       return Ok(Vec::new());
     }
@@ -1061,8 +1065,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       content: self.environment.read_file(&config_file_path)?,
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
-      // the search of the descendant directories doesn't follow symlinks, so it isn't a symlink
-      found_path: None,
+      found_path,
       source: PathSource::new_local(config_file_path),
       is_global_config: false,
       is_first_download: false,

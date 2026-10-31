@@ -472,6 +472,10 @@ impl Environment for RealEnvironment {
     // `SessionFile`), which is `flock(2)` on Unix and `LockFileEx` of the whole file on Windows. fs3 calls
     // them directly, unlike std's `File::try_lock`, which may change what it uses with the toolchain.
     match fs3::FileExt::try_lock_exclusive(&file) {
+      // IMPORTANT: Another process may have deleted the file while this opened it (ex. a cleanup of a stale session
+      // lock), and then a lock of the file that was opened doesn't exclude a process that locks the file at the path
+      // now, so it's only locked when the path still names the file this opened (see `SessionFile`).
+      Ok(()) if !is_same_file_at_path(&file, file_path) => Ok(None),
       // closing the file releases the lock
       Ok(()) => Ok(Some(FileLock::new(file))),
       Err(err) if err.raw_os_error().is_some() && err.raw_os_error() == fs3::lock_contended_error().raw_os_error() => Ok(None),
@@ -1023,6 +1027,14 @@ struct Statx {
 
 #[cfg(target_os = "linux")]
 const _: () = assert!(std::mem::size_of::<Statx>() == 256);
+
+/// Gets whether the path names the file that's open, which isn't the case
+/// when it was deleted or replaced since it was opened.
+fn is_same_file_at_path(file: &fs::File, file_path: &Path) -> bool {
+  let open_file = file.try_clone().and_then(same_file::Handle::from_file);
+  let file_at_path = same_file::Handle::from_path(file_path);
+  matches!((open_file, file_at_path), (Ok(open_file), Ok(file_at_path)) if open_file == file_at_path)
+}
 
 #[cfg(test)]
 mod test {

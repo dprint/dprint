@@ -734,7 +734,8 @@ pub struct ApproveResult {
   #[serde(flatten)]
   pub config_approvals: ConfigApprovals,
   /// What to tell the user about the decision or one made before for the
-  /// same config file (ex. it couldn't be stored, so it's only used for the
+  /// same config file (ex. what was denied was allowed exactly for another
+  /// config file since, so it's still allowed, or it couldn't be stored, so it's only used for the
   /// session, or the session file couldn't be written or deleted, or the
   /// session's decisions aren't kept yet because another server that's
   /// running uses the session id or its lock can't be taken).
@@ -742,19 +743,16 @@ pub struct ApproveResult {
   pub notice: Option<Notice>,
 }
 
-/// The error code of `dprint/approve` for when what was approved changed
-/// before the decision was received (ex. the approval isn't pending anymore
-/// because the config file changed, or the downloads of a denial were each
-/// allowed exactly since), so the decision wasn't used, which is the language
-/// server protocol's `RequestFailed`.
+/// The error code of `dprint/approve` for an approval that isn't pending
+/// anymore because what needs to be approved changed, so the decision wasn't
+/// used, which is the language server protocol's `RequestFailed`.
 pub const APPROVAL_CHANGED_ERROR_CODE: i64 = -32803;
 
 /// The data of an error, which is tagged by its kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ErrorData {
-  /// What was approved changed, so the decision wasn't used (see
-  /// `APPROVAL_CHANGED_ERROR_CODE`).
+  /// An approval isn't pending anymore (see `APPROVAL_CHANGED_ERROR_CODE`).
   #[serde(rename_all = "camelCase")]
   ApprovalChanged {
     /// The config file the approval was for and what needs to be approved for
@@ -972,11 +970,14 @@ pub struct ConfigInfoResult {
   /// match and only `dprint/fileInfo` says.
   pub other_files: Vec<OtherFiles>,
   /// The local files that the config file was resolved from (ex. a config
-  /// file it extends), and its own canonical path when that isn't the path of
-  /// `config_file.uri` (ex. a `dprint.json` that's a symlink to a `base.json`
-  /// or to a file in `node_modules`), because the editor's watcher of the
-  /// config files doesn't report a change there. The editor watches them too
-  /// by their directories. A file whose directory may not be read is left out.
+  /// file it extends), and what it points to when it's a local config file
+  /// that's a symlink (or is in a `.config` directory that's one), because the
+  /// editor's watcher of the config files doesn't report a change there. The
+  /// editor watches them too by their directories. Each is the editor's path
+  /// when that's through a workspace folder or one of its ancestors that it
+  /// knows by another path, and the canonical path otherwise, because the
+  /// editor doesn't watch through another symlink. A file whose directory may
+  /// not be read is left out.
   pub watch_uris: Vec<Uri>,
   pub status: FormatStatus,
 }
