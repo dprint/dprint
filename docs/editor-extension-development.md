@@ -586,12 +586,14 @@ interface ConfigFileInfo {
    * Configuration File"), check whether its path is a symlink or is reached through one, looking at each directory of it from the
    * workspace folder (or the root without one) down without following any (ex. with `lstat`). A path without a symlink can't lead
    * to another machine the workspace isn't on, so open it. Otherwise, check the latest result the editor extension has for it,
-   * and don't open it when that has `onAnotherMachine` or when there's no result for it. That result only stays the latest for a
-   * configuration file whose changes reach the server (the `configFile.uri` of a `dprint/configInfo` result, see "Lifecycle"),
-   * and stops being it once `dprint/configChanged` names that configuration file (or no configuration file) or the server is
-   * started again. The server takes back the diagnostics it published for it then by publishing empty ones, and the ones it
-   * published through a directory the editor knew by another path once that doesn't lead where it did (when it also sends
-   * `dprint/configChanged` for their configuration files, which are published again once they're resolved again), so don't drop
+   * which is the latest `configFile` with its `uri` (and `dirUri`) that a `dprint/configInfo` or `dprint/fileInfo` result had,
+   * because both have the server's view of the configuration file, and don't open it when that has `onAnotherMachine` or when
+   * there's no result for it. That result only stays the latest for a configuration file whose changes reach the server (the
+   * `configFile.uri` of a `dprint/configInfo` result, see "Lifecycle"), and stops being it once `dprint/configChanged` names
+   * that configuration file (or no configuration file) or the server is started again. The server takes back the diagnostics it
+   * published for it then by publishing empty ones, and the ones it published through a directory the editor knew by another
+   * path once that doesn't lead where it did (when it also sends `dprint/configChanged` for the configuration files the editor
+   * knew through it, whose diagnostics are published again once they're resolved again), so don't drop
    * them for this. This is a best effort (see "Security").
    */
   onAnotherMachine?: boolean;
