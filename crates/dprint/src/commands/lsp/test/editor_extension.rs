@@ -2417,23 +2417,30 @@ fn should_tell_about_a_config_file_known_through_a_replaced_alias_after_a_reset(
 
 #[test]
 fn should_not_use_the_path_an_approval_was_asked_about_with_as_the_editors_path_again() {
-  let environment = TestEnvironmentBuilder::new().add_remote_wasm_plugin().build();
-  environment.mk_dir_all("/ws/real").unwrap();
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/sub/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
   // ex. a config file that's a symlink to a share, which needs reading it to be allowed
-  environment.symlink(network_path("dprint.json"), "/ws/real/dprint.json").unwrap();
+  environment.mk_dir_all("/ws/real/net").unwrap();
+  environment.symlink(network_path("dprint.json"), "/ws/real/net/dprint.json").unwrap();
   environment.add_canonical_symlink("/ws/a", "/ws/real");
   environment.add_canonical_symlink("/ws/b", "/ws/real");
   run_session(&environment, |client| {
     async move {
       // a document opened through the first one needs an approval
-      let result = client.file_info("/ws/a/file.txt").await;
+      let result = client.file_info("/ws/a/net/file.txt").await;
       assert_eq!(result.status.reason(), Some(NotFormattedReason::ApprovalRequired));
-      // and the editor uses the other one after that
-      client.config_info("/ws/b/dprint.json").await;
+      // and the editor uses the other one after that, which a config file's uri is through then
+      client.file_info("/ws/b/sub/file.txt").await;
+      let config_file = client.file_info("/ws/real/sub/file.txt").await.config_file.unwrap();
+      assert_eq!(config_file.uri, uri("/ws/b/sub/dprint.json"));
       // which getting what's pending for the status bar doesn't change
       assert!(!client.pending_approvals().await.is_empty());
-      let config_file = client.file_info("/ws/real/file.txt").await.config_file.unwrap();
-      assert_eq!(config_file.uri, uri("/ws/b/dprint.json"));
+      let config_file = client.file_info("/ws/real/sub/file.txt").await.config_file.unwrap();
+      assert_eq!(config_file.uri, uri("/ws/b/sub/dprint.json"));
       client.test_client.take_messages();
     }
     .boxed_local()

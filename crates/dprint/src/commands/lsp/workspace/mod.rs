@@ -1232,8 +1232,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Resolves the config file of something that needs to be approved.
   async fn resolve_approval_target(self: &Rc<Self>, target: &ApprovalTarget) -> Result<DocumentConfig<TEnvironment>> {
     match target {
-      // the editor's path it was asked about with may not be what the editor uses now (ex. another symlink to it)
-      ApprovalTarget::File { file_path, use_global_config } => self.resolve_scope(file_path, *use_global_config, false).await,
+      ApprovalTarget::File { file_path, use_global_config } => {
+        // the editor's path it was asked about with may not be the one the editor uses now (ex. another symlink to
+        // the same directory), which it's resolved with instead, so the one it was asked about with isn't used again
+        let file_path = self.get_current_editor_path(file_path);
+        self.resolve_scope(&file_path, *use_global_config, false).await
+      }
       ApprovalTarget::ConfigFile { file_path, dir_path } => match self.load_config_file(file_path, dir_path.as_deref()) {
         Ok(Some(config_file)) => self.resolve_found_config(config_file).await,
         Ok(None) => Ok(DocumentConfig::NotFound),
@@ -4091,6 +4095,16 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// editor's path of anything because it's the user's.
   fn get_config_override_identity_path(&self, override_path: &Path) -> PathBuf {
     self.get_config_file_identity_path(override_path, self.canonicalize_without_remembering(override_path))
+  }
+
+  /// Gets the path the editor uses now for a file it provided before by the
+  /// path, which may have been through another alias of its directory (see
+  /// `EditorPaths`).
+  fn get_current_editor_path(&self, editor_path: &Path) -> PathBuf {
+    match (editor_path.parent(), editor_path.file_name()) {
+      (Some(dir_path), Some(file_name)) => self.editor_paths.get(&self.canonicalize_without_remembering(dir_path).join(file_name)),
+      _ => editor_path.to_path_buf(),
+    }
   }
 
   /// Canonicalizes a path that isn't the editor's (ex. the user's or the
