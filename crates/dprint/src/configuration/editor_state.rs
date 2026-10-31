@@ -882,7 +882,6 @@ pub async fn update_editor_approvals<TEnvironment: Environment>(environment: &TE
 /// version refuses to read when it has decisions to forget, and without
 /// changing it when its lock can't be taken (see `lock_editor_approvals`).
 pub async fn forget_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment, is_config_file: impl Fn(&str) -> bool) -> Result<()> {
-  let _lock = lock_editor_approvals(environment).await?;
   let Some(file_path) = get_editor_approvals_file_path(environment) else {
     return Ok(());
   };
@@ -890,7 +889,13 @@ pub async fn forget_editor_approvals<TEnvironment: Environment>(environment: &TE
     Some(config_file) => is_config_file(config_file),
     None => is_config_file(""),
   };
-  // the file isn't written when there's nothing to forget (ex. it doesn't exist)
+  // the lock isn't taken when there's nothing to forget (ex. there's no file), so forgetting
+  // doesn't fail then when it can't be taken
+  if !read_approvals_file(environment, &file_path)?.is_some_and(|(_, file)| file.decisions().any(is_forgotten)) {
+    return Ok(());
+  }
+  let _lock = lock_editor_approvals(environment).await?;
+  // the file isn't written when there's nothing to forget anymore (ex. another process forgot them)
   match read_approvals_file(environment, &file_path)? {
     Some((_, file)) if file.decisions().any(is_forgotten) => file.ensure_readable(&file_path)?,
     _ => return Ok(()),
@@ -1939,6 +1944,10 @@ mod test {
       environment.set_file_lock_fails(&lock_path, true);
       assert!(forget_editor_approvals(&environment, |_| true).await.is_err());
       assert_eq!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.len(), 1);
+      // but forgetting what isn't there doesn't need it
+      forget_editor_approvals(&environment, |config_file| config_file == "/b/dprint.json")
+        .await
+        .unwrap();
     });
   }
 

@@ -57,8 +57,11 @@ const SESSION_LOCK_ATTEMPTS: usize = 10;
 const SESSION_LOCK_RETRY_DELAY: Duration = Duration::from_millis(50);
 /// How often a server that doesn't hold the lock of its session tries to take
 /// it again (see `SessionFile::try_lock`), which it also does whenever it
-/// writes the file.
-pub const SESSION_LOCK_RETRY_INTERVAL: Duration = Duration::from_secs(5);
+/// writes the file. It's often because until it takes it, the file still has
+/// what the server that held it kept, which a server that's started again for
+/// the session would use instead of what was decided in this one (ex. an
+/// allow the user denied here).
+pub const SESSION_LOCK_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 /// What the user decided for a session, which is what's in its file.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -141,7 +144,7 @@ impl std::fmt::Display for SessionFileWriteError {
     match self {
       Self::NotKept { lock_path } => write!(
         f,
-        "The session's decisions won't be kept if dprint restarts, because another dprint language server that's running holds the lock {} of the session id (or it couldn't be taken). They're kept once this server takes it.",
+        "The session's decisions won't be kept if dprint restarts, and the decisions of the server that used the session before may be used instead, because another dprint language server that's running holds the lock {} of the session id (or it couldn't be taken). They're kept once this server takes it, which it keeps trying.",
         lock_path.display()
       ),
       Self::Stale {

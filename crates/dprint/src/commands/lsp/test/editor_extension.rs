@@ -3636,6 +3636,15 @@ fn should_take_over_the_session_file_of_a_session_id_another_server_used() {
         );
         // what the other server allowed isn't used
         assert!(!client.decisions().await.iter().any(|decision| decision.specifiers == vec![OTHER_URL]));
+        // and forgetting decisions says they aren't kept either
+        let result = client
+          .backend
+          .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
+          .await
+          .unwrap();
+        let notice = result.notice.unwrap();
+        assert!(notice.message.contains("won't be kept if dprint restarts"), "{}", notice.message);
+        assert_eq!(environment.read_file(&session_file_path).unwrap(), other_text);
         let deny = |config_file: &'static str| {
           let client = &client;
           async move {
@@ -3676,6 +3685,139 @@ fn should_take_over_the_session_file_of_a_session_id_another_server_used() {
     async move {
       assert!(client.config_info("/first/dprint.json").await.status.approvals()[0].denied);
       assert!(client.config_info("/second/dprint.json").await.status.approvals()[0].denied);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_take_over_the_session_file_without_a_request_once_the_other_server_exited() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  const OTHER_URL: &str = "https://example.com/other/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  let session_file_path = get_session_file_path(&environment, SESSION_ID);
+  environment.mk_dir_all(session_file_path.parent().unwrap()).unwrap();
+  let other_server_lock = environment.try_lock_file(session_file_path.with_extension("lock")).unwrap().unwrap();
+  let other_text = format!(
+    r#"{{ "version": 1, "allowedDownloads": [{{ "download": "{}" }}], "deniedDownloads": [] }}"#,
+    OTHER_URL
+  );
+  environment.write_file(&session_file_path, &other_text).unwrap();
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        assert!(client.approve(&approval.id, ApprovalDecision::Deny).await[0].denied);
+        assert_eq!(environment.read_file(&session_file_path).unwrap(), other_text);
+        // ex. the other server was killed, which doesn't delete its file
+        drop(other_server_lock);
+        // the server takes the file over without anything being decided, so the other server's
+        // decisions aren't used if this server stops
+        let start = std::time::Instant::now();
+        loop {
+          let text = environment.read_file(&session_file_path).unwrap();
+          if !text.contains(OTHER_URL) {
+            assert!(text.contains(UNTRUSTED_PLUGIN_URL), "{}", text);
+            break;
+          }
+          assert!(start.elapsed() < std::time::Duration::from_secs(30), "the session file wasn't taken over");
+          tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      assert!(client.config_info("/dprint.json").await.status.approvals()[0].denied);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_keep_the_allows_of_the_session_with_an_approvals_file_when_the_server_is_started_again() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/always/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .with_local_config("/session/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build();
+  disallow_process_plugins(&environment);
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      for (config_file, decision) in [
+        ("/always/dprint.json", ApprovalDecision::AlwaysAllow),
+        ("/session/dprint.json", ApprovalDecision::Allow),
+      ] {
+        let approval = client.config_info(config_file).await.status.approvals()[0].clone();
+        assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
+        client.approve(&approval.id, decision).await;
+      }
+    }
+    .boxed_local()
+  });
+  // the session file has the fingerprint of the approvals file the server stored the "Always Allow" in
+  let text = environment.read_file(get_session_file_path(&environment, SESSION_ID)).unwrap();
+  let fingerprint = serde_json::from_str::<serde_json::Value>(&text).unwrap()["approvalsFileFingerprint"].clone();
+  assert!(fingerprint.as_str().is_some_and(|fingerprint| fingerprint != "none"), "{}", text);
+
+  // which didn't change since, so the allow for the session is used again
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      assert_eq!(client.config_info("/session/dprint.json").await.status, FormatStatus::ready());
+      assert_eq!(client.config_info("/always/dprint.json").await.status, FormatStatus::ready());
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_restore_a_denial_of_downloads_with_items_that_are_not_known() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  // ex. kept by a newer version of dprint with a kind of item this version doesn't know, and without
+  // the id because it's made again from the downloads
+  let session_file_path = get_session_file_path(&environment, SESSION_ID);
+  environment.mk_dir_all(session_file_path.parent().unwrap()).unwrap();
+  let text = format!(
+    r#"{{
+      "version": 1,
+      "allowedDownloads": [],
+      "deniedDownloads": [{{
+        "configKey": "file:///dprint.json",
+        "downloads": ["{url}"],
+        "configFile": {{ "uri": "file:///dprint.json", "dirUri": "file:///" }},
+        "items": [{{ "specifier": "{url}", "kind": "newKind" }}]
+      }}]
+    }}"#,
+    url = UNTRUSTED_PLUGIN_URL
+  );
+  environment.write_file(&session_file_path, &text).unwrap();
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      assert!(client.config_info("/dprint.json").await.status.approvals()[0].denied);
+      // the decision shows what was denied without the items it doesn't know
+      let decisions = client.decisions().await;
+      let denial = decisions.iter().find(|decision| !decision.allows).unwrap();
+      assert_eq!(denial.specifiers, vec![UNTRUSTED_PLUGIN_URL.to_string()]);
+      assert_eq!(denial.items, None);
     }
     .boxed_local()
   });

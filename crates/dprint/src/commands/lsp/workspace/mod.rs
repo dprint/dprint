@@ -628,7 +628,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           };
           log_warn!(
             self.environment,
-            "Not keeping what's decided for the session {} for now because its lock {} couldn't be taken ({}), so it's lost if the server stops before this server takes the lock, which it keeps trying. The editor extension needs to give each server its own session id, and start a server again for a session only once the previous one exited.",
+            "Not keeping what's decided for the session {} for now because its lock {} couldn't be taken ({}), so if the server stops before this server takes the lock, which it keeps trying, it's lost and a server started again for the session may use what the server that held the lock kept instead. The editor extension needs to give each server its own session id, and start a server again for a session only once the previous one exited.",
             session_id,
             session_file.lock_path().display(),
             reason
@@ -1756,11 +1756,17 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
     for denied in self.denied_downloads.borrow().values() {
       if config_file.is_none_or(|(_, key)| *key == denied.config_key) {
+        // a restored denial may not have every item (ex. one of a kind a newer version added),
+        // which then shows each download it's for instead
+        let has_every_item = denied.items.len() == denied.downloads.len();
         decisions.push(Decision {
           kind: ApprovalKind::Downloads,
           config_file: Some(denied.config_file.clone()),
-          specifiers: denied.items.iter().map(|item| item.specifier.clone()).collect(),
-          items: Some(denied.items.clone()),
+          specifiers: match has_every_item {
+            true => denied.items.iter().map(|item| item.specifier.clone()).collect(),
+            false => denied.downloads.iter().map(|download| get_download_specifier(download)).collect(),
+          },
+          items: has_every_item.then(|| denied.items.clone()),
           allows: false,
           always: false,
         });
