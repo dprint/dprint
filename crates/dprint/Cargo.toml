@@ -54,6 +54,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["io-std", "net"] }
 tokio-util = { version = "=0.7.11" }
 twox-hash = "=2.1.0"
+unicode-general-category = "=1.1.0"
 url = "=2.5.4"
 which = "=8.0.0"
 zip = "=2.4.1"

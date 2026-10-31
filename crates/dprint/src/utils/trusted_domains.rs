@@ -11,6 +11,8 @@ use std::path::Prefix;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use unicode_general_category::GeneralCategory;
+use unicode_general_category::get_general_category;
 use url::Url;
 
 use crate::configuration::ConfigFileOnAnotherMachineError;
@@ -558,39 +560,38 @@ pub fn quote_text(text: &str) -> String {
 /// Escapes text from the project that's shown as it is (ex. the specifier of an
 /// approval's item), so it can't change how what's shown around it reads.
 ///
-/// IMPORTANT: A control character (ex. a newline), a space other than a plain
-/// one, an invisible formatting character (ex. a bidi override like U+202E,
-/// which shows the text after it backwards), and a combining mark at the start
-/// (which would change what's shown before it) are shown as an escape of
-/// their code point in hex instead (ex. `\u{a}` or `\u{202e}`). That's the
-/// only kind of escape, so a backslash that isn't followed by `u{` is shown as
-/// it is (ex. in a Windows path like `C:\new`), and one that is is shown as
-/// `\u{5c}`, so an escape can't be mistaken for the text.
+/// IMPORTANT: A control character (ex. a newline), a separator other than a
+/// plain space (ex. U+00A0 or U+2028), an invisible format character (ex. a
+/// bidi override like U+202E, which shows the text after it backwards), any
+/// other default ignorable code point (ex. a variation selector), and a
+/// combining mark at the start (which would change what's shown before it)
+/// are shown as an escape of their code point in hex instead (ex. `\u{a}` or
+/// `\u{202e}`). They're by their Unicode properties rather than a list, so
+/// the editor extensions can escape text the same way (see
+/// `is_escaped_in_text`). That's the only kind of escape, so a backslash
+/// that isn't followed by `u{` is shown as it is (ex. in a Windows path like
+/// `C:\new`), and one that is is shown as `\u{5c}`, so an escape can't be
+/// mistaken for the text.
 pub fn escape_text(text: &str) -> String {
   escape_text_with(text, false, false)
 }
 
 /// Gets whether a character is shown as an escape in text from the project
-/// (see `escape_text`), apart from a combining mark at the start.
+/// (see `escape_text`), apart from a combining mark at the start, which is
+/// one whose general category is `Cc`, `Cf`, `Zl`, `Zp`, or `Zs` other than
+/// a plain space, or that's a default ignorable code point.
 pub fn is_escaped_in_text(c: char) -> bool {
-  c.is_control()
-    || (c.is_whitespace() && c != ' ')
-    || matches!(
-      c,
-      // invisible formatting characters, including the bidi ones
-      '\u{ad}' | '\u{34f}' | '\u{61c}' | '\u{115f}' | '\u{1160}' | '\u{17b4}' | '\u{17b5}' | '\u{180b}'..='\u{180f}'
-      | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{3164}' | '\u{fe00}'..='\u{fe0f}'
-      | '\u{feff}' | '\u{ffa0}' | '\u{fff9}'..='\u{fffb}' | '\u{1d173}'..='\u{1d17a}' | '\u{e0000}'..='\u{e0fff}'
-    )
+  match get_general_category(c) {
+    GeneralCategory::Control | GeneralCategory::Format | GeneralCategory::LineSeparator | GeneralCategory::ParagraphSeparator => true,
+    GeneralCategory::SpaceSeparator => c != ' ',
+    _ => is_default_ignorable_code_point(c),
+  }
 }
 
-/// Gets whether a character is a combining mark, which is shown on the
-/// character before it.
+/// Gets whether a character is a combining mark (general category `Mn` or
+/// `Me`), which is shown on the character before it.
 pub fn is_combining_mark(c: char) -> bool {
-  matches!(
-    c,
-    '\u{300}'..='\u{36f}' | '\u{1ab0}'..='\u{1aff}' | '\u{1dc0}'..='\u{1dff}' | '\u{20d0}'..='\u{20ff}' | '\u{fe20}'..='\u{fe2f}'
-  )
+  matches!(get_general_category(c), GeneralCategory::NonspacingMark | GeneralCategory::EnclosingMark)
 }
 
 /// The domains that are trusted to download from, which includes their
@@ -1360,6 +1361,30 @@ fn unescape_text(text: &str) -> String {
   unescaped
 }
 
+/// Gets whether a character is a default ignorable code point that isn't a
+/// format character (`Cf`), which `is_escaped_in_text` escapes as well.
+/// These are the `Other_Default_Ignorable_Code_Point` and
+/// `Variation_Selector` code points of Unicode's `PropList.txt`, which
+/// `Default_Ignorable_Code_Point` is derived from along with the format
+/// characters, including the ones that are reserved for them (ex. the rest of
+/// U+E0000 to U+E0FFF).
+fn is_default_ignorable_code_point(c: char) -> bool {
+  matches!(
+    c,
+    '\u{34f}'
+      | '\u{115f}'..='\u{1160}'
+      | '\u{17b4}'..='\u{17b5}'
+      | '\u{180b}'..='\u{180d}'
+      | '\u{180f}'
+      | '\u{2065}'
+      | '\u{3164}'
+      | '\u{fe00}'..='\u{fe0f}'
+      | '\u{ffa0}'
+      | '\u{fff0}'..='\u{fff8}'
+      | '\u{e0000}'..='\u{e0fff}'
+  )
+}
+
 /// Gets whether a character is a backtick or looks like one, which is shown
 /// as an escape in quoted text (see `quote_text`).
 fn is_backtick_like(c: char) -> bool {
@@ -2125,6 +2150,75 @@ mod test {
       assert_eq!(unescape_text(&escape_text(text)), text);
       assert_eq!(unescape_text(&escape_text_with(text, true, true)), text);
     }
+  }
+
+  #[test]
+  fn should_escape_by_the_unicode_properties_of_each_character() {
+    // control characters, separators other than a plain space, and format characters (ex. the
+    // Arabic number signs and the Egyptian hieroglyph and shorthand format controls)
+    for c in [
+      '\u{0}',
+      '\u{85}',
+      '\u{a0}',
+      '\u{3000}',
+      '\u{2029}',
+      '\u{ad}',
+      '\u{600}',
+      '\u{605}',
+      '\u{6dd}',
+      '\u{70f}',
+      '\u{8e2}',
+      '\u{110bd}',
+      '\u{110cd}',
+      '\u{13430}',
+      '\u{1343f}',
+      '\u{1bca0}',
+      '\u{1bca3}',
+      '\u{fff9}',
+      '\u{e0001}',
+    ] {
+      assert!(is_escaped_in_text(c), "{:?}", c);
+    }
+    // the other default ignorable code points (ex. the Hangul fillers and the variation selectors)
+    for c in [
+      '\u{34f}',
+      '\u{115f}',
+      '\u{17b4}',
+      '\u{180b}',
+      '\u{180f}',
+      '\u{2065}',
+      '\u{3164}',
+      '\u{fe0f}',
+      '\u{ffa0}',
+      '\u{fff0}',
+      '\u{e0100}',
+      '\u{e0fff}',
+    ] {
+      assert!(is_escaped_in_text(c), "{:?}", c);
+    }
+    // a combining mark is only escaped at the start
+    for c in [' ', 'a', '\u{301}', '\u{489}', '\u{4e00}', '\u{1f600}'] {
+      assert!(!is_escaped_in_text(c), "{:?}", c);
+    }
+    // every nonspacing and enclosing mark is a combining mark (ex. the Cyrillic enclosing marks and the Hebrew and Arabic points)
+    for c in [
+      '\u{300}',
+      '\u{483}',
+      '\u{489}',
+      '\u{591}',
+      '\u{5bd}',
+      '\u{610}',
+      '\u{64b}',
+      '\u{65f}',
+      '\u{20dd}',
+      '\u{1e8d0}',
+    ] {
+      assert!(is_combining_mark(c), "{:?}", c);
+      assert_eq!(escape_text(&format!("{}a", c)), format!("{}a", c.escape_unicode()));
+    }
+    // but not a spacing mark or a letter
+    assert!(!is_combining_mark('\u{903}'));
+    assert!(!is_combining_mark('a'));
   }
 
   #[test]

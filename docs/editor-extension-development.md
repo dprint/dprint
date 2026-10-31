@@ -309,10 +309,17 @@ interface ApprovalItem {
    *
    * It's from the project, so it's escaped to be shown as it is without changing how what's around it reads:
    *
-   * - A control character (ex. a newline), a space other than a plain one (ex. U+00A0 or U+2028), an invisible formatting
-   *   character (ex. a bidi override like U+202E, which shows the text after it backwards, or a zero width space), and a
-   *   combining mark at the start (which would change what's shown before it) are shown as `\u{` followed by the code point in
-   *   lowercase hex and `}` (ex. `\u{a}` for a newline or `\u{202e}`).
+   * - These characters are shown as `\u{` followed by the code point in lowercase hex and `}` (ex. `\u{a}` for a newline or
+   *   `\u{202e}`), by their Unicode properties:
+   *   - A control character (general category `Cc`, ex. a newline), a separator other than a plain space (`Zs`, `Zl` or `Zp`,
+   *     ex. U+00A0 or U+2028), an invisible format character (`Cf`, ex. a bidi override like U+202E, which shows the text after
+   *     it backwards, or a zero width space), and any other default ignorable code point (`Default_Ignorable_Code_Point`, ex. a
+   *     variation selector or a Hangul filler).
+   *   - A combining mark (`Mn` or `Me`) at the start, which would change what's shown before it.
+   *
+   *   So the same characters can be escaped in JavaScript with `/[\p{Cc}\p{Cf}\p{Z}\p{Default_Ignorable_Code_Point}]/u` for a
+   *   character other than a space, and `/^[\p{Mn}\p{Me}]/u` for the first one (the server uses Unicode 16, so a character
+   *   that a later version of Unicode added may be escaped by one and not the other).
    * - That's the only kind of escape. A backslash that's followed by `u{` is shown as `\u{5c}` so the text can't look like an
    *   escape, and any other backslash is shown as it is, so a Windows path stays readable (ex. `C:\new` is the text `C:\new`).
    *
