@@ -317,6 +317,8 @@ pub trait Environment:
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
+  /// Removes a directory that's empty, which fails when it isn't.
+  fn remove_empty_dir(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
   /// Removes a directory and all of its contents as best-effort cleanup,
   /// logging any failure at debug level rather than returning it. Use this
   /// for cleanup that shouldn't abort the surrounding operation, while still

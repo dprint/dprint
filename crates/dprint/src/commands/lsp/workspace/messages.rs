@@ -602,6 +602,9 @@ pub struct ApprovalItem {
   /// `networkPath` is escaped like the text the message quotes (see
   /// `get_path_download`).
   pub specifier: String,
+  /// What it is, which is `plugin` for an npm registry when what was
+  /// downloaded from it isn't known (ex. a decision kept by another version of
+  /// dprint).
   pub kind: ApprovalItemKind,
   /// For the download of an npm registry itself (any registry, including the
   /// default one), it's the registry, which is the specifier too, and allowing
@@ -1053,9 +1056,9 @@ pub struct ConfigFileInfo {
   pub in_workspace: bool,
   /// Whether it was found on another machine and reading it isn't allowed
   /// yet, so the editor doesn't open or read it, which would reach the other
-  /// machine, and only watches it like any file, with a watcher of its
-  /// directory that doesn't follow symlinks. `dprint/configChanged` is sent
-  /// once it's allowed.
+  /// machine. Its directory is watched like any other, which is never when
+  /// it's a symlink (see "Lifecycle" in the editor extension docs).
+  /// `dprint/configChanged` is sent once it's allowed.
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub on_another_machine: bool,
 }

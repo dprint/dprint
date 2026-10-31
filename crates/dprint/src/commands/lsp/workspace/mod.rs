@@ -724,6 +724,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         for config_file_path in workspace.get_dependent_config_files(&change.file_path) {
           workspace.handle_config_file_change(&config_file_path, ConfigFileChange::Changed).await;
         }
+        // a config file that was used whose canonical path is the file, which may have another name (ex. a
+        // `dprint.json` that's a symlink to a `base.json`), so it isn't known to be a config file by its name
+        if !change.is_config_file {
+          for target in workspace.get_used_config_targets_at(&change.file_path) {
+            workspace.get_approvals_for_target(&target).await;
+          }
+        }
         // the config file the server was started with is the only one
         if workspace.scope_container.has_config_override() {
           if workspace.is_config_override_path(&change.file_path) {
@@ -811,6 +818,23 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
     }
     config_file_paths
+  }
+
+  /// Gets what finds each config file that was used whose canonical path is
+  /// the file, which is a file in the directory it was found for, so it's
+  /// resolved for the same directory again.
+  fn get_used_config_targets_at(&self, file_path: &Path) -> Vec<ApprovalTarget> {
+    let file_path = self.canonicalize_editor_path(file_path.to_path_buf());
+    self
+      .used_configs
+      .borrow()
+      .values()
+      .filter(|config_file| !config_file.is_global_config && config_file.source.maybe_local_path().is_some_and(|path| path.as_ref() == file_path))
+      .map(|config_file| ApprovalTarget::File {
+        file_path: config_file.base_path.as_ref().join("file"),
+        use_global_config: false,
+      })
+      .collect()
   }
 
   /// Gets whether the config file at the canonicalized path was resolved
@@ -1478,6 +1502,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             .denied_downloads
             .borrow_mut()
             .retain(|_, denied| !denied.downloads.iter().all(|download| allowed.contains(download)));
+          drop(allowed_items);
+          self.denied_downloads_changed();
         } else {
           self.denied_downloads.borrow_mut().insert(
             stored.approval.id.clone(),
@@ -1492,6 +1518,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               items: stored.approval.items.clone(),
             },
           );
+          self.denied_downloads_changed();
         }
       }
       ApprovalSubject::ProcessPlugins(unapproved) => {
@@ -1672,6 +1699,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .denied_downloads
       .borrow_mut()
       .retain(|_, denied| config_file.as_ref().is_some_and(|(_, key)| !is_config_key(key, &denied.config_key)));
+    self.denied_downloads_changed();
     let session_result = self.save_session();
     let stored_result = self.forget_stored_decisions(&is_config_file).await;
     // resolving them may store what the user always allowed once it's set up
@@ -2535,6 +2563,19 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
+  /// Tells the download policy what the user denied downloading this session,
+  /// which an allowed npm registry doesn't allow then (see
+  /// `DownloadPolicy::set_denied_downloads`).
+  fn denied_downloads_changed(&self) {
+    let downloads = self
+      .denied_downloads
+      .borrow()
+      .values()
+      .flat_map(|denied| denied.downloads.clone())
+      .collect::<Vec<_>>();
+    self.environment.download_policy().set_denied_downloads(downloads);
+  }
+
   /// Gets whether the user denied downloading the downloads for the config
   /// file this session, which includes a denial of more of them (ex. one of
   /// them was allowed for another config file since), so what they denied
@@ -2888,6 +2929,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       let id = get_approval_id("download", &denied.config_key, &denied.downloads);
       (id.clone(), DeniedDownload { id, ..denied })
     }));
+    self.denied_downloads_changed();
   }
 
   /// Forgets a config file that was deleted, which isn't resolved again.

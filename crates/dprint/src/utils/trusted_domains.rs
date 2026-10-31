@@ -55,6 +55,7 @@ impl DownloadPolicy {
     DownloadPolicy::TrustedDomains(Arc::new(TrustedDownloads {
       trusted_domains: Mutex::new(TrustedDomains::from_settings(environment)),
       allowed: Default::default(),
+      denied: Default::default(),
     }))
   }
 
@@ -159,6 +160,15 @@ impl DownloadPolicy {
     }
   }
 
+  /// Sets what the user denied downloading this session for any config file,
+  /// which an allowed npm registry then doesn't allow even though it's under
+  /// it (see `TrustedDownloads::is_allowed`).
+  pub fn set_denied_downloads(&self, downloads: impl IntoIterator<Item = String>) {
+    if let DownloadPolicy::TrustedDomains(trusted_downloads) = self {
+      *trusted_downloads.denied.lock() = downloads.into_iter().collect();
+    }
+  }
+
   /// Gets what the user allowed downloading this session.
   pub fn allowed_downloads(&self) -> Vec<String> {
     match self {
@@ -184,6 +194,9 @@ pub struct TrustedDownloads {
   /// it (see `get_npm_registry_download`). It also has the proxies of `.npmrc` files the
   /// user allowed downloading through (see `NpmrcProxy::to_download`).
   allowed: Mutex<HashSet<String>>,
+  /// What the user denied downloading this session, which wins over an npm
+  /// registry that allows what's under it, but not over allowing it exactly.
+  denied: Mutex<HashSet<String>>,
 }
 
 impl TrustedDownloads {
@@ -193,11 +206,21 @@ impl TrustedDownloads {
     // each download is kept in session files and hashed into approval ids, which other versions read,
     // so what an existing form allows is never broadened, and a broader allow gets a new form instead
     // (see `SessionFile`).
-    self
-      .allowed
-      .lock()
-      .iter()
-      .any(|allowed| allowed == url || get_npm_registry_download_url(allowed).is_some_and(|registry_url| url.starts_with(registry_url)))
+    let allowed = self.allowed.lock();
+    if allowed.contains(url) {
+      return true;
+    }
+    // IMPORTANT: A denial wins over a registry that allows what's under it (ex. what another config file extends
+    // from the registry's host, which the user denied for that config file).
+    if self.denied.lock().contains(url) {
+      return false;
+    }
+    allowed.iter().any(|allowed| {
+      // IMPORTANT: Only a registry url that ends with a slash is a prefix, because one that doesn't (ex. from a
+      // session file another version or a corrupted file wrote) would allow other hosts (ex. `https://npm.corp`
+      // would allow `https://npm.corp.example`).
+      get_npm_registry_download_url(allowed).is_some_and(|registry_url| registry_url.ends_with('/') && url.starts_with(registry_url))
+    })
   }
 
   /// Errors when the path may not be read without asking the user (see
@@ -787,7 +810,8 @@ impl TrustedDomains {
 /// broadened, and a broader allow gets a new form (ex. a new prefix) instead,
 /// which older versions match against nothing (see `SessionFile`).
 const NPMRC_PROXY_DOWNLOAD_PREFIX: &str = "npmrc-proxy:";
-/// What starts the download of an npm registry (see `get_npm_registry_download`).
+/// What starts the download of an npm registry (see `get_npm_registry_download`),
+/// whose url ends with a slash, which a reader relies on (see `is_allowed`).
 const NPM_REGISTRY_DOWNLOAD_PREFIX: &str = "npm-registry:";
 
 /// How the system resolves the paths that are checked (see `PathRules`).
@@ -1681,6 +1705,16 @@ mod test {
       "Downloading `https://other.example.com/` needs to be allowed because its domain isn't trusted."
     );
     assert!(policy.ensure_allows_npm_registry(&url("https://registry.npmjs.org/")).is_ok());
+    // a denial wins over a registry, but not over an exact allow
+    policy.set_denied_downloads(["https://npm.example.com/a.json".to_string(), "https://example.com/plugin.wasm".to_string()]);
+    assert!(!policy.allows(&url("https://npm.example.com/a.json")));
+    assert!(policy.allows(&url("https://npm.example.com/b.json")));
+    assert!(policy.allows(&url("https://example.com/plugin.wasm")));
+    policy.set_denied_downloads([]);
+    // a registry url without a slash (ex. from a corrupted session file) isn't a prefix
+    policy.allow(&["npm-registry:https://npm.corp".to_string()]);
+    assert!(!policy.allows(&url("https://npm.corp.example/package")));
+    assert!(!policy.allows(&url("https://npm.corp/package")));
     // the cli downloads anything
     assert!(DownloadPolicy::All.allows(&url("http://example.com/plugin.wasm")));
   }

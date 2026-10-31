@@ -1750,7 +1750,7 @@ fn should_register_the_files_to_watch_by_their_canonical_directories() {
     .build();
   environment.write_file("/data/proj/base.json", "{}").unwrap();
   // the workspace is opened through a symlink
-  environment.add_canonical_dir("/home/proj", "/data/proj");
+  environment.add_canonical_symlink("/home/proj", "/data/proj");
   let mut params = editor_extension_params();
   params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
   params.capabilities.workspace = Some(WorkspaceClientCapabilities {
@@ -1800,6 +1800,56 @@ fn should_register_the_files_to_watch_by_their_canonical_directories() {
           })
           .await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/home/proj/dprint.json")]);
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_notice_a_change_to_a_config_file_that_is_a_symlink_to_a_file_with_another_name() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/shared/base.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  // ex. a symlink, whose canonical path is the file it points to
+  environment.add_canonical_path("/a/dprint.json", "/shared/base.json");
+  let mut params = editor_extension_params();
+  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
+  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
+    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
+      dynamic_registration: Some(true),
+      relative_pattern_support: Some(true),
+    }),
+    ..Default::default()
+  });
+  run_session_with(&environment, params, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(client.file_info("/a/file.txt").await.status, FormatStatus::ready());
+        // the change is reported by the canonical path, which isn't the name of a config file
+        let text = environment.read_file("/shared/base.json").unwrap();
+        let text = text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1);
+        environment.write_file("/shared/base.json", &text).unwrap();
+        // which is what's read through the symlink too
+        environment.write_file("/a/dprint.json", &text).unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/shared/base.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_config_changes().await.len(), 1);
         client.test_client.take_messages();
       }
       .boxed_local()
@@ -4252,6 +4302,50 @@ fn should_allow_the_packages_of_an_npm_registry_with_a_path() {
       assert_eq!(client.config_info("/project/dprint.json").await.status, FormatStatus::ready());
     }
     .boxed_local()
+  });
+}
+
+#[test]
+fn should_keep_denying_a_download_under_an_npm_registry_that_is_allowed() {
+  use crate::test_helpers::WASM_PLUGIN_BYTES;
+  use crate::test_helpers::create_test_npm_tarball;
+
+  const EXTENDS_URL: &str = "https://npm.example.com/a.json";
+  const PACKUMENT_URL: &str = "https://npm.example.com/test-plugin";
+  const TARBALL_URL: &str = "https://npm.example.com/test-plugin/-/test-plugin-1.0.0.tgz";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("extends", &format!(r#""{}""#, EXTENDS_URL));
+    })
+    .with_local_config("/b/dprint.json", |c| {
+      c.add_plugin("npm:test-plugin@1.0.0");
+    })
+    .write_file("/b/.npmrc", "registry=https://npm.example.com/")
+    .build();
+  environment.add_remote_file_bytes(EXTENDS_URL, b"{}".to_vec());
+  let packument = json!({ "versions": { "1.0.0": { "dist": { "tarball": TARBALL_URL } } } });
+  environment.add_remote_file_bytes(PACKUMENT_URL, packument.to_string().into_bytes());
+  environment.add_remote_file_bytes(TARBALL_URL, create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]));
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+        assert_eq!(specifiers(&approval), vec![EXTENDS_URL]);
+        client.approve(&approval.id, ApprovalDecision::Deny).await;
+        // the user allows the registry for another config file, which allows every url under it
+        let approval = client.config_info("/b/dprint.json").await.status.approvals()[0].clone();
+        assert_eq!(specifiers(&approval), vec!["https://npm.example.com/"]);
+        client.approve(&approval.id, ApprovalDecision::Allow).await;
+        assert_eq!(client.config_info("/b/dprint.json").await.status, FormatStatus::ready());
+        // but not what the user denied
+        let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+        assert!(approval.denied);
+        assert_eq!(environment.remote_file_request_count(EXTENDS_URL), 0);
+      }
+      .boxed_local()
+    }
   });
 }
 

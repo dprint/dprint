@@ -3,6 +3,8 @@ use std::rc::Rc;
 use anyhow::Result;
 use serde::Serialize;
 
+use std::path::Path;
+
 use crate::arg_parser::CliArgParserKind;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
@@ -134,13 +136,20 @@ fn remove_cache_dir_killing_processes(environment: &impl Environment, cache_dir:
 /// Removes the cache directory apart from the files of the editor sessions
 /// that a server that's running uses, which their locks keep another server
 /// of the same session from using (see `SessionFile`).
+///
+/// IMPORTANT: The cache directory and the sessions directory are never removed
+/// recursively, because a server may create its session's lock in them while
+/// this runs, which would then be deleted under it.
 fn remove_cache_dir(environment: &impl Environment, cache_dir: &CanonicalizedPathBuf) -> std::io::Result<()> {
   let sessions_dir = get_sessions_dir(environment);
-  if environment.path_kind(&sessions_dir) != Some(PathKind::Dir) {
-    return environment.remove_dir_all(cache_dir);
-  }
-  for path in environment.dir_entry_paths(cache_dir)? {
-    if path == sessions_dir {
+  let paths = match environment.dir_entry_paths(cache_dir) {
+    Ok(paths) => paths,
+    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+    Err(err) => return Err(err),
+  };
+  for path in paths {
+    // ex. a server created it since it was checked, which is the same either way
+    if path.file_name() == sessions_dir.file_name() {
       continue;
     }
     match environment.path_kind(&path) {
@@ -152,10 +161,20 @@ fn remove_cache_dir(environment: &impl Environment, cache_dir: &CanonicalizedPat
     }
   }
   remove_unused_session_files(environment);
-  if environment.dir_entry_paths(cache_dir).is_ok_and(|paths| paths.is_empty()) {
-    environment.remove_dir_all(cache_dir)?;
+  remove_dir_when_empty(environment, cache_dir.as_ref())
+}
+
+/// Removes a directory when it's empty, which is kept otherwise (ex. it has
+/// the session files of a server that's running).
+fn remove_dir_when_empty(environment: &impl Environment, dir_path: &Path) -> std::io::Result<()> {
+  match environment.remove_empty_dir(dir_path) {
+    Ok(()) => Ok(()),
+    Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    Err(err) => match environment.dir_entry_paths(dir_path) {
+      Ok(paths) if !paths.is_empty() => Ok(()),
+      _ => Err(err),
+    },
   }
-  Ok(())
 }
 
 pub async fn output_file_paths<TEnvironment: Environment>(

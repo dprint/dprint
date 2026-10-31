@@ -200,16 +200,21 @@ impl std::error::Error for SessionFileWriteError {}
 ///   `npmrc-proxy:...`, see `UntrustedDownloadError`) is kept as it is, so
 ///   what allowing an existing form covers is never broadened, and a broader
 ///   allow gets a new form instead, which older versions match against
-///   nothing.
+///   nothing. A new form starts with a scheme of two or more lowercase ASCII
+///   letters, digits, and hyphens and a colon that `Url::parse` accepts (like
+///   `npm-registry:` and `npmrc-proxy:`), so an older version treats it as a
+///   url it doesn't know and never as a path (see `is_path_download`).
 /// - A denial of downloads is kept with the downloads it's for, and its
 ///   approval id is made from them when it's read, so a change to how the
 ///   ids are made doesn't lose it.
 /// - A file and its temporary files are written with mode `0600` on Unix
 ///   (`SESSION_FILE_MODE`), because they may have the credentials of an
 ///   `.npmrc` proxy setting.
-/// - The allows and set-up grants of a file are only restored when its
-///   `approvalsFileFingerprint` is the approvals file's (see
-///   `SessionPermissions::restore`), so a file without it fails closed.
+/// - The process plugin allows and set-up grants of a file are only
+///   restored when its `approvalsFileFingerprint` is the approvals file's (see
+///   `SessionPermissions::restore`), so a file without it fails closed. Its
+///   allowed downloads are restored whatever it is, because the approvals
+///   file doesn't have download decisions.
 /// - A server takes an exclusive lock of the whole `<id>.lock` file before it
 ///   uses `<id>.json` and holds it until the session ends, when it deletes
 ///   both. It's `flock(2)` on Unix and `LockFileEx` of the whole file on
@@ -512,8 +517,9 @@ pub fn remove_stale_session_files(environment: &impl Environment) {
 pub fn remove_unused_session_files(environment: &impl Environment) {
   remove_session_files(environment, |_| true);
   let dir_path = get_sessions_dir(environment);
-  if environment.path_kind(&dir_path) == Some(PathKind::Dir) && environment.dir_info(&dir_path).is_ok_and(|entries| entries.is_empty()) {
-    environment.try_remove_dir_all(&dir_path);
+  // not recursively, because a server may create its session's lock in it meanwhile
+  if environment.path_kind(&dir_path) == Some(PathKind::Dir) {
+    let _ignore = environment.remove_empty_dir(&dir_path);
   }
 }
 

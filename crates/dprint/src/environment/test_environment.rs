@@ -176,8 +176,8 @@ pub struct TestEnvironment {
   file_read_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// Number of times each path was canonicalized, which follows its symlinks.
   canonicalize_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
-  /// The directories that are canonicalized to another one, which is like a
-  /// directory that's a symlink to a local one (see `add_canonical_dir`).
+  /// The paths that are canonicalized to another one, which is like a
+  /// symlink to a local file or directory (see `add_canonical_symlink`).
   canonical_dirs: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
   /// Number of times each file was opened (ex. to read its shebang line).
   file_open_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
@@ -378,16 +378,23 @@ impl TestEnvironment {
     self.file_read_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
   }
 
-  /// Makes the directory a symlink to another local one, so the paths in it
-  /// are canonicalized to the paths in the other one (ex. a workspace opened
+  /// Makes the path a symlink to another local file or directory that it's
+  /// canonicalized to, along with the paths in it (ex. a workspace opened
   /// through a symlink), which canonicalizing doesn't do otherwise.
-  pub fn add_canonical_dir(&self, dir_path: impl AsRef<Path>, canonical_dir_path: impl AsRef<Path>) {
+  pub fn add_canonical_symlink(&self, dir_path: impl AsRef<Path>, canonical_dir_path: impl AsRef<Path>) {
     let (dir_path, canonical_dir_path) = (self.clean_path(dir_path), self.clean_path(canonical_dir_path));
     if let Some(parent) = dir_path.parent() {
       self.mk_dir_all(parent).unwrap();
     }
     self.symlink(&canonical_dir_path, &dir_path).unwrap();
-    self.canonical_dirs.lock().push((dir_path, canonical_dir_path));
+    self.add_canonical_path(dir_path, canonical_dir_path);
+  }
+
+  /// Makes the path canonicalize to another one like `add_canonical_symlink`
+  /// without making it a symlink, which is for a file because the test
+  /// environment doesn't read a file through a symlink.
+  pub fn add_canonical_path(&self, path: impl AsRef<Path>, canonical_path: impl AsRef<Path>) {
+    self.canonical_dirs.lock().push((self.clean_path(path), self.clean_path(canonical_path)));
   }
 
   /// Gets the number of times the path was looked up following its symlinks
@@ -961,6 +968,17 @@ impl Environment for TestEnvironment {
       file_path,
       locked_files: self.locked_files.clone(),
     })))
+  }
+
+  fn remove_empty_dir(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
+    let dir_path = self.clean_path(dir_path);
+    if !self.dir_entry_paths(&dir_path)?.is_empty() {
+      return Err(io::Error::new(
+        io::ErrorKind::DirectoryNotEmpty,
+        format!("Directory not empty: {}", dir_path.display()),
+      ));
+    }
+    self.sys.fs_remove_dir_all(&dir_path)
   }
 
   fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
