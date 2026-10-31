@@ -361,6 +361,8 @@ fn start_message_handler<TEnvironment: Environment>(
           pending_count.set(pending_count.get() + 1);
           let pending_count = pending_count.clone();
           dprint_core::async_runtime::spawn(async move {
+            // the paths it provides are checked again for it (see `Workspace::editor_path`)
+            workspace.check_editor_dirs_again();
             task(workspace).await;
             pending_count.set(pending_count.get() - 1);
           });

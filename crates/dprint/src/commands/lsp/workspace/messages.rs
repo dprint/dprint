@@ -735,7 +735,8 @@ pub struct ApproveResult {
   pub config_approvals: ConfigApprovals,
   /// What to tell the user about the decision or one made before for the
   /// same config file (ex. what was denied was allowed exactly for another
-  /// config file since, so it's still allowed, or it couldn't be stored, so it's only used for the
+  /// config file since, so it's still allowed, or it couldn't be stored, so
+  /// it's only used for the
   /// session, or the session file couldn't be written or deleted, or the
   /// session's decisions aren't kept yet because another server that's
   /// running uses the session id or its lock can't be taken).

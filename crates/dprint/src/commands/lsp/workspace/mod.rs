@@ -61,19 +61,16 @@ use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::ConfigFileOnAnotherMachineError;
 use crate::configuration::ConfigMapValue;
-use crate::configuration::DOT_CONFIG_DIR_NAME;
-use crate::configuration::DOT_CONFIG_FILE_NAMES;
 use crate::configuration::NewerApprovalsFileError;
-use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
 use crate::configuration::ensure_allows_reading_config_file;
 use crate::configuration::forget_editor_approvals;
 use crate::configuration::get_config_file_found_path;
+use crate::configuration::get_config_file_lookup;
 use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
-use crate::configuration::is_case_insensitive_file_system;
 use crate::configuration::is_dot_config_dir;
 use crate::configuration::is_more_recent_at;
 use crate::configuration::read_editor_approval_denials;
@@ -171,10 +168,10 @@ use self::session_file::remove_stale_session_files;
 pub(crate) use self::session_file::remove_unused_session_files;
 
 /// What the user is told when they denied downloads that were each allowed
-/// exactly since (ex. for another config file in another window), which is
-/// still allowed then. A new session asks about it again, apart from what was
+/// exactly since (ex. for another config file, or before the server was
+/// started again for the session), which is still allowed then. A new session asks about it again, apart from what was
 /// downloaded to the cache, which isn't downloaded again.
-const ALLOWED_SINCE_MESSAGE: &str = "What you denied was allowed for another configuration file since (ex. in another window), so it's still allowed for this session. Restarting dprint in a new session asks about it again, unless it was downloaded to dprint's cache, which `dprint clear-cache` removes.";
+const ALLOWED_SINCE_MESSAGE: &str = "What you denied was allowed for another configuration file since, so it's still allowed for this session. Restarting dprint in a new session asks about it again, unless it was downloaded to dprint's cache, which `dprint clear-cache` removes.";
 
 /// What's said of a path on another machine that isn't valid Unicode, which
 /// can't be allowed (see `TrustedDownloads::is_path_allowed`).
@@ -838,8 +835,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// A config file that's a symlink is matched by where it was found too (ex. a
   /// config file that inherits from it, which a changed symlink changes).
   fn get_dependent_config_files(&self, file_path: &Path) -> Vec<(PathBuf, bool)> {
-    let found_path = self.canonicalize_config_file_path(file_path.to_path_buf());
-    let file_path = self.canonicalize_editor_path(file_path.to_path_buf());
+    let canonical_path = self.canonicalize_editor_path(file_path.to_path_buf());
+    let found_path = self.get_config_file_identity_path(file_path, canonical_path.clone());
+    let file_path = canonical_path;
     let mut config_file_paths: Vec<(PathBuf, bool)> = Vec::new();
     for dependencies in self.config_dependencies.borrow().values() {
       let is_canonical_path = dependencies.canonical_path.as_ref() == Some(&file_path);
@@ -865,7 +863,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   pub async fn file_info(self: &Rc<Self>, document: &DocumentInfo, text: Option<&str>, global_config: Option<GlobalConfigUse>) -> Result<FileInfoResult> {
-    self.check_editor_dirs_again();
     let document_file = match self.get_document_file(document) {
       Ok(document_file) => document_file,
       Err(err) => {
@@ -943,7 +940,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   pub async fn config_info(self: &Rc<Self>, target: &ConfigTarget, global_config: Option<GlobalConfigUse>) -> Result<ConfigInfoResult> {
-    self.check_editor_dirs_again();
     let use_global_config = self.resolve_global_config_use(global_config);
     let (target, config) = match self.resolve_config_target(target, use_global_config).await {
       Ok(config) => config,
@@ -1085,7 +1081,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// `config_info` for params that can't be handled (ex. a file that isn't a
   /// config file).
   pub async fn config_schema(self: &Rc<Self>, target: &ConfigTarget, global_config: Option<GlobalConfigUse>) -> Result<(serde_json::Value, bool)> {
-    self.check_editor_dirs_again();
     let mut plugins = Vec::new();
     let use_global_config = self.resolve_global_config_use(global_config);
     // a config file that fails to resolve was shown to the user, so its plugins are only left out
@@ -1136,7 +1131,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self: &Rc<Self>,
     config_file: Option<(Uri, Option<Uri>)>,
   ) -> Result<(Vec<PendingApproval>, Option<(Option<ConfigFileInfo>, FormatStatus)>)> {
-    self.check_editor_dirs_again();
     // what's pending for one config file says whether it's used
     if let Some((uri, dir_uri)) = config_file {
       let (target, config) = match self.resolve_config_target(&ConfigTarget::ConfigFile { uri, dir_uri }, false).await {
@@ -1284,7 +1278,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Formats the document, which says the config file that was used.
   pub async fn format(self: &Rc<Self>, request: FormatRequest, token: &Arc<CancellationToken>) -> Result<(FormatOutcome, Option<ConfigFileInfo>)> {
-    self.check_editor_dirs_again();
     let document_file = match self.get_document_file(&request.document) {
       Ok(document_file) => document_file,
       Err(err) => return Ok((FormatOutcome::NotFormatted(into_unsupported_document(err)?), None)),
@@ -1479,7 +1472,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Allow" for process plugins that weren't set up is stored once this sets
   /// them up).
   pub async fn approve(self: &Rc<Self>, id: &str, decision: ApprovalDecision) -> Result<ApproveResult> {
-    self.check_editor_dirs_again();
     let stored = self.approvals.borrow().values().flatten().find(|stored| stored.approval.id == id).cloned();
     let Some(stored) = stored else {
       return Err(self.new_approval_changed_error(id).await);
@@ -1510,8 +1502,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           drop(allowed_items);
           self.denied_downloads_changed();
         } else if self.is_each_allowed(urls) {
-          // a denial of downloads that are each allowed exactly since (ex. for another config file in another
-          // window) wouldn't do anything, because an exact allow wins over a denial, so it isn't kept
+          // a denial of downloads that are each allowed exactly since (ex. for another config file) wouldn't do
+          // anything, because an exact allow wins over a denial, so it isn't kept
           notice = Some(new_warning_notice(ALLOWED_SINCE_MESSAGE.to_string()));
         } else {
           self.denied_downloads.borrow_mut().insert(
@@ -1550,7 +1542,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       && let Some(config) = &scope.config
       && let Some(message) = self.session_permissions.take_process_plugin_store_error(&config.display(), store_error_mark)
     {
-      notice = Some(new_warning_notice(message));
+      push_warning_notice(&mut notice, message);
     }
     let is_download_pending = match &config {
       Ok(DocumentConfig::Resolved(scope)) => !scope.untrusted_downloads.is_empty(),
@@ -1616,12 +1608,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       },
       notice,
     })
-  }
-
-  /// Gets whether each download is allowed exactly (see `TrustedDownloads::is_allowed`).
-  fn is_each_allowed(&self, downloads: &[String]) -> bool {
-    let allowed = self.environment.download_policy().allowed_downloads().into_iter().collect::<HashSet<_>>();
-    downloads.iter().all(|download| allowed.contains(download))
   }
 
   /// Gets the error for approving what isn't pending anymore, which says what
@@ -1714,7 +1700,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// It's with what to tell the user about forgetting them (ex. the stored
   /// decisions couldn't be forgotten).
   pub async fn forget_decisions(self: &Rc<Self>, config_file: Option<(Uri, Option<Uri>)>) -> Result<(Vec<Decision>, Option<Notice>)> {
-    self.check_editor_dirs_again();
     // the config file as the process plugin decisions have it and its key, which is found without
     // resolving it because that would run what the user wants to stop allowing
     let identifier = config_file;
@@ -1769,7 +1754,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// when `None`, which says whether the settings file allows every process
   /// plugin.
   pub fn decisions(&self, config_file: Option<(Uri, Option<Uri>)>) -> Result<(Vec<Decision>, bool)> {
-    self.check_editor_dirs_again();
     let identifier = config_file;
     let config_file = match &identifier {
       Some((uri, dir_uri)) => Some(self.get_decisions_config_file(uri, dir_uri.as_ref())?),
@@ -2259,6 +2243,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       while !pending.is_empty() {
         let approval = pending.remove(0);
         let titles = match approval.kind {
+          // a path that isn't valid Unicode can only be denied (see `DownloadPolicy::is_allowable`)
+          ApprovalKind::Downloads if !approval.decisions.iter().any(|option| option.decision == ApprovalDecision::Allow) => {
+            vec![CANCEL_DOWNLOAD_ACTION_TITLE]
+          }
           ApprovalKind::Downloads => vec![DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
           ApprovalKind::ProcessPlugins => PROCESS_PLUGIN_ACTION_TITLES.to_vec(),
         };
@@ -2276,6 +2264,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             None => return,
           },
         };
+        // the user may have responded a while after the task that asked them
+        workspace.check_editor_dirs_again();
         match workspace.approve(&approval.id, decision).await {
           Ok(result) => {
             // a language client's user is told with a message
@@ -3226,7 +3216,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets a canonicalized path as the editor knows it (see `EditorPaths`).
   ///
   /// IMPORTANT: The alias it's through is checked again first, once for each
-  /// request that provides paths (see `check_editor_dirs_again`), because it
+  /// task that provides paths (see `check_editor_dirs_again`), because it
   /// may lead somewhere else now (ex. a `git pull` pointed a symlink in the
   /// workspace at a share), which the editor doesn't report, and it's
   /// forgotten then. Otherwise the editor would be given a path that it
@@ -3259,9 +3249,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   }
 
   /// Has the aliases of `editor_paths` checked again before they're used next
-  /// (see `editor_path`), which is done at the start of each request that
-  /// provides paths so they're checked once for it.
-  fn check_editor_dirs_again(&self) {
+  /// (see `editor_path`), which is done at the start of each task of the
+  /// language server (ex. a request) and of each one of the workspace's own
+  /// that provides paths, so they're checked once for it.
+  pub fn check_editor_dirs_again(&self) {
     self.checked_editor_dirs.borrow_mut().clear();
   }
 
@@ -3674,29 +3665,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// `get_config_file_found_path`).
   fn canonicalize_config_file_path(&self, path: PathBuf) -> PathBuf {
     let canonical_path = self.canonicalize_editor_path(path.clone());
-    let (Some(parent), Some(file_name)) = (path.parent(), path.file_name().and_then(|name| name.to_str())) else {
+    self.get_config_file_identity_path(&path, canonical_path)
+  }
+
+  /// Gets the path that identifies a local config file at the editor's path
+  /// with its canonical path (see `canonicalize_config_file_path`).
+  fn get_config_file_identity_path(&self, path: &Path, canonical_path: PathBuf) -> PathBuf {
+    let Some((dir_path, relative_path)) = get_config_file_lookup(&self.environment, path) else {
       return canonical_path;
-    };
-    // the names as dprint finds them, which a case insensitive file system has in another case too (see
-    // `get_config_file_found_path`)
-    let is_same_name = |name: &str, found_name: &str| match is_case_insensitive_file_system() {
-      true => name.eq_ignore_ascii_case(found_name),
-      false => name == found_name,
-    };
-    let file_name = POSSIBLE_CONFIG_FILE_NAMES
-      .iter()
-      .find(|name| is_same_name(file_name, name))
-      .copied()
-      .unwrap_or(file_name);
-    let is_in_dot_config_dir = DOT_CONFIG_FILE_NAMES.contains(&file_name)
-      && parent
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| is_same_name(name, DOT_CONFIG_DIR_NAME))
-      && is_dot_config_dir(&self.environment, &parent.with_file_name(DOT_CONFIG_DIR_NAME));
-    let (dir_path, relative_path) = match (is_in_dot_config_dir, parent.parent()) {
-      (true, Some(base_dir)) => (base_dir, Path::new(DOT_CONFIG_DIR_NAME).join(file_name)),
-      _ => (parent, PathBuf::from(file_name)),
     };
     // a directory that may not be read had only that canonicalized, which is the path then
     if !self.allows_reading_path(dir_path) {
@@ -3706,6 +3682,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       Ok(canonical_dir_path) => get_config_file_found_path(canonical_dir_path.as_ref().join(relative_path), &canonical_path).unwrap_or(canonical_path),
       Err(_) => canonical_path,
     }
+  }
+
+  /// Gets whether each download is allowed exactly (see `TrustedDownloads::is_allowed`).
+  fn is_each_allowed(&self, downloads: &[String]) -> bool {
+    let allowed = self.environment.download_policy().allowed_downloads().into_iter().collect::<HashSet<_>>();
+    downloads.iter().all(|download| allowed.contains(download))
   }
 
   /// Gets whether a path from the editor may be read without asking the user

@@ -144,18 +144,17 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
     // when it's discovered, but a remote or npm config file has no directory
     let (dirs, found_path) = match &resolved_file.source {
       PathSource::Local(source) => {
-        // use the path as specified when it's a plain file path (see `resolve_local_config_file_dirs`)
-        let is_file_path = !config.starts_with("~/") && !config.starts_with("file:");
-        let specified_path = if is_file_path {
-          cwd.as_ref().join(config)
-        } else {
-          source.path.as_ref().to_path_buf()
+        // use the path as specified when it's a file path (see `resolve_config_file_dirs_at_path`)
+        let home_path = config.strip_prefix("~/").and_then(|path| Some(environment.get_home_dir()?.join(path)));
+        let specified_path = match home_path {
+          Some(home_path) => home_path,
+          None if config.starts_with("file:") => source.path.as_ref().to_path_buf(),
+          None => cwd.as_ref().join(config),
         };
-        // it's known by that path like when it's found, so what the editors allow for it is the same (see `get_config_file_found_path`)
-        let found_path = resolve_config_file_dirs_at_path(environment, &specified_path)
-          .ok()
-          .and_then(|(_, path)| get_config_file_found_path(path, source.path.as_ref()));
-        (resolve_local_config_file_dirs(environment, &specified_path)?, found_path)
+        // it's used for the directory it was found in and known by its path there like when it's found, so what the
+        // editors allow for it is the same (see `get_config_file_found_path`)
+        let (dirs, found_path) = resolve_config_file_dirs_at_path(environment, &specified_path)?;
+        (dirs, get_config_file_found_path(found_path, source.path.as_ref()))
       }
       PathSource::Remote(_) | PathSource::Npm(_) => (
         LocalConfigFileDirs {
@@ -457,29 +456,46 @@ pub fn resolve_local_config_file_dirs(environment: &impl Environment, config_pat
 /// in (or the parent of its `.config` directory) rather than the directory of
 /// its canonical path, like when it's found for a file in that directory.
 pub fn resolve_config_file_dirs_at_path(environment: &impl Environment, config_path: &Path) -> std::io::Result<(LocalConfigFileDirs, PathBuf)> {
-  let (Some(dir), Some(file_name)) = (config_path.parent(), config_path.file_name()) else {
+  let Some((base_dir, relative_path)) = get_config_file_lookup(environment, config_path) else {
     return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "The config file path has no directory."));
   };
-  match get_dot_config_file_base_dir(environment, config_path) {
-    Some(base_dir) => {
-      let base_path = environment.canonicalize(base_dir)?;
-      let dot_config_dir = base_path.join_panic_relative(DOT_CONFIG_DIR_NAME);
-      let path = dot_config_dir.as_ref().join(file_name);
-      let dirs = LocalConfigFileDirs {
-        anchored_patterns_base_path: Some(dot_config_dir),
-        base_path,
-      };
-      Ok((dirs, path))
-    }
-    None => {
-      let base_path = environment.canonicalize(dir)?;
-      let path = base_path.as_ref().join(file_name);
-      let dirs = LocalConfigFileDirs {
-        base_path,
-        anchored_patterns_base_path: None,
-      };
-      Ok((dirs, path))
-    }
+  let base_path = environment.canonicalize(base_dir)?;
+  let path = base_path.as_ref().join(&relative_path);
+  let is_in_dot_config_dir = relative_path.components().count() > 1;
+  let dirs = LocalConfigFileDirs {
+    anchored_patterns_base_path: is_in_dot_config_dir.then(|| base_path.join_panic_relative(DOT_CONFIG_DIR_NAME)),
+    base_path,
+  };
+  Ok((dirs, path))
+}
+
+/// Gets the directory that a local config file at the path is used for, with
+/// its path relative to that directory as dprint looks it up (ex.
+/// `.config/dprint.json`), which a case insensitive file system finds in
+/// another case too (ex. `.Config/Dprint.json`).
+pub fn get_config_file_lookup<'a>(environment: &impl Environment, config_path: &'a Path) -> Option<(&'a Path, PathBuf)> {
+  let parent = config_path.parent()?;
+  let Some(file_name) = config_path.file_name()?.to_str() else {
+    return Some((parent, PathBuf::from(config_path.file_name()?)));
+  };
+  let is_looked_up_name = |name: &str, looked_up_name: &str| match is_case_insensitive_file_system() {
+    true => name.eq_ignore_ascii_case(looked_up_name),
+    false => name == looked_up_name,
+  };
+  let file_name = POSSIBLE_CONFIG_FILE_NAMES
+    .iter()
+    .find(|name| is_looked_up_name(file_name, name))
+    .copied()
+    .unwrap_or(file_name);
+  let is_in_dot_config_dir = DOT_CONFIG_FILE_NAMES.contains(&file_name)
+    && parent
+      .file_name()
+      .and_then(|name| name.to_str())
+      .is_some_and(|name| is_looked_up_name(name, DOT_CONFIG_DIR_NAME))
+    && is_dot_config_dir(environment, &parent.with_file_name(DOT_CONFIG_DIR_NAME));
+  match (is_in_dot_config_dir, parent.parent()) {
+    (true, Some(base_dir)) => Some((base_dir, Path::new(DOT_CONFIG_DIR_NAME).join(file_name))),
+    _ => Some((parent, PathBuf::from(file_name))),
   }
 }
 
@@ -494,33 +510,12 @@ pub fn resolve_config_file_dirs_at_path(environment: &impl Environment, config_p
 /// still resolved from its canonical path (ex. what it extends is relative to
 /// that).
 ///
-/// The directory it was found for is canonical in both, so only the names
-/// that were looked up (the file name, and a `.config` directory) may be in
-/// another case, which they are on a case insensitive file system when the
-/// file on disk has another case (ex. `.Config`). That isn't another file, so
-/// the config file is known by its canonical path then, which has the case on
-/// disk like the editor's path of it.
+/// It's known by the names dprint looked up (ex. `.config/dprint.json`) when
+/// they're in another case on disk too (ex. `.Config` on a case insensitive
+/// file system), so what tells a config file's directory and role from its
+/// path sees them (see `get_config_file_lookup`).
 pub fn get_config_file_found_path(found_path: PathBuf, canonical_path: &Path) -> Option<PathBuf> {
-  let found_components = found_path.components().collect::<Vec<_>>();
-  let canonical_components = canonical_path.components().collect::<Vec<_>>();
-  let is_in_dot_config_dir = found_path
-    .parent()
-    .and_then(|dir| dir.file_name())
-    .is_some_and(|name| name == DOT_CONFIG_DIR_NAME);
-  let looked_up_count = if is_in_dot_config_dir { 2 } else { 1 };
-  let first_looked_up_index = found_components.len().saturating_sub(looked_up_count);
-  let is_same = found_components.len() == canonical_components.len()
-    && found_components
-      .iter()
-      .zip(&canonical_components)
-      .enumerate()
-      .all(
-        |(index, (found, canonical))| match index >= first_looked_up_index && is_case_insensitive_file_system() {
-          true => found.as_os_str().eq_ignore_ascii_case(canonical.as_os_str()),
-          false => found == canonical,
-        },
-      );
-  (!is_same).then_some(found_path)
+  (found_path != canonical_path).then_some(found_path)
 }
 
 /// Gets whether the file system is case insensitive, which it is by default
@@ -653,19 +648,12 @@ mod tests {
       get_config_file_found_path(PathBuf::from("/p/.config/dprint.json"), Path::new("/other/dprint.json")),
       Some(PathBuf::from("/p/.config/dprint.json"))
     );
-    assert_eq!(
-      get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/P/dprint.json")),
-      Some(PathBuf::from("/p/dprint.json"))
-    );
     // the same file
     assert_eq!(get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/p/dprint.json")), None);
-    // which the names that were looked up may be in another case of on a case insensitive file system
-    let in_another_case = |found_path: &str, canonical_path: &str| get_config_file_found_path(PathBuf::from(found_path), Path::new(canonical_path));
-    let expected = |found_path: &str| (!is_case_insensitive_file_system()).then(|| PathBuf::from(found_path));
-    assert_eq!(in_another_case("/p/dprint.json", "/p/Dprint.json"), expected("/p/dprint.json"));
+    // which is known by the names that were looked up when they're in another case on disk
     assert_eq!(
-      in_another_case("/p/.config/dprint.json", "/p/.Config/dprint.json"),
-      expected("/p/.config/dprint.json")
+      get_config_file_found_path(PathBuf::from("/p/.config/dprint.json"), Path::new("/p/.Config/dprint.json")),
+      Some(PathBuf::from("/p/.config/dprint.json"))
     );
   }
 

@@ -474,13 +474,14 @@ impl SessionFile {
     if let Some(dir_path) = self.lock_path.parent() {
       environment.mk_dir_all(dir_path).map_err(SessionLockError::Failed)?;
     }
+    // it isn't taken when the path doesn't name the file that was locked anymore (ex. another version deleted it
+    // while this opened it), which is like another server holding it
     match environment.try_lock_file(&self.lock_path) {
-      // a server that deleted a stale lock while this opened it means this holds a lock of a deleted file
-      Ok(Some(lock)) if environment.path_exists(&self.lock_path) => {
+      Ok(Some(lock)) => {
         *self.lock.borrow_mut() = Some(lock);
         Ok(())
       }
-      Ok(Some(_)) | Ok(None) => Err(SessionLockError::InUse),
+      Ok(None) => Err(SessionLockError::InUse),
       Err(err) => Err(SessionLockError::Failed(err)),
     }
   }

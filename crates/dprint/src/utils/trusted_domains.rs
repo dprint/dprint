@@ -312,7 +312,8 @@ impl TrustedDownloads {
   ///
   /// IMPORTANT: A path that isn't valid Unicode is never allowed, because its
   /// text has a replacement character where it isn't (see `Path::display`), so
-  /// another path would have the same text. The user is asked each time.
+  /// another path would have the same text. It can only be denied (see
+  /// `DownloadPolicy::is_allowable`).
   fn is_path_allowed(&self, path: &Path, resolved: &Path) -> bool {
     if path.to_str().is_none() || resolved.to_str().is_none() {
       return false;
@@ -1724,6 +1725,32 @@ mod test {
 
   fn url(text: &str) -> Url {
     Url::parse(text).unwrap()
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn should_not_allow_a_path_that_is_not_valid_unicode() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let environment = TestEnvironment::new();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let DownloadPolicy::TrustedDomains(downloads) = &policy else {
+      unreachable!();
+    };
+    let path = Path::new(std::ffi::OsStr::from_bytes(b"/project/pkg\xff"));
+    let network_path = || NetworkPath {
+      share: "/net/server/share".to_string(),
+      resolved: PathBuf::from(std::ffi::OsStr::from_bytes(b"/net/server/share/pkg\xff")),
+    };
+    let download = downloads
+      .ensure_allows_network_path(path, Some(network_path()), None, |_| None)
+      .unwrap_err()
+      .download;
+    // its text has a replacement character, which other paths have too, so allowing it isn't offered
+    assert!(!policy.is_allowable(&download));
+    policy.allow(std::slice::from_ref(&download));
+    assert!(downloads.ensure_allows_network_path(path, Some(network_path()), None, |_| None).is_err());
+    assert!(policy.is_allowable("/project/other -> /net/server/share/other"));
   }
 
   #[test]

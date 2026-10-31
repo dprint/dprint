@@ -119,12 +119,13 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 
   /// Loads the config file at the path, which is `None` when it doesn't exist.
   pub fn load_config_file(&self, path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
-    let Some(content) = self.environment.maybe_read_file(path)? else {
-      return Ok(None);
+    let canonical_path = match self.environment.canonicalize(path) {
+      Ok(canonical_path) => canonical_path,
+      Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+      Err(err) => return Err(err.into()),
     };
     // it's used for its own directory and known by its path there, like when it's found for a file in it
     let (dirs, found_path) = resolve_config_file_dirs_at_path(&self.environment, path)?;
-    let canonical_path = self.environment.canonicalize(path)?;
     let found_path = get_config_file_found_path(found_path, canonical_path.as_ref());
     // the global config file is used for any directory, which is the cwd here, but a symlink
     // to it is a config file of its own directory, like when it's found for a file in it
@@ -137,6 +138,9 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     {
       return Ok(Some(global_config_file));
     }
+    let Some(content) = self.environment.maybe_read_file(path)? else {
+      return Ok(None);
+    };
     Ok(Some(ResolvedConfigPathWithText {
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,

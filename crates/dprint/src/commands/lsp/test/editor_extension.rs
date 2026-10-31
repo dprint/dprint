@@ -1771,6 +1771,37 @@ fn should_check_a_directory_alias_again_before_providing_a_path_through_it() {
 }
 
 #[test]
+fn should_know_a_config_file_by_the_names_that_were_looked_up_when_they_are_in_another_case() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/p/.config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/p/.Config/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  // ex. a case insensitive file system, which finds `.Config` when `.config` is looked up
+  environment.add_canonical_path("/p/.config", "/p/.Config");
+  run_session(&environment, |client| {
+    async move {
+      let config_file = client.file_info("/p/file.txt").await.config_file.unwrap();
+      // so it's used for the directory it's found for
+      assert_eq!(config_file, local_config("/p/.config/dprint.json"));
+      let mut params = config_params("/p/.config/dprint.json");
+      params.config_file = Some(ConfigFileIdentifier {
+        uri: config_file.uri.clone(),
+        dir_uri: Some(config_file.dir_uri.clone()),
+      });
+      let config_info = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap();
+      assert_eq!(config_info.status, FormatStatus::ready());
+      assert_eq!(config_info.config_file, Some(local_config("/p/.config/dprint.json")));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_watch_a_config_file_in_a_dot_config_dir_that_is_a_symlink_by_what_it_points_to() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()

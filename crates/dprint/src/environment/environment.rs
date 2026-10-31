@@ -336,7 +336,8 @@ pub trait Environment:
   /// Tries to take an exclusive lock of the file, which is created when it
   /// doesn't exist. The lock is held until it's dropped or the process exits,
   /// and it's `None` when the file is locked already, including by another
-  /// lock of this process.
+  /// lock of this process, or when the path doesn't name the file that was
+  /// locked anymore (ex. another process deleted it while this opened it).
   ///
   /// IMPORTANT: It's `flock(2)` on Unix and `LockFileEx` of the whole file on
   /// Windows, which every version of dprint uses for the same files (see

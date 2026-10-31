@@ -1420,6 +1420,24 @@ mod test {
   }
 
   #[test]
+  fn should_use_a_config_file_given_to_config_that_is_a_symlink_for_the_directory_it_is_in() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/repo/shared/base.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "shared" }"#);
+      })
+      .with_local_config("/repo/packages/a/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "shared" }"#);
+      })
+      .write_file("/repo/packages/a/file.txt", "text")
+      .build();
+    environment.add_canonical_path("/repo/packages/a/dprint.json", "/repo/shared/base.json");
+    environment.set_cwd("/repo/packages/a");
+    run_test_cli(vec!["fmt", "--config", "dprint.json"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/repo/packages/a/file.txt").unwrap(), "text_shared");
+  }
+
+  #[test]
   fn should_format_files_with_config_sub_dir_auto_discoverable_name() {
     // the config file specified via `--config` is also found when traversing its
     // directory, which shouldn't cause it to be resolved a second time
