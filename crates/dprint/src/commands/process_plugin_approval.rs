@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use crate::commands::lsp::workspace::messages::ApprovalDecision;
+use crate::configuration::NewerApprovalsFileError;
 use crate::configuration::ProcessPluginApproval;
 use crate::configuration::ProcessPluginDecision;
 use crate::configuration::ProcessPluginSetUpGrant;
@@ -145,8 +146,9 @@ pub async fn allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>
 /// them. The plugins need to be set up.
 ///
 /// Nothing is stored when the approvals file can't be read (ex. it's from a
-/// newer version of dprint that this version can't use), which is only logged
-/// in debug mode because it would be on each run.
+/// newer version of dprint that this version can't use, which this version
+/// never writes to), which is only logged in debug mode because it would be
+/// on each run.
 pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   environment: &TEnvironment,
   config: &ResolvedConfig,
@@ -188,6 +190,21 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
     }
   })
   .await
+}
+
+/// Gets the message for the user about a failure to store a decision for
+/// process plugins that they chose to always use, which is then only used for
+/// the session. The approvals file being from a newer version of dprint that
+/// this version can't write to isn't a failure of its own, so that message
+/// says to update dprint instead (see `EditorApprovals`).
+pub fn get_process_plugin_store_error_message(err: &anyhow::Error) -> String {
+  match err.chain().find_map(|err| err.downcast_ref::<NewerApprovalsFileError>()) {
+    Some(err) => format!(
+      "This version of dprint is older than the one that stored the approval decisions in {}, so this decision is only kept until the editor restarts. Update dprint to remember it.",
+      err.file_path.display()
+    ),
+    None => format!("Failed storing the decision for the process plugins: {:#}", err),
+  }
 }
 
 /// Gets the title of the action of a decision, which is what

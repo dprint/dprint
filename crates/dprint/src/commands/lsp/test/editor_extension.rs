@@ -2983,6 +2983,133 @@ fn should_keep_denying_with_the_approvals_of_a_newer_version_of_dprint() {
 }
 
 #[test]
+fn should_only_use_always_decisions_for_the_session_with_the_approvals_of_a_newer_version_of_dprint() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build(); // not initialized, so the process plugin is only set up when it's allowed
+  disallow_process_plugins(&environment);
+  // a newer version of dprint wrote it
+  let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+  let text = r#"{ "version": 999, "minVersion": 999, "processPluginDecisions": [] }"#;
+  environment.write_file(&file_path, text).unwrap();
+  let expected_message = format!(
+    "This version of dprint is older than the one that stored the approval decisions in {}, so this decision is only kept until the editor restarts. Update dprint to remember it.",
+    file_path.display()
+  );
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approve = |id: String, decision: ApprovalDecision| {
+          client.backend.dprint_approve(
+            ApproveParams {
+              id,
+              decision,
+              work_done_token: None,
+            },
+            CancellationToken::new(),
+          )
+        };
+        // it's stored once it's set up, which approving it does
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        let result = approve(approval.id.clone(), ApprovalDecision::AlwaysAllow).await.unwrap();
+        assert_eq!(result.config_approvals.status, FormatStatus::ready());
+        assert_eq!(result.notice.unwrap().message, expected_message);
+        // so the editor keeps it as a decision for the session
+        assert_eq!(result.unstored_decision_groups, vec![approval.decision_group.clone()]);
+        // it's used for the session
+        assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+
+        // a decision for process plugins that are set up isn't stored right away
+        let config_text = environment.read_file("/dprint.json").unwrap();
+        environment
+          .write_file(
+            "/dprint.json",
+            &config_text.replacen('{', r#"{ "testProcessPlugin": { "ending": "changed" }, "#, 1),
+          )
+          .unwrap();
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        let result = approve(approval.id.clone(), ApprovalDecision::AlwaysDeny).await.unwrap();
+        assert_eq!(result.notice.unwrap().message, expected_message);
+        assert_eq!(result.unstored_decision_groups, vec![approval.decision_group.clone()]);
+        assert!(result.config_approvals.approvals[0].denied);
+        // and it's not an "Always" decision
+        assert_eq!(result.config_approvals.approvals[0].previous_decision, Some(ApprovalDecision::Deny));
+
+        // the file isn't written
+        assert_eq!(environment.read_file(&file_path).unwrap(), text);
+        environment.take_stderr_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_only_forget_the_decisions_of_the_session_with_the_approvals_of_a_newer_version_of_dprint() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .initialize()
+    .build();
+  disallow_process_plugins(&environment);
+  run_session(&environment, |client| {
+    async move {
+      let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+      client.approve(&approval.id, ApprovalDecision::AlwaysDeny).await;
+    }
+    .boxed_local()
+  });
+  // a newer version of dprint wrote it
+  let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+  let mut approvals = serde_json::from_str::<serde_json::Value>(&environment.read_file(&file_path).unwrap()).unwrap();
+  approvals["minVersion"] = json!(999);
+  let text = approvals.to_string();
+  environment.write_file(&file_path, &text).unwrap();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        // the user allows it for the session
+        let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+        assert!(approval.denied);
+        assert!(client.approve(&approval.id, ApprovalDecision::Allow).await.is_empty());
+        let params = ForgetDecisionsParams {
+          config_file: Some(ConfigFileIdentifier {
+            uri: uri("/a/dprint.json"),
+            dir_uri: None,
+          }),
+          work_done_token: None,
+        };
+        let result = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+        assert_eq!(
+          result.notice.unwrap().message,
+          format!(
+            "This version of dprint is older than the one that stored the approval decisions in {}, so the ones stored there couldn't be forgotten. Update dprint to forget them.",
+            file_path.display()
+          )
+        );
+        // the session's decision is forgotten, so the stored denial is used again
+        let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+        assert!(approval.denied);
+        assert_eq!(approval.previous_decision, Some(ApprovalDecision::AlwaysDeny));
+        // and the file isn't written
+        assert_eq!(environment.read_file(&file_path).unwrap(), text);
+        environment.take_stderr_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_forget_what_a_deleted_config_file_needed_approved() {
   const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
   let environment = TestEnvironmentBuilder::new()

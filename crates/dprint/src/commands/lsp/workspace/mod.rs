@@ -55,11 +55,13 @@ use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESS
 use crate::commands::process_plugin_approval::PROCESS_PLUGIN_ACTION_TITLES;
 use crate::commands::process_plugin_approval::get_process_plugin_action_title;
 use crate::commands::process_plugin_approval::get_process_plugin_decision;
+use crate::commands::process_plugin_approval::get_process_plugin_store_error_message;
 use crate::commands::process_plugin_approval::store_process_plugin_action;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::ConfigFileOnAnotherMachineError;
 use crate::configuration::ConfigMapValue;
+use crate::configuration::NewerApprovalsFileError;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
@@ -1400,7 +1402,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       ApprovalSubject::ProcessPlugins(unapproved) => {
         let title = get_process_plugin_action_title(decision);
         if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, Some(title)).await {
-          let message = format!("Failed storing the decision for the process plugins: {:#}", err);
+          let message = get_process_plugin_store_error_message(&err);
           log_warn!(self.environment, "{}", message);
           notice = Some(new_warning_notice(message));
           unstored_decision_groups.push(stored.approval.decision_group.clone());
@@ -1563,7 +1565,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.resolve_used_configs_again().await;
     // what was forgotten for the session still is when the stored decisions can't be
     let notice = stored_result.err().map(|err| {
-      let message = format!("Failed forgetting the decisions that were stored: {:#}", err);
+      let message = match err.chain().find_map(|err| err.downcast_ref::<NewerApprovalsFileError>()) {
+        // this version never writes to the file (see `EditorApprovals`)
+        Some(err) => format!(
+          "This version of dprint is older than the one that stored the approval decisions in {}, so the ones stored there couldn't be forgotten. Update dprint to forget them.",
+          err.file_path.display()
+        ),
+        None => format!("Failed forgetting the decisions that were stored: {:#}", err),
+      };
       log_warn!(self.environment, "{}", message);
       new_warning_notice(message)
     });
