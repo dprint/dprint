@@ -174,6 +174,8 @@ pub struct TestEnvironment {
   remote_file_request_counts: Arc<Mutex<HashMap<String, usize>>>,
   /// Number of times each file was read (whether or not it existed).
   file_read_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
+  /// Number of times each path was canonicalized, which follows its symlinks.
+  canonicalize_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// How many times the kind of a path was gotten (see `Environment::path_kind`).
   path_kind_count: Arc<Mutex<usize>>,
   /// The directories that are the roots of an automounter's file system (see
@@ -247,6 +249,7 @@ impl TestEnvironment {
       remote_file_proxies: Default::default(),
       remote_file_request_counts: Default::default(),
       file_read_counts: Default::default(),
+      canonicalize_counts: Default::default(),
       path_kind_count: Default::default(),
       automount_dirs: Default::default(),
       automount_points: Default::default(),
@@ -362,6 +365,12 @@ impl TestEnvironment {
   /// Gets the number of times the file was read, whether or not it existed.
   pub fn file_read_count(&self, path: impl AsRef<Path>) -> usize {
     self.file_read_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
+  }
+
+  /// Gets the number of times the path was canonicalized, which follows its
+  /// symlinks on a real file system (ex. to another machine).
+  pub fn canonicalize_count(&self, path: impl AsRef<Path>) -> usize {
+    self.canonicalize_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
   }
 
   /// Gets the number of times the kind of any path was gotten.
@@ -954,6 +963,7 @@ impl Environment for TestEnvironment {
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     let path = self.clean_path(path);
+    *self.canonicalize_counts.lock().entry(path.clone()).or_default() += 1;
     // todo: use sys_traits to implement this properly
     // if !self.path_exists(&path) {
     //   Err(io::Error::new(io::ErrorKind::NotFound, "Path not found."))

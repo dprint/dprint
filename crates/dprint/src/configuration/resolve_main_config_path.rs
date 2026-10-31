@@ -500,7 +500,11 @@ fn is_home_dir(environment: &impl Environment, dir: &Path) -> bool {
   };
   // the directory might not be canonicalized (ex. from a uri in the lsp), but
   // only canonicalize when necessary since this is called for every `.config`
-  home_dir.as_ref() == dir || environment.canonicalize(dir).is_ok_and(|dir| dir == home_dir)
+  home_dir.as_ref() == dir
+    // IMPORTANT: Canonicalizing follows symlinks, which contacts another machine (ex. a directory from
+    // the editor that's a symlink to a share), so one that may not be read isn't the home directory.
+    || (environment.download_policy().ensure_allows_path(environment, dir, dir.parent()).is_ok()
+      && environment.canonicalize(dir).is_ok_and(|dir| dir == home_dir))
 }
 
 #[cfg(test)]

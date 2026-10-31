@@ -223,7 +223,14 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     }
     let download_policy = self.environment.download_policy();
     let mut downloads = Vec::new();
+    let is_npm = matches!(plugin_reference.path_source, PathSource::Npm(_));
     match self.get_download_url(plugin_reference) {
+      // a registry allows each package from it, unlike a url
+      Ok(Some(url)) if is_npm => {
+        if let Err(err) = download_policy.ensure_allows_npm_registry(&url) {
+          downloads.push(err.download);
+        }
+      }
       Ok(Some(url)) if !download_policy.allows(&url) => downloads.push(url.to_string()),
       Ok(_) => {}
       Err(err) => downloads.push(err.download),

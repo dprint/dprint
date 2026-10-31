@@ -99,6 +99,7 @@ use crate::utils::Semaphore;
 use crate::utils::UntrustedDownloadError;
 use crate::utils::escape_text;
 use crate::utils::get_bytes_hash;
+use crate::utils::get_download_url_text;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
 use crate::utils::get_path_download_local_path;
@@ -724,8 +725,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// nothing asked for it, which would download and set up its plugins (an
   /// editor extension is told it changed instead).
   async fn handle_config_file_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange) {
-    // the config files are known by their canonicalized paths
-    let file_path = &self.canonicalize(file_path.to_path_buf());
+    // the config files are known by their canonicalized paths, and one that's on another machine
+    // now (ex. a `git pull` replaced it with a symlink to a share) is asked about like any other
+    let file_path = &self.canonicalize_editor_path(file_path.to_path_buf());
     // the server watches the global config file itself (see `watch_dprint_files`)
     if self.get_global_config_path().as_deref() == Some(file_path.as_path()) {
       return;
@@ -763,7 +765,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// editor extension that every config file may have changed because it's
   /// used for every file.
   async fn handle_config_override_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange) {
-    let file_path = self.canonicalize(file_path.to_path_buf());
+    let file_path = self.canonicalize_editor_path(file_path.to_path_buf());
     if change == ConfigFileChange::Deleted
       && let (Some(uri), Some(editor_uri)) = (file_path_to_uri(&file_path), self.editor_uri(&file_path))
     {
@@ -784,7 +786,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets the config files that were resolved from the file (ex. it's a config
   /// file they extend).
   fn get_dependent_config_files(&self, file_path: &Path) -> Vec<PathBuf> {
-    let file_path = self.canonicalize(file_path.to_path_buf());
+    let file_path = self.canonicalize_editor_path(file_path.to_path_buf());
     let mut config_file_paths = Vec::new();
     for (config_file_path, dependencies) in self.config_dependencies.borrow().values() {
       if dependencies.contains(&file_path) && !config_file_paths.contains(config_file_path) {
@@ -794,9 +796,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     config_file_paths
   }
 
-  /// Gets whether the config file was resolved before.
+  /// Gets whether the config file at the canonicalized path was resolved
+  /// before.
   fn was_resolved(&self, file_path: &Path) -> bool {
-    let file_path = self.canonicalize(file_path.to_path_buf()).display().to_string();
+    let file_path = file_path.display().to_string();
     self
       .resolved_configs
       .borrow()
@@ -1131,7 +1134,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         // the server uses one config file for every file (`dprint lsp --config <path>`)
         if self.scope_container.has_config_override() {
           let dir_path = match dir_uri.as_ref().and_then(uri_to_file_path) {
-            Some(dir_path) => self.canonicalize(dir_path),
+            Some(dir_path) => self.canonicalize_editor_path(dir_path),
             None => self.environment.cwd().into_path_buf(),
           };
           if !self.is_config_override_uri(uri) {
@@ -1209,7 +1212,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets whether the path is of the config file the server was started with.
   fn is_config_override_path(&self, path: &Path) -> bool {
     match self.scope_container.config_override_path() {
-      Some(override_path) => self.canonicalize(path.to_path_buf()) == self.canonicalize(override_path),
+      // the one the server was started with is the user's, but the path is from the editor
+      Some(override_path) => self.canonicalize_editor_path(path.to_path_buf()) == self.canonicalize(override_path),
       None => false,
     }
   }
@@ -2247,6 +2251,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets the failure of a config file that was found on another machine,
   /// which is used once the user allows reading it.
   fn new_config_file_on_another_machine_failure(&self, err: &ConfigFileOnAnotherMachineError) -> ConfigFailure {
+    self.stop_watching_config_file(&err.config_path);
     let downloads = vec![err.download.download.clone()];
     let config_file = self
       .editor_uri(&err.config_path)
@@ -2268,6 +2273,24 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       reason: NotFormattedReason::ApprovalRequired,
       message: self.get_untrusted_download_message(&downloads),
       downloads,
+    }
+  }
+
+  /// Stops watching what a config file was resolved from with the
+  /// `watchFiles` feature when it's on another machine now (ex. a `git pull`
+  /// replaced it with a symlink to a share).
+  ///
+  /// IMPORTANT: A watcher follows symlinks like reading does, which would
+  /// contact the other machine before the user allows it.
+  fn stop_watching_config_file(&self, config_path: &Path) {
+    let removed = {
+      let mut config_dependencies = self.config_dependencies.borrow_mut();
+      let count = config_dependencies.len();
+      config_dependencies.retain(|_, (config_file_path, _)| config_file_path != config_path);
+      config_dependencies.len() != count
+    };
+    if removed {
+      self.register_watch_files();
     }
   }
 
@@ -3213,10 +3236,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Chooses the file to format the document as, which is the first one the
   /// scope can format or otherwise the first one.
   fn choose_file(&self, scope: &PluginsScope<TEnvironment>, document_file: DocumentFile, file_bytes: Option<&[u8]>) -> ChosenFile {
-    let notebook_path = document_file.notebook_path.map(|path| self.canonicalize(path));
+    let notebook_path = document_file.notebook_path.map(|path| self.canonicalize_editor_path(path));
     let mut first = None;
     for candidate in document_file.candidates {
-      let file_path = self.canonicalize(candidate);
+      // ex. the file an untitled document is formatted as may be a symlink in the workspace to another machine
+      let file_path = self.canonicalize_editor_path(candidate);
       let cant_format_reason = self.get_cant_format_reason(scope, &file_path, notebook_path.as_deref(), file_bytes);
       if cant_format_reason.is_none() {
         return ChosenFile { file_path, cant_format_reason };
@@ -3229,17 +3253,65 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Canonicalizes the path so that it matches the canonicalized config paths
   /// (ex. for the includes and excludes).
+  ///
+  /// IMPORTANT: It follows symlinks, which contacts the machine a path is on,
+  /// so a path from the editor that wasn't checked yet is canonicalized with
+  /// `canonicalize_editor_path` instead.
   fn canonicalize(&self, path: PathBuf) -> PathBuf {
     let canonical_path = self
       .environment
       .canonicalize_maybe_not_exists(&path)
       .map(|p| p.into_path_buf())
       .unwrap_or(path.clone());
-    // the paths the server provides are the editor's (ex. a workspace opened through a symlink)
-    if canonical_path != path && self.editor_paths.get(&canonical_path) != path {
-      self.add_editor_dir(&path, &canonical_path);
-    }
+    self.remember_editor_path(&path, &canonical_path);
     canonical_path
+  }
+
+  /// Canonicalizes a path from the editor (ex. of a file it says changed)
+  /// like `canonicalize` when reading it is allowed. When it's on another
+  /// machine and reading it isn't allowed yet (ex. a `git pull` replaced a
+  /// config file with a symlink to a share), only its directory is
+  /// canonicalized when that's allowed, so it's matched without following it,
+  /// and otherwise it's kept as it is.
+  ///
+  /// IMPORTANT: Canonicalizing a path follows its symlinks, which contacts
+  /// the other machine, so it's only done once reading it is allowed (see
+  /// `DownloadPolicy::ensure_allows_path`), like reading a config file.
+  fn canonicalize_editor_path(&self, path: PathBuf) -> PathBuf {
+    if self.allows_reading_path(&path) {
+      return self.canonicalize(path);
+    }
+    match (path.parent(), path.file_name()) {
+      (Some(dir_path), Some(file_name)) if self.allows_reading_path(dir_path) => {
+        let canonical_path = match self.environment.canonicalize_maybe_not_exists(dir_path) {
+          Ok(canonical_dir_path) => canonical_dir_path.into_path_buf().join(file_name),
+          Err(_) => path.clone(),
+        };
+        self.remember_editor_path(&path, &canonical_path);
+        canonical_path
+      }
+      _ => path,
+    }
+  }
+
+  /// Gets whether a path from the editor may be read without asking the user
+  /// (see `DownloadPolicy::ensure_allows_path`), which is relative to its
+  /// directory like a config file is (see `ensure_allows_reading_config_file`).
+  fn allows_reading_path(&self, path: &Path) -> bool {
+    self
+      .environment
+      .download_policy()
+      .ensure_allows_path(&self.environment, path, path.parent())
+      .is_ok()
+  }
+
+  /// Remembers that the editor's path is an alias of the canonical path,
+  /// because the paths the server provides are the editor's (ex. a workspace
+  /// opened through a symlink).
+  fn remember_editor_path(&self, path: &Path, canonical_path: &Path) {
+    if canonical_path != path && self.editor_paths.get(canonical_path) != path {
+      self.add_editor_dir(path, canonical_path);
+    }
   }
 
   /// Remembers the directory of the editor's path that's an alias of the
@@ -3687,7 +3759,7 @@ fn get_download_items(downloads: &[String], kind: ApprovalItemKind, editor_paths
         configuration: None,
       },
       None => ApprovalItem {
-        specifier: escape_text(download),
+        specifier: escape_text(get_download_url_text(download)),
         kind,
         registry: None,
         npmrc_uri: None,
@@ -3705,7 +3777,7 @@ fn get_download_specifier(download: &str) -> String {
   match NpmrcProxy::from_download(download) {
     Some(proxy) => escape_text(&proxy.setting),
     None if is_path_download(download) => download.to_string(),
-    None => escape_text(download),
+    None => escape_text(get_download_url_text(download)),
   }
 }
 

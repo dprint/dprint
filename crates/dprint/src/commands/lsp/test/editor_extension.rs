@@ -1629,6 +1629,54 @@ fn should_register_the_files_to_watch_with_the_watch_files_feature() {
   });
 }
 
+#[cfg(windows)]
+#[test]
+fn should_stop_watching_a_config_file_that_is_on_another_machine_now() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  let mut params = editor_extension_params();
+  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
+  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
+    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
+      dynamic_registration: Some(true),
+      relative_pattern_support: Some(true),
+    }),
+    ..Default::default()
+  });
+  run_session_with(&environment, params, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let registration_ids = || client.test_client.registrations.lock().iter().map(|r| r.id.clone()).collect::<Vec<_>>();
+        assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::ready());
+        assert!(registration_ids().contains(&"dprint-watched-files".to_string()));
+        // ex. a `git pull` replaced it with a symlink to a share
+        environment.remove_file("/a/dprint.json").unwrap();
+        environment.symlink(r"\\server\share\dprint.json", "/a/dprint.json").unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/a/dprint.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
+        assert!(client.config_info("/a/dprint.json").await.status.approvals()[0].config_file.on_another_machine);
+        // so the editor doesn't watch it anymore, which would follow the symlink
+        assert_eq!(registration_ids(), vec!["dprint-config-file-watcher".to_string()]);
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
 #[test]
 fn should_approve_downloading_from_domains_that_are_not_trusted() {
   const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
@@ -2140,6 +2188,62 @@ fn should_not_read_a_config_file_from_the_editor_on_another_machine_before_it_is
         };
         _ = client.backend.dprint_approve(params, CancellationToken::new()).await;
         assert!(environment.file_read_count("/src/dprint.json") > 0);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[cfg(windows)]
+#[test]
+fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allowed() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/src/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(client.config_info("/src/dprint.json").await.status, FormatStatus::ready());
+        // ex. a `git pull` replaced the config file with a symlink to a share
+        environment.remove_file("/src/dprint.json").unwrap();
+        environment.symlink(r"\\server\share\dprint.json", "/src/dprint.json").unwrap();
+        let canonicalize_count = environment.canonicalize_count("/src/dprint.json");
+        let read_count = environment.file_read_count("/src/dprint.json");
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/src/dprint.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        // the editor is told about it by its path rather than the one on the other machine
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/src/dprint.json")]);
+        // and it's asked about without following it
+        let config_info = client.config_info("/src/dprint.json").await;
+        let approvals = config_info.status.approvals();
+        assert_eq!(approvals.len(), 1);
+        assert!(approvals[0].config_file.on_another_machine);
+        assert_eq!(approvals[0].items[0].kind, ApprovalItemKind::NetworkPath);
+        assert_eq!(environment.canonicalize_count("/src/dprint.json"), canonicalize_count);
+        assert_eq!(environment.file_read_count("/src/dprint.json"), read_count);
+
+        // the same goes for the file an untitled document is formatted as
+        environment.symlink(r"\\server\share\Untitled.txt", "/Untitled.txt").unwrap();
+        let mut params = client.format_params("untitled:Untitled-1", "text");
+        params.document.language = Some(DocumentLanguage {
+          id: "plaintext".to_string(),
+          file_extensions: vec![".txt".to_string()],
+          file_names: Vec::new(),
+        });
+        client.format_with(params).await;
+        assert_eq!(environment.canonicalize_count("/Untitled.txt"), 0);
+        client.test_client.take_messages();
       }
       .boxed_local()
     }

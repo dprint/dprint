@@ -84,6 +84,21 @@ impl DownloadPolicy {
     }
   }
 
+  /// Errors when the npm packages of the registry may not be downloaded
+  /// without asking the user, which they may be from a trusted domain or once
+  /// the user allowed the registry (see `get_npm_registry_download`).
+  pub fn ensure_allows_npm_registry(&self, registry_url: &Url) -> Result<(), UntrustedDownloadError> {
+    let DownloadPolicy::TrustedDomains(downloads) = self else {
+      return Ok(());
+    };
+    let download = get_npm_registry_download(registry_url);
+    if downloads.trusted_domains.lock().is_trusted(registry_url) || downloads.allowed.lock().contains(&download) {
+      Ok(())
+    } else {
+      Err(UntrustedDownloadError { download })
+    }
+  }
+
   /// Errors when the url may not be downloaded through the proxy without
   /// asking the user.
   pub fn ensure_allows_download(&self, url: &Url, proxy: DownloadProxy<'_>) -> Result<(), UntrustedDownloadError> {
@@ -165,19 +180,21 @@ impl DownloadPolicy {
 pub struct TrustedDownloads {
   trusted_domains: Mutex<TrustedDomains>,
   /// The urls and paths the user allowed downloading this session, which are only the
-  /// exact ones they were shown. A url ending with a slash allows what's
-  /// under it (ex. an npm registry), but a path doesn't. It also has the proxies of `.npmrc`
-  /// files the user allowed downloading through (see `NpmrcProxy::to_download`).
+  /// exact ones they were shown, apart from an npm registry, which allows what's under
+  /// it (see `get_npm_registry_download`). It also has the proxies of `.npmrc` files the
+  /// user allowed downloading through (see `NpmrcProxy::to_download`).
   allowed: Mutex<HashSet<String>>,
 }
 
 impl TrustedDownloads {
   fn is_allowed(&self, url: &str) -> bool {
+    // IMPORTANT: Only a registry allows what's under it, because the user was told what's allowed
+    // is what they're shown (ex. not every url of a domain for `https://example.com/`).
     self
       .allowed
       .lock()
       .iter()
-      .any(|allowed| allowed == url || (allowed.ends_with('/') && url.starts_with(allowed.as_str())))
+      .any(|allowed| allowed == url || get_npm_registry_download_url(allowed).is_some_and(|registry_url| url.starts_with(registry_url)))
   }
 
   /// Errors when the path may not be read without asking the user (see
@@ -504,6 +521,31 @@ impl UntrustedDownloadError {
   }
 }
 
+/// Gets what the user allows to download npm packages from a registry, which
+/// is one of the downloads of an `UntrustedDownloadError` like a url. Unlike a
+/// url, which only allows itself, it allows each url under the registry's (ex.
+/// each package and its tarball), which ends with a slash so it's only what's
+/// under its path.
+pub fn get_npm_registry_download(registry_url: &Url) -> String {
+  let mut url = registry_url.to_string();
+  if !url.ends_with('/') {
+    url.push('/');
+  }
+  format!("{}{}", NPM_REGISTRY_DOWNLOAD_PREFIX, url)
+}
+
+/// Gets the url of the npm registry of a download from
+/// `get_npm_registry_download`, which is `None` for another download.
+pub fn get_npm_registry_download_url(download: &str) -> Option<&str> {
+  download.strip_prefix(NPM_REGISTRY_DOWNLOAD_PREFIX)
+}
+
+/// Gets what's shown of a download that's a url (ex. the url of an npm
+/// registry), which is the download itself for another one.
+pub fn get_download_url_text(download: &str) -> &str {
+  get_npm_registry_download_url(download).unwrap_or(download)
+}
+
 /// Gets whether a download is reading a path on another machine (see
 /// `DownloadPolicy::ensure_allows_path`), which is what isn't a url or the
 /// proxy of an `.npmrc` file.
@@ -725,6 +767,8 @@ impl TrustedDomains {
 /// What a download that's the proxy of an `.npmrc` file starts with, which
 /// isn't mistaken for a url because a url can't have the newline it has.
 const NPMRC_PROXY_DOWNLOAD_PREFIX: &str = "npmrc-proxy:";
+/// What starts the download of an npm registry (see `get_npm_registry_download`).
+const NPM_REGISTRY_DOWNLOAD_PREFIX: &str = "npm-registry:";
 
 /// How the system resolves the paths that are checked (see `PathRules`).
 const PATH_RULES: PathRules = PathRules {
@@ -807,7 +851,7 @@ fn quote_download(download: &str) -> String {
   if is_path_download(download) {
     format!("`{}`", download)
   } else {
-    quote_text(download)
+    quote_text(get_download_url_text(download))
   }
 }
 
@@ -1592,13 +1636,31 @@ mod test {
     assert!(policy.ensure_allows(&url("https://plugins.dprint.dev/plugin.wasm")).is_ok());
     let err = policy.ensure_allows(&url("https://example.com/plugin.wasm")).unwrap_err();
     assert_eq!(err.download, "https://example.com/plugin.wasm");
-    policy.allow(&["https://example.com/plugin.wasm".to_string(), "https://npm.example.com/".to_string()]);
+    policy.allow(&[
+      "https://example.com/plugin.wasm".to_string(),
+      "https://origin.example.com/".to_string(),
+      get_npm_registry_download(&url("https://npm.example.com")),
+      get_npm_registry_download(&url("https://corp.example.com/npm/repo")),
+    ]);
     assert!(policy.allows(&url("https://example.com/plugin.wasm")));
     // not what redirects to
     assert!(!policy.allows(&url("https://example.com/other.wasm")));
-    // a url ending with a slash allows what's under it (ex. an npm registry)
+    // a url ending with a slash only allows itself (ex. what a config file extends)
+    assert!(policy.allows(&url("https://origin.example.com/")));
+    assert!(!policy.allows(&url("https://origin.example.com/other.json")));
+    // an npm registry allows what's under it
+    assert!(policy.ensure_allows_npm_registry(&url("https://npm.example.com/")).is_ok());
     assert!(policy.allows(&url("https://npm.example.com/@scope/package")));
     assert!(!policy.allows(&url("https://npm.example.com.evil.com/@scope/package")));
+    assert!(policy.allows(&url("https://corp.example.com/npm/repo/package")));
+    assert!(!policy.allows(&url("https://corp.example.com/npm/repository")));
+    let err = policy.ensure_allows_npm_registry(&url("https://other.example.com/")).unwrap_err();
+    assert_eq!(err.download, "npm-registry:https://other.example.com/");
+    assert_eq!(
+      err.to_string(),
+      "Downloading `https://other.example.com/` needs to be allowed because its domain isn't trusted."
+    );
+    assert!(policy.ensure_allows_npm_registry(&url("https://registry.npmjs.org/")).is_ok());
     // the cli downloads anything
     assert!(DownloadPolicy::All.allows(&url("http://example.com/plugin.wasm")));
   }
