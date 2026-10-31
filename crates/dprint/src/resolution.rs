@@ -1262,19 +1262,13 @@ impl UnapprovedProcessPlugins {
   /// Gets whether the user denied running each of the process plugins, which
   /// means they shouldn't be asked about them.
   pub fn is_denied(&self, permissions: &Permissions) -> bool {
-    self.plugins.iter().all(|plugin| match &plugin.approval {
-      Some(approval) => permissions.is_process_plugin_denied(approval),
-      None => permissions.is_process_plugin_denied(&ProcessPluginApproval::any_config(self.config_file.clone(), plugin.plugin.clone())),
-    })
+    self.all_approvals(|approval| permissions.is_process_plugin_denied(approval))
   }
 
   /// Gets whether the user chose to always deny running each of the process
   /// plugins.
   pub fn is_always_denied(&self, permissions: &Permissions) -> bool {
-    self.plugins.iter().all(|plugin| match &plugin.approval {
-      Some(approval) => permissions.is_process_plugin_always_denied(approval),
-      None => permissions.is_process_plugin_always_denied(&ProcessPluginApproval::any_config(self.config_file.clone(), plugin.plugin.clone())),
-    })
+    self.all_approvals(|approval| permissions.is_process_plugin_always_denied(approval))
   }
 
   /// Gets the message that says dprint isn't formatting with the config file
@@ -1305,6 +1299,15 @@ impl UnapprovedProcessPlugins {
       message.push_str(ignored_settings_message);
     }
     message
+  }
+
+  /// Gets whether the predicate is true for what allowing each of the process
+  /// plugins approves, which is any configuration for one that isn't set up.
+  fn all_approvals(&self, predicate: impl Fn(&ProcessPluginApproval) -> bool) -> bool {
+    self.plugins.iter().all(|plugin| match &plugin.approval {
+      Some(approval) => predicate(approval),
+      None => predicate(&ProcessPluginApproval::any_config(self.config_file.clone(), plugin.plugin.clone())),
+    })
   }
 }
 

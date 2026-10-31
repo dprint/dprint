@@ -663,19 +663,12 @@ impl SessionPermissions {
           // IMPORTANT: Don't allow what may not have been allowed, but keep denying
           // what the user denied (ex. the file is from a newer version of dprint).
           self.log_settings_problem(environment, format!("Asking to allow process plugins again in editors. {:#}", err));
-          match &read {
-            Ok(Some(read)) => read.denials(),
-            Ok(None) => Some(Vec::new()),
-            Err(_) => None,
-          }
+          get_read_denials(&read)
         }
       };
       match decisions {
         Some(decisions) => {
-          let fingerprint = read
-            .ok()
-            .map(|read| read.map_or_else(|| NO_APPROVALS_FILE_FINGERPRINT.to_string(), |read| read.fingerprint));
-          self.remove_allows_denied_since(read_number, &decisions, fingerprint);
+          self.remove_allows_denied_since(read_number, &decisions, get_read_fingerprint(&read));
           decisions
         }
         None => {
@@ -762,7 +755,7 @@ impl SessionPermissions {
   /// was stopped), which a server that kept running would have seen. That
   /// only means the user is asked again. The denials are kept.
   pub fn restore(&self, environment: &impl Environment, mut state: SessionPermissionsState) {
-    let fingerprint = read_editor_approvals_fingerprint(environment);
+    let fingerprint = get_read_fingerprint(&ApprovalsFileRead::read(environment));
     if state.approvals_file_fingerprint.is_none() || state.approvals_file_fingerprint != fingerprint {
       state.process_plugin_decisions.retain(|decision| !decision.allowed);
       state.process_plugin_set_up_grants.clear();
@@ -1005,32 +998,12 @@ pub fn read_editor_approvals(environment: &impl Environment) -> Result<EditorApp
   }
 }
 
-/// Reads the fingerprint of the approvals file (see
-/// `ApprovalsFileRead::fingerprint`), which is `None` when it can't be read.
-pub fn read_editor_approvals_fingerprint(environment: &impl Environment) -> Option<String> {
-  match ApprovalsFileRead::read(environment) {
-    Ok(Some(read)) => Some(read.fingerprint),
-    Ok(None) => Some(NO_APPROVALS_FILE_FINGERPRINT.to_string()),
-    Err(_) => None,
-  }
-}
-
 /// Reads the decisions that denied a process plugin from a file that can't be
 /// read otherwise (ex. it's from a newer version of dprint), which is empty
 /// when it doesn't parse. Only `processPluginDecisions` needs to parse (see
 /// `EditorApprovals`).
 pub(crate) fn read_editor_approval_denials(environment: &impl Environment) -> Vec<ProcessPluginDecision> {
-  try_read_editor_approval_denials(environment).unwrap_or_default()
-}
-
-/// Reads the denials like `read_editor_approval_denials`, which is `None`
-/// when the file can't be read or doesn't parse.
-fn try_read_editor_approval_denials(environment: &impl Environment) -> Option<Vec<ProcessPluginDecision>> {
-  match ApprovalsFileRead::read(environment) {
-    Ok(Some(read)) => read.denials(),
-    Ok(None) => Some(Vec::new()),
-    Err(_) => None,
-  }
+  get_read_denials(&ApprovalsFileRead::read(environment)).unwrap_or_default()
 }
 
 /// Gets the stored decisions that deny a process plugin, apart from the ones
@@ -1051,7 +1024,7 @@ fn get_unreplaced_denials(decisions: &[ProcessPluginDecision]) -> Vec<ProcessPlu
     .collect()
 }
 
-pub(crate) fn update_editor_approvals_without_lock(environment: &impl Environment, update: impl FnOnce(&mut EditorApprovals)) -> Result<()> {
+fn update_editor_approvals_without_lock(environment: &impl Environment, update: impl FnOnce(&mut EditorApprovals)) -> Result<()> {
   edit_editor_approvals(environment, update, |_| false)
 }
 
@@ -1342,6 +1315,27 @@ impl ApprovalsFileRead {
     };
     let file = ApprovalsFile::parse(text).with_context(|| format!("Failed parsing {}.", self.file_path.display()))?;
     Ok(Some(file))
+  }
+}
+
+/// Gets the fingerprint of a read of the approvals file (see
+/// `ApprovalsFileRead::fingerprint`), which is `None` when the read failed.
+fn get_read_fingerprint(read: &std::io::Result<Option<ApprovalsFileRead>>) -> Option<String> {
+  match read {
+    Ok(Some(read)) => Some(read.fingerprint.clone()),
+    Ok(None) => Some(NO_APPROVALS_FILE_FINGERPRINT.to_string()),
+    Err(_) => None,
+  }
+}
+
+/// Gets the denials of a read of the approvals file (see
+/// `ApprovalsFileRead::denials`), which is `None` when the read failed or the
+/// file doesn't parse.
+fn get_read_denials(read: &std::io::Result<Option<ApprovalsFileRead>>) -> Option<Vec<ProcessPluginDecision>> {
+  match read {
+    Ok(Some(read)) => read.denials(),
+    Ok(None) => Some(Vec::new()),
+    Err(_) => None,
   }
 }
 
@@ -2041,7 +2035,10 @@ mod test {
     // and the stored allows are still used
     assert!(permissions.is_process_plugin_allowed(&approval("/b/dprint.json", "1:b")));
     // which is what the session file keeps from now on
-    assert_eq!(restored.state().approvals_file_fingerprint, read_editor_approvals_fingerprint(&environment));
+    assert_eq!(
+      restored.state().approvals_file_fingerprint,
+      get_read_fingerprint(&ApprovalsFileRead::read(&environment))
+    );
 
     // and so is a session whose fingerprint isn't known (ex. reading the file failed)
     let restored = restore(SessionPermissionsState {

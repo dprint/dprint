@@ -164,53 +164,6 @@ pub async fn allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>
   }
 }
 
-/// Allows the editors to run the process plugins of the config file with its
-/// configuration, which is for when the user ran dprint with it (`dprint fmt`,
-/// `dprint check`, or `dprint config install`) because that's the same as
-/// choosing to run them. The plugins need to be set up.
-///
-/// Nothing is stored when the approvals file can't be read (ex. it's from a
-/// newer version of dprint that this version can't use, which this version
-/// never writes to), which is only logged in debug mode because it would be
-/// on each run.
-pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
-  environment: &TEnvironment,
-  config: &ResolvedConfig,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<()> {
-  let approvals = get_process_plugin_approvals(config, plugin_resolver, environment)
-    .into_iter()
-    .filter_map(|(_, approval)| approval)
-    .collect::<Vec<_>>();
-  if approvals.is_empty() {
-    return Ok(());
-  }
-  let stored = match read_editor_approvals(environment) {
-    Ok(approvals) => approvals,
-    Err(err) => {
-      log_debug!(environment, "Not allowing the process plugins of {} in editors. {:#}", config.display(), err);
-      return Ok(());
-    }
-  };
-  let decisions = approvals
-    .into_iter()
-    // the approvals file is only written when something changed, which is usually not, and an allow
-    // that's stored by a version of dprint that makes its config hash another way doesn't change it
-    .filter(|approval| !stored.is_process_plugin_allowed(approval))
-    // running dprint is more recent than what the user decided before
-    .map(|approval| ProcessPluginDecision::new(environment, approval, true, &stored.process_plugin_decisions))
-    .collect::<Vec<_>>();
-  if decisions.is_empty() {
-    return Ok(());
-  }
-  update_editor_approvals(environment, |approvals| {
-    for decision in decisions {
-      approvals.add_process_plugin_decision(decision);
-    }
-  })
-  .await
-}
-
 /// Gets the message for the user about a failure to store a decision for
 /// process plugins that they chose to always use, which is then only used for
 /// the session. The approvals file being from a newer version of dprint that
@@ -253,6 +206,53 @@ const ALLOW_ACTION_TITLE: &str = "Allow";
 const ALWAYS_ALLOW_ACTION_TITLE: &str = "Always Allow";
 const DENY_ACTION_TITLE: &str = "Deny";
 const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
+
+/// Allows the editors to run the process plugins of the config file with its
+/// configuration, which is for when the user ran dprint with it (`dprint fmt`,
+/// `dprint check`, or `dprint config install`) because that's the same as
+/// choosing to run them. The plugins need to be set up.
+///
+/// Nothing is stored when the approvals file can't be read (ex. it's from a
+/// newer version of dprint that this version can't use, which this version
+/// never writes to), which is only logged in debug mode because it would be
+/// on each run.
+async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  config: &ResolvedConfig,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+) -> Result<()> {
+  let approvals = get_process_plugin_approvals(config, plugin_resolver, environment)
+    .into_iter()
+    .filter_map(|(_, approval)| approval)
+    .collect::<Vec<_>>();
+  if approvals.is_empty() {
+    return Ok(());
+  }
+  let stored = match read_editor_approvals(environment) {
+    Ok(approvals) => approvals,
+    Err(err) => {
+      log_debug!(environment, "Not allowing the process plugins of {} in editors. {:#}", config.display(), err);
+      return Ok(());
+    }
+  };
+  let decisions = approvals
+    .into_iter()
+    // the approvals file is only written when something changed, which is usually not, and an allow
+    // that's stored by a version of dprint that makes its config hash another way doesn't change it
+    .filter(|approval| !stored.is_process_plugin_allowed(approval))
+    // running dprint is more recent than what the user decided before
+    .map(|approval| ProcessPluginDecision::new(environment, approval, true, &stored.process_plugin_decisions))
+    .collect::<Vec<_>>();
+  if decisions.is_empty() {
+    return Ok(());
+  }
+  update_editor_approvals(environment, |approvals| {
+    for decision in decisions {
+      approvals.add_process_plugin_decision(decision);
+    }
+  })
+  .await
+}
 
 /// Uses the decision, which is stored when it's always used, while the
 /// caller holds a store of the session permissions (see

@@ -253,21 +253,15 @@ where
   /// Gets the information of the plugin when it's set up in the cache without
   /// setting it up (which runs a process plugin to get its information).
   pub fn get_set_up_plugin_info(&self, source_reference: &PluginSourceReference) -> Option<PluginInfo> {
-    let path_source = self.cache_source_for_forget(&source_reference.path_source)?;
-    let cache_key = self.compute_cache_key(&path_source).ok()?;
-    let hash = entry_hash(&cache_key, &self.environment);
-    self.cached_item(&path_source, &hash, &cache_key).map(|item| item.info)
+    self.set_up_meta(source_reference).map(|meta| meta.info)
   }
 
   /// Gets the files the plugin matched the last time an editor resolved the
   /// config file with it when it's set up in the cache. The config is what
   /// identifies the config file (ex. its url).
   pub fn get_last_file_matching_info(&self, source_reference: &PluginSourceReference, config: &str) -> Option<FileMatchingInfo> {
-    let path_source = self.cache_source_for_forget(&source_reference.path_source)?;
-    let cache_key = self.compute_cache_key(&path_source).ok()?;
-    let hash = entry_hash(&cache_key, &self.environment);
-    let meta = self.cached_meta(&path_source, &hash, &cache_key)?;
-    meta
+    self
+      .set_up_meta(source_reference)?
       .config_file_matching
       .into_iter()
       .find(|entry| entry.config == config)
@@ -783,6 +777,15 @@ where
       // `dprint add` warming the cache)
       was_set_up: self.set_up_hashes.lock().contains(hash),
     })
+  }
+
+  /// Reads the sidecar of the plugin's cache entry when it's set up, without
+  /// setting it up.
+  fn set_up_meta(&self, source_reference: &PluginSourceReference) -> Option<PluginCacheMeta> {
+    let path_source = self.cache_source_for_forget(&source_reference.path_source)?;
+    let cache_key = self.compute_cache_key(&path_source).ok()?;
+    let hash = entry_hash(&cache_key, &self.environment);
+    self.cached_meta(&path_source, &hash, &cache_key)
   }
 
   /// Reads the cached entry's sidecar like `cached_item`.

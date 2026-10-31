@@ -30,13 +30,13 @@ use crate::environment::PathKind;
 ///
 /// IMPORTANT: Never lower this, because every version of dprint deletes the
 /// files of the others by it (see `SessionFile`).
-pub const STALE_SESSION_FILE_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const STALE_SESSION_FILE_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// How long after a server last wrote its session file by the wall clock it
 /// writes it again so that it isn't stale while the session lasts.
 ///
 /// IMPORTANT: Keep this well below `STALE_SESSION_FILE_AGE` (see
 /// `SessionFile`).
-pub const SESSION_FILE_REFRESH_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+const SESSION_FILE_REFRESH_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 /// How often a server checks whether its session file needs to be written
 /// again (see `SessionFile::needs_refresh`). It's checked by the wall clock
 /// because a timer of `SESSION_FILE_REFRESH_INTERVAL` doesn't count the time

@@ -20,7 +20,6 @@ use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
 use crate::utils::AsyncCell;
 use crate::utils::PathSource;
-use crate::utils::UntrustedDownloadError;
 
 pub struct PluginWrapper {
   plugin: Box<dyn Plugin>,
@@ -207,12 +206,6 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     self.plugin_cache.get_npm_registry(plugin_reference)
   }
 
-  /// Gets the url the plugin is downloaded from (see
-  /// `PluginCache::get_download_url`).
-  pub fn get_download_url(&self, plugin_reference: &PluginSourceReference) -> Result<Option<url::Url>, UntrustedDownloadError> {
-    self.plugin_cache.get_download_url(plugin_reference)
-  }
-
   /// Gets what the plugin needs to download that the download policy doesn't
   /// allow without asking the user (see `UntrustedDownloadError`), which is the
   /// url it's downloaded from and the proxy of an `.npmrc` file that it's
@@ -225,7 +218,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     let download_policy = self.environment.download_policy();
     let mut downloads = Vec::new();
     let is_npm = matches!(plugin_reference.path_source, PathSource::Npm(_));
-    match self.get_download_url(plugin_reference) {
+    match self.plugin_cache.get_download_url(plugin_reference) {
       // a registry allows each package from it, unlike a url
       Ok(Some(url)) if is_npm => {
         if let Err(err) = download_policy.ensure_allows_npm_registry(&url) {

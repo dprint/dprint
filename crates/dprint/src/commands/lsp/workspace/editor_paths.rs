@@ -70,25 +70,17 @@ impl EditorPaths {
   /// Gets the alias whose editor's path the path is in, which is a canonical
   /// directory with the editor's path of it.
   pub fn get_alias_of_editor_path(&self, editor_path: &Path) -> Option<(PathBuf, PathBuf)> {
-    self
-      .dirs
-      .borrow()
-      .iter()
-      .filter(|(_, editor_dir)| editor_path.starts_with(editor_dir))
-      .max_by_key(|(_, editor_dir)| editor_dir.components().count())
-      .cloned()
+    find_closest_alias(&self.dirs.borrow(), editor_path, |(_, editor_dir)| editor_dir).cloned()
   }
 
   /// Gets the editor's path of the canonical path, which is the canonical path
   /// when the editor doesn't know it by another one.
   pub fn get(&self, canonical_path: &Path) -> PathBuf {
     let dirs = self.dirs.borrow();
-    match find_alias(&dirs, canonical_path) {
-      Some((dir, editor_dir)) => match canonical_path.strip_prefix(dir) {
-        Ok(relative) if relative.as_os_str().is_empty() => editor_dir.clone(),
-        Ok(relative) => editor_dir.join(relative),
-        Err(_) => canonical_path.to_path_buf(),
-      },
+    let alias = find_alias(&dirs, canonical_path).and_then(|(dir, editor_dir)| Some((canonical_path.strip_prefix(dir).ok()?, editor_dir)));
+    match alias {
+      Some((relative, editor_dir)) if relative.as_os_str().is_empty() => editor_dir.clone(),
+      Some((relative, editor_dir)) => editor_dir.join(relative),
       None => canonical_path.to_path_buf(),
     }
   }
@@ -120,11 +112,20 @@ pub struct ReplacedEditorPaths {
 
 /// Finds the alias of the directories that the canonical path is in.
 fn find_alias<'a>(dirs: &'a [(PathBuf, PathBuf)], canonical_path: &Path) -> Option<&'a (PathBuf, PathBuf)> {
-  // the closest directory wins (ex. a symlink within a symlinked directory)
+  find_closest_alias(dirs, canonical_path, |(dir, _)| dir)
+}
+
+/// Finds the alias whose directory the path is in, which is the closest one
+/// (ex. a symlink within a symlinked directory).
+fn find_closest_alias<'a>(
+  dirs: &'a [(PathBuf, PathBuf)],
+  path: &Path,
+  get_dir: impl Fn(&'a (PathBuf, PathBuf)) -> &'a PathBuf,
+) -> Option<&'a (PathBuf, PathBuf)> {
   dirs
     .iter()
-    .filter(|(dir, _)| canonical_path.starts_with(dir))
-    .max_by_key(|(dir, _)| dir.components().count())
+    .filter(|alias| path.starts_with(get_dir(alias)))
+    .max_by_key(|alias| get_dir(alias).components().count())
 }
 
 #[cfg(test)]

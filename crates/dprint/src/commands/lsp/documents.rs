@@ -304,18 +304,10 @@ mod test {
     let (_, line_index) = documents.get_content_with_line_index(&uri).unwrap();
     assert_eq!(line_index.offset(Position::new(1, 0)), 2.into());
     change(&mut documents, &uri, vec![ranged((1, 0), (1, 1), "bbbb"), ranged((0, 0), (2, 1), "X")]);
-    assert_eq!(
-      documents.get_content(&uri).unwrap().0.as_str(),
-      "X
-"
-    );
+    assert_eq!(documents.get_content(&uri).unwrap().0.as_str(), "X\n");
     // the line index is for the new text
     let (text, line_index) = documents.get_content_with_line_index(&uri).unwrap();
-    assert_eq!(
-      text.as_str(),
-      "X
-"
-    );
+    assert_eq!(text.as_str(), "X\n");
     assert_eq!(line_index.offset(Position::new(1, 0)), 2.into());
   }
 

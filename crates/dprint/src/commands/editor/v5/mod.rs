@@ -63,12 +63,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
   let scope = get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, &permissions).await?;
   scope.ensure_no_global_config_diagnostics()?;
   if let Some(unapproved) = &scope.unapproved_process_plugins {
-    log_warn!(
-      environment,
-      "{} {}",
-      unapproved.message(&permissions),
-      get_cant_ask_message(environment, &unapproved.config_file)
-    );
+    log_unapproved_process_plugins(environment, unapproved, &permissions);
   }
   let plugins = get_editor_plugin_infos(&scope).await?;
 
@@ -339,12 +334,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     if !self.warned_process_plugins.insert(unapproved.clone()) || unapproved.is_denied(permissions) {
       return;
     }
-    log_warn!(
-      self.environment,
-      "{} {}",
-      unapproved.message(permissions),
-      get_cant_ask_message(self.environment, &unapproved.config_file)
-    );
+    log_unapproved_process_plugins(self.environment, unapproved, permissions);
   }
 }
 
@@ -370,6 +360,17 @@ async fn get_editor_plugin_infos<TEnvironment: Environment>(scope: &PluginsScope
     });
   }
   Ok(plugins)
+}
+
+/// Says in the log that dprint isn't formatting with the config file because
+/// its process plugins weren't allowed to run.
+fn log_unapproved_process_plugins(environment: &impl Environment, unapproved: &UnapprovedProcessPlugins, permissions: &Permissions) {
+  log_warn!(
+    environment,
+    "{} {}",
+    unapproved.message(permissions),
+    get_cant_ask_message(environment, &unapproved.config_file)
+  );
 }
 
 fn handle_message(context: &EditorContext<EditorMessageBody>, original_message_id: u32, action: impl FnOnce() -> Result<EditorMessageBody>) {
@@ -407,12 +408,11 @@ mod test {
   use tokio::sync::oneshot;
   use tokio_util::sync::CancellationToken;
 
+  use crate::configuration::get_settings_file_path;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::test_helpers::run_test_cli;
-
-  use super::super::test::disallow_process_plugins;
 
   use super::messages::EditorMessage;
   use super::messages::EditorMessageBody;
@@ -474,6 +474,14 @@ mod test {
         "Extracting zip for test-process-plugin"
       ]
     );
+  }
+
+  /// Requires the user to approve running process plugins.
+  fn disallow_process_plugins(environment: &TestEnvironment) {
+    let file_path = get_settings_file_path(environment).unwrap();
+    // macOS only uses this directory when it's already there
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": false } }"#).unwrap();
   }
 
   /// Runs the editor service while the action communicates with it.

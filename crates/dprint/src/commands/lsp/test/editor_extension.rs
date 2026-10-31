@@ -789,20 +789,14 @@ fn should_tell_the_editor_when_the_config_file_the_server_was_started_with_chang
         });
         let config_info = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap();
         assert_eq!(config_info.status, FormatStatus::ready());
-        let change = |path: &str| DidChangeWatchedFilesParams {
-          changes: vec![FileEvent {
-            uri: uri(path),
-            typ: FileChangeType::CHANGED,
-          }],
-        };
         // another config file isn't one to the server
         environment.mk_dir_all("/project").unwrap();
         environment.write_file("/project/dprint.json", "{}").unwrap();
-        client.backend.did_change_watched_files(change("/project/dprint.json")).await;
+        client.did_change_file("/project/dprint.json", FileChangeType::CHANGED).await;
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         assert_eq!(client.take_config_changes(), Vec::new());
         // a change to it is a change to every config file because it's used for every file
-        client.backend.did_change_watched_files(change("/config/my-config.json")).await;
+        client.did_change_file("/config/my-config.json", FileChangeType::CHANGED).await;
         assert!(client.wait_for_config_changes().await.contains(&uri("/")));
       }
       .boxed_local()
@@ -952,15 +946,7 @@ fn should_tell_the_editor_when_a_config_file_starts_failing_because_of_its_globa
         environment
           .write_file("/dprint.json", &text.replacen('{', r#"{ "lineWidth": "abc","#, 1))
           .unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/dprint.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/dprint.json")]);
         assert_eq!(client.config_info("/dprint.json").await.status.reason(), Some(NotFormattedReason::ConfigError));
       }
@@ -988,15 +974,7 @@ fn should_resolve_a_config_file_again_when_a_file_it_extends_changed() {
         assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_base"));
 
         environment.write_file("/base.json", r#"{ "test-plugin": { "ending": "changed" } }"#).unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/base.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/base.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/dprint.json")]);
         assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_changed"));
       }
@@ -1019,17 +997,11 @@ fn should_resolve_a_config_file_again_when_a_broken_file_it_extends_is_fixed() {
     let environment = environment.clone();
     move |client| {
       async move {
-        let did_change_base = || DidChangeWatchedFilesParams {
-          changes: vec![FileEvent {
-            uri: uri("/base.json"),
-            typ: FileChangeType::CHANGED,
-          }],
-        };
         assert_eq!(client.config_info("/dprint.json").await.status, FormatStatus::ready());
 
         // breaking it still has it watched
         environment.write_file("/base.json", "{").unwrap();
-        client.backend.did_change_watched_files(did_change_base()).await;
+        client.did_change_file("/base.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/dprint.json")]);
         let config_info = client.config_info("/dprint.json").await;
         assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ConfigError));
@@ -1037,7 +1009,7 @@ fn should_resolve_a_config_file_again_when_a_broken_file_it_extends_is_fixed() {
 
         // fixing it is noticed
         environment.write_file("/base.json", r#"{ "test-plugin": { "ending": "fixed" } }"#).unwrap();
-        client.backend.did_change_watched_files(did_change_base()).await;
+        client.did_change_file("/base.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/dprint.json")]);
         assert_eq!(client.config_info("/dprint.json").await.status, FormatStatus::ready());
         assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_fixed"));
@@ -1146,15 +1118,7 @@ fn should_not_resolve_a_deleted_config_file_again_when_dprints_own_files_change(
       async move {
         assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::ready());
         environment.remove_file("/a/dprint.json").unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/a/dprint.json"),
-              typ: FileChangeType::DELETED,
-            }],
-          })
-          .await;
+        client.did_change_file("/a/dprint.json", FileChangeType::DELETED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
         // the settings change, which doesn't have the global config file be used for the directory
         let settings_file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
@@ -1201,13 +1165,7 @@ fn should_resolve_the_global_config_file_again_when_what_it_extends_changes() {
         // what it extends changed, which the editor reports because it's in its `watchUris`
         environment.write_file(&base_path, r#"{ "test-plugin": { "ending": "changed" } }"#).unwrap();
         client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: file_path_to_uri(&base_path).unwrap(),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
+          .did_change_file(file_path_to_uri(&base_path).unwrap().as_str(), FileChangeType::CHANGED)
           .await;
         assert_eq!(client.wait_for_config_changes().await, vec![global_uri]);
       }
@@ -1379,7 +1337,7 @@ fn should_publish_the_diagnostics_of_config_files() {
     move |client| {
       async move {
         client.config_info("/dprint.json").await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].0, uri("/dprint.json"));
         assert_eq!(diagnostics[0].1.len(), 1);
@@ -1392,7 +1350,7 @@ fn should_publish_the_diagnostics_of_config_files() {
           .write_file("/dprint.json", r#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"] }"#)
           .unwrap();
         client.config_info("/dprint.json").await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics, vec![(uri("/dprint.json"), Vec::new())]);
 
         // an error offers to open the config file
@@ -1431,20 +1389,11 @@ fn should_resolve_a_config_file_again_when_the_editor_says_it_changed() {
     move |client| {
       async move {
         client.config_info("/dprint.json").await;
-        assert!(client.test_client.published_diagnostics.lock().drain(..).next().is_none());
-        let did_change = |path: &str, change_type| DidChangeWatchedFilesParams {
-          changes: vec![FileEvent {
-            uri: uri(path),
-            typ: change_type,
-          }],
-        };
+        assert!(client.take_published_diagnostics().is_empty());
 
         // the diagnostics are published without another request
         environment.write_file("/dprint.json", "{").unwrap();
-        client
-          .backend
-          .did_change_watched_files(did_change("/dprint.json", FileChangeType::CHANGED))
-          .await;
+        client.did_change_file("/dprint.json", FileChangeType::CHANGED).await;
         let diagnostics = client.wait_for_published_diagnostics().await;
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].0, uri("/dprint.json"));
@@ -1454,24 +1403,15 @@ fn should_resolve_a_config_file_again_when_the_editor_says_it_changed() {
 
         // a config file that wasn't used isn't resolved, which would set up its plugins
         environment.write_file("/other/dprint.json", "{").unwrap();
-        client
-          .backend
-          .did_change_watched_files(did_change("/other/dprint.json", FileChangeType::CHANGED))
-          .await;
+        client.did_change_file("/other/dprint.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/other/dprint.json")]);
         assert!(client.test_client.published_diagnostics.lock().is_empty());
         // and neither is one in node_modules
-        client
-          .backend
-          .did_change_watched_files(did_change("/node_modules/package/dprint.json", FileChangeType::CREATED))
-          .await;
+        client.did_change_file("/node_modules/package/dprint.json", FileChangeType::CREATED).await;
 
         // the diagnostics are cleared once it's deleted
         environment.remove_file("/dprint.json").unwrap();
-        client
-          .backend
-          .did_change_watched_files(did_change("/dprint.json", FileChangeType::DELETED))
-          .await;
+        client.did_change_file("/dprint.json", FileChangeType::DELETED).await;
         assert_eq!(client.wait_for_published_diagnostics().await, vec![(uri("/dprint.json"), Vec::new())]);
         assert_eq!(client.take_config_changes(), vec![uri("/dprint.json")]);
       }
@@ -1784,15 +1724,7 @@ fn should_register_the_files_to_watch_with_the_watch_files_feature() {
   environment
     .write_file("/a/configs/local.json", r#"{ "test-plugin": { "ending": "local" } }"#)
     .unwrap();
-  let mut params = editor_extension_params();
-  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
-  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
-    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
-      dynamic_registration: Some(true),
-      relative_pattern_support: Some(true),
-    }),
-    ..Default::default()
-  });
+  let mut params = watch_files_params();
   params.workspace_folders = Some(vec![WorkspaceFolder {
     uri: uri("/a"),
     name: "a".to_string(),
@@ -1840,15 +1772,7 @@ fn should_stop_watching_a_config_file_that_is_on_another_machine_now() {
       c.add_remote_wasm_plugin();
     })
     .build();
-  let mut params = editor_extension_params();
-  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
-  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
-    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
-      dynamic_registration: Some(true),
-      relative_pattern_support: Some(true),
-    }),
-    ..Default::default()
-  });
+  let params = watch_files_params();
   run_session_with(&environment, params, {
     let environment = environment.clone();
     move |client| {
@@ -1859,15 +1783,7 @@ fn should_stop_watching_a_config_file_that_is_on_another_machine_now() {
         // ex. a `git pull` replaced it with a symlink to a share
         environment.remove_file("/a/dprint.json").unwrap();
         environment.symlink(network_path("dprint.json"), "/a/dprint.json").unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/a/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/a/dprint.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
         assert!(client.config_info("/a/dprint.json").await.status.approvals()[0].config_file.on_another_machine);
         // so the editor doesn't watch it anymore, which would follow the symlink
@@ -1889,15 +1805,7 @@ fn should_not_watch_a_directory_of_an_extended_file_that_is_on_another_machine_n
     .build();
   environment.mk_dir_all("/a/shared").unwrap();
   environment.write_file("/a/shared/base.json", "{}").unwrap();
-  let mut params = editor_extension_params();
-  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
-  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
-    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
-      dynamic_registration: Some(true),
-      relative_pattern_support: Some(true),
-    }),
-    ..Default::default()
-  });
+  let params = watch_files_params();
   run_session_with(&environment, params, {
     let environment = environment.clone();
     move |client| {
@@ -1921,15 +1829,7 @@ fn should_not_watch_a_directory_of_an_extended_file_that_is_on_another_machine_n
         // ex. a `git pull` replaced the directory with a symlink to a share
         environment.remove_dir_all("/a/shared").unwrap();
         environment.symlink(network_path("shared"), "/a/shared").unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/a/shared/base.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/a/shared/base.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
         let config_info = client.config_info("/a/dprint.json").await;
         assert_eq!(config_info.status.approvals()[0].items[0].kind, ApprovalItemKind::NetworkPath);
@@ -2074,15 +1974,7 @@ fn should_watch_a_config_file_through_a_directory_symlink_the_editor_does_not_wa
         let text = environment.read_file("/other/shared/dprint.json").unwrap();
         let text = text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1);
         environment.write_file("/other/shared/dprint.json", &text).unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/other/shared/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/other/shared/dprint.json", FileChangeType::CHANGED).await;
         let mut changes = client.wait_for_config_changes().await;
         changes.dedup();
         assert_eq!(changes, vec![uri("/repo/packages/shared/dprint.json")]);
@@ -2172,15 +2064,7 @@ fn take_back_diagnostics_of_config_file_on_another_machine(environment: &TestEnv
         // ex. a `git pull` replaced it with a symlink to a share
         environment.remove_file(config_path).unwrap();
         environment.symlink(network_path("dprint.json"), config_path).unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri(config_path),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file(config_path, FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_published_diagnostics().await, vec![(uri(config_path), Vec::new())]);
         assert!(client.wait_for_config_changes().await.contains(&uri(config_path)));
         client.test_client.take_messages();
@@ -2211,17 +2095,9 @@ fn should_take_back_the_diagnostics_published_through_a_directory_symlink_that_p
         environment
           .write_file("/repo/libs/pkg/dprint.json", &text.replacen('{', r#"{ "otherUnknownProperty": 1, "#, 1))
           .unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/repo/libs/pkg/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/repo/libs/pkg/dprint.json", FileChangeType::CHANGED).await;
         client.wait_for_config_changes().await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         let last = diagnostics.last().unwrap();
         assert_eq!(last.0, uri("/repo/pkg/dprint.json"));
         assert_eq!(last.1.len(), 2);
@@ -2230,7 +2106,7 @@ fn should_take_back_the_diagnostics_published_through_a_directory_symlink_that_p
         environment.remove_canonical_path("/repo/pkg");
         environment.add_canonical_path("/repo/pkg", "/repo/other");
         client.file_info("/repo/libs/pkg/file.txt").await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.len(), 2, "{:?}", diagnostics);
         assert_eq!(diagnostics[0], (uri("/repo/pkg/dprint.json"), Vec::new()));
         // and an editor extension is told its config file changed there
@@ -2285,26 +2161,13 @@ fn should_forget_a_listed_decision_by_its_config_file_in_another_case() {
     move |client| {
       async move {
         // ex. stored by a version that keeps the case on disk
-        let decision = crate::configuration::ProcessPluginDecision::new(
-          &environment,
-          crate::configuration::ProcessPluginApproval {
-            config_file: Path::new("/a").join("Dprint.json").display().to_string(),
-            plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
-            config_hash: Some("1:hash".to_string()),
-            config_key: None,
-          },
-          true,
-          &[],
-        );
-        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
-        let params = ForgetDecisionsParams {
-          config_file: Some(ConfigFileIdentifier {
+        store_test_process_plugin_allow(&environment, Path::new("/a").join("Dprint.json").display().to_string()).await;
+        client
+          .forget_decisions(Some(ConfigFileIdentifier {
             uri: uri("/a/dprint.json"),
             dir_uri: Some(uri("/a")),
-          }),
-          work_done_token: None,
-        };
-        client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+          }))
+          .await;
         assert!(
           crate::configuration::read_editor_approvals(&environment)
             .unwrap()
@@ -2338,21 +2201,13 @@ fn should_move_the_diagnostics_of_a_directory_to_another_symlink_that_leads_to_i
         environment
           .write_file("/ws/real/dprint.json", &text.replacen('{', r#"{ "otherUnknownProperty": 1, "#, 1))
           .unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/ws/real/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/ws/real/dprint.json", FileChangeType::CHANGED).await;
         client.wait_for_config_changes().await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.last().unwrap().0, uri("/ws/a/dprint.json"));
         // so they're moved to the other one once it's what the editor knows the directory by, which is checked
         client.file_info("/ws/b/file.txt").await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.len(), 2, "{:?}", diagnostics);
         assert_eq!(diagnostics[0], (uri("/ws/a/dprint.json"), Vec::new()));
         assert_eq!(diagnostics[1].0, uri("/ws/b/dprint.json"));
@@ -2529,7 +2384,7 @@ fn should_not_tell_about_the_global_config_file_through_an_alias_that_points_els
           .await;
         let config_file = client.file_info("/home/u/proj/file.txt").await.config_file.unwrap();
         assert_eq!(config_file.kind, ConfigFileKind::Global);
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.last().unwrap().0, uri("/home/u/.config/dprint/dprint.json"));
         client.take_config_changes();
         // a `dprint.jsonc` is created, which is the global config file's name that's looked for first, and the
@@ -2539,7 +2394,7 @@ fn should_not_tell_about_the_global_config_file_through_an_alias_that_points_els
         environment.add_canonical_path("/home", "/elsewhere");
         client.file_info("/var/home/u/proj/file.txt").await;
         // so its problems are taken back, but it's not told about through it, which is for each directory
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert!(
           diagnostics.contains(&(uri("/home/u/.config/dprint/dprint.json"), Vec::new())),
           "{:?}",
@@ -2569,14 +2424,14 @@ fn should_take_back_the_diagnostics_of_a_config_file_on_another_machine_now_inst
     move |client| {
       async move {
         client.file_info("/ws/a/file.txt").await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.last().unwrap().0, uri("/ws/a/dprint.json"));
         // ex. a `git pull` replaced it with a symlink to a share, which isn't reported yet
         environment.remove_file("/ws/real/dprint.json").unwrap();
         environment.symlink(network_path("dprint.json"), "/ws/real/dprint.json").unwrap();
         // so the editor using the other path only takes them back
         client.file_info("/ws/b/file.txt").await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert!(diagnostics.iter().all(|(_, diagnostics)| diagnostics.is_empty()), "{:?}", diagnostics);
         assert!(diagnostics.contains(&(uri("/ws/a/dprint.json"), Vec::new())), "{:?}", diagnostics);
         client.test_client.take_messages();
@@ -2630,7 +2485,7 @@ fn should_publish_the_diagnostics_of_a_config_file_through_the_path_the_editor_f
     async move {
       // not its canonical path, which the editor never opened
       client.file_info("/ws/a/file.txt").await;
-      let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+      let diagnostics = client.take_published_diagnostics();
       assert_eq!(diagnostics.len(), 1, "{:?}", diagnostics);
       assert_eq!(diagnostics[0].0, uri("/ws/a/dprint.json"));
     }
@@ -2658,7 +2513,7 @@ fn should_publish_the_diagnostics_through_a_replaced_alias_that_still_leads_to_t
           client.file_info(path).await;
         }
         // they're published through the first one and moved to each one the editor used after it
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.last().unwrap().0, uri("/ws/c/dprint.json"));
         // the last two point somewhere else now, so the problems are taken back from the most recent one and
         // published through the first one, which still leads to the directory
@@ -2668,7 +2523,7 @@ fn should_publish_the_diagnostics_through_a_replaced_alias_that_still_leads_to_t
         }
         let config_file = client.file_info("/ws/real/file.txt").await.config_file.unwrap();
         assert_eq!(config_file.uri, uri("/ws/a/dprint.json"));
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.first(), Some(&(uri("/ws/c/dprint.json"), Vec::new())), "{:?}", diagnostics);
         let last = diagnostics.last().unwrap();
         assert_eq!(last.0, uri("/ws/a/dprint.json"));
@@ -2729,23 +2584,15 @@ fn should_take_back_the_diagnostics_published_through_an_alias_that_is_only_used
         environment
           .write_file("/repo/libs/pkg/dprint.json", &text.replacen('{', r#"{ "otherUnknownProperty": 1, "#, 1))
           .unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/repo/libs/pkg/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/repo/libs/pkg/dprint.json", FileChangeType::CHANGED).await;
         client.wait_for_config_changes().await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.last().unwrap().0, uri("/repo/pkg/dprint.json"));
         // it points somewhere else now, and the editor only uses paths through it
         environment.remove_canonical_path("/repo/pkg");
         environment.add_canonical_path("/repo/pkg", "/repo/other");
         client.file_info("/repo/pkg/file.txt").await;
-        let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+        let diagnostics = client.take_published_diagnostics();
         assert_eq!(diagnostics.first(), Some(&(uri("/repo/pkg/dprint.json"), Vec::new())), "{:?}", diagnostics);
         // and an editor extension is told its config file changed, so it gets its result again
         assert!(client.take_config_changes().contains(&uri("/repo/pkg/dprint.json")));
@@ -2859,15 +2706,7 @@ fn should_not_publish_the_error_of_a_config_file_that_was_deleted_while_it_was_r
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
           }
           environment.remove_file("/a/dprint.json").unwrap();
-          client
-            .backend
-            .did_change_watched_files(DidChangeWatchedFilesParams {
-              changes: vec![FileEvent {
-                uri: uri("/a/dprint.json"),
-                typ: FileChangeType::DELETED,
-              }],
-            })
-            .await;
+          client.did_change_file("/a/dprint.json", FileChangeType::DELETED).await;
           client.wait_for_config_changes().await;
           client.test_client.published_diagnostics.lock().clear();
           // the plugin then fails to download, which is an error resolving it
@@ -2927,15 +2766,7 @@ fn should_take_back_the_diagnostics_of_a_config_file_that_is_on_another_machine_
         // ex. a `git pull` replaced it with a symlink to a share, so the editor shouldn't open it from them
         environment.remove_file("/a/dprint.json").unwrap();
         environment.symlink(network_path("dprint.json"), "/a/dprint.json").unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/a/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/a/dprint.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_published_diagnostics().await, vec![(uri("/a/dprint.json"), Vec::new())]);
         client.test_client.take_messages();
       }
@@ -2959,27 +2790,12 @@ fn should_forget_a_decision_by_the_config_file_it_is_listed_with_after_the_proje
     move |client| {
       async move {
         // ex. stored by running `dprint fmt` before it was moved
-        let decision = crate::configuration::ProcessPluginDecision::new(
-          &environment,
-          crate::configuration::ProcessPluginApproval {
-            config_file: Path::new("/home/u/proj").join("dprint.json").display().to_string(),
-            plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
-            config_hash: Some("1:hash".to_string()),
-            config_key: None,
-          },
-          true,
-          &[],
-        );
-        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
+        store_test_process_plugin_allow(&environment, Path::new("/home/u/proj").join("dprint.json").display().to_string()).await;
         let decisions = client.decisions().await;
         let listed = decisions.iter().find(|decision| decision.always).unwrap().config_file.clone().unwrap();
         assert_eq!(listed.uri, uri("/home/u/proj/dprint.json"));
         // which is forgotten by what it's listed with, though that's another path of the config file now
-        let params = ForgetDecisionsParams {
-          config_file: Some(listed),
-          work_done_token: None,
-        };
-        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+        let forgotten = client.forget_decisions(Some(listed)).await;
         assert_eq!(forgotten.decisions.len(), 1);
         assert!(
           crate::configuration::read_editor_approvals(&environment)
@@ -3018,32 +2834,10 @@ fn should_forget_the_decisions_of_another_config_file_than_the_one_the_server_wa
     move |client| {
       async move {
         // ex. stored for another project
-        let decision = crate::configuration::ProcessPluginDecision::new(
-          &environment,
-          crate::configuration::ProcessPluginApproval {
-            config_file: Path::new("/other").join("dprint.json").display().to_string(),
-            plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
-            config_hash: Some("1:hash".to_string()),
-            config_key: None,
-          },
-          true,
-          &[],
-        );
-        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
+        store_test_process_plugin_allow(&environment, Path::new("/other").join("dprint.json").display().to_string()).await;
         // and one of the config file the server was started with, which is kept
         let own_config_file = environment.canonicalize("/repo/dprint.json").unwrap().display().to_string();
-        let decision = crate::configuration::ProcessPluginDecision::new(
-          &environment,
-          crate::configuration::ProcessPluginApproval {
-            config_file: own_config_file.clone(),
-            plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
-            config_hash: Some("1:hash".to_string()),
-            config_key: None,
-          },
-          true,
-          &[],
-        );
-        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
+        store_test_process_plugin_allow(&environment, own_config_file.clone()).await;
         let other_uri = uri("/other/dprint.json");
         let listed = client
           .decisions()
@@ -3052,11 +2846,7 @@ fn should_forget_the_decisions_of_another_config_file_than_the_one_the_server_wa
           .filter_map(|decision| decision.config_file)
           .find(|config_file| config_file.uri == other_uri)
           .unwrap();
-        let params = ForgetDecisionsParams {
-          config_file: Some(listed),
-          work_done_token: None,
-        };
-        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+        let forgotten = client.forget_decisions(Some(listed)).await;
         assert_eq!(forgotten.decisions.len(), 1);
         let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
         assert_eq!(
@@ -3087,26 +2877,14 @@ fn should_list_the_denial_of_the_config_file_a_symlinked_dot_config_dir_points_t
       let approval = client.config_info("/repo/.config/dprint.json").await.status.approvals()[0].clone();
       client.approve(&approval.id, ApprovalDecision::Deny).await;
       // the server learns the package's path of the directory it points to
-      client
-        .backend
-        .did_change_watched_files(DidChangeWatchedFilesParams {
-          changes: vec![FileEvent {
-            uri: uri("/repo/packages/a/.config/dprint.json"),
-            typ: FileChangeType::CHANGED,
-          }],
-        })
-        .await;
+      client.did_change_file("/repo/packages/a/.config/dprint.json", FileChangeType::CHANGED).await;
       client.wait_for_config_changes().await;
       // which doesn't make the root's config file known by the package's path
       let decisions = client.decisions().await;
       let denial = decisions.iter().find(|decision| !decision.allows).unwrap();
       let listed = denial.config_file.clone().unwrap();
       assert_eq!(listed.uri, uri("/repo/.config/dprint.json"));
-      let params = ForgetDecisionsParams {
-        config_file: Some(listed),
-        work_done_token: None,
-      };
-      client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+      client.forget_decisions(Some(listed)).await;
       assert!(!client.decisions().await.iter().any(|decision| !decision.allows));
     }
     .boxed_local()
@@ -3166,23 +2944,6 @@ fn should_not_forget_the_decisions_of_the_config_file_a_symlinked_dot_config_dir
     let environment = environment.clone();
     move |client| {
       async move {
-        let store = |config_file: String| {
-          let environment = environment.clone();
-          async move {
-            let decision = crate::configuration::ProcessPluginDecision::new(
-              &environment,
-              crate::configuration::ProcessPluginApproval {
-                config_file,
-                plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
-                config_hash: Some("1:hash".to_string()),
-                config_key: None,
-              },
-              true,
-              &[],
-            );
-            crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
-          }
-        };
         let root_config_file = environment.canonicalize("/repo/.config/dprint.json").unwrap().display().to_string();
         let package_config_file = environment
           .canonicalize("/repo/packages/a")
@@ -3191,17 +2952,15 @@ fn should_not_forget_the_decisions_of_the_config_file_a_symlinked_dot_config_dir
           .join("dprint.json")
           .display()
           .to_string();
-        store(root_config_file.clone()).await;
-        store(package_config_file).await;
+        store_test_process_plugin_allow(&environment, root_config_file.clone()).await;
+        store_test_process_plugin_allow(&environment, package_config_file).await;
         // which the editor may send without the directory it's used for, because it found it
-        let params = ForgetDecisionsParams {
-          config_file: Some(ConfigFileIdentifier {
+        let forgotten = client
+          .forget_decisions(Some(ConfigFileIdentifier {
             uri: uri("/repo/packages/a/.config/dprint.json"),
             dir_uri: None,
-          }),
-          work_done_token: None,
-        };
-        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+          }))
+          .await;
         assert_eq!(forgotten.decisions.len(), 1);
         // it's another config file than the one its directory points into
         let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
@@ -3234,18 +2993,7 @@ fn should_tell_the_user_a_denial_of_what_was_allowed_since_is_not_kept_after_its
       client.approve(&b_approval.id, ApprovalDecision::Allow).await;
       // which resolves the other config file again before the user denies it there
       assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::ready());
-      let result = client
-        .backend
-        .dprint_approve(
-          ApproveParams {
-            id: a_approval.id,
-            decision: ApprovalDecision::Deny,
-            work_done_token: None,
-          },
-          CancellationToken::new(),
-        )
-        .await
-        .unwrap();
+      let result = client.try_approve(&a_approval.id, ApprovalDecision::Deny).await.unwrap();
       let notice = result.notice.unwrap();
       assert!(notice.message.starts_with("What you denied was allowed since"), "{}", notice.message);
       assert_eq!(result.config_approvals.status, FormatStatus::ready());
@@ -3267,15 +3015,7 @@ fn should_watch_a_config_file_in_a_dot_config_dir_that_is_a_symlink_by_what_it_p
     .build();
   // ex. a symlink, which is read through it
   environment.add_canonical_path("/proj/.config", "/proj/shared-cfg");
-  let mut params = editor_extension_params();
-  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
-  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
-    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
-      dynamic_registration: Some(true),
-      relative_pattern_support: Some(true),
-    }),
-    ..Default::default()
-  });
+  let params = watch_files_params();
   run_session_with(&environment, params, {
     let environment = environment.clone();
     move |client| {
@@ -3290,15 +3030,7 @@ fn should_watch_a_config_file_in_a_dot_config_dir_that_is_a_symlink_by_what_it_p
         let text = text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1);
         environment.write_file("/proj/shared-cfg/dprint.json", &text).unwrap();
         environment.write_file("/proj/.config/dprint.json", &text).unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/proj/shared-cfg/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/proj/shared-cfg/dprint.json", FileChangeType::CHANGED).await;
         let mut changes = client.wait_for_config_changes().await;
         changes.dedup();
         assert_eq!(changes, vec![uri("/proj/.config/dprint.json")]);
@@ -3333,15 +3065,7 @@ fn should_register_the_files_to_watch_by_their_canonical_directories() {
   environment.write_file("/data/proj/base.json", "{}").unwrap();
   // the workspace is opened through a symlink
   environment.add_canonical_symlink("/home/proj", "/data/proj");
-  let mut params = editor_extension_params();
-  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
-  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
-    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
-      dynamic_registration: Some(true),
-      relative_pattern_support: Some(true),
-    }),
-    ..Default::default()
-  });
+  let mut params = watch_files_params();
   params.workspace_folders = Some(vec![WorkspaceFolder {
     uri: uri("/home/proj"),
     name: "proj".to_string(),
@@ -3372,15 +3096,7 @@ fn should_register_the_files_to_watch_by_their_canonical_directories() {
         environment
           .write_file("/data/proj/base.json", r#"{ "test-plugin": { "ending": "changed" } }"#)
           .unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/data/proj/base.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/data/proj/base.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/home/proj/dprint.json")]);
         client.test_client.take_messages();
       }
@@ -3402,15 +3118,7 @@ fn should_notice_a_change_to_a_config_file_that_is_a_symlink_to_a_file_with_anot
     .build();
   // ex. a symlink, whose canonical path is the file it points to
   environment.add_canonical_path("/a/dprint.json", "/shared/base.json");
-  let mut params = editor_extension_params();
-  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
-  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
-    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
-      dynamic_registration: Some(true),
-      relative_pattern_support: Some(true),
-    }),
-    ..Default::default()
-  });
+  let params = watch_files_params();
   run_session_with(&environment, params, {
     let environment = environment.clone();
     move |client| {
@@ -3438,11 +3146,7 @@ fn should_notice_a_change_to_a_config_file_that_is_a_symlink_to_a_file_with_anot
         };
         let pending = client.backend.dprint_pending_approvals(Some(params), CancellationToken::new()).await.unwrap();
         assert_eq!(pending.status, Some(FormatStatus::ready()));
-        let params = ForgetDecisionsParams {
-          config_file: Some(identifier),
-          work_done_token: None,
-        };
-        assert!(client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.is_ok());
+        client.forget_decisions(Some(identifier)).await;
         client.take_config_changes();
         // the change is reported by the canonical path, which isn't the name of a config file
         let text = environment.read_file("/shared/base.json").unwrap();
@@ -3450,28 +3154,12 @@ fn should_notice_a_change_to_a_config_file_that_is_a_symlink_to_a_file_with_anot
         environment.write_file("/shared/base.json", &text).unwrap();
         // which is what's read through the symlink too
         environment.write_file("/a/dprint.json", &text).unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/shared/base.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/shared/base.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
         // and deleting it is like deleting the config file, which is a dangling symlink then
         environment.remove_file("/shared/base.json").unwrap();
         environment.remove_file("/a/dprint.json").unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/shared/base.json"),
-              typ: FileChangeType::DELETED,
-            }],
-          })
-          .await;
+        client.did_change_file("/shared/base.json", FileChangeType::DELETED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
         // which is still watched by what it points to, so it's noticed when that's created again
         let config_info = client.config_info("/a/dprint.json").await;
@@ -3479,15 +3167,7 @@ fn should_notice_a_change_to_a_config_file_that_is_a_symlink_to_a_file_with_anot
         assert_eq!(config_info.watch_uris, vec![uri("/shared/base.json")]);
         environment.write_file("/shared/base.json", &text).unwrap();
         environment.write_file("/a/dprint.json", &text).unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/shared/base.json"),
-              typ: FileChangeType::CREATED,
-            }],
-          })
-          .await;
+        client.did_change_file("/shared/base.json", FileChangeType::CREATED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
         assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::ready());
         client.test_client.take_messages();
@@ -3540,15 +3220,7 @@ fn should_not_forget_a_config_file_that_is_a_symlink_when_what_it_pointed_to_is_
         let text = text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1);
         environment.write_file("/shared/v2.json", &text).unwrap();
         environment.write_file("/a/dprint.json", &text).unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/shared/v2.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/shared/v2.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
       }
       .boxed_local()
@@ -3584,15 +3256,7 @@ fn should_resolve_a_config_file_again_when_the_symlink_it_inherits_from_points_e
         environment.write_file("/repo/dprint.json", &text).unwrap();
         environment.remove_canonical_path("/repo/dprint.json");
         environment.add_canonical_path("/repo/dprint.json", "/repo/configs/v2.json");
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/repo/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/repo/dprint.json", FileChangeType::CHANGED).await;
         let mut changes = Vec::new();
         for _ in 0..20 {
           changes.extend(client.wait_for_config_changes().await);
@@ -3720,15 +3384,7 @@ fn should_identify_a_config_file_that_is_a_symlink_by_the_directory_it_is_used_f
         let text = text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1);
         environment.write_file("/repo/dprint.json", &text).unwrap();
         environment.write_file("/repo/packages/a/dprint.json", &text).unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/repo/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/repo/dprint.json", FileChangeType::CHANGED).await;
         let mut changes = client.wait_for_config_changes().await;
         for _ in 0..20 {
           if changes.len() > 1 {
@@ -3744,15 +3400,7 @@ fn should_identify_a_config_file_that_is_a_symlink_by_the_directory_it_is_used_f
         environment.remove_canonical_path("/repo/packages/a/dprint.json");
         let text = text.replace(r#""ending": "changed""#, r#""ending": "own""#);
         environment.write_file("/repo/packages/a/dprint.json", &text).unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/repo/packages/a/dprint.json"),
-              typ: FileChangeType::CHANGED,
-            }],
-          })
-          .await;
+        client.did_change_file("/repo/packages/a/dprint.json", FileChangeType::CHANGED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/repo/packages/a/dprint.json")]);
         assert_eq!(client.format("/repo/packages/a/file.txt", "text").await, formatted("text", "text_own"));
         assert!(client.config_info("/repo/packages/a/dprint.json").await.watch_uris.is_empty());
@@ -3847,18 +3495,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert!(client.test_client.take_shown_messages().is_empty());
 
         // a decision it doesn't have
-        let err = client
-          .backend
-          .dprint_approve(
-            ApproveParams {
-              id: approval.id.clone(),
-              decision: ApprovalDecision::AlwaysAllow,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-          .await
-          .unwrap_err();
+        let err = client.try_approve(&approval.id, ApprovalDecision::AlwaysAllow).await.unwrap_err();
         assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
 
         // denying it returns the approval that's still needed, and the editor stops claiming its documents
@@ -3872,18 +3509,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(client.pending_approvals().await.len(), 1);
 
         // the user can still allow it (ex. with a command), which says the config file is used now
-        let result = client
-          .backend
-          .dprint_approve(
-            ApproveParams {
-              id: approval.id.clone(),
-              decision: ApprovalDecision::Allow,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-          .await
-          .unwrap();
+        let result = client.try_approve(&approval.id, ApprovalDecision::Allow).await.unwrap();
         assert_eq!(result.config_approvals.approvals, Vec::new());
         assert_eq!(result.config_approvals.status, FormatStatus::ready());
         assert_eq!(result.notice, None);
@@ -3895,18 +3521,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(client.config_info("/dprint.json").await.status, FormatStatus::ready());
 
         // an approval that isn't pending anymore says what needs to be approved now
-        let err = client
-          .backend
-          .dprint_approve(
-            ApproveParams {
-              id: approval.id.clone(),
-              decision: ApprovalDecision::Allow,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-          .await
-          .unwrap_err();
+        let err = client.try_approve(&approval.id, ApprovalDecision::Allow).await.unwrap_err();
         assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32803));
         let data = err.data.unwrap();
         assert_eq!(data["kind"], json!("approvalChanged"));
@@ -3915,18 +3530,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(data["current"]["configFile"]["uri"], json!(uri("/dprint.json").as_str()));
 
         // and so does an id the server doesn't know
-        let err = client
-          .backend
-          .dprint_approve(
-            ApproveParams {
-              id: "unknown".to_string(),
-              decision: ApprovalDecision::Allow,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-          .await
-          .unwrap_err();
+        let err = client.try_approve("unknown", ApprovalDecision::Allow).await.unwrap_err();
         assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32803));
       }
       .boxed_local()
@@ -3949,24 +3553,22 @@ fn should_say_why_the_settings_file_is_not_used_when_asking() {
   environment
     .write_file(&settings_file_path, r#"{ "editor": { "trustedDomains": ["example.com", "!github.com"] } }"#)
     .unwrap();
-  run_session(&environment, {
-    move |client| {
-      async move {
-        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
-        assert_eq!(approval.kind, ApprovalKind::Downloads);
-        // it doesn't say to trust the domain in the settings file, which the user did
-        assert!(!approval.message.contains("Add a domain"), "{}", approval.message);
-        assert!(
-          approval.message.ends_with(&format!(
-            "doesn't use its settings file in editors because {} has a value in \"editor.trustedDomains\" that isn't a domain (\"!github.com\"). Update dprint or change the file to use it.",
-            settings_file_path.display()
-          )),
-          "{}",
-          approval.message
-        );
-      }
-      .boxed_local()
+  run_session(&environment, move |client| {
+    async move {
+      let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+      assert_eq!(approval.kind, ApprovalKind::Downloads);
+      // it doesn't say to trust the domain in the settings file, which the user did
+      assert!(!approval.message.contains("Add a domain"), "{}", approval.message);
+      assert!(
+        approval.message.ends_with(&format!(
+          "doesn't use its settings file in editors because {} has a value in \"editor.trustedDomains\" that isn't a domain (\"!github.com\"). Update dprint or change the file to use it.",
+          settings_file_path.display()
+        )),
+        "{}",
+        approval.message
+      );
     }
+    .boxed_local()
   });
 }
 
@@ -3985,24 +3587,22 @@ fn should_approve_downloads_from_the_default_domains_when_the_settings_file_is_n
   environment
     .write_file(&settings_file_path, r#"{ "editor": { "untrustedDomains": ["plugins.dprint.dev"] } }"#)
     .unwrap();
-  run_session(&environment, {
-    move |client| {
-      async move {
-        let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
-        assert_eq!(approvals.len(), 1);
-        assert_eq!(approvals[0].kind, ApprovalKind::Downloads);
-        assert_eq!(approvals[0].items[0].specifier, PLUGIN_URL);
-        assert!(
-          approvals[0].message.ends_with(&format!(
-            "doesn't use its settings file in editors because {} has a property in \"editor\" that this version of dprint doesn't know (editor.untrustedDomains). Update dprint or change the file to use it.",
-            settings_file_path.display()
-          )),
-          "{}",
-          approvals[0].message
-        );
-      }
-      .boxed_local()
+  run_session(&environment, move |client| {
+    async move {
+      let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
+      assert_eq!(approvals.len(), 1);
+      assert_eq!(approvals[0].kind, ApprovalKind::Downloads);
+      assert_eq!(approvals[0].items[0].specifier, PLUGIN_URL);
+      assert!(
+        approvals[0].message.ends_with(&format!(
+          "doesn't use its settings file in editors because {} has a property in \"editor\" that this version of dprint doesn't know (editor.untrustedDomains). Update dprint or change the file to use it.",
+          settings_file_path.display()
+        )),
+        "{}",
+        approvals[0].message
+      );
     }
+    .boxed_local()
   });
 }
 
@@ -4071,17 +3671,13 @@ fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
         assert_eq!(client.format("/project/file.txt", "text").await, formatted("text", "text_formatted"));
 
         // the user can see what they allowed
-        let decisions = client
-          .backend
-          .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
-          .await
-          .unwrap();
-        assert_eq!(decisions.decisions.len(), 1);
-        assert_eq!(decisions.decisions[0].kind, ApprovalKind::Downloads);
+        let decisions = client.decisions().await;
+        assert_eq!(decisions.len(), 1);
+        assert_eq!(decisions[0].kind, ApprovalKind::Downloads);
         // its specifier is the setting like the item's, and the item says it's a proxy and of which file
-        assert_eq!(decisions.decisions[0].specifiers, vec![PROXY_SETTING.to_string()]);
-        assert_eq!(decisions.decisions[0].items, Some(approval.items.clone()));
-        assert!(decisions.decisions[0].allows);
+        assert_eq!(decisions[0].specifiers, vec![PROXY_SETTING.to_string()]);
+        assert_eq!(decisions[0].items, Some(approval.items.clone()));
+        assert!(decisions[0].allows);
       }
       .boxed_local()
     }
@@ -4164,12 +3760,7 @@ fn should_approve_the_proxy_of_a_project_npmrc_on_its_own() {
         assert_eq!(denied[0].id, proxy_approval.id);
         assert!(denied[0].denied);
         assert_eq!(environment.remote_file_request_count(PACKUMENT_URL), 0);
-        let decisions = client
-          .backend
-          .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
-          .await
-          .unwrap()
-          .decisions;
+        let decisions = client.decisions().await;
         assert_eq!(decisions.len(), 2);
         assert_eq!(decisions[0].specifiers, vec![PROXY_SETTING.to_string()]);
         assert_eq!(decisions[0].items, Some(proxy_approval.items.clone()));
@@ -4288,26 +3879,19 @@ fn should_not_read_a_config_file_from_the_editor_on_another_machine_before_it_is
         assert!(specifier.ends_with(r"dprint.json -> \\server\share\config\dprint.json"), "{}", specifier);
         assert_eq!(status.approvals()[0].config_file.dir_uri, uri("/src/sub"));
         // and its decisions can be forgotten without reading it
-        let params = ForgetDecisionsParams {
-          config_file: Some(ConfigFileIdentifier {
+        let forgotten = client
+          .forget_decisions(Some(ConfigFileIdentifier {
             uri: uri("/src/dprint.json"),
             dir_uri: None,
-          }),
-          work_done_token: None,
-        };
-        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+          }))
+          .await;
         assert!(forgotten.decisions.is_empty());
         assert_eq!(environment.file_read_count("/src/dprint.json"), 0);
         assert_eq!(environment.file_read_count("/src/sub/.config/dprint.json"), 0);
 
         // it's read once it's allowed (the test environment can't read what's on another machine)
         let approval = client.config_info("/src/dprint.json").await.status.approvals()[0].clone();
-        let params = ApproveParams {
-          id: approval.id,
-          decision: ApprovalDecision::Allow,
-          work_done_token: None,
-        };
-        _ = client.backend.dprint_approve(params, CancellationToken::new()).await;
+        _ = client.try_approve(&approval.id, ApprovalDecision::Allow).await;
         assert!(environment.file_read_count("/src/dprint.json") > 0);
       }
       .boxed_local()
@@ -4339,15 +3923,7 @@ fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allo
         environment.symlink(network_path("dprint.json"), "/src/dprint.json").unwrap();
         let canonicalize_count = environment.canonicalize_count("/src/dprint.json");
         let read_count = environment.file_read_count("/src/dprint.json");
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/src/dprint.json"),
-              typ: FileChangeType::CREATED,
-            }],
-          })
-          .await;
+        client.did_change_file("/src/dprint.json", FileChangeType::CREATED).await;
         // the editor is told about it by its path rather than the one on the other machine
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/src/dprint.json")]);
         // and it's asked about without following it
@@ -4361,11 +3937,7 @@ fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allo
 
         // nor when the config files that were used are resolved again (ex. after forgetting decisions,
         // or when the approvals file changed), which tells the editor it changed instead
-        client
-          .backend
-          .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
-          .await
-          .unwrap();
+        client.forget_decisions(None).await;
         assert_eq!(client.take_config_changes(), vec![uri("/src/dprint.json")]);
         assert_eq!(environment.canonicalize_count("/src/dprint.json"), canonicalize_count);
         assert_eq!(environment.file_read_count("/src/dprint.json"), read_count);
@@ -4374,17 +3946,7 @@ fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allo
 
         // the editor is told once reading it is allowed, which is when it may watch it
         client.take_config_changes();
-        let _ = client
-          .backend
-          .dprint_approve(
-            ApproveParams {
-              id: approval.id,
-              decision: ApprovalDecision::Allow,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-          .await;
+        let _ = client.try_approve(&approval.id, ApprovalDecision::Allow).await;
         assert!(client.take_config_changes().contains(&uri("/src/dprint.json")));
 
         // the same goes for the file an untitled document is formatted as
@@ -4644,18 +4206,7 @@ fn should_change_the_id_of_a_process_plugin_that_is_not_set_up_when_the_configur
         let changed = client.config_info("/dprint.json").await.status.approvals()[0].clone();
         assert_ne!(changed.id, approval.id);
         // the user didn't see what it would run with now
-        let err = client
-          .backend
-          .dprint_approve(
-            ApproveParams {
-              id: approval.id.clone(),
-              decision: ApprovalDecision::Allow,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-          .await
-          .unwrap_err();
+        let err = client.try_approve(&approval.id, ApprovalDecision::Allow).await.unwrap_err();
         assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32803));
       }
       .boxed_local()
@@ -4819,14 +4370,12 @@ fn should_forget_the_decisions_of_a_config_file() {
         assert!(!decisions.decisions[0].allows);
         assert!(decisions.decisions[0].always);
 
-        let params = ForgetDecisionsParams {
-          config_file: Some(ConfigFileIdentifier {
+        let forgotten = client
+          .forget_decisions(Some(ConfigFileIdentifier {
             uri: uri("/a/dprint.json"),
             dir_uri: None,
-          }),
-          work_done_token: None,
-        };
-        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+          }))
+          .await;
         assert_eq!(forgotten.decisions, decisions.decisions);
         // the user is asked again
         assert_eq!(client.take_config_changes(), vec![uri("/a/dprint.json")]);
@@ -4840,14 +4389,12 @@ fn should_forget_the_decisions_of_a_config_file() {
         );
 
         // a deleted config file's decisions can be forgotten too
-        let params = ForgetDecisionsParams {
-          config_file: Some(ConfigFileIdentifier {
+        client
+          .forget_decisions(Some(ConfigFileIdentifier {
             uri: uri("/b/dprint.json"),
             dir_uri: None,
-          }),
-          work_done_token: None,
-        };
-        client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+          }))
+          .await;
       }
       .boxed_local()
     }
@@ -4887,14 +4434,10 @@ fn should_provide_the_most_recent_decision_of_a_process_plugin() {
           &[],
         );
         crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
-        let decisions = client
-          .backend
-          .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
-          .await
-          .unwrap();
-        assert_eq!(decisions.decisions.len(), 1);
-        assert!(decisions.decisions[0].allows);
-        assert!(decisions.decisions[0].always);
+        let decisions = client.decisions().await;
+        assert_eq!(decisions.len(), 1);
+        assert!(decisions[0].allows);
+        assert!(decisions[0].always);
       }
       .boxed_local()
     }
@@ -4910,31 +4453,11 @@ fn should_forget_the_decisions_of_a_remote_config_file() {
     move |client| {
       async move {
         // ex. from running `dprint fmt --config https://example.com/dprint.json`
-        let decision = crate::configuration::ProcessPluginDecision::new(
-          &environment,
-          crate::configuration::ProcessPluginApproval {
-            config_file: "https://example.com/dprint.json".to_string(),
-            plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
-            config_hash: Some("1:hash".to_string()),
-            config_key: None,
-          },
-          true,
-          &[],
-        );
-        crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
-        let decisions = client
-          .backend
-          .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
-          .await
-          .unwrap()
-          .decisions;
+        store_test_process_plugin_allow(&environment, "https://example.com/dprint.json".to_string()).await;
+        let decisions = client.decisions().await;
         let config_file = decisions[0].config_file.clone().unwrap();
         assert_eq!(config_file.uri.as_str(), "https://example.com/dprint.json");
-        let params = ForgetDecisionsParams {
-          config_file: Some(config_file),
-          work_done_token: None,
-        };
-        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+        let forgotten = client.forget_decisions(Some(config_file)).await;
         assert_eq!(forgotten.decisions, decisions);
         assert!(
           crate::configuration::read_editor_approvals(&environment)
@@ -4969,18 +4492,7 @@ fn should_say_when_always_allowing_a_process_plugin_that_is_not_set_up_could_not
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
         assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
         // it's stored once it's set up, which approving it does
-        let result = client
-          .backend
-          .dprint_approve(
-            ApproveParams {
-              id: approval.id.clone(),
-              decision: ApprovalDecision::AlwaysAllow,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-          .await
-          .unwrap();
+        let result = client.try_approve(&approval.id, ApprovalDecision::AlwaysAllow).await.unwrap();
         assert_eq!(result.config_approvals.status, FormatStatus::ready());
         let notice = result.notice.unwrap();
         assert!(
@@ -4997,18 +4509,7 @@ fn should_say_when_always_allowing_a_process_plugin_that_is_not_set_up_could_not
           .write_file("/dprint.json", &text.replacen('{', r#"{ "testProcessPlugin": { "ending": "changed" }, "#, 1))
           .unwrap();
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
-        let result = client
-          .backend
-          .dprint_approve(
-            ApproveParams {
-              id: approval.id.clone(),
-              decision: ApprovalDecision::AlwaysDeny,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-          .await
-          .unwrap();
+        let result = client.try_approve(&approval.id, ApprovalDecision::AlwaysDeny).await.unwrap();
         assert!(result.notice.is_some());
         assert!(result.config_approvals.approvals[0].denied);
         environment.take_stderr_messages();
@@ -5100,22 +4601,12 @@ fn should_say_when_always_allowing_a_process_plugin_could_not_be_stored_once_wha
     let environment = environment.clone();
     move |client| {
       async move {
-        let approve = |id: String, decision: ApprovalDecision| {
-          client.backend.dprint_approve(
-            ApproveParams {
-              id,
-              decision,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-        };
         let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
         // the process plugins can't be set up until the download is allowed, so nothing failed yet
-        let result = approve(approvals[1].id.clone(), ApprovalDecision::AlwaysAllow).await.unwrap();
+        let result = client.try_approve(&approvals[1].id, ApprovalDecision::AlwaysAllow).await.unwrap();
         assert!(result.notice.is_none());
         // allowing the download sets them up, which is what says it
-        let result = approve(approvals[0].id.clone(), ApprovalDecision::Allow).await.unwrap();
+        let result = client.try_approve(&approvals[0].id, ApprovalDecision::Allow).await.unwrap();
         assert_eq!(result.config_approvals.status, FormatStatus::ready());
         let notice = result.notice.unwrap();
         assert!(
@@ -5202,14 +4693,12 @@ fn should_only_forget_the_decisions_of_the_config_file() {
         let approval = client.config_info(config_file).await.status.approvals()[0].clone();
         client.approve(&approval.id, ApprovalDecision::Deny).await;
       }
-      let params = ForgetDecisionsParams {
-        config_file: Some(ConfigFileIdentifier {
+      client
+        .forget_decisions(Some(ConfigFileIdentifier {
           uri: uri("/a/dprint.json"),
           dir_uri: None,
-        }),
-        work_done_token: None,
-      };
-      client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+        }))
+        .await;
       assert!(!client.config_info("/a/dprint.json").await.status.approvals()[0].denied);
       assert!(client.config_info("/b/dprint.json").await.status.approvals()[0].denied);
     }
@@ -5272,19 +4761,9 @@ fn should_only_use_always_decisions_for_the_session_with_the_approvals_of_a_newe
     let environment = environment.clone();
     move |client| {
       async move {
-        let approve = |id: String, decision: ApprovalDecision| {
-          client.backend.dprint_approve(
-            ApproveParams {
-              id,
-              decision,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-        };
         // it's only kept for the session, which is said once it's set up, which approving it does
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
-        let result = approve(approval.id.clone(), ApprovalDecision::AlwaysAllow).await.unwrap();
+        let result = client.try_approve(&approval.id, ApprovalDecision::AlwaysAllow).await.unwrap();
         assert_eq!(result.config_approvals.status, FormatStatus::ready());
         assert_eq!(result.notice.unwrap().message, expected_message);
         // it's used for the session
@@ -5299,7 +4778,7 @@ fn should_only_use_always_decisions_for_the_session_with_the_approvals_of_a_newe
           )
           .unwrap();
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
-        let result = approve(approval.id.clone(), ApprovalDecision::AlwaysDeny).await.unwrap();
+        let result = client.try_approve(&approval.id, ApprovalDecision::AlwaysDeny).await.unwrap();
         assert_eq!(result.notice.unwrap().message, expected_message);
         assert!(result.config_approvals.approvals[0].denied);
         // and it's not an "Always" decision
@@ -5346,14 +4825,12 @@ fn should_only_forget_the_decisions_of_the_session_with_the_approvals_of_a_newer
         let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
         assert!(approval.denied);
         assert!(client.approve(&approval.id, ApprovalDecision::Allow).await.is_empty());
-        let params = ForgetDecisionsParams {
-          config_file: Some(ConfigFileIdentifier {
+        let result = client
+          .forget_decisions(Some(ConfigFileIdentifier {
             uri: uri("/a/dprint.json"),
             dir_uri: None,
-          }),
-          work_done_token: None,
-        };
-        let result = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+          }))
+          .await;
         assert_eq!(
           result.notice.unwrap().message,
           format!(
@@ -5390,32 +4867,13 @@ fn should_forget_what_a_deleted_config_file_needed_approved() {
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
         assert_eq!(client.pending_approvals().await, vec![approval.clone()]);
         environment.remove_file("/dprint.json").unwrap();
-        client
-          .backend
-          .did_change_watched_files(DidChangeWatchedFilesParams {
-            changes: vec![FileEvent {
-              uri: uri("/dprint.json"),
-              typ: FileChangeType::DELETED,
-            }],
-          })
-          .await;
+        client.did_change_file("/dprint.json", FileChangeType::DELETED).await;
         assert_eq!(client.wait_for_config_changes().await, vec![uri("/dprint.json")]);
         assert_eq!(client.pending_approvals().await, Vec::new());
         let status = client.config_info("/dprint.json").await.status;
         assert_eq!(status.reason(), Some(NotFormattedReason::ConfigFileMissing));
         // it can't be approved anymore
-        let err = client
-          .backend
-          .dprint_approve(
-            ApproveParams {
-              id: approval.id.clone(),
-              decision: ApprovalDecision::Allow,
-              work_done_token: None,
-            },
-            CancellationToken::new(),
-          )
-          .await
-          .unwrap_err();
+        let err = client.try_approve(&approval.id, ApprovalDecision::Allow).await.unwrap_err();
         assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32803));
       }
       .boxed_local()
@@ -5434,29 +4892,27 @@ fn should_return_what_needs_to_be_approved_next_when_approving() {
     })
     .build();
   disallow_process_plugins(&environment);
-  run_session(&environment, {
-    move |client| {
-      async move {
-        // both are known, so they can be asked about together
-        let approvals = client.config_info("/a/dprint.json").await.status.approvals().to_vec();
-        assert_eq!(
-          approvals.iter().map(|approval| approval.kind).collect::<Vec<_>>(),
-          vec![ApprovalKind::Downloads, ApprovalKind::ProcessPlugins]
-        );
-        assert_eq!(approvals[0].config_file, local_config("/a/dprint.json"));
+  run_session(&environment, |client| {
+    async move {
+      // both are known, so they can be asked about together
+      let approvals = client.config_info("/a/dprint.json").await.status.approvals().to_vec();
+      assert_eq!(
+        approvals.iter().map(|approval| approval.kind).collect::<Vec<_>>(),
+        vec![ApprovalKind::Downloads, ApprovalKind::ProcessPlugins]
+      );
+      assert_eq!(approvals[0].config_file, local_config("/a/dprint.json"));
 
-        // allowing the download leaves the process plugin to be approved
-        let remaining = client.approve(&approvals[0].id, ApprovalDecision::Allow).await;
-        assert_eq!(remaining, vec![approvals[1].clone()]);
+      // allowing the download leaves the process plugin to be approved
+      let remaining = client.approve(&approvals[0].id, ApprovalDecision::Allow).await;
+      assert_eq!(remaining, vec![approvals[1].clone()]);
 
-        // the download that was approved isn't pending anymore
-        assert_eq!(client.format("/a/file.txt_ps", "text").await.approvals(), remaining.as_slice());
+      // the download that was approved isn't pending anymore
+      assert_eq!(client.format("/a/file.txt_ps", "text").await.approvals(), remaining.as_slice());
 
-        assert_eq!(client.approve(&approvals[1].id, ApprovalDecision::Allow).await, Vec::new());
-        assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_formatted_process"));
-      }
-      .boxed_local()
+      assert_eq!(client.approve(&approvals[1].id, ApprovalDecision::Allow).await, Vec::new());
+      assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_formatted_process"));
     }
+    .boxed_local()
   });
 }
 
@@ -5804,11 +5260,7 @@ fn should_forget_the_decisions_of_the_session_in_its_session_file() {
           let approval = client.config_info(config_file).await.status.approvals()[0].clone();
           client.approve(&approval.id, decision).await;
         }
-        client
-          .backend
-          .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
-          .await
-          .unwrap();
+        client.forget_decisions(None).await;
         let text = environment.read_file(get_session_file_path(&environment, SESSION_ID)).unwrap();
         let state = serde_json::from_str::<serde_json::Value>(&text).unwrap();
         assert_eq!(state["processPluginDecisions"], json!([]), "{}", text);
@@ -5847,13 +5299,7 @@ fn should_not_keep_what_was_forgotten_in_a_session_file_that_failed_to_be_writte
         // ex. the disk is full and another process has the file open
         environment.set_file_write_fails(&session_file_path, true);
         environment.set_file_remove_fails(&session_file_path, true);
-        let forget = || async {
-          client
-            .backend
-            .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
-            .await
-            .unwrap()
-        };
+        let forget = || async { client.forget_decisions(None).await };
         // so the allow may come back, which the user is told about
         let notice = forget().await.notice.unwrap();
         assert!(notice.message.contains("may come back if dprint restarts"), "{}", notice.message);
@@ -5916,11 +5362,7 @@ fn should_take_over_the_session_file_of_a_session_id_another_server_used() {
         // what the other server allowed isn't used
         assert!(!client.decisions().await.iter().any(|decision| decision.specifiers == vec![OTHER_URL]));
         // and forgetting decisions says they aren't kept either
-        let result = client
-          .backend
-          .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
-          .await
-          .unwrap();
+        let result = client.forget_decisions(None).await;
         let notice = result.notice.unwrap();
         assert!(notice.message.contains("won't be kept if dprint restarts"), "{}", notice.message);
         assert_eq!(environment.read_file(&session_file_path).unwrap(), other_text);
@@ -5928,18 +5370,7 @@ fn should_take_over_the_session_file_of_a_session_id_another_server_used() {
           let client = &client;
           async move {
             let approval = client.config_info(config_file).await.status.approvals()[0].clone();
-            client
-              .backend
-              .dprint_approve(
-                ApproveParams {
-                  id: approval.id,
-                  decision: ApprovalDecision::Deny,
-                  work_done_token: None,
-                },
-                CancellationToken::new(),
-              )
-              .await
-              .unwrap()
+            client.try_approve(&approval.id, ApprovalDecision::Deny).await.unwrap()
           }
         };
         // the user is told the decision isn't kept, and the other server's file isn't changed
@@ -6167,22 +5598,11 @@ fn should_forget_an_always_allow_that_is_still_being_stored() {
           .unwrap()
           .with_file_name(".editor-approvals.lock");
         let other_lock = environment.try_lock_file(&lock_path).unwrap().unwrap();
-        let approve = client.backend.dprint_approve(
-          ApproveParams {
-            id: approval.id.clone(),
-            decision: ApprovalDecision::AlwaysAllow,
-            work_done_token: None,
-          },
-          CancellationToken::new(),
-        );
+        let approve = client.try_approve(&approval.id, ApprovalDecision::AlwaysAllow);
         // the user forgets the decisions while it waits for the lock
         let forget = async {
           tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-          client
-            .backend
-            .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
-            .await
-            .unwrap()
+          client.forget_decisions(None).await
         };
         let release = async {
           tokio::time::sleep(std::time::Duration::from_millis(400)).await;
@@ -6298,19 +5718,11 @@ fn should_keep_denying_a_download_under_an_npm_registry_that_is_allowed() {
         assert_eq!(environment.remote_file_request_count(EXTENDS_URL), 0);
         // until it's forgotten, when the registry allows it
         client
-          .backend
-          .dprint_forget_decisions(
-            Some(ForgetDecisionsParams {
-              config_file: Some(ConfigFileIdentifier {
-                uri: uri("/a/dprint.json"),
-                dir_uri: None,
-              }),
-              work_done_token: None,
-            }),
-            CancellationToken::new(),
-          )
-          .await
-          .unwrap();
+          .forget_decisions(Some(ConfigFileIdentifier {
+            uri: uri("/a/dprint.json"),
+            dir_uri: None,
+          }))
+          .await;
         assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::ready());
         assert_eq!(environment.remote_file_request_count(EXTENDS_URL), 1);
       }
@@ -6337,18 +5749,7 @@ fn should_not_deny_a_download_that_was_allowed_exactly_since() {
       let b_approval = client.config_info("/b/dprint.json").await.status.approvals()[0].clone();
       // the user allows it for one config file while the prompt of the other is still shown
       client.approve(&b_approval.id, ApprovalDecision::Allow).await;
-      let result = client
-        .backend
-        .dprint_approve(
-          ApproveParams {
-            id: a_approval.id,
-            decision: ApprovalDecision::Deny,
-            work_done_token: None,
-          },
-          CancellationToken::new(),
-        )
-        .await
-        .unwrap();
+      let result = client.try_approve(&a_approval.id, ApprovalDecision::Deny).await.unwrap();
       // which doesn't do anything, because it's allowed exactly, so the user is told and it isn't kept
       let notice = result.notice.unwrap();
       assert!(notice.message.starts_with("What you denied was allowed since"), "{}", notice.message);
@@ -6407,7 +5808,12 @@ impl Client {
       .unwrap()
   }
 
+  /// Sends the decision and gets what needs to be approved next.
   async fn approve(&self, id: &str, decision: ApprovalDecision) -> Vec<PendingApproval> {
+    self.try_approve(id, decision).await.unwrap().config_approvals.approvals
+  }
+
+  async fn try_approve(&self, id: &str, decision: ApprovalDecision) -> LspResult<ApproveResult> {
     self
       .backend
       .dprint_approve(
@@ -6419,9 +5825,21 @@ impl Client {
         CancellationToken::new(),
       )
       .await
+  }
+
+  /// Forgets the decisions of the config file, or of every config file without one.
+  async fn forget_decisions(&self, config_file: Option<ConfigFileIdentifier>) -> ForgetDecisionsResult {
+    self
+      .backend
+      .dprint_forget_decisions(
+        Some(ForgetDecisionsParams {
+          config_file,
+          work_done_token: None,
+        }),
+        CancellationToken::new(),
+      )
+      .await
       .unwrap()
-      .config_approvals
-      .approvals
   }
 
   async fn decisions(&self) -> Vec<Decision> {
@@ -6440,6 +5858,16 @@ impl Client {
       .await
       .unwrap()
       .approvals
+  }
+
+  /// Tells the server the editor saw the file change.
+  async fn did_change_file(&self, path_or_uri: &str, typ: FileChangeType) {
+    self
+      .backend
+      .did_change_watched_files(DidChangeWatchedFilesParams {
+        changes: vec![FileEvent { uri: uri(path_or_uri), typ }],
+      })
+      .await;
   }
 
   fn take_config_changes(&self) -> Vec<Uri> {
@@ -6472,9 +5900,13 @@ impl Client {
     Vec::new()
   }
 
+  fn take_published_diagnostics(&self) -> Vec<(Uri, Vec<Diagnostic>)> {
+    self.test_client.published_diagnostics.lock().drain(..).collect()
+  }
+
   async fn wait_for_published_diagnostics(&self) -> Vec<(Uri, Vec<Diagnostic>)> {
     for _ in 0..200 {
-      let diagnostics = self.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+      let diagnostics = self.take_published_diagnostics();
       if !diagnostics.is_empty() {
         return diagnostics;
       }
@@ -6567,6 +5999,20 @@ fn get_session_file_path(environment: &TestEnvironment, session_id: &str) -> Pat
   environment.get_cache_dir().join("editor-sessions").join(format!("{}.json", session_id))
 }
 
+/// Gets the params of an editor extension with the `watchFiles` feature.
+fn watch_files_params() -> InitializeParams {
+  let mut params = editor_extension_params();
+  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
+  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
+    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
+      dynamic_registration: Some(true),
+      relative_pattern_support: Some(true),
+    }),
+    ..Default::default()
+  });
+  params
+}
+
 fn editor_extension_params() -> InitializeParams {
   InitializeParams {
     capabilities: ClientCapabilities {
@@ -6614,6 +6060,23 @@ fn not_formatted_status(reason: NotFormattedReason, message: Option<&str>) -> Fo
 
 fn specifiers(approval: &PendingApproval) -> Vec<&str> {
   approval.items.iter().map(|item| item.specifier.as_str()).collect()
+}
+
+/// Stores an "Always Allow" of the test process plugin for the config file
+/// (ex. by running `dprint fmt`).
+async fn store_test_process_plugin_allow(environment: &TestEnvironment, config_file: String) {
+  let decision = crate::configuration::ProcessPluginDecision::new(
+    environment,
+    crate::configuration::ProcessPluginApproval {
+      config_file,
+      plugin: "https://plugins.dprint.dev/test-process.json@checksum".to_string(),
+      config_hash: Some("1:hash".to_string()),
+      config_key: None,
+    },
+    true,
+    &[],
+  );
+  crate::configuration::store_process_plugin_decision(environment, decision).await.unwrap();
 }
 
 /// Gets what a status says for the assertions.

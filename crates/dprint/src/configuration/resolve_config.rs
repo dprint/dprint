@@ -312,15 +312,15 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   inherit_chain: Vec<PathSource>,
 ) -> Result<ResolvedConfig, ResolveConfigError> {
   let base_source = config_path_and_text.source.parent();
+  // the errors of the file's contents say which configuration file they're in
+  let with_source = |err: anyhow::Error| anyhow::anyhow!("{:#}\n    at {}", err, config_path_and_text.source.display());
   let mut config_map = get_config_map_from_path(ConfigPathContext {
     current: config_path_and_text.as_file_path_with_text_ref(),
     origin: &config_path_and_text.source,
   })
-  .map_err(|err| with_config_source(err, config_path_and_text))?;
+  .map_err(with_source)?;
 
-  // the errors of the properties say which configuration file they're in
-  let plugins_vec =
-    take_plugins_array_from_config_map(&mut config_map, &base_source, environment).map_err(|err| with_config_source(err, config_path_and_text))?; // always take this out of the config map
+  let plugins_vec = take_plugins_array_from_config_map(&mut config_map, &base_source, environment).map_err(with_source)?; // always take this out of the config map
   let plugins = filter_duplicate_plugin_sources({
     // filter out any non-wasm plugins from remote config
     if !config_path_and_text.source.is_local() {
@@ -357,12 +357,12 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   }
   // =========
 
-  let includes = take_array_from_config_map(&mut config_map, "includes").map_err(|err| with_config_source(err, config_path_and_text))?;
-  let excludes = take_array_from_config_map(&mut config_map, "excludes").map_err(|err| with_config_source(err, config_path_and_text))?;
+  let includes = take_array_from_config_map(&mut config_map, "includes").map_err(with_source)?;
+  let excludes = take_array_from_config_map(&mut config_map, "excludes").map_err(with_source)?;
 
-  let incremental = take_bool_from_config_map(&mut config_map, "incremental").map_err(|err| with_config_source(err, config_path_and_text))?;
-  let shebangs = take_shebangs_from_config_map(&mut config_map).map_err(|err| with_config_source(err, config_path_and_text))?;
-  let inherit = take_bool_from_config_map(&mut config_map, "inherit").map_err(|err| with_config_source(err, config_path_and_text))?;
+  let incremental = take_bool_from_config_map(&mut config_map, "incremental").map_err(with_source)?;
+  let shebangs = take_shebangs_from_config_map(&mut config_map).map_err(with_source)?;
+  let inherit = take_bool_from_config_map(&mut config_map, "inherit").map_err(with_source)?;
   if inherit == Some(true) && config_path_and_text.is_global_config {
     return Err(
       anyhow::anyhow!(
@@ -374,7 +374,7 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     );
   }
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
-  let extends = take_extends(&mut config_map).map_err(|err| with_config_source(err, config_path_and_text))?;
+  let extends = take_extends(&mut config_map).map_err(with_source)?;
   let trusted_config_map = if config_path_and_text.source.is_local() {
     config_map.clone()
   } else {
@@ -410,11 +410,6 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
     is_in_pinned_npm_package: false,
   };
   Ok(resolve_extends(resolved_config, extends, extends_context, environment.clone()).await?)
-}
-
-/// Adds where the configuration file is to an error about its contents.
-fn with_config_source(err: anyhow::Error, config_path_and_text: &ResolvedConfigPathWithText) -> anyhow::Error {
-  anyhow::anyhow!("{:#}\n    at {}", err, config_path_and_text.source.display())
 }
 
 /// Merges the ancestor (`parent`) configuration into a nested configuration
@@ -473,9 +468,7 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
     .into_iter()
     .chain(parent.found_path.as_deref());
   for path in parent_dependencies.chain(parent.local_dependencies.iter().map(|path| path.as_path())) {
-    if !config.local_dependencies.iter().any(|dependency| dependency == path) {
-      config.local_dependencies.push(path.to_path_buf());
-    }
+    add_local_dependency(&mut config, path);
   }
 
   Ok(config)
@@ -579,10 +572,8 @@ fn resolve_extends<TEnvironment: Environment>(
     for (specifier, extended_file) in extends.iter().zip(resolved_files) {
       let ExtendedConfigFile { file, pinning } = extended_file?;
       let resolved_file = file.into_text()?;
-      if let Some(path) = resolved_file.source.maybe_local_path()
-        && !resolved_config.local_dependencies.iter().any(|dependency| dependency == path.as_ref())
-      {
-        resolved_config.local_dependencies.push(path.as_ref().to_path_buf());
+      if let Some(path) = resolved_file.source.maybe_local_path() {
+        add_local_dependency(&mut resolved_config, path.as_ref());
       }
       if context.ancestors.contains(&resolved_file.source) {
         bail!(
@@ -1415,6 +1406,13 @@ fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -
     .into_iter()
     .map(|(path_source, checksum)| PluginSourceReference { path_source, checksum })
     .collect()
+}
+
+/// Adds a local file the config was resolved from when it's not there already.
+fn add_local_dependency(config: &mut ResolvedConfig, path: &Path) {
+  if !config.local_dependencies.iter().any(|dependency| dependency == path) {
+    config.local_dependencies.push(path.to_path_buf());
+  }
 }
 
 #[cfg(test)]

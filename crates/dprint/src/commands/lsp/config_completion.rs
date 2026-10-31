@@ -307,6 +307,12 @@ pub struct BuiltConfigSchema {
   pub is_downloading: bool,
 }
 
+/// The url of a plugin's config schema, which is empty when it doesn't have one.
+pub struct PluginSchemaUrl {
+  pub config_key: String,
+  pub url: String,
+}
+
 /// Adds the properties of the base schema's plugin section to the plugin's
 /// schema, which returns `false` when they can't be added.
 ///
@@ -330,12 +336,6 @@ fn add_plugin_config_properties(plugin_schema: &mut Value, plugin_config_schema:
     }
   }
   true
-}
-
-/// The url of a plugin's config schema, which is empty when it doesn't have one.
-pub struct PluginSchemaUrl {
-  pub config_key: String,
-  pub url: String,
 }
 
 /// Gets the schema to put in the definitions of another schema at the JSON

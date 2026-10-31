@@ -155,6 +155,7 @@ use self::workspace::messages::FormatResult;
 use self::workspace::messages::GlobalConfigUse;
 use self::workspace::messages::NotFormatted;
 use self::workspace::messages::NotFormattedReason;
+use self::workspace::messages::NotebookIdentifier;
 use self::workspace::messages::OVERRIDE_CONFIG_KEYS;
 use self::workspace::messages::PENDING_APPROVALS_METHOD;
 use self::workspace::messages::PendingApprovalsParams;
@@ -485,39 +486,43 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   /// Gets the document of a `dprint/*` method, which only has the file it's
   /// formatted as with the `fileUri` feature.
   fn get_document_info(&self, params: &DocumentParams) -> DocumentInfo {
-    let has_file_uri_feature = self.state.lock().features.contains_key(FILE_URI_FEATURE);
-    DocumentInfo {
-      uri: params.text_document.uri.clone(),
-      language: params.language.clone(),
-      notebook_uri: params
-        .notebook_document
-        .as_ref()
-        .map(|notebook| notebook.file_uri.as_ref().filter(|_| has_file_uri_feature).unwrap_or(&notebook.uri).clone()),
-      file_uri: params.file_uri.clone().filter(|_| has_file_uri_feature),
-    }
+    self.new_document_info(
+      &params.text_document.uri,
+      params.language.as_ref(),
+      params.notebook_document.as_ref(),
+      params.file_uri.as_ref(),
+    )
   }
 
   /// Gets what `dprint/configInfo` and `dprint/configSchema` are for, which is
   /// a config file or a document it's used for.
   fn get_config_target(&self, params: &ConfigParams) -> LspResult<ConfigTarget> {
-    let has_file_uri_feature = self.state.lock().features.contains_key(FILE_URI_FEATURE);
     match (&params.config_file, &params.text_document) {
       (Some(config_file), None) => Ok(ConfigTarget::ConfigFile {
         uri: config_file.uri.clone(),
         dir_uri: config_file.dir_uri.clone(),
       }),
-      (None, Some(text_document)) => Ok(ConfigTarget::Document(DocumentInfo {
-        uri: text_document.uri.clone(),
-        language: params.language.clone(),
-        notebook_uri: params
-          .notebook_document
-          .as_ref()
-          .map(|notebook| notebook.file_uri.as_ref().filter(|_| has_file_uri_feature).unwrap_or(&notebook.uri).clone()),
-        file_uri: params.file_uri.clone().filter(|_| has_file_uri_feature),
-      })),
+      (None, Some(text_document)) => Ok(ConfigTarget::Document(self.new_document_info(
+        &text_document.uri,
+        params.language.as_ref(),
+        params.notebook_document.as_ref(),
+        params.file_uri.as_ref(),
+      ))),
       _ => Err(to_lsp_error(
         InvalidParamsError("Provide either the configFile or the textDocument.".to_string()).into(),
       )),
+    }
+  }
+
+  /// Gets the document of the params of a `dprint/*` method, which only has
+  /// the file it's formatted as with the `fileUri` feature.
+  fn new_document_info(&self, uri: &Uri, language: Option<&DocumentLanguage>, notebook: Option<&NotebookIdentifier>, file_uri: Option<&Uri>) -> DocumentInfo {
+    let has_file_uri_feature = self.state.lock().features.contains_key(FILE_URI_FEATURE);
+    DocumentInfo {
+      uri: uri.clone(),
+      language: language.cloned(),
+      notebook_uri: notebook.map(|notebook| notebook.file_uri.as_ref().filter(|_| has_file_uri_feature).unwrap_or(&notebook.uri).clone()),
+      file_uri: file_uri.filter(|_| has_file_uri_feature).cloned(),
     }
   }
 
@@ -544,6 +549,16 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     });
     self.sender.send(ChannelMessage::Workspace(task)).ok()?;
     receiver.await.ok()
+  }
+
+  /// Runs the task of a `dprint/*` method with the `Workspace` like `run`,
+  /// which fails with the error response when the task fails or the message
+  /// handler stopped.
+  async fn run_method<T: Send + 'static>(
+    &self,
+    task: impl FnOnce(Rc<Workspace<TEnvironment>>) -> LocalBoxFuture<'static, Result<T>> + Send + 'static,
+  ) -> LspResult<T> {
+    self.run(task).await.unwrap_or_else(|| Err(new_server_stopped_error())).map_err(to_lsp_error)
   }
 
   /// Runs the task with the `Workspace` on the message handler's task without
@@ -688,7 +703,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let result = self
       .run(move |workspace| async move { workspace.format(request, &token).await }.boxed_local())
       .await
-      .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")));
+      .unwrap_or_else(|| Err(new_server_stopped_error()));
     drop_token.completed();
     log_debug!(
       self.environment,
@@ -831,10 +846,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let global_config = params.document.global_config;
     let text = params.text;
     self
-      .run(move |workspace| async move { workspace.file_info(&document, text.as_deref(), global_config).await }.boxed_local())
+      .run_method(move |workspace| async move { workspace.file_info(&document, text.as_deref(), global_config).await }.boxed_local())
       .await
-      .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(to_lsp_error)
   }
 
   async fn dprint_config_info(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigInfoResult> {
@@ -842,10 +855,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let _progress = self.track_request_progress(params.work_done_token.clone());
     let target = self.get_config_target(&params)?;
     self
-      .run(move |workspace| async move { workspace.config_info(&target, params.global_config).await }.boxed_local())
+      .run_method(move |workspace| async move { workspace.config_info(&target, params.global_config).await }.boxed_local())
       .await
-      .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(to_lsp_error)
   }
 
   async fn dprint_config_schema(&self, params: ConfigParams, _token: CancellationToken) -> LspResult<ConfigSchemaResult> {
@@ -853,10 +864,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let _progress = self.track_request_progress(params.work_done_token.clone());
     let target = self.get_config_target(&params)?;
     let (schema, complete) = self
-      .run(move |workspace| async move { workspace.config_schema(&target, params.global_config).await }.boxed_local())
-      .await
-      .ok_or_else(new_server_stopped_error)?
-      .map_err(to_lsp_error)?;
+      .run_method(move |workspace| async move { workspace.config_schema(&target, params.global_config).await }.boxed_local())
+      .await?;
     Ok(ConfigSchemaResult { schema, complete })
   }
 
@@ -864,10 +873,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     self.ensure_editor_extension()?;
     let _progress = self.track_request_progress(params.work_done_token.clone());
     self
-      .run(move |workspace| async move { workspace.approve(&params.id, params.decision).await }.boxed_local())
+      .run_method(move |workspace| async move { workspace.approve(&params.id, params.decision).await }.boxed_local())
       .await
-      .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(to_lsp_error)
   }
 
   /// Takes optional params so that they can be added later, which are `{}` for now.
@@ -884,10 +891,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let _progress = self.track_request_progress(params.work_done_token.clone());
     let config_file = params.config_file.map(|config_file| (config_file.uri, config_file.dir_uri));
     let (approvals, config) = self
-      .run(|workspace| async move { workspace.pending_approvals(config_file).await }.boxed_local())
-      .await
-      .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(to_lsp_error)?;
+      .run_method(|workspace| async move { workspace.pending_approvals(config_file).await }.boxed_local())
+      .await?;
     let (config_file, status) = config.unzip();
     Ok(PendingApprovalsResult {
       approvals,
@@ -903,10 +908,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let _progress = self.track_request_progress(params.work_done_token.clone());
     let config_file = params.config_file.map(|config_file| (config_file.uri, config_file.dir_uri));
     let (decisions, notice) = self
-      .run(|workspace| async move { workspace.forget_decisions(config_file).await }.boxed_local())
-      .await
-      .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(to_lsp_error)?;
+      .run_method(|workspace| async move { workspace.forget_decisions(config_file).await }.boxed_local())
+      .await?;
     Ok(ForgetDecisionsResult { decisions, notice })
   }
 
@@ -917,10 +920,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       .and_then(|params| params.config_file)
       .map(|config_file| (config_file.uri, config_file.dir_uri));
     let (decisions, allow_process_plugins) = self
-      .run(|workspace| async move { workspace.decisions(config_file) }.boxed_local())
-      .await
-      .unwrap_or_else(|| Err(anyhow::anyhow!("The language server stopped.")))
-      .map_err(to_lsp_error)?;
+      .run_method(|workspace| async move { workspace.decisions(config_file) }.boxed_local())
+      .await?;
     Ok(DecisionsResult {
       decisions,
       allow_process_plugins,
@@ -1021,7 +1022,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         true => Vec::new(),
         false => config_file_watcher_registrations,
       };
-      if is_editor_extension && features.contains_key(WATCH_FILES_FEATURE) {
+      if watches_files_outside_workspace {
         state.pending_registrations = config_file_watchers;
       } else if !is_editor_extension && !is_unsupported_editor_extension {
         state.pending_registrations = config_file_watchers;
@@ -1381,12 +1382,7 @@ impl TotalProgress {
         percentage: self.percentage,
       })
     } else {
-      WorkDoneProgress::Begin(WorkDoneProgressBegin {
-        title: self.message.clone(),
-        cancellable: Some(false),
-        message: None,
-        percentage: self.percentage,
-      })
+      new_progress_begin(self.message.clone(), self.percentage)
     }
   }
 }
@@ -1406,6 +1402,21 @@ fn get_total_progress(active_progress: &[ActiveProgress]) -> Option<TotalProgres
     .sum::<Option<u32>>()
     .map(|sum| sum / active_progress.len() as u32);
   Some(TotalProgress { message, percentage })
+}
+
+/// Gets the progress that begins something that's being done.
+fn new_progress_begin(title: String, percentage: Option<u32>) -> WorkDoneProgress {
+  WorkDoneProgress::Begin(WorkDoneProgressBegin {
+    title,
+    cancellable: Some(false),
+    message: None,
+    percentage,
+  })
+}
+
+/// Gets the server's own token of the progress of something that's being done.
+fn get_server_progress_token(id: usize) -> NumberOrString {
+  NumberOrString::String(format!("dprint/{}", id))
 }
 
 /// Reports the progress of what's done while a request is handled until it's
@@ -1462,7 +1473,7 @@ impl LspOutputSink {
             if !supports_progress {
               continue;
             }
-            let token = NumberOrString::String(format!("dprint/{}", id));
+            let token = get_server_progress_token(id);
             match &progress {
               WorkDoneProgress::Begin(_) => {
                 // it's only reported on the tokens of the requests while there are
@@ -1506,18 +1517,12 @@ impl LspOutputSink {
               continue;
             }
             for active in &active_progress {
-              let token = NumberOrString::String(format!("dprint/{}", active.id));
+              let token = get_server_progress_token(active.id);
               if server_progress_ids.contains(&active.id) || !client.create_work_done_progress(token.clone()).await {
                 continue;
               }
               server_progress_ids.insert(active.id);
-              let begin = WorkDoneProgress::Begin(WorkDoneProgressBegin {
-                title: active.title.clone(),
-                cancellable: Some(false),
-                message: None,
-                percentage: active.percentage,
-              });
-              client.send_progress(token, begin).await;
+              client.send_progress(token, new_progress_begin(active.title.clone(), active.percentage)).await;
             }
           }
         }
@@ -1556,15 +1561,7 @@ impl OutputSink for LspOutputSink {
   fn start_progress(&self, id: usize, title: &str, total_size: usize) {
     let percentage = (total_size > 0).then_some(0);
     self.percentages.lock().insert(id, percentage);
-    self.send_progress(
-      id,
-      WorkDoneProgress::Begin(WorkDoneProgressBegin {
-        title: title.to_string(),
-        cancellable: Some(false),
-        message: None,
-        percentage,
-      }),
-    );
+    self.send_progress(id, new_progress_begin(title.to_string(), percentage));
   }
 
   fn update_progress(&self, id: usize, position: usize, total_size: usize) {
@@ -1718,8 +1715,8 @@ fn get_dprint_files(environment: &impl Environment) -> DprintFiles {
   }
 }
 
-fn new_server_stopped_error() -> LspError {
-  to_lsp_error(anyhow::anyhow!("The language server stopped."))
+fn new_server_stopped_error() -> anyhow::Error {
+  anyhow::anyhow!("The language server stopped.")
 }
 
 fn has_use_global_config_option(options: &FormattingOptions) -> bool {

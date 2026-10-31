@@ -124,7 +124,7 @@ pub fn write_init_preferences(environment: &impl Environment, preferences: &Init
 /// Reads the preferences from the file they were in before they were in the
 /// settings file (dprint 0.64).
 fn read_legacy_init_preferences(environment: &impl Environment) -> InitPreferences {
-  let Some(file_path) = get_legacy_init_preferences_path(environment) else {
+  let Some(file_path) = resolve_global_config_dir_path(environment).map(|dir| dir.join(LEGACY_INIT_PREFERENCES_FILE_NAME)) else {
     return Default::default();
   };
   if !environment.path_exists(&file_path) {
@@ -146,10 +146,6 @@ fn read_legacy_init_preferences(environment: &impl Environment) -> InitPreferenc
       Default::default()
     }
   }
-}
-
-fn get_legacy_init_preferences_path(environment: &impl Environment) -> Option<PathBuf> {
-  resolve_global_config_dir_path(environment).map(|dir| dir.join(LEGACY_INIT_PREFERENCES_FILE_NAME))
 }
 
 #[cfg(test)]

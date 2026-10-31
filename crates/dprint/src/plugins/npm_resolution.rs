@@ -1389,7 +1389,10 @@ impl NpmrcChain {
   /// single value, so the first file setting it wins. A file that wasn't read
   /// doesn't set it, which is only in the editors, which don't use it.
   pub fn min_release_age_days(&self) -> Option<u64> {
-    self.read_files().find_map(|file| file.parsed.as_ref()?.min_release_age_days)
+    self.files.iter().find_map(|entry| match entry {
+      NpmrcEntry::Read(file) => file.parsed.as_ref()?.min_release_age_days,
+      NpmrcEntry::Unread { .. } => None,
+    })
   }
 
   /// Gets the first value that a file sets, nearest first, which is an error
@@ -1408,13 +1411,6 @@ impl NpmrcChain {
       }
     }
     Ok(None)
-  }
-
-  fn read_files(&self) -> impl Iterator<Item = &NpmrcFile> {
-    self.files.iter().filter_map(|entry| match entry {
-      NpmrcEntry::Read(file) => Some(file),
-      NpmrcEntry::Unread { .. } => None,
-    })
   }
 
   fn registry_without_proxy(&self, package_name: &str, environment: &impl Environment) -> Result<NpmRegistryResolution, UntrustedDownloadError> {

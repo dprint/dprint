@@ -2,6 +2,7 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use deno_terminal::colors;
+use std::path::Path;
 use url::Url;
 
 use super::PathSource;
@@ -10,6 +11,7 @@ use crate::cache::HttpCacheSys;
 use crate::cache::RemoteCacheMode;
 use crate::cache::SerializedCachedUrlMetadata;
 use crate::environment::CacheValidators;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::utils::RemotePathSource;
@@ -284,13 +286,7 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       // handle file urls (ex. file:///C:/some/folder/file.json)
       if url.scheme() == "file" {
         match url.to_file_path() {
-          Ok(file_path) => {
-            // IMPORTANT: Check this before canonicalizing because that reads it.
-            environment
-              .download_policy()
-              .ensure_allows_path(environment, &file_path, base.maybe_local_path().map(|path| path.as_ref()))?;
-            return Ok(PathSource::new_local(environment.canonicalize(file_path)?));
-          }
+          Ok(file_path) => return Ok(PathSource::new_local(canonicalize_allowed_path(&file_path, base, environment)?)),
           Err(()) => bail!("Problem converting file url `{}` to file path.", url_or_file_path),
         }
       }
@@ -304,12 +300,7 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
           home_dir
         } else {
           // a path that's absolute (ex. a UNC path) replaces the home directory
-          let path = home_dir.join(rest);
-          // IMPORTANT: Check this before canonicalizing because that reads it.
-          environment
-            .download_policy()
-            .ensure_allows_path(environment, &path, base.maybe_local_path().map(|path| path.as_ref()))?;
-          environment.canonicalize(path)?
+          canonicalize_allowed_path(&home_dir.join(rest), base, environment)?
         };
         return Ok(PathSource::new_local(path));
       }
@@ -322,16 +313,21 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       let url = remote_base.url.join(url_or_file_path)?;
       PathSource::new_remote(url)
     }
-    PathSource::Local(local_base) => {
-      let path = local_base.path.join(url_or_file_path);
-      // IMPORTANT: Check this before canonicalizing because that reads it.
-      environment
-        .download_policy()
-        .ensure_allows_path(environment, &path, Some(local_base.path.as_ref()))?;
-      PathSource::new_local(environment.canonicalize(path)?)
-    }
+    PathSource::Local(local_base) => PathSource::new_local(canonicalize_allowed_path(&local_base.path.join(url_or_file_path), base, environment)?),
     PathSource::Npm(_) => bail!("Cannot resolve a relative path against an npm specifier"),
   })
+}
+
+/// Canonicalizes a local path that's resolved against the base, which errors
+/// when it's on another machine that the download policy doesn't allow reading
+/// without asking the user.
+///
+/// IMPORTANT: It's checked before it's canonicalized because that reads it.
+fn canonicalize_allowed_path(path: &Path, base: &PathSource, environment: &impl Environment) -> Result<CanonicalizedPathBuf> {
+  environment
+    .download_policy()
+    .ensure_allows_path(environment, path, base.maybe_local_path().map(|path| path.as_ref()))?;
+  Ok(environment.canonicalize(path)?)
 }
 
 fn try_parse_url(url_or_file_path: &str) -> Option<Url> {

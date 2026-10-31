@@ -37,7 +37,7 @@ pub const FILE_URI_FEATURE: &str = "fileUri";
 /// about with `workspace/didChangeWatchedFiles`.
 pub const WATCH_FILES_FEATURE: &str = "watchFiles";
 /// The features the server supports.
-pub const SUPPORTED_FEATURES: [&str; 2] = [FILE_URI_FEATURE, WATCH_FILES_FEATURE];
+const SUPPORTED_FEATURES: [&str; 2] = [FILE_URI_FEATURE, WATCH_FILES_FEATURE];
 
 /// The capability that an editor extension provides in the experimental
 /// capabilities, which has the versions of the `dprint/*` methods it supports.

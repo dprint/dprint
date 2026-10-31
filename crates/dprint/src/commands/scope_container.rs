@@ -34,8 +34,6 @@ type ScopeCell<TEnvironment> = AsyncMutex<Option<CachedScope<TEnvironment>>>;
 
 struct CachedScope<TEnvironment: Environment> {
   scope: Rc<PluginsScope<TEnvironment>>,
-  /// The generation of the plugins the scope was resolved with.
-  plugins_generation: usize,
   /// What the user allowed when the scope was resolved, which decides the
   /// process plugins that are in it.
   permissions: Permissions,
@@ -57,9 +55,6 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   /// Whether the remote files are downloaded even when they're fresh, which
   /// is still only once until `download_remote_files_again` (`--reload`).
   reload_remote_files: bool,
-  /// Incremented each time the plugins are shut down, which is when the
-  /// scopes that were resolved before then can't be used anymore.
-  plugins_generation: Cell<usize>,
   /// What the user allowed for this session.
   session_permissions: Arc<SessionPermissions>,
 }
@@ -79,7 +74,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       plugins_scope_by_config: Default::default(),
       config_override,
       reload_remote_files,
-      plugins_generation: Default::default(),
       session_permissions,
     }
   }
@@ -190,7 +184,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
       // a plugin may have been installed since
       let is_installed = cached_scope.scope.untrusted_downloads.is_empty();
-      if is_same_config && is_installed && cached_scope.plugins_generation == self.plugins_generation.get() && cached_scope.permissions == permissions {
+      if is_same_config && is_installed && cached_scope.permissions == permissions {
         return Ok(cached_scope.scope.clone());
       }
       // forget the scope so that failing to resolve the new one
@@ -198,8 +192,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       cell.take();
     }
 
-    // get this before resolving in case the plugins are shut down while resolving
-    let plugins_generation = self.plugins_generation.get();
     // IMPORTANT: Process plugins don't run sandboxed, so the editors only use
     // the plugins when the user approved running its process plugins with their
     // configuration. The user opening a file (ex. in a cloned repository or in
@@ -232,30 +224,11 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     };
     let _ = cell.insert(CachedScope {
       scope: new_scope.clone(),
-      plugins_generation,
       permissions,
     });
     drop(cell);
     self.shutdown_unused_plugins().await;
     Ok(new_scope)
-  }
-
-  /// Shuts down the plugins that none of the scopes use anymore (ex. a plugin
-  /// that was removed from a config file), which leaves the others running so
-  /// that changing a config file doesn't stop formatting with another.
-  async fn shutdown_unused_plugins(&self) {
-    let cells = self.plugins_scope_by_config.borrow().values().cloned().collect::<Vec<_>>();
-    let mut used_plugins = Vec::new();
-    for cell in cells {
-      // a scope that's being resolved may use any of them
-      let Some(cell) = cell.try_read() else {
-        return;
-      };
-      if let Some(cached_scope) = cell.as_ref() {
-        used_plugins.extend(cached_scope.scope.plugins.values().map(|plugin| plugin.plugin.clone()));
-      }
-    }
-    self.plugin_resolver.shutdown_unused(&used_plugins).await;
   }
 
   /// Gets the path of the config file the server was started with.
@@ -304,6 +277,24 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       reload: self.reload_remote_files,
     };
     Ok(resolve_config_from_path_with_ancestors(config_file, remote_cache_mode, &self.environment).await?)
+  }
+
+  /// Shuts down the plugins that none of the scopes use anymore (ex. a plugin
+  /// that was removed from a config file), which leaves the others running so
+  /// that changing a config file doesn't stop formatting with another.
+  async fn shutdown_unused_plugins(&self) {
+    let cells = self.plugins_scope_by_config.borrow().values().cloned().collect::<Vec<_>>();
+    let mut used_plugins = Vec::new();
+    for cell in cells {
+      // a scope that's being resolved may use any of them
+      let Some(cell) = cell.try_read() else {
+        return;
+      };
+      if let Some(cached_scope) = cell.as_ref() {
+        used_plugins.extend(cached_scope.scope.plugins.values().map(|plugin| plugin.plugin.clone()));
+      }
+    }
+    self.plugin_resolver.shutdown_unused(&used_plugins).await;
   }
 }
 

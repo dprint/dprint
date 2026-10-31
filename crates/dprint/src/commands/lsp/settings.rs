@@ -38,25 +38,17 @@ impl LspSettings {
   pub fn update(&mut self, value: &Value, environment: &impl Environment) {
     let value = value.get("dprint").filter(|value| value.is_object()).unwrap_or(value);
     let defaults = Self::from_environment(environment);
-    match value.get("useGlobalConfig") {
-      Some(Value::Bool(use_global_config)) => self.use_global_config = *use_global_config,
-      Some(Value::Null) => self.use_global_config = defaults.use_global_config,
-      _ => {}
+    if let Some(use_global_config) = get_bool_setting(value, "useGlobalConfig") {
+      self.use_global_config = use_global_config.unwrap_or(defaults.use_global_config);
     }
-    match value.get("showNoConfigNotification") {
-      Some(Value::Bool(show_no_config_notification)) => self.show_no_config_notification = *show_no_config_notification,
-      Some(Value::Null) => self.show_no_config_notification = defaults.show_no_config_notification,
-      _ => {}
+    if let Some(show_no_config_notification) = get_bool_setting(value, "showNoConfigNotification") {
+      self.show_no_config_notification = show_no_config_notification.unwrap_or(defaults.show_no_config_notification);
     }
-    match value.get("ensureStableFormat") {
-      Some(Value::Bool(ensure_stable_format)) => self.ensure_stable_format = Some(*ensure_stable_format),
-      Some(Value::Null) => self.ensure_stable_format = defaults.ensure_stable_format,
-      _ => {}
+    if let Some(ensure_stable_format) = get_bool_setting(value, "ensureStableFormat") {
+      self.ensure_stable_format = ensure_stable_format.or(defaults.ensure_stable_format);
     }
-    match value.get("verbose") {
-      Some(Value::Bool(verbose)) => self.verbose = Some(*verbose),
-      Some(Value::Null) => self.verbose = defaults.verbose,
-      _ => {}
+    if let Some(verbose) = get_bool_setting(value, "verbose") {
+      self.verbose = verbose.or(defaults.verbose);
     }
   }
 }
@@ -70,6 +62,17 @@ fn use_global_config_env_var(environment: &impl Environment) -> bool {
     let value = value.trim();
     value == "1" || value.eq_ignore_ascii_case("true")
   })
+}
+
+/// Gets the boolean setting at the key, which is `Some(None)` when it's
+/// `null` (set back to its default) and `None` when it's missing or not a
+/// boolean (left as-is).
+fn get_bool_setting(value: &Value, key: &str) -> Option<Option<bool>> {
+  match value.get(key) {
+    Some(Value::Bool(value)) => Some(Some(*value)),
+    Some(Value::Null) => Some(None),
+    _ => None,
+  }
 }
 
 #[cfg(test)]

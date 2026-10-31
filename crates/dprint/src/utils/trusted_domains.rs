@@ -487,9 +487,7 @@ impl AncestorPaths {
       None => None,
     };
     downloads.ensure_allows_network_path(path, network_path, base_share.as_deref(), |allowed_shares| {
-      let mut walk = PathWalk::new(followed_share.iter().chain(allowed_shares).cloned());
-      walk.follow(environment, path, self.rules, |_| {});
-      walk.into_network_path(path)
+      resolve_network_share(environment, path, self.rules, followed_share.iter().chain(allowed_shares).cloned())
     })?;
     Ok(!is_missing)
   }

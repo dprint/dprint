@@ -348,22 +348,9 @@ impl RangeFormat {
   /// The range a notebook cell is formatted with, which decides whether the
   /// cell's trailing whitespace is kept.
   pub fn cell_range(&self) -> FormatRange {
-    self.plugin_range.clone().or_else(|| self.edits_range.clone())
+    // the edits are only kept within a range that the plugins are given too
+    self.plugin_range.clone()
   }
-}
-
-/// Expands the range to the whole lines it touches, including the last
-/// line's line break, which is `None` for the whole text. A range that ends
-/// at the start of a line (ex. after selecting whole lines) doesn't include
-/// that line.
-pub fn expand_to_lines(text: &str, range: std::ops::Range<usize>) -> FormatRange {
-  let start = text[..range.start].rfind('\n').map(|index| index + 1).unwrap_or(0);
-  let end = if range.end > start && text.as_bytes()[range.end - 1] == b'\n' {
-    range.end
-  } else {
-    text[range.end..].find('\n').map(|index| range.end + index + 1).unwrap_or(text.len())
-  };
-  if start == 0 && end == text.len() { None } else { Some(start..end) }
 }
 
 /// Gets the edits that change the text to the formatted text, which are only
@@ -444,6 +431,20 @@ fn to_lsp_edit(edit: Utf16TextEdit, line_index: &LineIndex) -> TextEdit {
     },
     new_text: edit.new_text,
   }
+}
+
+/// Expands the range to the whole lines it touches, including the last
+/// line's line break, which is `None` for the whole text. A range that ends
+/// at the start of a line (ex. after selecting whole lines) doesn't include
+/// that line.
+fn expand_to_lines(text: &str, range: std::ops::Range<usize>) -> FormatRange {
+  let start = text[..range.start].rfind('\n').map(|index| index + 1).unwrap_or(0);
+  let end = if range.end > start && text.as_bytes()[range.end - 1] == b'\n' {
+    range.end
+  } else {
+    text[range.end..].find('\n').map(|index| range.end + index + 1).unwrap_or(text.len())
+  };
+  if start == 0 && end == text.len() { None } else { Some(start..end) }
 }
 
 fn partition_point<T, P>(slice: &[T], mut predicate: P) -> usize
