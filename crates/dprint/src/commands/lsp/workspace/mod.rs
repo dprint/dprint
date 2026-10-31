@@ -3622,8 +3622,10 @@ fn get_download_specifier(download: &str) -> String {
 /// does (ex. what's in them changed). What's in them is part of it, which
 /// includes the item of a process plugin (see `get_process_plugin_id_part`),
 /// the hash of the trusted configuration (see `get_trusted_config_hash`), the
-/// text of a download (ex. `NpmrcProxy::to_download`), and how the parts are
-/// written (see `encode_id_parts`).
+/// text of a download (ex. `NpmrcProxy::to_download`, or the escaped text of
+/// a path, whose escapes depend on the Unicode version of
+/// `unicode-general-category`, see `is_escaped_in_text`), and how the parts
+/// are written (see `encode_id_parts`).
 const APPROVAL_ID_VERSION: u32 = 1;
 
 /// Gets an id that changes when what's approved does, which is the hash of

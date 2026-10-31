@@ -54,6 +54,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["io-std", "net"] }
 tokio-util = { version = "=0.7.11" }
 twox-hash = "=2.1.0"
+# what it says is unassigned is escaped and part of approval ids (see `is_escaped_in_text`)
 unicode-general-category = "=1.1.0"
 url = "=2.5.4"
 which = "=8.0.0"

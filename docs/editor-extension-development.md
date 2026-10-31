@@ -299,13 +299,16 @@ interface ApprovalItem {
    *   `\u{202e}`), by their Unicode properties:
    *   - A control character (general category `Cc`, ex. a newline), a separator other than a plain space (`Zs`, `Zl` or `Zp`,
    *     ex. U+00A0 or U+2028), an invisible format character (`Cf`, ex. a bidi override like U+202E, which shows the text after
-   *     it backwards, or a zero width space), and any other default ignorable code point (`Default_Ignorable_Code_Point`, ex. a
-   *     variation selector or a Hangul filler).
+   *     it backwards, or a zero width space), any other default ignorable code point (`Default_Ignorable_Code_Point`, ex. a
+   *     variation selector or a Hangul filler), and a code point that's unassigned in the version of Unicode the server uses
+   *     (`Cn`, which includes the noncharacters), so a character that a later version of Unicode adds (ex. a format character)
+   *     is escaped by it.
    *   - A combining mark (`Mn` or `Me`) at the start, which would change what's shown before it.
    *
-   *   So the same characters can be escaped in JavaScript with `/[\p{Cc}\p{Cf}\p{Z}\p{Default_Ignorable_Code_Point}]/u` for a
-   *   character other than a space, and `/^[\p{Mn}\p{Me}]/u` for the first one (the server uses Unicode 16, so a character
-   *   that a later version of Unicode added may be escaped by one and not the other).
+   *   So the same characters can be escaped in JavaScript with `/[\p{Cc}\p{Cf}\p{Cn}\p{Z}\p{Default_Ignorable_Code_Point}]/u`
+   *   for a character other than a space, and `/^[\p{Mn}\p{Me}]/u` for the first one. The server uses Unicode 16, so a character
+   *   that a later version of Unicode added is escaped by the server (it's unassigned there) and may not be by a client with
+   *   newer tables, and a client with older tables escapes more.
    * - That's the only kind of escape. A backslash that's followed by `u{` is shown as `\u{5c}` so the text can't look like an
    *   escape, and any other backslash is shown as it is, so a Windows path stays readable (ex. `C:\new` is the text `C:\new`).
    *

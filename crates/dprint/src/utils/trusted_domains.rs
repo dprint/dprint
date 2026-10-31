@@ -574,12 +574,14 @@ pub fn quote_text(text: &str) -> String {
 /// IMPORTANT: A control character (ex. a newline), a separator other than a
 /// plain space (ex. U+00A0 or U+2028), an invisible format character (ex. a
 /// bidi override like U+202E, which shows the text after it backwards), any
-/// other default ignorable code point (ex. a variation selector), and a
-/// combining mark at the start (which would change what's shown before it)
-/// are shown as an escape of their code point in hex instead (ex. `\u{a}` or
-/// `\u{202e}`). They're by their Unicode properties rather than a list, so
-/// the editor extensions can escape text the same way (see
-/// `is_escaped_in_text`). That's the only kind of escape, so a backslash
+/// other default ignorable code point (ex. a variation selector), a code
+/// point that's unassigned in the version of Unicode this version of dprint
+/// has (which a later version of Unicode may add as an invisible format
+/// character), and a combining mark at the start (which would change what's
+/// shown before it) are shown as an escape of their code point in hex
+/// instead (ex. `\u{a}` or `\u{202e}`). They're by their Unicode properties
+/// rather than a list, so the editor extensions can escape text the same way
+/// (see `is_escaped_in_text`). That's the only kind of escape, so a backslash
 /// that isn't followed by `u{` is shown as it is (ex. in a Windows path like
 /// `C:\new`), and one that is is shown as `\u{5c}`, so an escape can't be
 /// mistaken for the text.
@@ -589,11 +591,20 @@ pub fn escape_text(text: &str) -> String {
 
 /// Gets whether a character is shown as an escape in text from the project
 /// (see `escape_text`), apart from a combining mark at the start, which is
-/// one whose general category is `Cc`, `Cf`, `Zl`, `Zp`, or `Zs` other than
-/// a plain space, or that's a default ignorable code point.
+/// one whose general category is `Cc`, `Cf`, `Cn`, `Zl`, `Zp`, or `Zs` other
+/// than a plain space, or that's a default ignorable code point.
+///
+/// IMPORTANT: An unassigned code point (`Cn`) is escaped so that whatever a
+/// later version of Unicode adds is escaped by this version (ex. a format
+/// character), because the editor extensions don't escape what the server
+/// escaped again. The general categories are of the Unicode version of
+/// `unicode-general-category` (16), which is part of the approval ids of
+/// paths because they have the escaped text (see `get_path_download`).
 pub fn is_escaped_in_text(c: char) -> bool {
   match get_general_category(c) {
-    GeneralCategory::Control | GeneralCategory::Format | GeneralCategory::LineSeparator | GeneralCategory::ParagraphSeparator => true,
+    GeneralCategory::Control | GeneralCategory::Format | GeneralCategory::Unassigned | GeneralCategory::LineSeparator | GeneralCategory::ParagraphSeparator => {
+      true
+    }
     GeneralCategory::SpaceSeparator => c != ' ',
     _ => is_default_ignorable_code_point(c),
   }
@@ -743,7 +754,9 @@ impl PathRules {
 /// resolved to when that's another path (ex. `/project/link -> /net/host/dir`).
 ///
 /// It's shown as it is (ex. the specifier of an approval's item), so each path
-/// is escaped like `quote_text` escapes text.
+/// is escaped like `quote_text` escapes text. It's also what the approval id
+/// has, so what's escaped is part of how the ids are made (see
+/// `is_escaped_in_text`).
 ///
 /// IMPORTANT: An arrow in the paths is escaped (`-\u{3e}`) so the one between
 /// them is the only one, because otherwise a path from the project could look
@@ -2435,8 +2448,12 @@ mod test {
     ] {
       assert!(is_escaped_in_text(c), "{:?}", c);
     }
-    // a combining mark is only escaped at the start
-    for c in [' ', 'a', '\u{301}', '\u{489}', '\u{4e00}', '\u{1f600}'] {
+    // unassigned code points, which a later version of Unicode may add as format characters, and noncharacters
+    for c in ['\u{378}', '\u{2fe0}', '\u{3fffd}', '\u{e0080}', '\u{fdd0}', '\u{ffff}', '\u{10ffff}'] {
+      assert!(is_escaped_in_text(c), "{:?}", c);
+    }
+    // a combining mark is only escaped at the start, and a private use character isn't escaped
+    for c in [' ', 'a', '\u{301}', '\u{489}', '\u{4e00}', '\u{1f600}', '\u{e000}', '\u{f0000}'] {
       assert!(!is_escaped_in_text(c), "{:?}", c);
     }
     // every nonspacing and enclosing mark is a combining mark (ex. the Cyrillic enclosing marks and the Hebrew and Arabic points)
@@ -2458,6 +2475,16 @@ mod test {
     // but not a spacing mark or a letter
     assert!(!is_combining_mark('\u{903}'));
     assert!(!is_combining_mark('a'));
+  }
+
+  #[test]
+  fn should_not_change_the_escaped_text_of_a_path_download() {
+    // IMPORTANT: It's part of the approval ids (see APPROVAL_ID_VERSION), so a change to what's
+    // escaped (ex. updating `unicode-general-category`, which assigns code points) changes them.
+    assert_eq!(
+      get_path_download(Path::new("/project/a\u{378}\u{200b}`b"), Path::new("\u{301}/net/host/\u{3fffd}\u{301}")),
+      "/project/a\\u{378}\\u{200b}\\u{60}b -> \\u{301}/net/host/\\u{3fffd}\u{301}"
+    );
   }
 
   #[test]
