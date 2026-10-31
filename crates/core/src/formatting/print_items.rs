@@ -549,6 +549,28 @@ pub enum Signal {
   StartIgnoringIndent,
   /// Signal to the printer that it should start using indentation again.
   FinishIgnoringIndent,
+  /// Signal the start of a section whose indentation starts from no indentation
+  /// instead of the current indentation, which can then be indented with `StartIndent`
+  /// (ex. to indent relative to text written as is while ignoring the indentation).
+  ///
+  /// The indent levels in the section (ex. of an `IndentLevel` info) count from the
+  /// start of the section, so they shouldn't be compared with the indent levels from
+  /// outside of it. The column numbers are the actual columns. A `QueueStartIndent`
+  /// from before the section is applied after it.
+  StartResettingIndent,
+  /// Signal the end of a section that reset the indentation, which restores the
+  /// indentation from before. The indents and aligns started in the section must be
+  /// finished first.
+  FinishResettingIndent,
+  /// Signal the start of a section that's aligned by the number of columns of spaces
+  /// after the indentation (ex. to line up with text that isn't at an indent level).
+  /// The alignment always goes after the indentation, so with tabs it's tabs then spaces.
+  ///
+  /// The alignment isn't part of the indent levels (ex. of an `IndentLevel` info),
+  /// but it's included in the column numbers.
+  StartAlign(u8),
+  /// Signal the end of the most recent section that aligns.
+  FinishAlign,
   /// Signal to the printer that it shouldn't print any new lines.
   StartForceNoNewLines,
   /// Signal to the printer that it should finish not printing any new lines.
@@ -1135,6 +1157,8 @@ pub struct WriterInfo {
   pub column_number: u32,
   pub indent_level: u8,
   pub line_start_indent_level: u8,
+  /// The columns of spaces after the indentation that the line started with.
+  pub line_start_align_columns: u32,
   pub indent_width: u8,
   pub expect_newline_next: bool,
 }
@@ -1157,7 +1181,7 @@ impl WriterInfo {
   }
 
   pub fn line_start_column_number(&self) -> u32 {
-    (self.line_start_indent_level as u32) * (self.indent_width as u32)
+    (self.line_start_indent_level as u32) * (self.indent_width as u32) + self.line_start_align_columns
   }
 
   /// Gets the line and column number.

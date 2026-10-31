@@ -441,6 +441,10 @@ impl<'a> Printer<'a> {
       Signal::SingleIndent => self.writer.single_indent(),
       Signal::StartIgnoringIndent => self.writer.start_ignoring_indent(),
       Signal::FinishIgnoringIndent => self.writer.finish_ignoring_indent(),
+      Signal::StartResettingIndent => self.writer.start_resetting_indent(),
+      Signal::FinishResettingIndent => self.writer.finish_resetting_indent(),
+      Signal::StartAlign(columns) => self.writer.start_align(*columns),
+      Signal::FinishAlign => self.writer.finish_align(),
       Signal::StartForceNoNewLines => self.force_no_newlines_depth += 1,
       Signal::FinishForceNoNewLines => self.force_no_newlines_depth -= 1,
       Signal::SpaceIfNotTrailing => self.writer.space_if_not_trailing(),
@@ -695,6 +699,12 @@ impl<'a> Printer<'a> {
         "Debug panic! The writer ignore indent count was not zero after printing. {0}",
         self.writer.ignore_indent_count()
       );
+    }
+    if self.writer.is_resetting_indent() {
+      panic!("Debug panic! The writer was still resetting the indent after printing.");
+    }
+    if self.writer.is_aligning() {
+      panic!("Debug panic! The writer was still aligning after printing.");
     }
   }
 }
