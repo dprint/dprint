@@ -1,6 +1,5 @@
 use std::cell::UnsafeCell;
 use std::mem;
-use std::rc::Rc;
 
 use super::Arena;
 use super::condition_resolvers;
@@ -893,7 +892,7 @@ pub struct Condition<'a> {
   pub(super) is_stored: bool,
   pub(super) store_save_point: bool,
   /// The condition to resolve.
-  pub(super) condition: ConditionResolver,
+  pub(super) condition: ConditionResolver<'a>,
   /// The items to print when the condition is true.
   pub(super) true_path: Option<PrintItemPath<'a>>,
   /// The items to print when the condition is false or undefined (not yet resolved).
@@ -1005,24 +1004,25 @@ impl ConditionReference {
   }
 
   /// Creates a condition resolver that checks the value of the condition this references.
-  pub fn create_resolver(&self) -> ConditionResolver {
+  pub fn create_resolver<'a>(&self, arena: &'a Arena) -> ConditionResolver<'a> {
     let captured_self = *self;
-    Rc::new(move |condition_context: &mut ConditionResolverContext| condition_context.resolved_condition(&captured_self))
+    arena.alloc_resolver(move |condition_context| condition_context.resolved_condition(&captured_self))
   }
 }
 
 /// Properties for the condition.
 pub struct ConditionProperties<'a> {
   /// The condition to resolve.
-  pub condition: ConditionResolver,
+  pub condition: ConditionResolver<'a>,
   /// The items to print when the condition is true.
   pub true_path: Option<PrintItems<'a>>,
   /// The items to print when the condition is false or undefined (not yet resolved).
   pub false_path: Option<PrintItems<'a>>,
 }
 
-/// Function used to resolve a condition.
-pub type ConditionResolver = Rc<dyn Fn(&mut ConditionResolverContext) -> Option<bool>>;
+/// Function used to resolve a condition, which is allocated in an arena with
+/// [`Arena::alloc_resolver`] (or is static, like the ones in `condition_resolvers`).
+pub type ConditionResolver<'a> = &'a dyn Fn(&mut ConditionResolverContext) -> Option<bool>;
 
 /// Context used when resolving a condition.
 pub struct ConditionResolverContext<'a, 'b> {

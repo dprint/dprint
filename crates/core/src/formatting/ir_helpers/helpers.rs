@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::formatting::actions;
 use crate::formatting::condition_helpers;
 
@@ -76,16 +74,19 @@ pub fn new_line_group(item: PrintItems<'_>) -> PrintItems<'_> {
 }
 
 /// Generates IR from a string as is and ignores its indent.
-pub fn gen_from_raw_string<'a>(arena: &'a Arena, text: &str) -> PrintItems<'a> {
+///
+/// The text isn't copied, so it needs to live as long as the arena. Allocate text
+/// that doesn't in the arena (ex. `arena.bump().alloc_str(&text)`).
+pub fn gen_from_raw_string<'a>(arena: &'a Arena, text: &'a str) -> PrintItems<'a> {
   gen_from_raw_string_lines(arena, text, gen_from_string_line)
 }
 
 /// Generates IR from a string trimming the end of each line and ignores its indent.
-pub fn gen_from_raw_string_trim_line_ends<'a>(arena: &'a Arena, text: &str) -> PrintItems<'a> {
+pub fn gen_from_raw_string_trim_line_ends<'a>(arena: &'a Arena, text: &'a str) -> PrintItems<'a> {
   gen_from_raw_string_lines(arena, text, |arena, line_text| gen_from_string_line(arena, line_text.trim_end()))
 }
 
-fn gen_from_raw_string_lines<'a>(arena: &'a Arena, text: &str, gen_line: impl Fn(&'a Arena, &str) -> PrintItems<'a>) -> PrintItems<'a> {
+fn gen_from_raw_string_lines<'a>(arena: &'a Arena, text: &'a str, gen_line: impl Fn(&'a Arena, &'a str) -> PrintItems<'a>) -> PrintItems<'a> {
   let has_newline = text.contains('\n');
   let mut items = PrintItems::new(arena);
   if has_newline {
@@ -99,16 +100,19 @@ fn gen_from_raw_string_lines<'a>(arena: &'a Arena, text: &str, gen_line: impl Fn
 }
 
 /// Generates IR from a string to a series of PrintItems.
-pub fn gen_from_string<'a>(arena: &'a Arena, text: &str) -> PrintItems<'a> {
+///
+/// The text isn't copied, so it needs to live as long as the arena. Allocate text
+/// that doesn't in the arena (ex. `arena.bump().alloc_str(&text)`).
+pub fn gen_from_string<'a>(arena: &'a Arena, text: &'a str) -> PrintItems<'a> {
   gen_string_lines(arena, text, gen_from_string_line)
 }
 
 /// Generates IR from a string to a series of PrintItems trimming the end of each line for whitespace.
-pub fn gen_from_string_trim_line_ends<'a>(arena: &'a Arena, text: &str) -> PrintItems<'a> {
+pub fn gen_from_string_trim_line_ends<'a>(arena: &'a Arena, text: &'a str) -> PrintItems<'a> {
   gen_string_lines(arena, text, |arena, line_text| gen_from_string_line(arena, line_text.trim_end()))
 }
 
-fn gen_string_lines<'a>(arena: &'a Arena, text: &str, gen_line: impl Fn(&'a Arena, &str) -> PrintItems<'a>) -> PrintItems<'a> {
+fn gen_string_lines<'a>(arena: &'a Arena, text: &'a str, gen_line: impl Fn(&'a Arena, &'a str) -> PrintItems<'a>) -> PrintItems<'a> {
   let mut items = PrintItems::new(arena);
 
   for (i, line) in text.lines().enumerate() {
@@ -127,17 +131,21 @@ fn gen_string_lines<'a>(arena: &'a Arena, text: &str, gen_line: impl Fn(&'a Aren
   items
 }
 
-fn gen_from_string_line<'a>(arena: &'a Arena, line: &str) -> PrintItems<'a> {
+fn gen_from_string_line<'a>(arena: &'a Arena, line: &'a str) -> PrintItems<'a> {
   let mut items = PrintItems::new(arena);
+  push_string_line(&mut items, line);
+  items
+}
+
+fn push_string_line<'a>(items: &mut PrintItems<'a>, line: &'a str) {
   for (i, part) in line.split('\t').enumerate() {
     if i > 0 {
       items.push_signal(Signal::Tab);
     }
     if !part.is_empty() {
-      items.push_str(part);
+      items.push_str_runtime_width_computed(part);
     }
   }
-  items
 }
 
 /// Surrounds the items with newlines and indentation if its on multiple lines.
@@ -170,7 +178,7 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems<'_>
         items.extend(inner_items.into_print_items(arena));
         items
       }),
-      condition: Rc::new(move |context| condition_helpers::is_multiple_lines(context, start_ln, end_ln)),
+      condition: arena.alloc_resolver(move |context| condition_helpers::is_multiple_lines(context, start_ln, end_ln)),
     },
   );
   let condition_reevaluation = condition.create_reevaluation();
@@ -182,42 +190,36 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems<'_>
 }
 
 /// Generates IR from the provided text to a JS-like comment line (ex. `// some text`)
-pub fn gen_js_like_comment_line<'a>(arena: &'a Arena, text: &str, force_space_after_slashes: bool) -> PrintItems<'a> {
+///
+/// The text is the text after the `//` and isn't copied, so it needs to live as long as the arena.
+pub fn gen_js_like_comment_line<'a>(arena: &'a Arena, text: &'a str, force_space_after_slashes: bool) -> PrintItems<'a> {
+  const DOUBLE_SLASH: StringContainer = StringContainer::proc_macro_new_with_char_count("//", 2);
+
+  // the slashes are 1 byte each, so it's ok to index by them
+  let non_slash_index = text.find(|c| c != '/').unwrap_or(text.len());
+  let slashes = &text[..non_slash_index];
+  let skip_space = force_space_after_slashes && text[non_slash_index..].starts_with(' ');
+  let comment_text = text[if skip_space { non_slash_index + 1 } else { non_slash_index }..].trim_end();
+
   let mut items = PrintItems::new(arena);
-  items.extend(gen_from_raw_string(arena, &get_comment_text(text, force_space_after_slashes)));
-  items.push_signal(Signal::ExpectNewLine);
-  return with_no_new_lines(items);
-
-  fn get_comment_text(original_text: &str, force_space_after_slashes: bool) -> String {
-    let non_slash_index = get_first_non_slash_index(original_text);
-    let skip_space = force_space_after_slashes && original_text.chars().nth(non_slash_index) == Some(' ');
-    let start_text_index = if skip_space { non_slash_index + 1 } else { non_slash_index };
-    let comment_text_original = &original_text[start_text_index..]; // pref: ok to index here since slashes are 1 byte each
-    let comment_text = comment_text_original.trim_end();
-    let prefix = format!("//{}", original_text.chars().take(non_slash_index).collect::<String>());
-
-    return if comment_text.is_empty() {
-      prefix
-    } else {
-      format!("{}{}{}", prefix, if force_space_after_slashes { " " } else { "" }, comment_text)
-    };
-
-    fn get_first_non_slash_index(text: &str) -> usize {
-      let mut i: usize = 0;
-      for c in text.chars() {
-        if c != '/' {
-          return i;
-        }
-        i += 1;
-      }
-
-      i
-    }
+  items.push_sc(&DOUBLE_SLASH);
+  if !slashes.is_empty() {
+    items.push_str_runtime_width_computed(slashes);
   }
+  if !comment_text.is_empty() {
+    if force_space_after_slashes {
+      items.push_space();
+    }
+    push_string_line(&mut items, comment_text);
+  }
+  items.push_signal(Signal::ExpectNewLine);
+  with_no_new_lines(items)
 }
 
 /// Generates IR from the provided text to a JS-like comment block (ex. `/** some text */`)
-pub fn gen_js_like_comment_block<'a>(arena: &'a Arena, text: &str) -> PrintItems<'a> {
+///
+/// The text is the text between the `/*` and `*/` and isn't copied, so it needs to live as long as the arena.
+pub fn gen_js_like_comment_block<'a>(arena: &'a Arena, text: &'a str) -> PrintItems<'a> {
   // need to do this manually in dprint-core since no access to the proc macro
   const LEADING_STAR_SLASH: StringContainer = StringContainer::proc_macro_new_with_char_count("/*", 2);
   const TRAILING_STAR_SLASH: StringContainer = StringContainer::proc_macro_new_with_char_count("*/", 2);

@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use super::print_items::*;
 use super::*;
 
@@ -49,7 +47,7 @@ pub fn new_line_if_hanging_space_otherwise<'a>(arena: &'a Arena, opts: NewLineIf
 
   if_true_or(
     "newLineIfHangingSpaceOtherwise",
-    Rc::new(move |context| condition_helpers::is_hanging(context, start_lsil, end_lsil)),
+    arena.alloc_resolver(move |context| condition_helpers::is_hanging(context, start_lsil, end_lsil)),
     Signal::NewLine.into_print_items(arena),
     space_char,
   )
@@ -58,7 +56,7 @@ pub fn new_line_if_hanging_space_otherwise<'a>(arena: &'a Arena, opts: NewLineIf
 pub fn new_line_if_hanging(arena: &Arena, start_lsil: LineStartIndentLevel, end_lsil: Option<LineStartIndentLevel>) -> Condition<'_> {
   if_true(
     "newlineIfHanging",
-    Rc::new(move |context| condition_helpers::is_hanging(context, start_lsil, end_lsil)),
+    arena.alloc_resolver(move |context| condition_helpers::is_hanging(context, start_lsil, end_lsil)),
     Signal::NewLine.into_print_items(arena),
   )
 }
@@ -66,7 +64,7 @@ pub fn new_line_if_hanging(arena: &Arena, start_lsil: LineStartIndentLevel, end_
 pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(arena: &Arena, start_ln: LineNumber, end_ln: Option<LineNumber>) -> Condition<'_> {
   if_true_or(
     "newLineIfMultipleLinesSpaceOrNewLineOtherwise",
-    Rc::new(move |context| {
+    arena.alloc_resolver(move |context| {
       let start_ln = context.resolved_line_number(start_ln)?;
       let end_ln = {
         if let Some(end_ln) = end_ln {
@@ -101,10 +99,11 @@ pub fn if_above_width(width: u8, items: PrintItems<'_>) -> Condition<'_> {
 /// Prints the provided true_items when the current relative column number is above
 /// the specified width or prints the false_items otherwise.
 pub fn if_above_width_or<'a>(width: u8, true_items: PrintItems<'a>, false_items: PrintItems<'a>) -> Condition<'a> {
+  let arena = true_items.arena();
   Condition::new(
     "ifAboveWidth",
     ConditionProperties {
-      condition: Rc::new(move |context| {
+      condition: arena.alloc_resolver(move |context| {
         let writer_info = &context.writer_info;
         let first_indent_col = writer_info.line_start_column_number() + (width as u32);
         Some(writer_info.column_number > first_indent_col)
@@ -115,7 +114,7 @@ pub fn if_above_width_or<'a>(width: u8, true_items: PrintItems<'a>, false_items:
   )
 }
 
-pub fn if_true<'a>(name: &'static str, resolver: ConditionResolver, true_path: PrintItems<'a>) -> Condition<'a> {
+pub fn if_true<'a>(name: &'static str, resolver: ConditionResolver<'a>, true_path: PrintItems<'a>) -> Condition<'a> {
   Condition::new(
     name,
     ConditionProperties {
@@ -126,7 +125,7 @@ pub fn if_true<'a>(name: &'static str, resolver: ConditionResolver, true_path: P
   )
 }
 
-pub fn if_true_or<'a>(name: &'static str, resolver: ConditionResolver, true_path: PrintItems<'a>, false_path: PrintItems<'a>) -> Condition<'a> {
+pub fn if_true_or<'a>(name: &'static str, resolver: ConditionResolver<'a>, true_path: PrintItems<'a>, false_path: PrintItems<'a>) -> Condition<'a> {
   Condition::new(
     name,
     ConditionProperties {
@@ -137,7 +136,7 @@ pub fn if_true_or<'a>(name: &'static str, resolver: ConditionResolver, true_path
   )
 }
 
-pub fn if_false<'a>(name: &'static str, resolver: ConditionResolver, false_path: PrintItems<'a>) -> Condition<'a> {
+pub fn if_false<'a>(name: &'static str, resolver: ConditionResolver<'a>, false_path: PrintItems<'a>) -> Condition<'a> {
   Condition::new(
     name,
     ConditionProperties {

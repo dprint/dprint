@@ -53,13 +53,11 @@ pub struct TracingResult {
 
 /// Gets trace information for analysis purposes.
 #[cfg(feature = "tracing")]
-pub fn trace_printing(get_print_items: impl for<'a> FnOnce(&'a Arena) -> PrintItems<'a>, options: PrintOptions) -> TracingResult {
+pub fn trace_printing(print_items: PrintItems, options: PrintOptions) -> TracingResult {
   use std::iter;
 
-  let arena = Arena::new();
-  let print_items = get_print_items(&arena);
   {
-    let tracing_result = Printer::new(&arena, print_items.first_node, {
+    let tracing_result = Printer::new(print_items.arena(), print_items.first_node, {
       let mut printer_options = options.to_printer_options();
       printer_options.enable_tracing = true;
       printer_options

@@ -3,15 +3,17 @@
 fn test_tracing() {
   use dprint_core::formatting::*;
 
+  let arena = Arena::new();
   let trace_result = trace_printing(
-    |arena| {
+    {
+      let arena = &arena;
       let mut print_items = PrintItems::new(arena);
       print_items.push_info(LineNumber::new("line_number"));
       print_items.push_signal(Signal::NewLine);
       print_items.push_str_runtime_width_computed("string");
       print_items.push_condition(conditions::if_true_or(
         "condition_name",
-        std::rc::Rc::new(|_| Some(true)),
+        arena.alloc_resolver(|_| Some(true)),
         "true_path".into_print_items(arena),
         "false_path".into_print_items(arena),
       ));

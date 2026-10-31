@@ -47,7 +47,7 @@ fn print_values_with_force_new_lines(start_lines: &[usize], max_blank_lines: u32
               allow_inline_single_line: false,
               is_known_multi_line: false,
             })
-            .collect()
+            .collect::<Vec<_>>()
         },
         ir_helpers::GenSeparatedValuesOptions {
           prefer_hanging: false,

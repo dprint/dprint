@@ -1,9 +1,9 @@
-use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use super::Condition;
 use super::ConditionResolver;
+use super::ConditionResolverContext;
 use super::PrintNodeCell;
 use super::SavePoint;
 use super::StringContainer;
@@ -45,11 +45,6 @@ use super::thread_state::Counts;
 /// ```
 pub struct Arena {
   bump: bumpalo::Bump,
-  /// The resolvers of the conditions allocated in the arena.
-  ///
-  /// The arena doesn't run the destructors of what's allocated in it, so this owns
-  /// the reference counts of the resolvers that would otherwise never be released.
-  condition_resolvers: RefCell<Vec<ConditionResolver>>,
   /// The counts of the infos and conditions created before this arena, which are
   /// restored when it's dropped.
   outer_counts: Counts,
@@ -65,7 +60,6 @@ impl Default for Arena {
 
 impl Drop for Arena {
   fn drop(&mut self) {
-    self.condition_resolvers.get_mut().clear();
     if let Some(pool) = self.pool.take() {
       let mut bump = std::mem::take(&mut self.bump);
       bump.reset();
@@ -87,7 +81,6 @@ impl Arena {
   fn new_internal(bump: bumpalo::Bump, pool: Option<ArenaPool>) -> Self {
     Self {
       bump,
-      condition_resolvers: Default::default(),
       outer_counts: thread_state::take_counts(),
       pool,
     }
@@ -101,15 +94,27 @@ impl Arena {
     &self.bump
   }
 
+  /// Allocates a condition resolver in the arena.
+  ///
+  /// The resolver needs to be `Copy` because the arena doesn't run the destructors of
+  /// what's allocated in it. For a resolver that needs state, allocate the state in the
+  /// arena and capture a reference to it (ex. `arena.bump().alloc(Cell::new(false))`),
+  /// using bumpalo's collections for state that allocates.
+  ///
+  /// ```compile_fail
+  /// use dprint_core::formatting::Arena;
+  ///
+  /// let arena = Arena::new();
+  /// let text = String::from("text");
+  /// // a `String` isn't `Copy`, so this would never be dropped
+  /// arena.alloc_resolver(move |_| Some(text.is_empty()));
+  /// ```
+  pub fn alloc_resolver<'a>(&'a self, resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Copy + 'a) -> ConditionResolver<'a> {
+    self.bump.alloc(resolver)
+  }
+
   pub(super) fn alloc_condition<'a>(&'a self, condition: Condition<'a>) -> &'a Condition<'a> {
-    let condition = self.bump.alloc(condition);
-    // SAFETY: The condition in the bump allocator is never dropped, so its resolver's
-    // reference count is moved to this list, which releases it when the arena is
-    // reset or dropped. That only happens once nothing borrows the arena, so nothing
-    // can use the resolver in the condition afterwards.
-    let resolver = unsafe { std::ptr::read(&condition.condition) };
-    self.condition_resolvers.borrow_mut().push(resolver);
-    condition
+    self.bump.alloc(condition)
   }
 
   /// Copies the text into the arena.

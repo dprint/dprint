@@ -160,7 +160,7 @@ enum Node<'a> {
   ArrayElement(&'a ArrayElement),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct Position {
   /// Line number in the original source code.
   pub line_number: u32,
@@ -212,8 +212,6 @@ four]
 Here's some example IR generation:
 
 ```rust
-use std::rc::Rc;
-
 use dprint_core::formatting::*;
 
 pub fn format(expr: &ArrayLiteralExpression) -> String {
@@ -247,8 +245,10 @@ fn gen_array_literal_expression<'a>(arena: &'a Arena, expr: &'a ArrayLiteralExpr
   let start_ln = LineNumber::new("start");
   let end_ln = LineNumber::new("end");
   let is_multiple_lines = create_is_multiple_lines_resolver(
-    expr.position.clone(),
-    expr.elements.iter().map(|e| e.position.clone()).collect(),
+    arena,
+    expr.position,
+    // the resolver needs to be `Copy`, so it references the positions in the arena
+    arena.bump().alloc_slice_fill_iter(expr.elements.iter().map(|e| e.position)),
     start_ln,
     end_ln,
   );
@@ -265,14 +265,14 @@ fn gen_array_literal_expression<'a>(arena: &'a Arena, expr: &'a ArrayLiteralExpr
   items.push_str("[");
   items.push_condition(conditions::if_true(
     "arrayStartNewLine",
-    is_multiple_lines.clone(),
+    is_multiple_lines,
     Signal::NewLine.into_print_items(arena),
   ));
 
-  let generated_elements = gen_elements(arena, &expr.elements, &is_multiple_lines).into_rc_path();
+  let generated_elements = gen_elements(arena, &expr.elements, is_multiple_lines).into_rc_path();
   items.push_condition(conditions::if_true_or(
     "indentIfMultipleLines",
-    is_multiple_lines.clone(),
+    is_multiple_lines,
     ir_helpers::with_indent(generated_elements.into_print_items(arena)),
     generated_elements.into_print_items(arena),
   ));
@@ -288,7 +288,7 @@ fn gen_array_literal_expression<'a>(arena: &'a Arena, expr: &'a ArrayLiteralExpr
 
   return items;
 
-  fn gen_elements<'a>(arena: &'a Arena, elements: &'a [ArrayElement], is_multiple_lines: &ConditionResolver) -> PrintItems<'a> {
+  fn gen_elements<'a>(arena: &'a Arena, elements: &'a [ArrayElement], is_multiple_lines: ConditionResolver<'a>) -> PrintItems<'a> {
     let mut items = PrintItems::new(arena);
     let elements_len = elements.len();
 
@@ -299,7 +299,7 @@ fn gen_array_literal_expression<'a>(arena: &'a Arena, expr: &'a ArrayLiteralExpr
         items.push_str(",");
         items.push_condition(conditions::if_true_or(
           "afterCommaSeparator",
-          is_multiple_lines.clone(),
+          is_multiple_lines,
           Signal::NewLine.into_print_items(arena),
           Signal::SpaceOrNewLine.into_print_items(arena),
         ));
@@ -317,8 +317,14 @@ fn gen_array_element<'a>(arena: &'a Arena, element: &'a ArrayElement) -> PrintIt
 
 // helper functions
 
-fn create_is_multiple_lines_resolver(parent_position: Position, child_positions: Vec<Position>, start_ln: LineNumber, end_ln: LineNumber) -> ConditionResolver {
-  Rc::new(move |condition_context: &mut ConditionResolverContext| {
+fn create_is_multiple_lines_resolver<'a>(
+  arena: &'a Arena,
+  parent_position: Position,
+  child_positions: &'a [Position],
+  start_ln: LineNumber,
+  end_ln: LineNumber,
+) -> ConditionResolver<'a> {
+  arena.alloc_resolver(move |condition_context| {
     // no items, so format on the same line
     if child_positions.is_empty() {
       return Some(false);
