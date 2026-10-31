@@ -2030,11 +2030,40 @@ fn should_take_back_the_diagnostics_published_through_a_directory_symlink_that_p
         let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
         assert_eq!(diagnostics.len(), 2, "{:?}", diagnostics);
         assert_eq!(diagnostics[0], (uri("/repo/pkg/dprint.json"), Vec::new()));
+        // and an editor extension is told its config file changed there
+        assert!(client.take_config_changes().contains(&uri("/repo/pkg/dprint.json")));
         assert_eq!(diagnostics[1].0, uri("/repo/libs/pkg/dprint.json"));
         assert_eq!(diagnostics[1].1.len(), 2);
       }
       .boxed_local()
     }
+  });
+}
+
+#[test]
+fn should_not_take_back_the_diagnostics_of_a_directory_another_symlink_leads_to_too() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+    })
+    .initialize()
+    .build();
+  // ex. two symlinks to one package
+  environment.add_canonical_symlink("/ws/a", "/ws/real");
+  environment.add_canonical_symlink("/ws/b", "/ws/real");
+  run_session(&environment, |client| {
+    async move {
+      client.file_info("/ws/a/file.txt").await;
+      client.take_config_changes();
+      // the documents of both are used, which each still leads to the same directory
+      for path in ["/ws/b/file.txt", "/ws/a/file.txt", "/ws/b/file.txt", "/ws/a/file.txt"] {
+        client.file_info(path).await;
+        client.config_info(path).await;
+        assert_eq!(client.take_config_changes(), Vec::<Uri>::new(), "{}", path);
+      }
+    }
+    .boxed_local()
   });
 }
 
@@ -2121,8 +2150,9 @@ fn should_answer_with_a_config_file_that_is_on_another_machine_after_formatting(
           .dprint_format(client.format_params("/a/file.txt", "text"), CancellationToken::new())
           .await
           .unwrap()
-          .config_file;
-        assert!(config_file.is_none_or(|config_file| config_file.on_another_machine));
+          .config_file
+          .unwrap();
+        assert!(config_file.on_another_machine);
         client.test_client.take_messages();
       }
       .boxed_local()
@@ -2241,6 +2271,51 @@ fn should_forget_a_decision_by_the_config_file_it_is_listed_with_after_the_proje
 }
 
 #[test]
+fn should_watch_the_config_files_in_any_case_where_the_file_system_finds_them() {
+  assert_eq!(crate::commands::lsp::get_config_file_glob(false), "**/{dprint,.dprint}.{json,jsonc}");
+  assert_eq!(
+    crate::commands::lsp::get_config_file_glob(true),
+    "**/{[dD][pP][rR][iI][nN][tT],.[dD][pP][rR][iI][nN][tT]}.{[jJ][sS][oO][nN],[jJ][sS][oO][nN][cC]}"
+  );
+}
+
+#[test]
+fn should_reject_another_symlink_to_the_config_file_the_server_was_started_with() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/repo/shared/base.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/repo/packages/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/repo/packages/b/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  environment.add_canonical_path("/repo/packages/a/dprint.json", "/repo/shared/base.json");
+  environment.add_canonical_path("/repo/packages/b/dprint.json", "/repo/shared/base.json");
+  run_session_with_config(
+    &environment,
+    editor_extension_params(),
+    Some(PathBuf::from("/repo/packages/a/dprint.json")),
+    |client| {
+      async move {
+        assert_eq!(client.config_info("/repo/packages/a/dprint.json").await.status, FormatStatus::ready());
+        // it's another config file, though it's a symlink to the same file
+        let err = client
+          .backend
+          .dprint_config_info(config_params("/repo/packages/b/dprint.json"), CancellationToken::new())
+          .await
+          .unwrap_err();
+        assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
+      }
+      .boxed_local()
+    },
+  );
+}
+
+#[test]
 fn should_not_forget_the_decisions_of_the_config_file_a_symlinked_dot_config_dir_points_into() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
@@ -2284,10 +2359,11 @@ fn should_not_forget_the_decisions_of_the_config_file_a_symlinked_dot_config_dir
           .to_string();
         store(root_config_file.clone()).await;
         store(package_config_file).await;
+        // which the editor may send without the directory it's used for, because it found it
         let params = ForgetDecisionsParams {
           config_file: Some(ConfigFileIdentifier {
             uri: uri("/repo/packages/a/.config/dprint.json"),
-            dir_uri: Some(uri("/repo/packages/a")),
+            dir_uri: None,
           }),
           work_done_token: None,
         };

@@ -116,6 +116,12 @@ pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment:
 
 #[cfg(test)]
 mod tests {
+
+  use crate::environment::CanonicalizedPathBuf;
+  use crate::environment::TestEnvironment;
+
+  use super::*;
+
   #[test]
   fn should_not_change_how_a_plugin_is_shown() {
     // IMPORTANT: This is how a plugin is stored in the approvals file (see `EditorApprovals`), which every version
@@ -137,11 +143,6 @@ mod tests {
     };
     assert_eq!(plugin.to_full_string(), "npm:@dprint/exec@0.5.0/plugin.json@abc");
   }
-
-  use crate::environment::CanonicalizedPathBuf;
-  use crate::environment::TestEnvironment;
-
-  use super::*;
 
   #[test]
   fn should_parse_plugin_without_checksum() {

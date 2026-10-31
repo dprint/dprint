@@ -190,13 +190,6 @@ const FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatSelectio
 /// for another config file). Formatting is limited separately.
 const MAX_CONCURRENT_MESSAGES: usize = 64;
 
-/// The configuration files the client tells the server about when they change,
-/// which includes the ones in a `.config` directory.
-const CONFIG_FILE_GLOB: &str = "**/{dprint,.dprint}.{json,jsonc}";
-/// `CONFIG_FILE_GLOB` with the names in any case, which a case insensitive
-/// file system finds (ex. `Dprint.json`) and a client's glob doesn't match
-/// otherwise.
-const CASE_INSENSITIVE_CONFIG_FILE_GLOB: &str = "**/{[dD][pP][rR][iI][nN][tT],.[dD][pP][rR][iI][nN][tT]}.{[jJ][sS][oO][nN],[jJ][sS][oO][nN][cC]}";
 /// The names of the config files, which are also found in a `.config` directory
 /// (except for the ones starting with a period).
 const CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
@@ -1768,13 +1761,7 @@ fn get_config_file_watcher_registrations(capabilities: &ClientCapabilities) -> V
   }
   let options = DidChangeWatchedFilesRegistrationOptions {
     watchers: vec![FileSystemWatcher {
-      glob_pattern: GlobPattern::String(
-        match cfg!(any(windows, target_os = "macos")) {
-          true => CASE_INSENSITIVE_CONFIG_FILE_GLOB,
-          false => CONFIG_FILE_GLOB,
-        }
-        .to_string(),
-      ),
+      glob_pattern: GlobPattern::String(get_config_file_glob(cfg!(any(windows, target_os = "macos")))),
       kind: None,
     }],
   };
@@ -1783,6 +1770,19 @@ fn get_config_file_watcher_registrations(capabilities: &ClientCapabilities) -> V
     method: "workspace/didChangeWatchedFiles".to_string(),
     register_options: Some(serde_json::to_value(options).expect("options should serialize")),
   }]
+}
+
+/// Gets the glob of the configuration files the client tells the server about
+/// when they change, which includes the ones in a `.config` directory. On a
+/// case insensitive file system, it matches the names in any case, which the
+/// file system finds too (ex. `Dprint.json`) and a client's glob doesn't match
+/// otherwise.
+fn get_config_file_glob(is_case_insensitive: bool) -> String {
+  let names = |names: [&str; 2]| match is_case_insensitive {
+    true => names.map(workspace::to_case_insensitive_glob).join(","),
+    false => names.join(","),
+  };
+  format!("**/{{{}}}.{{{}}}", names(["dprint", ".dprint"]), names(["json", "jsonc"]))
 }
 
 /// Gets whether the client watches files with a glob relative to a uri,
