@@ -34,6 +34,12 @@ pub struct LocalStamp {
 /// `plugins/<hash>.json`, where `<hash>` is derived from the plugin's source
 /// (see [`entry_hash`]). Replaces the old global `plugin-cache-manifest.json`
 /// so changing one plugin never rewrites state for the others.
+///
+/// IMPORTANT: Another version of dprint with the same cache signature (see
+/// `current_signature`) may rewrite this (see `store_file_matching_info`),
+/// which drops a field it doesn't know. So a new field must be safe when it's
+/// missing (ex. a missing `npm_executable_checksum` has the plugin set up
+/// again), or `PLUGIN_CACHE_SCHEMA_VERSION` is raised for it.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginCacheMeta {

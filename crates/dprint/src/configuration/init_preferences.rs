@@ -84,7 +84,7 @@ pub fn read_init_preferences(environment: &impl Environment) -> InitPreferences 
         Default::default()
       }
     },
-    // they're moved to the settings file the next time they're written
+    // they're copied to the settings file the next time they're written
     Ok(_) => read_legacy_init_preferences(environment),
     Err(err) => {
       log_warn!(environment, "Ignoring the preferences because of a problem reading the settings: {:#}", err);
@@ -94,6 +94,11 @@ pub fn read_init_preferences(environment: &impl Environment) -> InitPreferences 
 }
 
 /// Writes what the user prefers to the settings file, providing its path.
+///
+/// The `init.json` file they were in before (see
+/// `LEGACY_INIT_PREFERENCES_FILE_NAME`) is kept, because dprint 0.64 still
+/// uses it, but it's only read while the settings file doesn't have them, so
+/// what dprint 0.64 saves after that isn't used by this version.
 ///
 /// It's `None` when the preferences in the settings file couldn't be parsed,
 /// which are kept and warned about instead, because they may be in a shape
@@ -112,13 +117,6 @@ pub fn write_init_preferences(environment: &impl Environment, preferences: &Init
     return Ok(None);
   }
   let file_path = set_setting(environment, &["init"], serde_json::to_value(preferences)?)?;
-  // the preferences were moved to the settings file
-  if let Some(legacy_file_path) = get_legacy_init_preferences_path(environment)
-    && environment.path_exists(&legacy_file_path)
-    && let Err(err) = environment.remove_file(&legacy_file_path)
-  {
-    log_debug!(environment, "Failed removing {}: {:#}", legacy_file_path.display(), err);
-  }
   Ok(Some(file_path))
 }
 
@@ -209,7 +207,7 @@ mod test {
   }
 
   #[test]
-  fn should_move_preferences_from_init_json_to_the_settings_file() {
+  fn should_copy_preferences_from_init_json_to_the_settings_file() {
     // dprint 0.64 kept them in an init.json file
     let environment = TestEnvironment::new();
     environment.mk_dir_all("/config/dprint").unwrap();
@@ -224,7 +222,11 @@ mod test {
 
     preferences.avoided_plugins.push("dprint-plugin-biome".to_string());
     write_init_preferences(&environment, &preferences).unwrap();
-    assert!(!environment.path_exists("/config/dprint/init.json"));
+    // which dprint 0.64 still uses
+    assert_eq!(
+      environment.read_file("/config/dprint/init.json").unwrap(),
+      r#"{ "avoidedPlugins": ["dprint-plugin-prettier"] }"#
+    );
     assert_eq!(
       environment.read_file("/config/dprint/settings.json").unwrap(),
       r#"{

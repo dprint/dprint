@@ -3652,8 +3652,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// The ones that problems were published through are checked now, because
   /// the editor may only use paths through them, which don't lead to them
   /// (see `take_back_under_alias`), and so are the editor's paths that another
-  /// one replaced, which aren't used for anything else (see
-  /// `EditorPaths::replaced_dirs`).
+  /// one replaced while a config file was used through them, which aren't used
+  /// for anything else (see `EditorPaths::replaced_dirs`).
   pub fn check_editor_dirs_again(&self) {
     self.checked_editor_dirs.borrow_mut().clear();
     let editor_paths = self
@@ -3670,10 +3670,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     // an editor's path of a directory that another one replaced may still have results of the editor's through it
     // (see `add_editor_dir`), which it's told about once it doesn't lead there anymore
     for (canonical_dir, editor_dir) in self.editor_paths.replaced_dirs() {
-      // there's nothing to tell about without a config file that was used in it, so it isn't kept either
+      // there's nothing to tell about without a config file that was used in it, so it's only checked once there is,
+      // and it's kept for then (ex. the config files were used again after `reset`)
       if self.get_used_local_config_paths_under(&canonical_dir).is_empty() {
-        self.editor_paths.remove_replaced(&editor_dir);
-      } else if !self.is_alias_of(&editor_dir, &canonical_dir) {
+        continue;
+      }
+      if !self.is_alias_of(&editor_dir, &canonical_dir) {
         self.editor_paths.remove_replaced(&editor_dir);
         self.take_back_under_alias(&editor_dir, &canonical_dir);
       }

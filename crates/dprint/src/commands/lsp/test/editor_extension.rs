@@ -49,6 +49,9 @@ fn should_say_it_supports_the_dprint_methods() {
       assert_eq!(capability["version"], json!(1));
       assert!(capability["files"]["settingsUri"].is_string(), "{}", capability);
       assert!(capability["files"]["approvalsUri"].is_string(), "{}", capability);
+      // where `dprint init --global` creates the global config file, which is used over a `dprint.json`
+      let global_config_uri = capability["files"]["globalConfigUri"].as_str().unwrap();
+      assert!(global_config_uri.ends_with("/dprint/dprint.jsonc"), "{}", global_config_uri);
       assert!(capability.get("features").is_none());
       // the text is sent when formatting, so the documents aren't synced
       assert_eq!(result.capabilities.text_document_sync, None);
@@ -2297,6 +2300,37 @@ fn should_tell_about_a_config_file_known_through_a_replaced_alias_that_points_el
         // which is only told once
         client.file_info("/ws/b/file.txt").await;
         assert_eq!(client.take_config_changes(), Vec::<Uri>::new());
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_tell_about_a_config_file_known_through_a_replaced_alias_after_a_reset() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  environment.add_canonical_symlink("/ws/a", "/ws/real");
+  environment.add_canonical_symlink("/ws/b", "/ws/real");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.file_info("/ws/a/file.txt").await;
+        client.file_info("/ws/b/file.txt").await;
+        // the config files are forgotten, and the editor gets the results through the other one again
+        client.backend.dprint_reset(Some(ResetParams {}), CancellationToken::new()).await.unwrap();
+        client.file_info("/ws/b/file.txt").await;
+        client.take_config_changes();
+        // so the first one is still told about once it points somewhere else
+        environment.remove_canonical_path("/ws/a");
+        environment.add_canonical_path("/ws/a", "/ws/other");
+        client.file_info("/ws/b/file.txt").await;
+        assert!(client.take_config_changes().contains(&uri("/ws/a/dprint.json")));
       }
       .boxed_local()
     }

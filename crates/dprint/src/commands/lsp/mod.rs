@@ -250,11 +250,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let stdout = tokio::io::stdout();
   let (tx, rx) = mpsc::unbounded_channel();
 
-  // like `dprint fmt --config` (ex. a `~/` path is in the home directory)
-  let config_path = args
-    .config
-    .as_ref()
-    .map(|config| crate::configuration::get_specified_config_path(environment, config).unwrap_or_else(|| environment.cwd().join(config)));
+  let config_path = args.config.as_ref().map(|config| get_config_override_path(environment, config)).transpose()?;
   let has_config_override = config_path.is_some();
   let session_permissions = Arc::new(SessionPermissions::default());
   let recv_task = start_message_handler(
@@ -1711,10 +1707,10 @@ fn get_unsupported_versions_message(client_versions: &[u32], cli_version: &str) 
 fn get_dprint_files(environment: &impl Environment) -> DprintFiles {
   let global_config = match resolve_global_config_path_and_text(environment) {
     Ok(Some(config_file)) => config_file.source.maybe_local_path().map(|path| path.as_ref().to_path_buf()),
-    // where it's created
+    // where `dprint init --global` creates it, which is used over a `dprint.json`
     _ => resolve_global_config_dir(environment)
       .ok()
-      .map(|dir| dir.join_panic_relative("dprint.json").into_path_buf()),
+      .map(|dir| dir.join_panic_relative("dprint.jsonc").into_path_buf()),
   };
   DprintFiles {
     settings_uri: get_settings_file_path(environment).and_then(|path: PathBuf| file_path_to_uri(&path)),
@@ -1821,6 +1817,23 @@ fn supports_document_changes(capabilities: &ClientCapabilities) -> bool {
 
 fn get_workspace_folder_paths(folders: &[WorkspaceFolder]) -> Vec<PathBuf> {
   folders.iter().filter_map(|folder| uri_to_file_path(&folder.uri)).collect()
+}
+
+/// Gets the path of the config file that `dprint lsp --config` specifies,
+/// which is like `dprint fmt --config` (ex. a `~/` path is in the home
+/// directory), apart from a remote or npm config file not being supported,
+/// because the server watches the config file it was started with and
+/// provides it by its path.
+fn get_config_override_path(environment: &impl Environment, config: &str) -> Result<PathBuf> {
+  match crate::configuration::get_specified_config_path(environment, config) {
+    Some(path) => Ok(path),
+    None if config.starts_with("~/") => bail!("Could not find the home directory for --config {}", config),
+    None => bail!(
+      "dprint lsp --config only supports a local configuration file (a path or a file: url), not {}. Extend it from a local configuration file instead (ex. \"extends\": \"{}\").",
+      config,
+      config
+    ),
+  }
 }
 
 #[cfg(test)]
@@ -4837,6 +4850,30 @@ mod test {
       test_client.take_messages();
       result
     })
+  }
+
+  #[test]
+  fn should_only_start_with_a_local_config_file() {
+    let environment = TestEnvironmentBuilder::new().build();
+    assert_eq!(
+      get_config_override_path(&environment, "dprint.json").unwrap(),
+      environment.cwd().as_ref().join("dprint.json")
+    );
+    assert_eq!(
+      get_config_override_path(&environment, "~/dprint.json").unwrap(),
+      environment.get_home_dir().unwrap().join("dprint.json")
+    );
+    // a url or an npm specifier is rejected rather than taken as a path in the current directory
+    for config in ["https://example.com/dprint.json", "npm:@scope/config"] {
+      let err = get_config_override_path(&environment, config).unwrap_err();
+      assert_eq!(
+        err.to_string(),
+        format!(
+          "dprint lsp --config only supports a local configuration file (a path or a file: url), not {0}. Extend it from a local configuration file instead (ex. \"extends\": \"{0}\").",
+          config
+        )
+      );
+    }
   }
 
   #[test]

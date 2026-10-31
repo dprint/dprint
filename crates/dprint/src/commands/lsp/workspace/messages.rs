@@ -162,8 +162,9 @@ pub struct DprintFiles {
   /// with `dprint/forgetDecisions`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub approvals_uri: Option<Uri>,
-  /// The global config file, which is where it would be created when it
-  /// doesn't exist.
+  /// The global config file, which is where `dprint init --global` would
+  /// create it (`dprint.jsonc`) when it doesn't exist. It's from when the
+  /// server started.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub global_config_uri: Option<Uri>,
 }
@@ -1072,14 +1073,15 @@ pub enum RangeFormatting {
 pub struct ConfigFileInfo {
   /// The config file, which is the path a local one was found or asked about
   /// at when it's a symlink, not what it points to (see
-  /// `get_config_file_found_path`).
+  /// `get_config_file_found_path`). It's always a local one, because the
+  /// server only finds local config files and only starts with one (see
+  /// `get_config_override_path`).
   pub uri: Uri,
   /// The directory whose files it formats, which is the directory it's in
   /// unless that's a `.config` directory (other than the home directory's),
   /// even when it's a symlink to a file in another directory, and the
   /// directory it's used for when it's the global config file (ex. the root
-  /// of a drive). It's the directory its patterns are relative to for a
-  /// remote or npm config file.
+  /// of a drive).
   pub dir_uri: Uri,
   pub kind: ConfigFileKind,
   /// Whether it's in a workspace folder, which a config file in an ancestor

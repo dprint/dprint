@@ -76,6 +76,18 @@ pub struct EditorState {
   pub no_config_notification: NoConfigNotificationState,
 }
 
+impl EditorState {
+  /// Adds what the user dismissed in the other state.
+  fn with_dismissals_of(mut self, other: EditorState) -> Self {
+    let notification = &mut self.no_config_notification;
+    notification.dismissed |= other.no_config_notification.dismissed;
+    notification
+      .dismissed_workspace_folders
+      .extend(other.no_config_notification.dismissed_workspace_folders);
+    self
+  }
+}
+
 /// The process plugin decisions the user said to always use, which are next
 /// to the settings file because they're the user's decisions and not a cache
 /// (ex. clearing the cache shouldn't forget what they denied).
@@ -93,7 +105,9 @@ pub struct EditorState {
 ///   `configHash`). A reader whose version is at least `minVersion` ignores
 ///   what it doesn't know: properties and decisions it can't parse. A writer
 ///   edits the file in place, so it keeps them, and it never lowers `version`
-///   or `minVersion`.
+///   or `minVersion`. A property that narrows an allow (ex. an end date) isn't
+///   an addition, because an older reader would allow without it: such an
+///   allow only uses a `configHash` version that the older readers don't use.
 /// - `minVersion` is only raised for a change that an older reader can't
 ///   safely ignore (ex. a change to how denials are read), which is
 ///   permanent, because it's never lowered. A change that narrows what an
@@ -131,7 +145,8 @@ pub struct EditorState {
 ///   hash is made another way and only removes those with a denial, so two
 ///   versions of dprint that make it differently don't undo each other's
 ///   allows. A writer that can make an older hash too may store an allow with
-///   each, so the older readers use it.
+///   each, so the older readers use it, but only for an allow that covers the
+///   same as an allow of the older version (never one a property narrows).
 /// - When decisions for the same plugin are compared by when they were made, a
 ///   denial wins a tie with an allow.
 /// - The file stays strict JSON (no comments or trailing commas), because a
@@ -1152,7 +1167,9 @@ pub async fn update_editor_state<TEnvironment: Environment>(environment: &TEnvir
 }
 
 /// Reads what the editor integrations remember, which starts over when the
-/// file can't be read or was written by a version with another format.
+/// file can't be read or was written by a version with another format. What
+/// the language server of dprint 0.60 to 0.64 remembers is included, because
+/// it may still be used next to this version (ex. a project's npm dprint).
 pub fn read_editor_state(environment: &impl Environment) -> EditorState {
   let read = |file_name: &str| {
     environment
@@ -1161,7 +1178,10 @@ pub fn read_editor_state(environment: &impl Environment) -> EditorState {
       .flatten()
       .map(|text| serde_json::from_str::<EditorState>(&text).unwrap_or_default())
   };
-  read(STATE_FILE_NAME).or_else(|| read(LEGACY_STATE_FILE_NAME)).unwrap_or_default()
+  match (read(STATE_FILE_NAME), read(LEGACY_STATE_FILE_NAME)) {
+    (Some(state), Some(legacy_state)) => state.with_dismissals_of(legacy_state),
+    (state, legacy_state) => state.or(legacy_state).unwrap_or_default(),
+  }
 }
 
 pub(crate) fn update_editor_state_without_lock(environment: &impl Environment, update: impl FnOnce(&mut EditorState)) -> Result<()> {
@@ -2996,6 +3016,15 @@ mod test {
     let state = read_editor_state(&environment);
     assert!(state.no_config_notification.dismissed);
     assert!(environment.path_exists(get_editor_state_file_path(&environment)));
+    // what an older version dismisses after that is still used
+    environment
+      .write_file(
+        environment.get_cache_dir().join(LEGACY_STATE_FILE_NAME),
+        r#"{ "noConfigNotification": { "dismissedWorkspaceFolders": ["/b"] } }"#,
+      )
+      .unwrap();
+    let folders = read_editor_state(&environment).no_config_notification.dismissed_workspace_folders;
+    assert_eq!(folders, BTreeSet::from(["/a".to_string(), "/b".to_string()]));
   }
 
   #[test]
