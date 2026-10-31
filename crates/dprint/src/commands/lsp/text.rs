@@ -276,7 +276,7 @@ pub fn get_utf16_edits(a: &str, b: &str) -> Vec<Utf16TextEdit> {
   }
 
   let mut text_edits = Vec::<Utf16TextEdit>::new();
-  let mut iter = chunks.iter().peekable();
+  let mut iter = chunks.into_iter().peekable();
   let mut a_pos = 0;
   loop {
     let chunk = iter.next();
@@ -289,27 +289,17 @@ pub fn get_utf16_edits(a: &str, b: &str) -> Vec<Utf16TextEdit> {
         let start = a_pos;
         a_pos += d.encode_utf16().count() as u32;
         let end = a_pos;
-        match iter.peek() {
-          Some((ChangeTag::Insert, i)) => {
-            iter.next();
-            text_edits.push(Utf16TextEdit {
-              start,
-              end,
-              new_text: i.to_string(),
-            });
-          }
-          _ => text_edits.push(Utf16TextEdit {
-            start,
-            end,
-            new_text: "".to_string(),
-          }),
-        }
+        let new_text = match iter.next_if(|(tag, _)| *tag == ChangeTag::Insert) {
+          Some((_, i)) => i,
+          None => String::new(),
+        };
+        text_edits.push(Utf16TextEdit { start, end, new_text });
       }
       Some((ChangeTag::Insert, i)) => {
         text_edits.push(Utf16TextEdit {
           start: a_pos,
           end: a_pos,
-          new_text: i.to_string(),
+          new_text: i,
         });
       }
     }

@@ -283,7 +283,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       .environment
       .canonicalize_maybe_not_exists(file_path)
       .map(|p| p.into_path_buf())
-      .unwrap_or(file_path.to_path_buf());
+      .unwrap_or_else(|_| file_path.to_path_buf());
     log_debug!(self.environment, "Checking can format: {}", file_path.display());
     // the editor service only receives a path, so an extensionless file's
     // shebang is resolved from the file on disk

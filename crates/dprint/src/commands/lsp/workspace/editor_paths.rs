@@ -82,9 +82,10 @@ impl EditorPaths {
   /// Gets the editor's path of the canonical path, which is the canonical path
   /// when the editor doesn't know it by another one.
   pub fn get(&self, canonical_path: &Path) -> PathBuf {
-    match self.get_alias(canonical_path) {
-      Some((dir, editor_dir)) => match canonical_path.strip_prefix(&dir) {
-        Ok(relative) if relative.as_os_str().is_empty() => editor_dir,
+    let dirs = self.dirs.borrow();
+    match find_alias(&dirs, canonical_path) {
+      Some((dir, editor_dir)) => match canonical_path.strip_prefix(dir) {
+        Ok(relative) if relative.as_os_str().is_empty() => editor_dir.clone(),
         Ok(relative) => editor_dir.join(relative),
         Err(_) => canonical_path.to_path_buf(),
       },
@@ -95,14 +96,7 @@ impl EditorPaths {
   /// Gets the alias that the editor's path of the canonical path is through,
   /// which is a canonical directory with the editor's path of it.
   pub fn get_alias(&self, canonical_path: &Path) -> Option<(PathBuf, PathBuf)> {
-    // the closest directory wins (ex. a symlink within a symlinked directory)
-    self
-      .dirs
-      .borrow()
-      .iter()
-      .filter(|(dir, _)| canonical_path.starts_with(dir))
-      .max_by_key(|(dir, _)| dir.components().count())
-      .cloned()
+    find_alias(&self.dirs.borrow(), canonical_path).cloned()
   }
 
   /// Forgets the editor's path of the canonical directory (ex. because it
@@ -122,6 +116,15 @@ pub struct ReplacedEditorPaths {
   /// The editor's path the canonical directory had before (ex. another
   /// symlink to it), which led to the same files when it was added.
   pub other_editor_dir: Option<PathBuf>,
+}
+
+/// Finds the alias of the directories that the canonical path is in.
+fn find_alias<'a>(dirs: &'a [(PathBuf, PathBuf)], canonical_path: &Path) -> Option<&'a (PathBuf, PathBuf)> {
+  // the closest directory wins (ex. a symlink within a symlinked directory)
+  dirs
+    .iter()
+    .filter(|(dir, _)| canonical_path.starts_with(dir))
+    .max_by_key(|(dir, _)| dir.components().count())
 }
 
 #[cfg(test)]

@@ -1381,11 +1381,10 @@ async fn lock_editor_approvals_within(environment: &impl Environment, timeout: D
 
 /// Gets the path of the lock of the approvals file (see `EditorApprovals`).
 fn get_editor_approvals_lock_path(environment: &impl Environment) -> PathBuf {
-  let lock_dir = match get_editor_approvals_file_path(environment).as_deref().and_then(|file_path| file_path.parent()) {
-    Some(dir_path) => dir_path.to_path_buf(),
-    None => environment.get_cache_dir().join("locks"),
-  };
-  lock_dir.join(APPROVALS_LOCK_FILE_NAME)
+  match get_editor_approvals_file_path(environment).as_deref().and_then(|file_path| file_path.parent()) {
+    Some(dir_path) => dir_path.join(APPROVALS_LOCK_FILE_NAME),
+    None => environment.get_cache_dir().join("locks").join(APPROVALS_LOCK_FILE_NAME),
+  }
 }
 
 /// Gets a time in nanoseconds since the Unix epoch, which is negative before

@@ -695,7 +695,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       Some(false) if self.initial_log_level == LogLevel::Debug => LogLevel::Info,
       _ => self.initial_log_level,
     });
-    *self.canonical_workspace_folders.borrow_mut() = settings.workspace_folders.iter().map(|folder| self.canonicalize(folder.clone())).collect();
+    *self.canonical_workspace_folders.borrow_mut() = settings.workspace_folders.iter().map(|folder| self.canonicalize(folder)).collect();
     let previous = std::mem::replace(&mut *self.settings.borrow_mut(), settings);
     // the documents without a config file and the untitled documents may be formatted differently now
     let settings = self.settings.borrow();
@@ -810,7 +810,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   async fn handle_config_file_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange, global_config_path: Option<&Path>) {
     // the config files are known by their paths in the directories they're used for, and one that's on
     // another machine now (ex. a `git pull` replaced it with a symlink to a share) is asked about like any other
-    let file_path = &self.canonicalize_config_file_path(file_path.to_path_buf());
+    let file_path = &self.canonicalize_config_file_path(file_path);
     // the server watches the global config file itself (see `watch_dprint_files`)
     if global_config_path == Some(file_path.as_path()) {
       return;
@@ -867,7 +867,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// editor extension that every config file may have changed because it's
   /// used for every file.
   async fn handle_config_override_change(self: &Rc<Self>, file_path: &Path, change: ConfigFileChange) {
-    let file_path = self.canonicalize_config_file_path(file_path.to_path_buf());
+    let file_path = self.canonicalize_config_file_path(file_path);
     if change == ConfigFileChange::Deleted
       && let (Some(uri), Some(editor_uri)) = (file_path_to_uri(&file_path), self.editor_config_file_path_uri(&file_path))
     {
@@ -890,7 +890,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// A config file that's a symlink is matched by where it was found too (ex. a
   /// config file that inherits from it, which a changed symlink changes).
   fn get_dependent_config_files(&self, file_path: &Path) -> Vec<(PathBuf, bool)> {
-    let canonical_path = self.canonicalize_editor_path(file_path.to_path_buf());
+    let canonical_path = self.canonicalize_editor_path(file_path);
     let found_path = self.get_config_file_identity_path(file_path, canonical_path.clone());
     let file_path = canonical_path;
     let mut config_file_paths: Vec<(PathBuf, bool)> = Vec::new();
@@ -930,12 +930,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     };
     let use_global_config = self.resolve_global_config_use(global_config);
     let is_notebook_cell = document_file.notebook_path.is_some();
-    let file_path = document_file.candidates[0].clone();
+    let file_path = &document_file.candidates[0];
     let target = ApprovalTarget::File {
       file_path: file_path.clone(),
       use_global_config,
     };
-    let scope = match self.resolve_editor_scope(&file_path, use_global_config).await? {
+    let scope = match self.resolve_editor_scope(file_path, use_global_config).await? {
       DocumentConfig::Resolved(scope) => scope,
       DocumentConfig::NotFound => {
         let reason = self.get_no_config_reason(use_global_config);
@@ -967,18 +967,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         let names = match file_bytes {
           Some(file_bytes) => scope
             .plugin_name_maps
-            .get_plugin_names_from_file_path_and_bytes(&chosen_file.file_path, file_bytes)
-            .iter()
-            .map(|name| name.to_string())
-            .collect::<Vec<_>>(),
-          None => get_plugin_names_for_file_on_disk(&scope.plugin_name_maps, &chosen_file.file_path, &self.environment)
-            .iter()
-            .map(|name| name.to_string())
-            .collect(),
+            .get_plugin_names_from_file_path_and_bytes(&chosen_file.file_path, file_bytes),
+          None => get_plugin_names_for_file_on_disk(&scope.plugin_name_maps, &chosen_file.file_path, &self.environment),
         };
         names
           .iter()
-          .filter_map(|name| scope.plugins.get(name.as_str()))
+          .filter_map(|name| scope.plugins.get(name))
           .map(|plugin| get_file_plugin(plugin.info()))
           .collect()
       }
@@ -1256,7 +1250,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         // the server uses one config file for every file (`dprint lsp --config <path>`)
         if self.scope_container.has_config_override() {
           let dir_path = match dir_uri.as_ref().and_then(uri_to_file_path) {
-            Some(dir_path) => self.canonicalize_editor_path(dir_path),
+            Some(dir_path) => self.canonicalize_editor_path(&dir_path),
             None => self.environment.cwd().into_path_buf(),
           };
           if !self.is_config_override_uri(uri) {
@@ -1332,7 +1326,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   fn is_config_override_uri(&self, uri: &Uri) -> bool {
     match (uri_to_file_path(uri), self.scope_container.config_override_path()) {
       // the one the server was started with is the user's, but the path is from the editor
-      (Some(path), Some(override_path)) => self.canonicalize_config_file_path(path) == self.get_config_override_identity_path(&override_path),
+      (Some(path), Some(override_path)) => self.canonicalize_config_file_path(&path) == self.get_config_override_identity_path(&override_path),
       _ => false,
     }
   }
@@ -1343,7 +1337,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   fn is_config_override_file(&self, path: &Path) -> bool {
     match self.scope_container.config_override_path() {
       // the one the server was started with is the user's, but the path is from the editor
-      Some(override_path) => self.canonicalize_editor_path(path.to_path_buf()) == self.canonicalize_without_remembering(&override_path),
+      Some(override_path) => self.canonicalize_editor_path(path) == self.canonicalize_without_remembering(&override_path),
       None => false,
     }
   }
@@ -1356,12 +1350,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     };
     let use_global_config = self.resolve_global_config_use(request.global_config);
     let is_notebook_cell = document_file.notebook_path.is_some();
-    let file_path = document_file.candidates[0].clone();
+    let file_path = &document_file.candidates[0];
     let target = ApprovalTarget::File {
       file_path: file_path.clone(),
       use_global_config,
     };
-    let scope = match self.resolve_editor_scope(&file_path, use_global_config).await? {
+    let scope = match self.resolve_editor_scope(file_path, use_global_config).await? {
       DocumentConfig::Resolved(scope) => scope,
       DocumentConfig::NotFound => {
         log_stderr_info!(self.environment, "Path did not have a dprint config file: {}", file_path.display());
@@ -1784,7 +1778,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// it doesn't exist anymore, which isn't approvable then.
   fn forget_missing_config_approvals(&self, target: &ApprovalTarget) {
     if let ApprovalTarget::ConfigFile { file_path, .. } = target
-      && let Some(uri) = file_path_to_uri(&self.canonicalize_config_file_path(file_path.clone()))
+      && let Some(uri) = file_path_to_uri(&self.canonicalize_config_file_path(file_path))
     {
       self.forget_config_file_approvals(&uri);
     }
@@ -1921,12 +1915,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       );
     // the most recent decision for a plugin of a config file is what's used, which is a denial
     // on a tie and otherwise the session's or a grant like when formatting
-    let mut plugin_decisions: Vec<(String, String, bool, bool, u64)> = Vec::new();
+    let mut plugin_decisions: Vec<(&String, &String, bool, bool, u64)> = Vec::new();
     for (config_file, plugin, allows, always, decided_at) in candidates {
       if !is_config_file(config_file) {
         continue;
       }
-      let existing = plugin_decisions.iter().position(|(c, p, ..)| c == config_file && p == plugin);
+      let existing = plugin_decisions.iter().position(|(c, p, ..)| *c == config_file && *p == plugin);
       if let Some(index) = existing {
         let (_, _, existing_allows, _, existing_decided_at) = &plugin_decisions[index];
         if is_more_recent_at(*existing_decided_at, *existing_allows, decided_at, allows) {
@@ -1934,15 +1928,15 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
         plugin_decisions.remove(index);
       }
-      plugin_decisions.push((config_file.clone(), plugin.clone(), allows, always, decided_at));
+      plugin_decisions.push((config_file, plugin, allows, always, decided_at));
     }
     let mut decisions = Vec::new();
     for (config_file, plugin, allows, always, _) in plugin_decisions {
       decisions.push(Decision {
         kind: ApprovalKind::ProcessPlugins,
-        config_file: self.get_listed_config_file(&config_file, global_config_path),
+        config_file: self.get_listed_config_file(config_file, global_config_path),
         // like the specifier of its item
-        specifiers: vec![escape_text(&plugin)],
+        specifiers: vec![escape_text(plugin)],
         items: None,
         allows,
         always,
@@ -2164,7 +2158,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       // a decision stored for a path that isn't named like a config file (ex. by an older version, which
       // stored a symlink's canonical path) is still forgotten, without loading what's there
       if !is_config_file_path(&self.environment, &file_path) {
-        let file_path = self.canonicalize_editor_path(file_path);
+        let file_path = self.canonicalize_editor_path(&file_path);
         let key = file_path_to_uri(&file_path).map(|uri| uri.as_str().to_string()).unwrap_or_default();
         return Ok((file_path.display().to_string(), key));
       }
@@ -2172,7 +2166,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         Ok(Some(config_file)) => Some(config_file),
         // a deleted config file's decisions are still forgotten
         Ok(None) => {
-          let file_path = self.canonicalize_config_file_path(file_path);
+          let file_path = self.canonicalize_config_file_path(&file_path);
           let key = file_path_to_uri(&file_path).map(|uri| uri.as_str().to_string()).unwrap_or_default();
           return Ok((file_path.display().to_string(), key));
         }
@@ -2383,7 +2377,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       // an editor extension asks the user itself
       return;
     };
-    let mut pending = self.take_unprompted_approvals(approvals.iter().cloned());
+    let mut pending = self.take_unprompted_approvals(approvals);
     if !supports_message_actions {
       for approval in pending {
         let guidance = match approval.kind {
@@ -2415,16 +2409,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     dprint_core::async_runtime::spawn(async move {
       while !pending.is_empty() {
         let approval = pending.remove(0);
-        let titles = match approval.kind {
+        let titles: &[&str] = match approval.kind {
           // a path that isn't valid Unicode can only be denied (see `DownloadPolicy::is_allowable`)
-          ApprovalKind::Downloads if !approval.decisions.iter().any(|option| option.decision == ApprovalDecision::Allow) => {
-            vec![CANCEL_DOWNLOAD_ACTION_TITLE]
-          }
-          ApprovalKind::Downloads => vec![DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
-          ApprovalKind::ProcessPlugins => PROCESS_PLUGIN_ACTION_TITLES.to_vec(),
+          ApprovalKind::Downloads if !approval.decisions.iter().any(|option| option.decision == ApprovalDecision::Allow) => &[CANCEL_DOWNLOAD_ACTION_TITLE],
+          ApprovalKind::Downloads => &[DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
+          ApprovalKind::ProcessPlugins => &PROCESS_PLUGIN_ACTION_TITLES,
         };
         let message = get_language_client_approval_message(&approval);
-        let Some(title) = workspace.show_message_request(MessageType::WARNING, message, &titles).await else {
+        let Some(title) = workspace.show_message_request(MessageType::WARNING, message, titles).await else {
           // not choosing an action leaves it undecided
           return;
         };
@@ -2445,7 +2437,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             if let Some(notice) = result.notice {
               workspace.client.show_message(MessageType::WARNING, notice.message);
             }
-            pending.extend(workspace.take_unprompted_approvals(result.config_approvals.approvals.into_iter()));
+            pending.extend(workspace.take_unprompted_approvals(&result.config_approvals.approvals));
           }
           Err(err) => {
             let message = format!("Failed setting up what was allowed: {:#}", err);
@@ -2459,9 +2451,18 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Gets the approvals that a language client's user wasn't asked about,
   /// which they're asked about once.
-  fn take_unprompted_approvals(&self, approvals: impl Iterator<Item = PendingApproval>) -> Vec<PendingApproval> {
+  fn take_unprompted_approvals(&self, approvals: &[PendingApproval]) -> Vec<PendingApproval> {
+    let mut prompted_approvals = self.prompted_approvals.borrow_mut();
     approvals
-      .filter(|approval| !approval.denied && self.prompted_approvals.borrow_mut().insert(approval.id.clone()))
+      .iter()
+      .filter(|approval| {
+        let is_unprompted = !approval.denied && !prompted_approvals.contains(&approval.id);
+        if is_unprompted {
+          prompted_approvals.insert(approval.id.clone());
+        }
+        is_unprompted
+      })
+      .cloned()
       .collect()
   }
 
@@ -2596,7 +2597,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// the config file's problems are published to the editor's path of it (ex.
   /// through a workspace folder that's a symlink).
   async fn resolve_editor_scope(self: &Rc<Self>, file_path: &Path, use_global_config: bool) -> Result<DocumentConfig<TEnvironment>> {
-    self.canonicalize_editor_path(file_path.to_path_buf());
+    self.canonicalize_editor_path(file_path);
     self.resolve_scope(file_path, use_global_config).await
   }
 
@@ -2640,7 +2641,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// which is used once the user allows reading it.
   fn new_config_file_on_another_machine_failure(&self, err: &ConfigFileOnAnotherMachineError) -> ConfigFailure {
     // it's known by the path that identifies it, which is only canonicalized once reading it is allowed
-    let file_path = self.canonicalize_config_file_path(err.config_path.clone());
+    let file_path = self.canonicalize_config_file_path(&err.config_path);
     // IMPORTANT: The editor doesn't open its path from the problems that were published for it then, which would
     // read it from the other machine (ex. a `git pull` replaced it with a symlink to a share).
     self.clear_config_diagnostics(&file_path);
@@ -2981,8 +2982,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         canonical_path: get_other_canonical_path(&config_file.source, config_file.found_path.as_deref()).map(|path| path.to_path_buf()),
         dependencies: config.local_dependencies.clone(),
       };
-      let previous = self.config_dependencies.borrow_mut().insert(uri.as_str().to_string(), dependencies.clone());
-      are_dependencies_changed = previous.as_ref() != Some(&dependencies);
+      let mut config_dependencies = self.config_dependencies.borrow_mut();
+      are_dependencies_changed = config_dependencies.get(uri.as_str()) != Some(&dependencies);
+      config_dependencies.insert(uri.as_str().to_string(), dependencies);
     }
     let state = ResolvedConfigState {
       config: config.clone(),
@@ -2990,9 +2992,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       process_plugins_allowed: scope.unapproved_process_plugins.is_none(),
       denied: self.get_scope_denials(scope),
     };
-    let previous = self.resolved_configs.borrow_mut().insert(key, state.clone());
+    let mut resolved_configs = self.resolved_configs.borrow_mut();
+    let is_changed = resolved_configs.get(&key).is_some_and(|previous| *previous != state);
+    resolved_configs.insert(key, state);
+    drop(resolved_configs);
     // it resolves again after it failed (ex. what it extends was fixed or allowed to be downloaded)
-    if (was_failing || previous.is_some_and(|previous| previous != state))
+    if (was_failing || is_changed)
       && let Some(params) = self.new_found_config_changed(config_file)
     {
       self.send_config_changed(params);
@@ -3011,7 +3016,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .denied_downloads
       .borrow()
       .values()
-      .flat_map(|denied| denied.downloads.clone())
+      .flat_map(|denied| denied.downloads.iter().cloned())
       .collect::<Vec<_>>();
     self.environment.download_policy().set_denied_downloads(downloads);
   }
@@ -3118,7 +3123,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// again is reported. That's what it was resolved from the last time it
   /// resolved when this server resolved it before.
   fn get_dangling_symlink_watch_uris(&self, file_path: &Path) -> Vec<Uri> {
-    let file_path = self.canonicalize_config_file_path(file_path.to_path_buf());
+    let file_path = self.canonicalize_config_file_path(file_path);
     let dependencies = file_path_to_uri(&file_path).and_then(|uri| self.config_dependencies.borrow().get(uri.as_str()).cloned());
     if let Some(dependencies) = dependencies {
       return self.get_dependencies_watch_uris(&dependencies);
@@ -3832,8 +3837,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       _ => Vec::new(),
     };
     let not_formatted = NotFormatted::new(reason, self.get_reason_message(scope, reason, is_notebook_cell, use_global_config), approvals);
-    let are_plugins_known = scope.config.as_ref().is_some_and(|config| self.get_last_plugin_infos(config).is_some());
-    if reason == NotFormattedReason::ApprovalRequired && !are_plugins_known {
+    let are_plugins_known = || scope.config.as_ref().is_some_and(|config| self.get_last_plugin_infos(config).is_some());
+    if reason == NotFormattedReason::ApprovalRequired && !are_plugins_known() {
       not_formatted.unclaimed()
     } else {
       not_formatted
@@ -4077,13 +4082,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// scope can format or otherwise the first one.
   fn choose_file(&self, scope: &PluginsScope<TEnvironment>, document_file: DocumentFile, file_bytes: Option<&[u8]>) -> ChosenFile {
     // the editor opened the document and the notebook, which reading them doesn't change
-    let notebook_path = document_file.notebook_path.map(|path| self.canonicalize(path));
+    let notebook_path = document_file.notebook_path.map(|path| self.canonicalize(&path));
     let mut first = None;
     for candidate in document_file.candidates {
       let file_path = match document_file.is_document_path {
-        true => self.canonicalize(candidate),
+        true => self.canonicalize(&candidate),
         // ex. the file an untitled document is formatted as may be a symlink in the workspace to another machine
-        false => self.canonicalize_editor_path(candidate),
+        false => self.canonicalize_editor_path(&candidate),
       };
       let cant_format_reason = self.get_cant_format_reason(scope, &file_path, notebook_path.as_deref(), file_bytes);
       if cant_format_reason.is_none() {
@@ -4129,13 +4134,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// IMPORTANT: It follows symlinks, which contacts the machine a path is on,
   /// so a path from the editor that wasn't checked yet is canonicalized with
   /// `canonicalize_editor_path` instead.
-  fn canonicalize(&self, path: PathBuf) -> PathBuf {
+  fn canonicalize(&self, path: &Path) -> PathBuf {
     let canonical_path = self
       .environment
-      .canonicalize_maybe_not_exists(&path)
+      .canonicalize_maybe_not_exists(path)
       .map(|p| p.into_path_buf())
-      .unwrap_or(path.clone());
-    self.remember_editor_path(&path, &canonical_path);
+      .unwrap_or_else(|_| path.to_path_buf());
+    self.remember_editor_path(path, &canonical_path);
     canonical_path
   }
 
@@ -4149,20 +4154,20 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// IMPORTANT: Canonicalizing a path follows its symlinks, which contacts
   /// the other machine, so it's only done once reading it is allowed (see
   /// `DownloadPolicy::ensure_allows_path`), like reading a config file.
-  fn canonicalize_editor_path(&self, path: PathBuf) -> PathBuf {
-    if self.allows_reading_path(&path) {
+  fn canonicalize_editor_path(&self, path: &Path) -> PathBuf {
+    if self.allows_reading_path(path) {
       return self.canonicalize(path);
     }
     match (path.parent(), path.file_name()) {
       (Some(dir_path), Some(file_name)) if self.allows_reading_path(dir_path) => {
         let canonical_path = match self.environment.canonicalize_maybe_not_exists(dir_path) {
           Ok(canonical_dir_path) => canonical_dir_path.into_path_buf().join(file_name),
-          Err(_) => path.clone(),
+          Err(_) => path.to_path_buf(),
         };
-        self.remember_editor_path(&path, &canonical_path);
+        self.remember_editor_path(path, &canonical_path);
         canonical_path
       }
-      _ => path,
+      _ => path.to_path_buf(),
     }
   }
 
@@ -4170,9 +4175,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// that identifies it like `canonicalize_editor_path`, which is its path in
   /// the directory it's used for when it's a symlink to another file (see
   /// `get_config_file_found_path`).
-  fn canonicalize_config_file_path(&self, path: PathBuf) -> PathBuf {
-    let canonical_path = self.canonicalize_editor_path(path.clone());
-    self.get_config_file_identity_path(&path, canonical_path)
+  fn canonicalize_config_file_path(&self, path: &Path) -> PathBuf {
+    let canonical_path = self.canonicalize_editor_path(path);
+    self.get_config_file_identity_path(path, canonical_path)
   }
 
   /// Gets the path that identifies a local config file at the editor's path
@@ -4748,9 +4753,12 @@ fn get_approval_id(kind: &str, config_key: &str, items: &[String]) -> String {
 /// have any text (ex. a newline in a path), and two different sets of items
 /// would otherwise have the same id.
 fn encode_id_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+  use std::fmt::Write;
+
   let mut text = String::new();
   for part in parts {
-    text.push_str(&format!("{}:{}\n", part.len(), part));
+    // writing to a string can't fail
+    let _ = writeln!(text, "{}:{}", part.len(), part);
   }
   text
 }

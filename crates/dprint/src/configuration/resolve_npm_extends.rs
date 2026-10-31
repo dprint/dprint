@@ -167,12 +167,11 @@ impl NpmExtendsResolver {
     let Some(version) = parsed.specifier.version else {
       return Ok(None);
     };
-    let base_dir = match base {
-      PathSource::Local(local) => Some(local.path.clone()),
-      PathSource::Npm(npm) => npm.base_dir.clone(),
+    let base_dir: Option<&Path> = match base {
+      PathSource::Local(local) => Some(local.path.as_ref()),
+      PathSource::Npm(npm) => npm.base_dir.as_ref().map(|d| d.as_ref()),
       PathSource::Remote(_) => None,
     };
-    let base_dir = base_dir.as_ref().map(|d| -> &Path { d.as_ref() });
     let registry = self
       .npmrc_chain(base_dir, environment)
       .registry_for_package(&parsed.specifier.name, environment)?;

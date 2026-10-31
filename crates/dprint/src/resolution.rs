@@ -1333,11 +1333,12 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   }
   // IMPORTANT: This needs to be checked before resolving the plugins because
   // setting up a process plugin runs it to get its information.
-  let mut plugin_references = if untrusted_downloads.is_empty() { config.plugins.clone() } else { Vec::new() };
   let mut unapproved_process_plugins = get_unapproved_process_plugins_of_config(&config, plugin_resolver, environment, permissions);
-  if unapproved_process_plugins.is_some() {
-    plugin_references.clear();
-  }
+  let plugin_references = if untrusted_downloads.is_empty() && unapproved_process_plugins.is_none() {
+    config.plugins.clone()
+  } else {
+    Vec::new()
+  };
 
   // resolve the plugins
   let mut plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(plugin_references).await?);
@@ -1488,7 +1489,7 @@ pub fn get_unapproved_process_plugins<TEnvironment: Environment>(
         || permissions.may_set_up_process_plugin(&config_file, &plugin.to_full_string(), &trusted_config_hash, unpinned_file_checksum.as_deref());
       match approval {
         Some(approval) => !permissions.is_process_plugin_allowed(approval) && !may_set_up(),
-        None => !may_set_up() && !is_allowed_before_set_up(config, plugin, unpinned_file_checksum.clone(), permissions),
+        None => !may_set_up() && !is_allowed_before_set_up(config, plugin, unpinned_file_checksum, permissions),
       }
     })
     .collect()

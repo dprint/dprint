@@ -489,13 +489,10 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     DocumentInfo {
       uri: params.text_document.uri.clone(),
       language: params.language.clone(),
-      notebook_uri: params.notebook_document.as_ref().map(|notebook| {
-        notebook
-          .file_uri
-          .clone()
-          .filter(|_| has_file_uri_feature)
-          .unwrap_or_else(|| notebook.uri.clone())
-      }),
+      notebook_uri: params
+        .notebook_document
+        .as_ref()
+        .map(|notebook| notebook.file_uri.as_ref().filter(|_| has_file_uri_feature).unwrap_or(&notebook.uri).clone()),
       file_uri: params.file_uri.clone().filter(|_| has_file_uri_feature),
     }
   }
@@ -512,13 +509,10 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       (None, Some(text_document)) => Ok(ConfigTarget::Document(DocumentInfo {
         uri: text_document.uri.clone(),
         language: params.language.clone(),
-        notebook_uri: params.notebook_document.as_ref().map(|notebook| {
-          notebook
-            .file_uri
-            .clone()
-            .filter(|_| has_file_uri_feature)
-            .unwrap_or_else(|| notebook.uri.clone())
-        }),
+        notebook_uri: params
+          .notebook_document
+          .as_ref()
+          .map(|notebook| notebook.file_uri.as_ref().filter(|_| has_file_uri_feature).unwrap_or(&notebook.uri).clone()),
         file_uri: params.file_uri.clone().filter(|_| has_file_uri_feature),
       })),
       _ => Err(to_lsp_error(
@@ -967,8 +961,6 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       Some(capability) => {
         let version = capability.negotiate_version();
         features = capability.negotiate_features();
-        client_versions = capability.versions.clone();
-        session_id = capability.session_id.clone();
         if version.is_none() {
           log_warn!(
             self.environment,
@@ -977,6 +969,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
             SUPPORTED_METHOD_VERSIONS
           );
         }
+        client_versions = capability.versions;
+        session_id = capability.session_id;
         version
       }
       None => {
@@ -992,8 +986,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     // language client, which its language client library would start using right away
     let is_unsupported_editor_extension = has_dprint_capability && !is_editor_extension;
     // the server can only register every file to watch when the client supports registering them by their directory
-    let can_register_watched_files =
-      get_config_file_watcher_registrations(&params.capabilities).len() == 1 && supports_relative_watch_patterns(&params.capabilities);
+    let config_file_watcher_registrations = get_config_file_watcher_registrations(&params.capabilities);
+    let can_register_watched_files = config_file_watcher_registrations.len() == 1 && supports_relative_watch_patterns(&params.capabilities);
     if !can_register_watched_files || !is_editor_extension {
       features.remove(WATCH_FILES_FEATURE);
     }
@@ -1014,18 +1008,18 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       state.is_unsupported_client = is_unsupported_editor_extension;
       state.supports_document_changes = supports_document_changes(&params.capabilities);
       #[allow(deprecated)]
-      let root_uri = params.root_uri.clone();
+      let root_uri = params.root_uri.as_ref();
       state.workspace_folders = match &params.workspace_folders {
         Some(folders) => get_workspace_folder_paths(folders),
         // an older client may only provide the root
-        None => root_uri.as_ref().and_then(uri_to_file_path).into_iter().collect(),
+        None => root_uri.and_then(uri_to_file_path).into_iter().collect(),
       };
       state.features = features.clone();
       // an editor extension tells the server when a config file changes unless it opts into this, and the
       // config file the server was started with is the only one, which is watched like the files it's resolved from
       let config_file_watchers = match self.has_config_override {
         true => Vec::new(),
-        false => get_config_file_watcher_registrations(&params.capabilities),
+        false => config_file_watcher_registrations,
       };
       if is_editor_extension && features.contains_key(WATCH_FILES_FEATURE) {
         state.pending_registrations = config_file_watchers;
@@ -1072,7 +1066,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         Some(version) => ServerExperimentalCapability {
           version: Some(version),
           versions: SUPPORTED_METHOD_VERSIONS.to_vec(),
-          features: features.clone(),
+          features,
           files: Some(get_dprint_files(&self.environment)),
           config_file_globs: Some(config_file_names.iter().map(|name| format!("**/{}", name)).collect()),
           config_file_names: Some(config_file_names),
@@ -1105,7 +1099,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       // so the server doesn't need to keep the documents
       ServerCapabilities {
         workspace,
-        experimental: experimental.clone(),
+        experimental,
         position_encoding: Some(PositionEncodingKind::UTF16),
         ..ServerCapabilities::default()
       }
@@ -1406,8 +1400,11 @@ fn get_total_progress(active_progress: &[ActiveProgress]) -> Option<TotalProgres
     1 => latest.title.clone(),
     count => format!("{} (and {} more)", latest.title, count - 1),
   };
-  let percentages = active_progress.iter().map(|active| active.percentage).collect::<Option<Vec<_>>>();
-  let percentage = percentages.map(|percentages| percentages.iter().sum::<u32>() / percentages.len() as u32);
+  let percentage = active_progress
+    .iter()
+    .map(|active| active.percentage)
+    .sum::<Option<u32>>()
+    .map(|sum| sum / active_progress.len() as u32);
   Some(TotalProgress { message, percentage })
 }
 

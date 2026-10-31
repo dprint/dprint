@@ -311,12 +311,12 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 pub fn get_config_file_key(config_file: &ResolvedConfigPathWithText) -> String {
   // the base path is part of the key because the global config
   // file has a different one for each root directory (ex. drive)
-  let config_file_text = match config_file.file_path() {
+  let base_path = config_file.base_path.display();
+  match config_file.file_path() {
     // a path that was joined with another separator (ex. the path a symlink was found at) is the same key
-    Some(path) => path.components().collect::<PathBuf>().display().to_string(),
-    None => config_file.display(),
-  };
-  format!("{}\n{}", config_file_text, config_file.base_path.display())
+    Some(path) => format!("{}\n{}", path.components().collect::<PathBuf>().display(), base_path),
+    None => format!("{}\n{}", config_file.display(), base_path),
+  }
 }
 
 /// Gets the current time in seconds since the UNIX epoch.

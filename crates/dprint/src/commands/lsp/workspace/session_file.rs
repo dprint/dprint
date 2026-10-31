@@ -662,7 +662,7 @@ fn remove_session_files(environment: &impl Environment, is_removed: impl Fn(&Pat
   let Ok(entries) = environment.dir_info(&dir_path) else {
     return;
   };
-  let mut removed_lock_session_ids = Vec::new();
+  let mut removed_lock_paths = Vec::new();
   for entry in entries {
     let DirEntry::File { path } = entry else {
       continue;
@@ -676,13 +676,13 @@ fn remove_session_files(environment: &impl Environment, is_removed: impl Fn(&Pat
     }
     match kind {
       SessionDirFileKind::Session | SessionDirFileKind::Temp => remove_unless_locked(environment, &dir_path.join(format!("{}.lock", session_id)), &path),
-      SessionDirFileKind::Lock => removed_lock_session_ids.push(session_id.to_string()),
+      SessionDirFileKind::Lock => removed_lock_paths.push(path),
     }
   }
   // a lock is only deleted once the file of its session is gone
-  for session_id in removed_lock_session_ids {
-    if !environment.path_exists(dir_path.join(format!("{}.json", session_id))) {
-      let lock_path = dir_path.join(format!("{}.lock", session_id));
+  for lock_path in removed_lock_paths {
+    // the id doesn't have a dot, so this is `<id>.json`
+    if !environment.path_exists(lock_path.with_extension("json")) {
       remove_unless_locked(environment, &lock_path, &lock_path);
     }
   }

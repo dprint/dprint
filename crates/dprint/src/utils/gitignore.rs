@@ -208,11 +208,13 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     let snapshot = self.options.detect_changes.then(|| self.take_dir_snapshot(dir_path, ancestor_paths));
     // a directory containing `.git` is the root of a repository, so don't
     // search for gitignores above it
-    let git_path = dir_path.join(".git");
     let is_repo_root = match (&snapshot, hint) {
       (Some(snapshot), _) => snapshot.has_git,
-      (None, Some(hint)) => hint.has_git && self.may_access(&git_path, dir_path, ancestor_paths, true),
-      (None, None) => self.may_access(&git_path, dir_path, ancestor_paths, true) && self.environment.path_exists(&git_path),
+      (None, Some(hint)) => hint.has_git && self.may_access(&dir_path.join(".git"), dir_path, ancestor_paths, true),
+      (None, None) => {
+        let git_path = dir_path.join(".git");
+        self.may_access(&git_path, dir_path, ancestor_paths, true) && self.environment.path_exists(&git_path)
+      }
     };
     let parent = if is_repo_root {
       None
@@ -249,11 +251,10 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     // git also reads `.git/info/exclude` at the repository root, treating it
     // like an uncommitted `.gitignore` there (https://git-scm.com/docs/gitignore).
     // Only the repo root can have this file, so avoid the read everywhere else.
-    let exclude_path = dir_path.join(".git").join("info").join("exclude");
-    let exclude_text = if is_repo_root && self.may_access(&exclude_path, dir_path, ancestor_paths, true) {
-      self.environment.read_file(&exclude_path).ok()
-    } else {
-      None
+    let exclude_path = is_repo_root.then(|| dir_path.join(".git").join("info").join("exclude"));
+    let exclude_text = match exclude_path {
+      Some(exclude_path) if self.may_access(&exclude_path, dir_path, ancestor_paths, true) => self.environment.read_file(&exclude_path).ok(),
+      _ => None,
     };
     // git's global excludes file applies repository-wide, so resolve it at the
     // repo root where it becomes the parent of every descendant directory
@@ -347,7 +348,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     let git_path = dir_path.join(".git");
     // not `path_exists` because that would debug log on every refresh
     let has_git = self.may_access(&git_path, dir_path, ancestor_paths, false) && self.environment.fs_metadata(&git_path).is_ok();
-    let exclude_path = git_path.join("info").join("exclude");
+    let exclude_path = has_git.then(|| git_path.join("info").join("exclude"));
     let gitignore_path = dir_path.join(".gitignore");
     DirSnapshot {
       has_git,
@@ -357,10 +358,9 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
         None
       },
       // only read at the repository root
-      exclude: if has_git && self.may_access(&exclude_path, dir_path, ancestor_paths, false) {
-        self.take_file_snapshot(&exclude_path)
-      } else {
-        None
+      exclude: match exclude_path {
+        Some(exclude_path) if self.may_access(&exclude_path, dir_path, ancestor_paths, false) => self.take_file_snapshot(&exclude_path),
+        _ => None,
       },
     }
   }

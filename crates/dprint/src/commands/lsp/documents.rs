@@ -167,13 +167,19 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
   }
 
   fn open_inner(&mut self, text_document_item: TextDocumentItem, notebook_uri: Option<Uri>) {
+    let TextDocumentItem {
+      uri,
+      language_id,
+      version,
+      text,
+    } = text_document_item;
     self.docs.insert(
-      text_document_item.uri.clone(),
+      uri,
       Document {
         line_index: None,
-        language_id: text_document_item.language_id,
-        version: text_document_item.version,
-        text: Arc::new(text_document_item.text),
+        language_id,
+        version,
+        text: Arc::new(text),
         notebook_uri,
       },
     );

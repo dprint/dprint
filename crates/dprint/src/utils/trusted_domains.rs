@@ -442,10 +442,9 @@ impl AncestorPaths {
     let Some(followed_share) = followed_share else {
       return Some(parent);
     };
-    let share = PathLocation::Share(followed_share.clone());
     let location = |dir: &Path| walks.get(&*self.rules.normalize(dir)).map(|walk| &walk.location);
     match (location(dir), location(parent)) {
-      (Some(location), Some(parent_location)) if *location == share && *parent_location != share => None,
+      (Some(location), Some(parent_location)) if location.is_share(followed_share) && !parent_location.is_share(followed_share) => None,
       _ => Some(parent),
     }
   }
@@ -526,7 +525,7 @@ impl AncestorPaths {
     }
     let (followed_share, walks) = self.get_walks(environment);
     match walks.get(&*self.rules.normalize(base)) {
-      Some(walk) => followed_share.clone().filter(|share| walk.location == PathLocation::Share(share.clone())),
+      Some(walk) => followed_share.as_ref().filter(|share| walk.location.is_share(share)).cloned(),
       None => get_automounted_share(environment, base, self.rules),
     }
   }
@@ -591,11 +590,9 @@ impl UntrustedDownloadError {
 /// each package and its tarball), which ends with a slash so it's only what's
 /// under its path.
 pub fn get_npm_registry_download(registry_url: &Url) -> String {
-  let mut url = registry_url.to_string();
-  if !url.ends_with('/') {
-    url.push('/');
-  }
-  format!("{}{}", NPM_REGISTRY_DOWNLOAD_PREFIX, url)
+  let url = registry_url.as_str();
+  let slash = if url.ends_with('/') { "" } else { "/" };
+  format!("{}{}{}", NPM_REGISTRY_DOWNLOAD_PREFIX, url, slash)
 }
 
 /// Gets the url of the npm registry of a download from
@@ -1059,6 +1056,11 @@ impl PathLocation {
       None => PathLocation::Local,
     }
   }
+
+  /// Gets whether it's on the share.
+  fn is_share(&self, share: &str) -> bool {
+    matches!(self, PathLocation::Share(location_share) if location_share == share)
+  }
 }
 
 impl PathWalk {
@@ -1203,14 +1205,14 @@ impl PathWalk {
     // what's looked up, which is the file of a stream because looking up the stream of a symlink
     // fails although reading it follows the symlink
     let (lookup_path, stream) = match windows_name {
-      WindowsName::Plain => (next.clone(), None),
+      WindowsName::Plain => (Cow::Borrowed(next.as_path()), None),
       // the stream of the directory that was followed (ex. `dir\:stream`)
       WindowsName::Stream("", _) => {
         self.resolved = next;
         self.set_location(location, automount_root);
         return;
       }
-      WindowsName::Stream(file_name, stream) => (self.resolved.join(file_name), Some(stream)),
+      WindowsName::Stream(file_name, stream) => (Cow::Owned(self.resolved.join(file_name)), Some(stream)),
       // IMPORTANT: Win32 doesn't change it the same way when it's looked up as when it's read.
       WindowsName::Changed => {
         self.resolved = next;

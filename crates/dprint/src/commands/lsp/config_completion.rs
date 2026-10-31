@@ -259,7 +259,7 @@ impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
 
   fn build_schema(&self, plugins: &[PluginSchemaUrl], plugin_schemas: Vec<Option<Rc<Value>>>) -> Value {
     let mut schema = self.base_schema.clone();
-    let plugin_config_schema = schema.get("additionalProperties").cloned();
+    let plugin_config_schema = self.base_schema.get("additionalProperties");
     let Value::Object(root) = &mut schema else {
       return schema;
     };
@@ -283,7 +283,7 @@ impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
       let mut plugin_schema = embed_schema(&plugin_schema, &pointer);
       let reference = serde_json::json!({ "$ref": pointer });
       // add the properties the cli handles for every plugin (ex. "associations")
-      let property = match &plugin_config_schema {
+      let property = match plugin_config_schema {
         Some(plugin_config_schema) if !add_plugin_config_properties(&mut plugin_schema, plugin_config_schema) => {
           serde_json::json!({ "allOf": [reference, plugin_config_schema] })
         }
