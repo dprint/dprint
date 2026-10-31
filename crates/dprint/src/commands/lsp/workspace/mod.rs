@@ -63,6 +63,7 @@ use crate::configuration::ConfigMapValue;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
+use crate::configuration::ensure_allows_reading_config_file;
 use crate::configuration::forget_editor_approvals;
 use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
@@ -1045,9 +1046,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   async fn resolve_approval_target(self: &Rc<Self>, target: &ApprovalTarget) -> Result<DocumentConfig<TEnvironment>> {
     match target {
       ApprovalTarget::File { file_path, use_global_config } => self.resolve_scope(file_path, *use_global_config).await,
-      ApprovalTarget::ConfigFile { file_path, dir_path } => match self.load_config_file(file_path, dir_path.as_deref())? {
-        Some(config_file) => self.resolve_found_config(config_file).await,
-        None => Ok(DocumentConfig::NotFound),
+      ApprovalTarget::ConfigFile { file_path, dir_path } => match self.load_config_file(file_path, dir_path.as_deref()) {
+        Ok(Some(config_file)) => self.resolve_found_config(config_file).await,
+        Ok(None) => Ok(DocumentConfig::NotFound),
+        Err(err) => match find_config_file_on_another_machine(&err) {
+          Some(err) => Ok(DocumentConfig::Failed(self.new_config_file_on_another_machine_failure(err))),
+          None => Err(err),
+        },
       },
     }
   }
@@ -1089,19 +1094,24 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             ));
           }
           Err(err) => {
-            return Ok((
-              ApprovalTarget::ConfigFile {
-                file_path: config_file_path,
-                dir_path,
-              },
-              DocumentConfig::Failed(ConfigFailure {
+            // it's read once the user allows reading it from the other machine
+            let failure = match find_config_file_on_another_machine(&err) {
+              Some(err) => self.new_config_file_on_another_machine_failure(err),
+              None => ConfigFailure {
                 config_file: None,
                 config_key: None,
                 config_target: None,
                 reason: NotFormattedReason::ConfigError,
                 message: format!("{:#}", err),
                 downloads: Vec::new(),
-              }),
+              },
+            };
+            return Ok((
+              ApprovalTarget::ConfigFile {
+                file_path: config_file_path,
+                dir_path,
+              },
+              DocumentConfig::Failed(failure),
             ));
           }
         };
@@ -1710,14 +1720,22 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       let Some(file_path) = uri_to_file_path(uri).filter(|path| is_config_file_path(&self.environment, path)) else {
         return Err(InvalidParamsError(format!("The configFile isn't a config file: {}", uri.as_str())).into());
       };
-      match self.load_config_file(&file_path, dir_path.as_deref())? {
-        Some(config_file) => Some(config_file),
+      match self.load_config_file(&file_path, dir_path.as_deref()) {
+        Ok(Some(config_file)) => Some(config_file),
         // a deleted config file's decisions are still forgotten
-        None => {
+        Ok(None) => {
           let file_path = self.canonicalize(file_path);
           let key = file_path_to_uri(&file_path).map(|uri| uri.as_str().to_string()).unwrap_or_default();
           return Ok((file_path.display().to_string(), key));
         }
+        // IMPORTANT: One on another machine isn't read or canonicalized because that contacts the
+        // machine, so the decisions that are forgotten are the ones for the path it was found at
+        // (ex. what's needed to read it), like the config key of the failure for it.
+        Err(err) if find_config_file_on_another_machine(&err).is_some() => {
+          let key = file_path_to_uri(&file_path).map(|uri| uri.as_str().to_string()).unwrap_or_default();
+          return Ok((file_path.display().to_string(), key));
+        }
+        Err(err) => return Err(err),
       }
     };
     Ok(match config_file {
@@ -2118,7 +2136,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
       Err(err) => {
         // not an error because it's found once the user allows reading it from the other machine
-        if let Some(err) = err.chain().find_map(|err| err.downcast_ref::<ConfigFileOnAnotherMachineError>()) {
+        if let Some(err) = find_config_file_on_another_machine(&err) {
           self.config_find_errors.borrow_mut().remove(dir_path);
           return Ok(DocumentConfig::Failed(self.new_config_file_on_another_machine_failure(err)));
         }
@@ -2573,7 +2591,16 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Loads the config file at the path, which is the global config file for
   /// the root of the directory when it's the global config file (the current
   /// directory when `None`).
+  ///
+  /// IMPORTANT: The path is from the editor (ex. the `configFile` of an
+  /// approval for reading one on another machine), so it errors with a
+  /// `ConfigFileOnAnotherMachineError` before reading it when the user needs
+  /// to allow reading it first, like when it's found for a file. The global
+  /// config file is the user's own.
   fn load_config_file(&self, file_path: &Path, dir_path: Option<&Path>) -> Result<Option<ResolvedConfigPathWithText>> {
+    if self.get_global_config_path().as_deref() != Some(file_path) {
+      ensure_allows_reading_config_file(&self.environment, file_path)?;
+    }
     let config_file = self.scope_container.load_config_file(file_path)?;
     match config_file {
       Some(config_file) if config_file.is_global_config => {
@@ -3378,6 +3405,12 @@ fn get_config_key(config: &ResolvedConfig) -> String {
     true => format!("{}\n{}", key, config.base_path.as_ref().display()),
     false => key,
   }
+}
+
+/// Finds the error for a config file that needs the user to allow reading it
+/// from another machine (see `ensure_allows_reading_config_file`).
+fn find_config_file_on_another_machine(err: &anyhow::Error) -> Option<&ConfigFileOnAnotherMachineError> {
+  err.chain().find_map(|err| err.downcast_ref::<ConfigFileOnAnotherMachineError>())
 }
 
 /// Gets the key of a config file that was found (see `get_config_key`) with

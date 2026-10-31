@@ -2035,6 +2035,78 @@ fn should_approve_reading_a_config_file_on_another_machine() {
   });
 }
 
+#[cfg(windows)]
+#[test]
+fn should_not_read_a_config_file_from_the_editor_on_another_machine_before_it_is_allowed() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_default_config(|c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  environment.mk_dir_all("/src/sub").unwrap();
+  environment.symlink(r"\\server\share\dprint.json", "/src/dprint.json").unwrap();
+  environment.symlink(r"\\server\share\config", "/src/sub/.config").unwrap();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let file_info = client.file_info("/src/file.txt").await;
+        let config_file = file_info.config_file.clone().unwrap();
+        assert_eq!(config_file.uri, uri("/src/dprint.json"));
+        let is_specifier =
+          |approval: &PendingApproval| approval.items.len() == 1 && approval.items[0].specifier.ends_with(r"dprint.json -> \\server\share\dprint.json");
+
+        // the config file the editor was given for it is asked about, without reading it
+        let status = client.config_info("/src/dprint.json").await.status;
+        assert_eq!(status.reason(), Some(NotFormattedReason::ApprovalRequired));
+        assert_eq!(status.approvals().len(), 1);
+        assert!(is_specifier(&status.approvals()[0]));
+        assert_eq!(status.approvals()[0].config_file.uri, uri("/src/dprint.json"));
+        let params = PendingApprovalsParams {
+          config_file: Some(ConfigFileIdentifier {
+            uri: uri("/src/dprint.json"),
+            dir_uri: None,
+          }),
+          work_done_token: None,
+        };
+        let pending = client.backend.dprint_pending_approvals(Some(params), CancellationToken::new()).await.unwrap();
+        assert_eq!(pending.approvals.len(), 1);
+        assert!(is_specifier(&pending.approvals[0]));
+        assert_eq!(pending.status.unwrap().reason(), Some(NotFormattedReason::ApprovalRequired));
+        // which includes one in a `.config` directory on another machine
+        let status = client.config_info("/src/sub/.config/dprint.json").await.status;
+        let specifier = &status.approvals()[0].items[0].specifier;
+        assert!(specifier.ends_with(r"dprint.json -> \\server\share\config\dprint.json"), "{}", specifier);
+        assert_eq!(status.approvals()[0].config_file.dir_uri, uri("/src/sub"));
+        // and its decisions can be forgotten without reading it
+        let params = ForgetDecisionsParams {
+          config_file: Some(ConfigFileIdentifier {
+            uri: uri("/src/dprint.json"),
+            dir_uri: None,
+          }),
+          work_done_token: None,
+        };
+        let forgotten = client.backend.dprint_forget_decisions(Some(params), CancellationToken::new()).await.unwrap();
+        assert!(forgotten.decisions.is_empty());
+        assert_eq!(environment.file_read_count("/src/dprint.json"), 0);
+        assert_eq!(environment.file_read_count("/src/sub/.config/dprint.json"), 0);
+
+        // it's read once it's allowed (the test environment can't read what's on another machine)
+        let approval = client.config_info("/src/dprint.json").await.status.approvals()[0].clone();
+        let params = ApproveParams {
+          id: approval.id,
+          decision: ApprovalDecision::Allow,
+          work_done_token: None,
+        };
+        _ = client.backend.dprint_approve(params, CancellationToken::new()).await;
+        assert!(environment.file_read_count("/src/dprint.json") > 0);
+      }
+      .boxed_local()
+    }
+  });
+}
+
 #[test]
 fn should_approve_what_an_allowed_config_file_extends() {
   const UNTRUSTED_CONFIG_URL: &str = "https://example.com/dprint.json";

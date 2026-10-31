@@ -26,6 +26,7 @@ pub use resolve_main_config_path::DOT_CONFIG_DIR_NAME;
 pub use resolve_main_config_path::DOT_CONFIG_FILE_NAMES;
 pub use resolve_main_config_path::POSSIBLE_CONFIG_FILE_NAMES;
 pub use resolve_main_config_path::ResolvedConfigPathWithText;
+pub use resolve_main_config_path::ensure_allows_reading_config_file;
 pub use resolve_main_config_path::get_default_config_file_in_ancestor_directories;
 pub use resolve_main_config_path::get_dot_config_file_paths;
 pub use resolve_main_config_path::is_dot_config_dir;

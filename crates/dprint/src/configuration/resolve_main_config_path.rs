@@ -346,6 +346,40 @@ pub fn get_default_config_file_in_ancestor_directories(environment: &impl Enviro
   Ok(None)
 }
 
+/// Errors with a `ConfigFileOnAnotherMachineError` when the download policy
+/// doesn't allow reading the config file at a path that didn't come from
+/// looking for it (ex. the uri of one that an editor sent) without asking the
+/// user, like `get_default_config_file_in_ancestor_directories` does for one
+/// it finds. One on the same share as its directory is allowed.
+///
+/// IMPORTANT: It's checked before the config file is read or canonicalized,
+/// and before its directory is canonicalized (ex. to tell whether it's a
+/// `.config` directory), because that contacts the machine.
+pub fn ensure_allows_reading_config_file(environment: &impl Environment, config_path: &Path) -> Result<(), ConfigFileOnAnotherMachineError> {
+  let Some(dir) = config_path.parent() else {
+    return Ok(());
+  };
+  // the directory a config file in a `.config` directory applies to, which is only from
+  // the names because telling whether it's the home directory's canonicalizes it
+  let is_in_dot_config_dir = dir.file_name().is_some_and(|name| name == DOT_CONFIG_DIR_NAME)
+    && config_path
+      .file_name()
+      .and_then(|name| name.to_str())
+      .is_some_and(|name| DOT_CONFIG_FILE_NAMES.contains(&name));
+  let base_dir = match dir.parent() {
+    Some(parent) if is_in_dot_config_dir => parent,
+    _ => dir,
+  };
+  environment
+    .download_policy()
+    .ensure_allows_path(environment, config_path, Some(base_dir))
+    .map_err(|download| ConfigFileOnAnotherMachineError {
+      config_path: config_path.to_path_buf(),
+      dir: base_dir.to_path_buf(),
+      download,
+    })
+}
+
 /// Gets if the directory is a `.config` directory, which is treated as part
 /// of its parent directory (see [`DOT_CONFIG_DIR_NAME`]).
 pub fn is_dot_config_dir(environment: &impl Environment, dir: &Path) -> bool {
