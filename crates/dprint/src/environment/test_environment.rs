@@ -222,6 +222,8 @@ pub struct TestEnvironment {
   failing_file_writes: Arc<Mutex<HashSet<PathBuf>>>,
   /// The files that fail to be deleted (ex. another process has them open).
   failing_file_removes: Arc<Mutex<HashSet<PathBuf>>>,
+  /// The files that fail to be locked (ex. the file system doesn't support it).
+  failing_file_locks: Arc<Mutex<HashSet<PathBuf>>>,
 }
 
 impl TestEnvironment {
@@ -276,6 +278,7 @@ impl TestEnvironment {
       locked_files: Default::default(),
       failing_file_writes: Default::default(),
       failing_file_removes: Default::default(),
+      failing_file_locks: Default::default(),
     };
     env.mk_dir_all("/").unwrap();
     env
@@ -537,6 +540,11 @@ impl TestEnvironment {
   /// Sets whether deleting the file fails.
   pub fn set_file_remove_fails(&self, file_path: impl AsRef<Path>, fails: bool) {
     set_contains(&self.failing_file_removes, self.clean_path(file_path), fails);
+  }
+
+  /// Sets whether locking the file fails (see `Environment::try_lock_file`).
+  pub fn set_file_lock_fails(&self, file_path: impl AsRef<Path>, fails: bool) {
+    set_contains(&self.failing_file_locks, self.clean_path(file_path), fails);
   }
 
   /// Creates a symlink at `link` that points at `original`, which may be
@@ -893,6 +901,9 @@ impl Environment for TestEnvironment {
 
   fn try_lock_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<FileLock>> {
     let file_path = self.clean_path(file_path);
+    if self.failing_file_locks.lock().contains(&file_path) {
+      return Err(io::Error::new(io::ErrorKind::Unsupported, format!("Failed locking '{}'.", file_path.display())));
+    }
     if !self.sys.fs_exists_no_err(&file_path) {
       self.sys.fs_write(&file_path, b"")?;
     }

@@ -16,6 +16,12 @@ use sys_traits::OpenOptions;
 use sys_traits::SystemRandom;
 use sys_traits::ThreadSleep;
 
+/// Gets the temporary path to write a file at before it's renamed to the
+/// path, which replaces the path's extension with 8 random lowercase hex
+/// digits and `.tmp` (ex. `<name>.0a1b2c3d.tmp`).
+///
+/// IMPORTANT: Every version of dprint deletes the stale temporary files of the
+/// session files by this name (see `SessionFile`), so don't change it.
 pub fn get_atomic_path(sys: &impl SystemRandom, path: &Path) -> PathBuf {
   let rand = gen_rand_path_component(sys);
   let extension = format!("{rand}.tmp");

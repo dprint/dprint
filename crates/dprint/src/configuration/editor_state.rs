@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
+use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use anyhow::Context;
@@ -14,11 +16,15 @@ use jsonc_parser::cst::CstRootNode;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde::Serialize;
+use sys_traits::FsMetadata;
+use sys_traits::FsMetadataValue;
 use tokio::sync::Notify;
 
 use crate::environment::Environment;
+use crate::environment::FileLock;
 use crate::resolution::PROCESS_PLUGIN_CONFIG_HASH_VERSION;
 use crate::utils::LaxSingleProcessFsFlag;
+use crate::utils::get_sha256_checksum;
 
 use super::Settings;
 use super::get_init_config_file_text::to_cst_input;
@@ -46,6 +52,18 @@ const PROCESS_PLUGIN_DECISIONS_PROPERTY: &str = "processPluginDecisions";
 /// The most process plugin decisions to remember, where the oldest are
 /// forgotten first, which only means the user is asked again.
 const MAX_PROCESS_PLUGIN_DECISIONS: usize = 5000;
+/// Name of the file next to the approvals file that every writer of it locks
+/// (see `EditorApprovals`).
+const APPROVALS_LOCK_FILE_NAME: &str = ".editor-approvals.lock";
+/// How long a writer of the approvals file waits for its lock before it fails
+/// without writing (see `lock_editor_approvals`).
+const APPROVALS_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a writer of the approvals file waits before it tries to take the
+/// lock again.
+const APPROVALS_LOCK_RETRY_DELAY: Duration = Duration::from_millis(20);
+/// The fingerprint of the approvals file when there's none (see
+/// `ApprovalsFileRead::fingerprint`).
+const NO_APPROVALS_FILE_FINGERPRINT: &str = "none";
 
 /// What the editor integrations remember that's only for convenience.
 ///
@@ -113,10 +131,14 @@ pub struct EditorState {
 ///   can't parse it loses its denials (it asks again about what the user
 ///   always denied) and can't store anything.
 /// - Every writer takes the same lock for the whole read and write of the
-///   file: an exclusive lock of `.editor-approvals.lock` in the file's
-///   directory (see `lock_editor_approvals`). A writer that uses another lock
-///   would race with the others, which could lose an "Always Deny" under an
-///   "Always Allow" written at the same time.
+///   file: an exclusive lock of the whole `.editor-approvals.lock` file in the
+///   file's directory, which is `flock(2)` on Unix and `LockFileEx` on Windows
+///   (std's `File::lock` and `File::try_lock`, see `lock_editor_approvals`).
+///   It never writes without it: one that can't take it in time fails, which
+///   only keeps the decision for the session. A writer that uses another lock
+///   (ex. an `fcntl` lock, which doesn't exclude a `flock` lock on Linux) or
+///   skips it would race with the others, which could lose an "Always Deny"
+///   under an "Always Allow" written at the same time.
 /// - Decisions are only in the top-level arrays whose names end with
 ///   `Decisions` (ex. `processPluginDecisions`), and each one is an object with
 ///   a top-level `configFile` string in the form of `PathSource::display` (ex.
@@ -482,6 +504,12 @@ pub struct SessionPermissionsState {
   /// The stored denials the session saw, so a denial that was stored since
   /// is still told apart from them (see `SessionPermissions`).
   pub seen_stored_denials: Vec<ProcessPluginDecision>,
+  /// The fingerprint of the approvals file the last time the session read it
+  /// (see `ApprovalsFileRead::fingerprint`), which is `None` when it's not
+  /// known (ex. reading it failed). Restoring the state leaves out its allows
+  /// when the file changed since (see `SessionPermissions::restore`).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub approvals_file_fingerprint: Option<String>,
 }
 
 /// The stored denials that the reads of the permissions saw (see
@@ -497,6 +525,9 @@ struct StoredDenialReads {
   /// denial that's stored again is another one (its time is another), so a
   /// read that fails or is out of date doesn't make one look new again.
   denials: HashSet<ProcessPluginDecision>,
+  /// The fingerprint of the approvals file of the last read that was applied,
+  /// which is `None` when it's not known (ex. the last read failed).
+  approvals_file_fingerprint: Option<String>,
 }
 
 /// Where the failures to store what the user always allowed for process
@@ -547,7 +578,13 @@ impl SessionPermissions {
     // only read the decisions when they're used
     let mut process_plugin_decisions = if allow_process_plugins != Some(true) {
       let read_number = self.start_stored_decisions_read();
-      let decisions = match read_editor_approvals(environment) {
+      let read = ApprovalsFileRead::read(environment);
+      let approvals = match &read {
+        Ok(Some(read)) => read.approvals(),
+        Ok(None) => Ok(Default::default()),
+        Err(err) => Err(anyhow::anyhow!("{:#}", err)),
+      };
+      let decisions = match approvals {
         // IMPORTANT: The settings may have a setting of a newer version that the stored allows
         // shouldn't be used with (ex. one that never allows process plugins), so only use the
         // denials, like with a file this version can't read (see `Settings`).
@@ -557,15 +594,25 @@ impl SessionPermissions {
           // IMPORTANT: Don't allow what may not have been allowed, but keep denying
           // what the user denied (ex. the file is from a newer version of dprint).
           self.log_settings_problem(environment, format!("Asking to allow process plugins again in editors. {:#}", err));
-          try_read_editor_approval_denials(environment)
+          match &read {
+            Ok(Some(read)) => read.denials(),
+            Ok(None) => Some(Vec::new()),
+            Err(_) => None,
+          }
         }
       };
       match decisions {
         Some(decisions) => {
-          self.remove_allows_denied_since(read_number, &decisions);
+          let fingerprint = read
+            .ok()
+            .map(|read| read.map_or_else(|| NO_APPROVALS_FILE_FINGERPRINT.to_string(), |read| read.fingerprint));
+          self.remove_allows_denied_since(read_number, &decisions, fingerprint);
           decisions
         }
-        None => Vec::new(),
+        None => {
+          self.forget_approvals_file_fingerprint();
+          Vec::new()
+        }
       }
     } else {
       Vec::new()
@@ -631,16 +678,31 @@ impl SessionPermissions {
       process_plugin_decisions: self.process_plugin_decisions.lock().clone(),
       process_plugin_set_up_grants: self.process_plugin_set_up_grants.lock().clone(),
       seen_stored_denials,
+      approvals_file_fingerprint: self.stored_denial_reads.lock().approvals_file_fingerprint.clone(),
     }
   }
 
   /// Uses what a session decided about process plugins before (ex. what a
   /// server that stopped kept in the session file), which is done before
   /// anything is decided.
-  pub fn restore(&self, state: SessionPermissionsState) {
+  ///
+  /// The allows and set-up grants are left out when the approvals file
+  /// changed since the session last read it, or that isn't known, because a
+  /// stored decision that replaced them may have been removed since (ex. an
+  /// "Always Deny" in another window that was then forgotten while the server
+  /// was stopped), which a server that kept running would have seen. That
+  /// only means the user is asked again. The denials are kept.
+  pub fn restore(&self, environment: &impl Environment, mut state: SessionPermissionsState) {
+    let fingerprint = read_editor_approvals_fingerprint(environment);
+    if state.approvals_file_fingerprint.is_none() || state.approvals_file_fingerprint != fingerprint {
+      state.process_plugin_decisions.retain(|decision| !decision.allowed);
+      state.process_plugin_set_up_grants.clear();
+    }
     *self.process_plugin_decisions.lock() = state.process_plugin_decisions;
     *self.process_plugin_set_up_grants.lock() = state.process_plugin_set_up_grants;
-    self.stored_denial_reads.lock().denials = state.seen_stored_denials.into_iter().collect();
+    let mut reads = self.stored_denial_reads.lock();
+    reads.denials = state.seen_stored_denials.into_iter().collect();
+    reads.approvals_file_fingerprint = fingerprint;
   }
 
   /// Waits until what's in `SessionPermissionsState` changed since the last
@@ -707,8 +769,9 @@ impl SessionPermissions {
   ///
   /// A read that started before one that was already applied is out of date,
   /// so a denial only it has may have been replaced since (ex. the user
-  /// forgot it or always allowed the plugin), which is only remembered.
-  fn remove_allows_denied_since(&self, read_number: u64, stored_decisions: &[ProcessPluginDecision]) {
+  /// forgot it or always allowed the plugin), which is only remembered. The
+  /// fingerprint of the approvals file the read got is kept when it's applied.
+  fn remove_allows_denied_since(&self, read_number: u64, stored_decisions: &[ProcessPluginDecision], approvals_file_fingerprint: Option<String>) {
     let stored_denials = stored_decisions.iter().filter(|decision| !decision.allowed).cloned().collect::<HashSet<_>>();
     let mut reads = self.stored_denial_reads.lock();
     let is_out_of_date = read_number < reads.applied;
@@ -729,12 +792,25 @@ impl SessionPermissions {
         .lock()
         .retain(|grant| !is_denied(&grant.config_file, &grant.plugin));
     }
+    let mut is_changed = false;
     if !is_out_of_date {
       reads.applied = read_number;
+      if reads.approvals_file_fingerprint != approvals_file_fingerprint {
+        reads.approvals_file_fingerprint = approvals_file_fingerprint;
+        is_changed = true;
+      }
     }
     let seen_count = reads.denials.len();
     reads.denials.extend(stored_denials);
-    if reads.denials.len() != seen_count {
+    if is_changed || reads.denials.len() != seen_count {
+      self.changes.notify_one();
+    }
+  }
+
+  /// Forgets the fingerprint of the approvals file after reading it failed,
+  /// so restoring the session's state doesn't use its allows (see `restore`).
+  fn forget_approvals_file_fingerprint(&self) {
+    if self.stored_denial_reads.lock().approvals_file_fingerprint.take().is_some() {
       self.changes.notify_one();
     }
   }
@@ -787,8 +863,11 @@ pub async fn store_process_plugin_decision(environment: &impl Environment, decis
 }
 
 /// Updates the process plugin decisions the user said to always use.
+///
+/// It fails without writing when the approvals file's lock can't be taken
+/// (see `lock_editor_approvals`).
 pub async fn update_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment, update: impl FnOnce(&mut EditorApprovals)) -> Result<()> {
-  let _flag = lock_editor_approvals(environment).await;
+  let _lock = lock_editor_approvals(environment).await?;
   update_editor_approvals_without_lock(environment, update)
 }
 
@@ -800,9 +879,10 @@ pub async fn update_editor_approvals<TEnvironment: Environment>(environment: &TE
 /// config file.
 ///
 /// It fails with `NewerApprovalsFileError` without changing a file that this
-/// version refuses to read when it has decisions to forget.
+/// version refuses to read when it has decisions to forget, and without
+/// changing it when its lock can't be taken (see `lock_editor_approvals`).
 pub async fn forget_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment, is_config_file: impl Fn(&str) -> bool) -> Result<()> {
-  let _flag = lock_editor_approvals(environment).await;
+  let _lock = lock_editor_approvals(environment).await?;
   let Some(file_path) = get_editor_approvals_file_path(environment) else {
     return Ok(());
   };
@@ -830,16 +910,20 @@ pub async fn forget_editor_approvals<TEnvironment: Environment>(environment: &TE
 /// fails when the file can't be read, doesn't parse, or is from a version of
 /// dprint that this version can't use (`NewerApprovalsFileError`).
 pub fn read_editor_approvals(environment: &impl Environment) -> Result<EditorApprovals> {
-  let Some(file_path) = get_editor_approvals_file_path(environment) else {
-    return Ok(Default::default());
-  };
-  let Some((_, file)) = read_approvals_file(environment, &file_path)? else {
-    return Ok(Default::default());
-  };
-  file.ensure_readable(&file_path)?;
-  Ok(EditorApprovals {
-    process_plugin_decisions: file.process_plugin_decisions.into_iter().filter_map(parse_process_plugin_decision).collect(),
-  })
+  match ApprovalsFileRead::read(environment)? {
+    Some(read) => read.approvals(),
+    None => Ok(Default::default()),
+  }
+}
+
+/// Reads the fingerprint of the approvals file (see
+/// `ApprovalsFileRead::fingerprint`), which is `None` when it can't be read.
+pub fn read_editor_approvals_fingerprint(environment: &impl Environment) -> Option<String> {
+  match ApprovalsFileRead::read(environment) {
+    Ok(Some(read)) => Some(read.fingerprint),
+    Ok(None) => Some(NO_APPROVALS_FILE_FINGERPRINT.to_string()),
+    Err(_) => None,
+  }
 }
 
 /// Reads the decisions that denied a process plugin from a file that can't be
@@ -853,22 +937,11 @@ pub(crate) fn read_editor_approval_denials(environment: &impl Environment) -> Ve
 /// Reads the denials like `read_editor_approval_denials`, which is `None`
 /// when the file can't be read or doesn't parse.
 fn try_read_editor_approval_denials(environment: &impl Environment) -> Option<Vec<ProcessPluginDecision>> {
-  let Some(file_path) = get_editor_approvals_file_path(environment) else {
-    return Some(Vec::new());
-  };
-  let Ok(read_result) = read_approvals_file(environment, &file_path) else {
-    return None;
-  };
-  let Some((_, file)) = read_result else {
-    return Some(Vec::new());
-  };
-  let decisions = file
-    .process_plugin_decisions
-    .into_iter()
-    // a decision that's in another format is left out
-    .filter_map(parse_process_plugin_decision)
-    .collect::<Vec<_>>();
-  Some(get_unreplaced_denials(&decisions))
+  match ApprovalsFileRead::read(environment) {
+    Ok(Some(read)) => read.denials(),
+    Ok(None) => Some(Vec::new()),
+    Err(_) => None,
+  }
 }
 
 /// Gets the stored decisions that deny a process plugin, apart from the ones
@@ -968,18 +1041,13 @@ fn edit_editor_approvals(
 /// next to the file instead of in the cache directory so that each dprint
 /// that uses the file uses it, even with another cache directory (ex.
 /// `DPRINT_CACHE_DIR`).
-async fn lock_editor_approvals<TEnvironment: Environment>(environment: &TEnvironment) -> LaxSingleProcessFsFlag<TEnvironment> {
-  let lock_dir = match get_editor_approvals_file_path(environment).as_deref().and_then(|file_path| file_path.parent()) {
-    Some(dir_path) => dir_path.to_path_buf(),
-    None => environment.get_cache_dir().join("locks"),
-  };
-  let _ignore = environment.mk_dir_all(&lock_dir);
-  LaxSingleProcessFsFlag::lock(
-    environment,
-    lock_dir.join(".editor-approvals.lock"),
-    "Waiting for file lock for the editor approvals...",
-  )
-  .await
+///
+/// IMPORTANT: Every version of dprint takes this lock and never writes the
+/// file without it (see `EditorApprovals`), so this fails when it can't be
+/// taken within `APPROVALS_LOCK_TIMEOUT` (ex. another process holds it) or at
+/// all (ex. the file system doesn't support it), and the caller doesn't write.
+async fn lock_editor_approvals(environment: &impl Environment) -> Result<FileLock> {
+  lock_editor_approvals_within(environment, APPROVALS_LOCK_TIMEOUT).await
 }
 
 pub(crate) fn get_editor_approvals_file_path(environment: &impl Environment) -> Option<PathBuf> {
@@ -1110,6 +1178,129 @@ impl ApprovalsFile {
         value => std::slice::from_ref(value),
       });
     self.process_plugin_decisions.iter().chain(other_decisions)
+  }
+}
+
+/// A read of the approvals file, which what's parsed from it and its
+/// fingerprint are from.
+struct ApprovalsFileRead {
+  file_path: PathBuf,
+  /// The text of the file, which is `None` when there's no file.
+  text: Option<String>,
+  /// What identifies this version of the file, which is its modification time
+  /// in nanoseconds since the Unix epoch and the SHA-256 checksum of its text
+  /// (`<nanoseconds>:<checksum>`), or `none` when there's no file. The time
+  /// tells apart a file that was changed and changed back (ex. a decision that
+  /// was stored and forgotten). It's only compared with fingerprints from the
+  /// same machine.
+  fingerprint: String,
+}
+
+impl ApprovalsFileRead {
+  /// Reads the approvals file, which is `None` when there's no settings
+  /// directory for it.
+  fn read(environment: &impl Environment) -> std::io::Result<Option<Self>> {
+    let Some(file_path) = get_editor_approvals_file_path(environment) else {
+      return Ok(None);
+    };
+    // the time is read before the text, so a change in between makes the fingerprint not match a later one
+    let modified = environment.fs_metadata(&file_path).and_then(|metadata| metadata.modified()).ok();
+    let text = environment.maybe_read_file(&file_path)?;
+    let fingerprint = match &text {
+      Some(text) => format!("{}:{}", get_unix_nanos(modified), get_sha256_checksum(text.as_bytes())),
+      None => NO_APPROVALS_FILE_FINGERPRINT.to_string(),
+    };
+    Ok(Some(Self { file_path, text, fingerprint }))
+  }
+
+  /// Gets the decisions of the file, which fails when it doesn't parse or is
+  /// from a version of dprint that this version can't use.
+  fn approvals(&self) -> Result<EditorApprovals> {
+    let Some(file) = self.parse()? else {
+      return Ok(Default::default());
+    };
+    file.ensure_readable(&self.file_path)?;
+    Ok(EditorApprovals {
+      process_plugin_decisions: file.process_plugin_decisions.into_iter().filter_map(parse_process_plugin_decision).collect(),
+    })
+  }
+
+  /// Gets the decisions that deny a process plugin like
+  /// `read_editor_approval_denials`, which is `None` when the file doesn't
+  /// parse.
+  fn denials(&self) -> Option<Vec<ProcessPluginDecision>> {
+    let Ok(file) = self.parse() else {
+      return None;
+    };
+    let decisions = file
+      .map(|file| file.process_plugin_decisions)
+      .unwrap_or_default()
+      .into_iter()
+      // a decision that's in another format is left out
+      .filter_map(parse_process_plugin_decision)
+      .collect::<Vec<_>>();
+    Some(get_unreplaced_denials(&decisions))
+  }
+
+  fn parse(&self) -> Result<Option<ApprovalsFile>> {
+    let Some(text) = &self.text else {
+      return Ok(None);
+    };
+    let file = ApprovalsFile::parse(text).with_context(|| format!("Failed parsing {}.", self.file_path.display()))?;
+    Ok(Some(file))
+  }
+}
+
+/// Takes the lock of the approvals file like `lock_editor_approvals`, which
+/// fails when it can't be taken within the timeout.
+async fn lock_editor_approvals_within(environment: &impl Environment, timeout: Duration) -> Result<FileLock> {
+  let lock_path = get_editor_approvals_lock_path(environment);
+  if let Some(dir_path) = lock_path.parent() {
+    environment
+      .mk_dir_all(dir_path)
+      .with_context(|| format!("Failed creating {}.", dir_path.display()))?;
+  }
+  let start = std::time::Instant::now();
+  let mut progress = None;
+  loop {
+    match environment.try_lock_file(&lock_path) {
+      Ok(Some(lock)) => return Ok(lock),
+      Ok(None) => {}
+      Err(err) => return Err(err).with_context(|| format!("Failed locking {}.", lock_path.display())),
+    }
+    let elapsed = start.elapsed();
+    if elapsed >= timeout {
+      bail!("Timed out waiting for another dprint process to release the lock {}.", lock_path.display());
+    }
+    if progress.is_none() && elapsed >= Duration::from_secs(1) {
+      progress = environment.progress_bars().map(|progress_bars| {
+        progress_bars.add_progress(
+          "Waiting for file lock for the editor approvals...".to_string(),
+          crate::utils::ProgressBarStyle::Action,
+          1,
+        )
+      });
+    }
+    tokio::time::sleep(APPROVALS_LOCK_RETRY_DELAY).await;
+  }
+}
+
+/// Gets the path of the lock of the approvals file (see `EditorApprovals`).
+fn get_editor_approvals_lock_path(environment: &impl Environment) -> PathBuf {
+  let lock_dir = match get_editor_approvals_file_path(environment).as_deref().and_then(|file_path| file_path.parent()) {
+    Some(dir_path) => dir_path.to_path_buf(),
+    None => environment.get_cache_dir().join("locks"),
+  };
+  lock_dir.join(APPROVALS_LOCK_FILE_NAME)
+}
+
+/// Gets a time in nanoseconds since the Unix epoch, which is negative before
+/// it and empty when it's not known.
+fn get_unix_nanos(time: Option<SystemTime>) -> String {
+  match time.map(|time| time.duration_since(UNIX_EPOCH)) {
+    Some(Ok(duration)) => duration.as_nanos().to_string(),
+    Some(Err(err)) => format!("-{}", err.duration().as_nanos()),
+    None => String::new(),
   }
 }
 
@@ -1663,6 +1854,95 @@ mod test {
   }
 
   #[test]
+  fn should_only_restore_the_allows_of_a_session_when_the_approvals_file_did_not_change() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    environment.set_fs_time(1);
+    update_editor_approvals_without_lock(&environment, |approvals| {
+      approvals.add_process_plugin_decision(decision("/b/dprint.json", "1:b", true))
+    })
+    .unwrap();
+    let session_permissions = SessionPermissions::default();
+    session_permissions.read(&environment);
+    session_permissions.add_process_plugin_decision(decision("/a/dprint.json", "1:a", true));
+    session_permissions.add_process_plugin_decision(decision("/c/dprint.json", "1:c", false));
+    session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant {
+      config_file: "/d/dprint.json".to_string(),
+      plugin: "plugin".to_string(),
+      trusted_config_hash: "hash".to_string(),
+      unpinned_file_checksum: None,
+      always: false,
+      decided_at: 0,
+    });
+    let state = session_permissions.state();
+    assert!(state.approvals_file_fingerprint.is_some());
+    let restore = |state: SessionPermissionsState| {
+      let restored = SessionPermissions::default();
+      restored.restore(&environment, state);
+      restored
+    };
+
+    // the file didn't change, so it's like the server never stopped
+    let restored = restore(state.clone());
+    let permissions = restored.read(&environment);
+    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(permissions.may_set_up_process_plugin("/d/dprint.json", "plugin", "hash", None));
+
+    // ex. an "Always Deny" was stored and forgotten in another window while the server was stopped,
+    // which leaves the same text
+    let text = environment.read_file(get_editor_approvals_file_path(&environment).unwrap()).unwrap();
+    environment.set_fs_time(2);
+    environment.write_file(get_editor_approvals_file_path(&environment).unwrap(), &text).unwrap();
+    let restored = restore(state.clone());
+    let permissions = restored.read(&environment);
+    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(!permissions.may_set_up_process_plugin("/d/dprint.json", "plugin", "hash", None));
+    // but the denials are kept
+    assert!(permissions.is_process_plugin_denied(&approval("/c/dprint.json", "1:c")));
+    // and the stored allows are still used
+    assert!(permissions.is_process_plugin_allowed(&approval("/b/dprint.json", "1:b")));
+    // which is what the session file keeps from now on
+    assert_eq!(restored.state().approvals_file_fingerprint, read_editor_approvals_fingerprint(&environment));
+
+    // and so is a session whose fingerprint isn't known (ex. reading the file failed)
+    let restored = restore(SessionPermissionsState {
+      approvals_file_fingerprint: None,
+      ..session_permissions.state()
+    });
+    assert!(!restored.read(&environment).is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+  }
+
+  #[test]
+  fn should_not_write_the_approvals_file_without_its_lock() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    environment.clone().run_in_runtime(async move {
+      let lock_path = get_editor_approvals_lock_path(&environment);
+      // ex. another process holds it
+      let other_lock = environment.try_lock_file(&lock_path).unwrap().unwrap();
+      let err = lock_editor_approvals_within(&environment, Duration::from_millis(50)).await.unwrap_err();
+      assert!(err.to_string().starts_with("Timed out waiting for another dprint process"), "{}", err);
+      drop(other_lock);
+      assert!(lock_editor_approvals_within(&environment, Duration::from_millis(50)).await.is_ok());
+
+      // ex. the file system doesn't support locks
+      environment.set_file_lock_fails(&lock_path, true);
+      let err = store_process_plugin_decision(&environment, decision("/a/dprint.json", "1:a", true))
+        .await
+        .unwrap_err();
+      assert!(format!("{:#}", err).starts_with("Failed locking"), "{:#}", err);
+      assert!(!environment.path_exists(get_editor_approvals_file_path(&environment).unwrap()));
+      environment.set_file_lock_fails(&lock_path, false);
+      store_process_plugin_decision(&environment, decision("/a/dprint.json", "1:a", true))
+        .await
+        .unwrap();
+      environment.set_file_lock_fails(&lock_path, true);
+      assert!(forget_editor_approvals(&environment, |_| true).await.is_err());
+      assert_eq!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.len(), 1);
+    });
+  }
+
+  #[test]
   fn should_keep_the_stored_denials_the_session_saw_when_its_state_is_restored() {
     let environment = TestEnvironment::new();
     require_approval(&environment);
@@ -1687,15 +1967,18 @@ mod test {
 
     // ex. a server that was started again for the session
     let restored = SessionPermissions::default();
-    restored.restore(state.clone());
+    restored.restore(&environment, state.clone());
     assert!(restored.read(&environment).is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     assert_eq!(restored.state(), state);
     // the denial would otherwise look like it was stored since
     let restored = SessionPermissions::default();
-    restored.restore(SessionPermissionsState {
-      seen_stored_denials: Vec::new(),
-      ..state
-    });
+    restored.restore(
+      &environment,
+      SessionPermissionsState {
+        seen_stored_denials: Vec::new(),
+        ..state
+      },
+    );
     assert!(!restored.read(&environment).is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
   }
 
@@ -2318,13 +2601,13 @@ mod test {
     // a read that started first finishes after one that started later, which saw that the denial was forgotten
     let out_of_date_read = session_permissions.start_stored_decisions_read();
     let read = session_permissions.start_stored_decisions_read();
-    session_permissions.remove_allows_denied_since(read, &[]);
-    session_permissions.remove_allows_denied_since(out_of_date_read, std::slice::from_ref(&denial));
+    session_permissions.remove_allows_denied_since(read, &[], None);
+    session_permissions.remove_allows_denied_since(out_of_date_read, std::slice::from_ref(&denial), None);
     assert_eq!(session_permissions.session_process_plugin_decisions(), vec![session_allow.clone()]);
     // but a denial that's stored again is another one
     let read = session_permissions.start_stored_decisions_read();
     let stored_again = ProcessPluginDecision { decided_at: 12, ..denial };
-    session_permissions.remove_allows_denied_since(read, &[stored_again]);
+    session_permissions.remove_allows_denied_since(read, &[stored_again], None);
     assert_eq!(session_permissions.session_process_plugin_decisions(), Vec::new());
   }
 

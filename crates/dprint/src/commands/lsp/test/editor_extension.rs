@@ -3435,7 +3435,7 @@ fn should_delete_the_session_file_when_the_client_stops_the_server() {
         client.approve(&approval.id, ApprovalDecision::Deny).await;
         // it's kept before the decision is responded to
         let text = environment.read_file(get_session_file_path(&environment, SESSION_ID)).unwrap();
-        assert!(text.contains(&approval.id), "{}", text);
+        assert!(text.contains(UNTRUSTED_PLUGIN_URL), "{}", text);
       }
       .boxed_local()
     }
@@ -3599,36 +3599,86 @@ fn should_not_keep_what_was_forgotten_in_a_session_file_that_failed_to_be_writte
 }
 
 #[test]
-fn should_not_use_the_session_file_of_a_session_id_another_server_uses() {
-  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+fn should_take_over_the_session_file_of_a_session_id_another_server_used() {
+  const FIRST_URL: &str = "https://example.com/first/test-plugin.wasm";
+  const SECOND_URL: &str = "https://example.com/second/test-plugin.wasm";
+  const OTHER_URL: &str = "https://example.com/other/test-plugin.wasm";
   let environment = TestEnvironmentBuilder::new()
-    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
-    .with_local_config("/dprint.json", |c| {
-      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    .add_remote_wasm_plugin_at_url(FIRST_URL)
+    .add_remote_wasm_plugin_at_url(SECOND_URL)
+    .with_local_config("/first/dprint.json", |c| {
+      c.add_plugin(FIRST_URL);
+    })
+    .with_local_config("/second/dprint.json", |c| {
+      c.add_plugin(SECOND_URL);
     })
     .build();
-  // ex. the editor extension gave the server of another executable the same id
+  // ex. the previous server of the session hasn't exited yet, which allowed a download
   let session_file_path = get_session_file_path(&environment, SESSION_ID);
   environment.mk_dir_all(session_file_path.parent().unwrap()).unwrap();
   let other_server_lock = environment.try_lock_file(session_file_path.with_extension("lock")).unwrap().unwrap();
+  let other_text = format!(
+    r#"{{ "version": 1, "allowedDownloads": [{{ "download": "{}" }}], "deniedDownloads": [] }}"#,
+    OTHER_URL
+  );
+  environment.write_file(&session_file_path, &other_text).unwrap();
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let messages = client.test_client.take_messages();
+        assert!(
+          messages
+            .iter()
+            .any(|(_, message)| message.contains("Not keeping what's decided for the session") && message.contains("which it keeps trying")),
+          "{:?}",
+          messages
+        );
+        // what the other server allowed isn't used
+        assert!(!client.decisions().await.iter().any(|decision| decision.specifiers == vec![OTHER_URL]));
+        let deny = |config_file: &'static str| {
+          let client = &client;
+          async move {
+            let approval = client.config_info(config_file).await.status.approvals()[0].clone();
+            client
+              .backend
+              .dprint_approve(
+                ApproveParams {
+                  id: approval.id,
+                  decision: ApprovalDecision::Deny,
+                  work_done_token: None,
+                },
+                CancellationToken::new(),
+              )
+              .await
+              .unwrap()
+          }
+        };
+        // the user is told the decision isn't kept, and the other server's file isn't changed
+        let notice = deny("/first/dprint.json").await.notice.unwrap();
+        assert!(notice.message.contains("won't be kept if dprint restarts"), "{}", notice.message);
+        assert_eq!(environment.read_file(&session_file_path).unwrap(), other_text);
+
+        // ex. the other server exited without deleting its file
+        drop(other_server_lock);
+        assert_eq!(deny("/second/dprint.json").await.notice, None);
+        // so this server's decisions replace the other server's
+        let text = environment.read_file(&session_file_path).unwrap();
+        assert!(text.contains(FIRST_URL) && text.contains(SECOND_URL), "{}", text);
+        assert!(!text.contains(OTHER_URL), "{}", text);
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+  // and a server started again for the session uses them
   run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
     async move {
-      let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
-      assert!(client.approve(&approval.id, ApprovalDecision::Deny).await[0].denied);
-      let messages = client.test_client.take_messages();
-      assert!(
-        messages
-          .iter()
-          .any(|(_, message)| message.contains("because another dprint language server that's running uses it")),
-        "{:?}",
-        messages
-      );
+      assert!(client.config_info("/first/dprint.json").await.status.approvals()[0].denied);
+      assert!(client.config_info("/second/dprint.json").await.status.approvals()[0].denied);
     }
     .boxed_local()
   });
-  // so it doesn't overwrite what that server decided
-  assert!(!environment.path_exists(&session_file_path));
-  drop(other_server_lock);
 }
 
 /// An editor extension using the `dprint/*` methods.

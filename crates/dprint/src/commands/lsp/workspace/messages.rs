@@ -49,10 +49,11 @@ pub struct ClientExperimentalCapability {
   /// ignored (see `SUPPORTED_FEATURES`).
   #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
   pub features: serde_json::Map<String, serde_json::Value>,
-  /// The id of the client's session (ex. a random one for each editor
-  /// window), which keeps what the user decides for the session when the
-  /// server is started again with it. It's only used when it's a valid
-  /// string (see `is_valid_session_id`).
+  /// The id of the server's session, which is unique to the server process
+  /// (ex. a random one for each `dprint` executable of each editor window) and
+  /// keeps what the user decides for the session when the same server is
+  /// started again with it. It's only used when it's a valid string (see
+  /// `is_valid_session_id`).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub session_id: Option<serde_json::Value>,
 }
@@ -580,6 +581,10 @@ pub struct PendingApproval {
 }
 
 /// Something that's downloaded or run.
+///
+/// It's also kept in the session file (see `SessionFile`), where another
+/// version of dprint may read it, so a change to it is a change to that
+/// format too.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalItem {

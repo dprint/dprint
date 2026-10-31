@@ -552,6 +552,30 @@ mod test {
   }
 
   #[test]
+  fn should_use_decision_for_session_when_the_lock_of_the_approvals_file_fails() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let approvals_file_path = get_editor_approvals_file_path(&environment).unwrap();
+    // ex. the file system doesn't support locks, so it's never written without one
+    environment.set_file_lock_fails(approvals_file_path.with_file_name(".editor-approvals.lock"), true);
+    let session_permissions = SessionPermissions::default();
+
+    environment.clone().run_in_runtime(async move {
+      let err = store_process_plugin_action(
+        &environment,
+        &session_permissions,
+        &unapproved(Some(approval())),
+        Some(ALWAYS_ALLOW_ACTION_TITLE),
+      )
+      .await
+      .unwrap_err();
+      assert!(get_process_plugin_store_error_message(&err).contains("Failed locking"), "{:#}", err);
+      assert!(!environment.path_exists(&approvals_file_path));
+      assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
+    });
+  }
+
+  #[test]
   fn should_only_allow_setting_up_a_plugin_for_the_session_when_storing_the_decision_fails() {
     const OTHER_PLUGIN: &str = "https://plugins.dprint.dev/other.json@checksum";
     let environment = TestEnvironment::new();

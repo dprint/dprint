@@ -153,10 +153,11 @@ use self::messages::ShowPolicy;
 use self::session_file::AllowedDownload;
 use self::session_file::DeniedDownload;
 use self::session_file::SESSION_FILE_CHECK_INTERVAL;
+use self::session_file::SESSION_LOCK_RETRY_INTERVAL;
 use self::session_file::SessionFile;
-use self::session_file::SessionFileOpenError;
+use self::session_file::SessionFileWriteError;
+use self::session_file::SessionLockError;
 use self::session_file::SessionState;
-use self::session_file::StaleSessionFileError;
 use self::session_file::remove_stale_session_files;
 
 /// The error for approving what isn't pending anymore (ex. what needs to be
@@ -588,42 +589,50 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Keeps what the user decides for the session in the session file of the
   /// session id the client provided, which has what was decided before when a
   /// server of the same session stopped without the session ending (ex. it
-  /// crashed). It's only used when the id is valid and no other server that's
-  /// running uses it, which is logged otherwise. The session files that
-  /// weren't written for a while are deleted too.
+  /// crashed). It's only used when the id is valid, which is logged
+  /// otherwise.
+  ///
+  /// It's only used once the server holds the session's lock. When another
+  /// server that's running holds it, or taking it fails, that's logged, what
+  /// the other server kept isn't used, and the lock is tried again until it's
+  /// taken (see `keep_session_file`). The session files that weren't written
+  /// for a while are deleted too.
   pub fn use_session(self: &Rc<Self>, session_id: Option<&serde_json::Value>) {
     let session_file = session_id.and_then(|session_id| {
-      let result = match session_id.as_str() {
-        Some(session_id_text) => SessionFile::open(&self.environment, session_id_text),
-        None => Err(SessionFileOpenError::InvalidId),
-      };
-      match result {
-        Ok(session_file) => Some(session_file),
-        Err(SessionFileOpenError::InvalidId) => {
-          log_warn!(
-            self.environment,
-            "Ignoring the session id {} because it isn't a string of 16 to 128 letters, digits, underscores, and hyphens, so what's decided for the session is lost when the server stops.",
-            session_id
-          );
-          None
-        }
-        Err(SessionFileOpenError::InUse) => {
-          log_warn!(
-            self.environment,
-            "Ignoring the session id {} because another dprint language server that's running uses it, so what's decided for the session is lost when the server stops. The editor extension needs to give each server its own session id.",
-            session_id
-          );
-          None
-        }
+      let session_file = session_id.as_str().and_then(|session_id| SessionFile::new(&self.environment, session_id));
+      if session_file.is_none() {
+        log_warn!(
+          self.environment,
+          "Ignoring the session id {} because it isn't a string of 16 to 128 letters, digits, underscores, and hyphens, so what's decided for the session is lost when the server stops.",
+          session_id
+        );
       }
+      session_file.map(|session_file| (session_id, session_file))
     });
-    if let Some(session_file) = session_file {
+    if let Some((session_id, session_file)) = session_file {
       let session_file = Rc::new(session_file);
-      if let Some(state) = session_file.read(&self.environment) {
-        self.restore_session_state(state);
-        // so it isn't stale
-        if let Err(err) = session_file.write(&self.environment, &self.get_session_state(), true) {
-          log_warn!(self.environment, "{}", err);
+      match session_file.lock(&self.environment) {
+        Ok(()) => {
+          if let Some(state) = session_file.read(&self.environment) {
+            self.restore_session_state(state);
+            // so it isn't stale
+            if let Err(err) = session_file.write(&self.environment, &self.get_session_state(), true) {
+              log_warn!(self.environment, "{}", err);
+            }
+          }
+        }
+        Err(err) => {
+          let reason = match err {
+            SessionLockError::InUse => "another dprint language server that's running holds it".to_string(),
+            SessionLockError::Failed(err) => format!("{:#}", err),
+          };
+          log_warn!(
+            self.environment,
+            "Not keeping what's decided for the session {} for now because its lock {} couldn't be taken ({}), so it's lost if the server stops before this server takes the lock, which it keeps trying. The editor extension needs to give each server its own session id, and start a server again for a session only once the previous one exited.",
+            session_id,
+            session_file.lock_path().display(),
+            reason
+          );
         }
       }
       *self.session_file.borrow_mut() = Some(session_file);
@@ -1447,6 +1456,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             DeniedDownload {
               id: stored.approval.id.clone(),
               config_key: stored.config_key.clone(),
+              downloads: urls.clone(),
               config_file: ConfigFileIdentifier {
                 uri: stored.approval.config_file.uri.clone(),
                 dir_uri: Some(stored.approval.config_file.dir_uri.clone()),
@@ -2646,7 +2656,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// plugins changes (ex. a plugin the user allowed was set up, or a denial
   /// stored elsewhere replaced an allow), and again when it needs to be so
   /// that it isn't stale while the session lasts or after a write failed (see
-  /// `SessionFile::needs_refresh`). It stops once the server shuts down.
+  /// `SessionFile::needs_refresh`). Until the server holds the session's
+  /// lock, it tries to take it every `SESSION_LOCK_RETRY_INTERVAL`, which
+  /// writes the file once it does. It stops once the server shuts down.
   fn keep_session_file(self: &Rc<Self>) {
     let workspace = Rc::downgrade(self);
     let session_permissions = self.session_permissions.clone();
@@ -2656,10 +2668,18 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       let mut checks = tokio::time::interval_at(tokio::time::Instant::now() + SESSION_FILE_CHECK_INTERVAL, SESSION_FILE_CHECK_INTERVAL);
       checks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
       loop {
+        let Some(is_locked) = workspace
+          .upgrade()
+          .map(|workspace| workspace.session_file.borrow().as_ref().is_some_and(|file| file.is_locked()))
+        else {
+          return;
+        };
         let is_check = tokio::select! {
           _ = stopped.cancelled() => return,
           _ = session_permissions.changed() => false,
           _ = checks.tick() => true,
+          // writing tries to take the lock
+          _ = tokio::time::sleep(SESSION_LOCK_RETRY_INTERVAL), if !is_locked => false,
         };
         let Some(workspace) = workspace.upgrade() else {
           return;
@@ -2671,17 +2691,21 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         if is_check && !session_file.needs_refresh(&workspace.environment) {
           continue;
         }
-        if let Err(err) = session_file.write(&workspace.environment, &workspace.get_session_state(), is_check) {
-          log_warn!(workspace.environment, "{}", err);
+        match session_file.write(&workspace.environment, &workspace.get_session_state(), is_check) {
+          Ok(()) => {}
+          // it was logged when the session started
+          Err(SessionFileWriteError::NotKept { .. }) => {}
+          Err(err) => log_warn!(workspace.environment, "{}", err),
         }
       }
     });
   }
 
   /// Writes what the user decided for the session to the session file when
-  /// it changed and there's one, which errors when the file may have what was
-  /// decided before (see `SessionFile::write`).
-  fn save_session(&self) -> Result<(), StaleSessionFileError> {
+  /// it changed and there's one, which errors when it may not be what a
+  /// server that's started again for the session uses (see
+  /// `SessionFile::write`).
+  fn save_session(&self) -> Result<(), SessionFileWriteError> {
     let session_file = self.session_file.borrow().clone();
     match session_file {
       Some(session_file) => session_file.write(&self.environment, &self.get_session_state(), false),
@@ -2712,7 +2736,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Uses what the user decided for the session in a server that stopped.
   fn restore_session_state(&self, state: SessionState) {
-    self.session_permissions.restore(state.permissions);
+    self.session_permissions.restore(&self.environment, state.permissions);
     let downloads = state.allowed_downloads.iter().map(|allowed| allowed.download.clone()).collect::<Vec<_>>();
     self.environment.download_policy().allow(&downloads);
     self.allowed_download_items.borrow_mut().extend(
@@ -2721,10 +2745,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         .into_iter()
         .filter_map(|allowed| Some((allowed.download, allowed.item?))),
     );
-    self
-      .denied_downloads
-      .borrow_mut()
-      .extend(state.denied_downloads.into_iter().map(|denied| (denied.id.clone(), denied)));
+    // the ids are made again because another version of dprint may make them another way
+    self.denied_downloads.borrow_mut().extend(state.denied_downloads.into_iter().map(|denied| {
+      let id = get_approval_id("download", &denied.config_key, &denied.downloads);
+      (id.clone(), DeniedDownload { id, ..denied })
+    }));
   }
 
   /// Forgets a config file that was deleted, which isn't resolved again.
@@ -3982,8 +4007,9 @@ mod test {
 
   #[test]
   fn should_not_change_the_approval_ids() {
-    // IMPORTANT: The editor extensions send a decision again for the same id
-    // after the server restarts, so increase APPROVAL_ID_VERSION when these change.
+    // IMPORTANT: An id is the same in another server of the same version (ex. a
+    // decision for an id of the server that exited applies in the one started
+    // again for the session), so increase APPROVAL_ID_VERSION when these change.
     let plugin = |config_hash: Option<Option<&str>>| UnapprovedProcessPlugin {
       plugin: "https://plugins.dprint.dev/exec-0.5.0.json@checksum".to_string(),
       registry: None,
