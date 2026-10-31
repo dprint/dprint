@@ -1,9 +1,9 @@
-use crate::formatting::actions;
 use crate::formatting::condition_helpers;
 
 use super::super::Arena;
 use super::super::conditions;
 use super::super::print_items::*;
+use super::InfoRegion;
 
 pub fn surround_with_new_lines(item: PrintItems<'_>) -> PrintItems<'_> {
   if item.is_empty() {
@@ -190,11 +190,10 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems<'_>
   let end_ln = LineNumber::new("surroundWithNewLinesIndentedIfMultiLineEnd");
   let inner_items = inner_items.into_rc_path();
 
+  let region = InfoRegion::new(arena);
+  region.add(end_ln);
   items.push_info(start_ln);
-  items.push_anchor(LineNumberAnchor::new(end_ln));
-  items.extend(actions::if_column_number_changes(arena, move |context| {
-    context.clear_info(end_ln);
-  }));
+  items.extend(region.gen_start(arena));
   let mut condition = Condition::new(
     "newlineIfMultiLine",
     ConditionProperties {
