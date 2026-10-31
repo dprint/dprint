@@ -543,10 +543,12 @@ impl<'a> Printer<'a> {
 
       // Do not re-evaluate the condition if it's flipped back and forth a decent number of times.
       // If it hits the max number of times it can flip then an error will be logged.
-      let should_reevaluate =
-        self
-          .infinite_reevaluation_protector
-          .should_reevaluate(condition_reevaluation.condition_reevaluation_id, latest_condition_value, past_condition_value);
+      let should_reevaluate = self.infinite_reevaluation_protector.should_reevaluate(
+        condition_reevaluation.condition_reevaluation_id,
+        condition.name(),
+        latest_condition_value,
+        past_condition_value,
+      );
       if should_reevaluate {
         if let Some(latest_condition_value) = latest_condition_value {
           if latest_condition_value != past_condition_value {
