@@ -178,6 +178,9 @@ pub struct TestEnvironment {
   canonicalize_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// Number of times each file was opened (ex. to read its shebang line).
   file_open_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
+  /// Number of times each path was looked up following its symlinks (ex.
+  /// `path_exists` or `fs_metadata`).
+  stat_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// How many times the kind of a path was gotten (see `Environment::path_kind`).
   path_kind_count: Arc<Mutex<usize>>,
   /// The directories that are the roots of an automounter's file system (see
@@ -253,6 +256,7 @@ impl TestEnvironment {
       file_read_counts: Default::default(),
       canonicalize_counts: Default::default(),
       file_open_counts: Default::default(),
+      stat_counts: Default::default(),
       path_kind_count: Default::default(),
       automount_dirs: Default::default(),
       automount_points: Default::default(),
@@ -368,6 +372,13 @@ impl TestEnvironment {
   /// Gets the number of times the file was read, whether or not it existed.
   pub fn file_read_count(&self, path: impl AsRef<Path>) -> usize {
     self.file_read_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
+  }
+
+  /// Gets the number of times the path was looked up following its symlinks
+  /// (ex. `path_exists` or `fs_metadata`), which reaches another machine on a
+  /// real file system when it's a symlink to one.
+  pub fn stat_count(&self, path: impl AsRef<Path>) -> usize {
+    self.stat_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
   }
 
   /// Gets the number of times the file was opened (ex. to read its shebang
@@ -690,6 +701,7 @@ impl BaseFsMetadata for TestEnvironment {
   type Metadata = sys_traits::impls::InMemoryMetadata;
 
   fn base_fs_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    *self.stat_counts.lock().entry(self.clean_path(path)).or_default() += 1;
     (*self.sys).base_fs_metadata(path)
   }
 
@@ -937,11 +949,13 @@ impl Environment for TestEnvironment {
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
     let path = self.clean_path(file_path);
+    *self.stat_counts.lock().entry(path.clone()).or_default() += 1;
     self.sys.fs_exists_no_err(path)
   }
 
   fn path_is_file(&self, file_path: impl AsRef<Path>) -> bool {
     let path = self.clean_path(file_path);
+    *self.stat_counts.lock().entry(path.clone()).or_default() += 1;
     self.sys.fs_is_file_no_err(path)
   }
 

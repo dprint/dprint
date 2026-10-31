@@ -189,7 +189,10 @@ pub struct TrustedDownloads {
 impl TrustedDownloads {
   fn is_allowed(&self, url: &str) -> bool {
     // IMPORTANT: Only a registry allows what's under it, because the user was told what's allowed
-    // is what they're shown (ex. not every url of a domain for `https://example.com/`).
+    // is what they're shown (ex. not every url of a domain for `https://example.com/`). The text of
+    // each download is kept in session files and hashed into approval ids, which other versions read,
+    // so what an existing form allows is never broadened, and a broader allow gets a new form instead
+    // (see `SessionFile`).
     self
       .allowed
       .lock()
@@ -258,8 +261,11 @@ impl TrustedDownloads {
   /// allowed and the rest of it is the same as the rest of what it resolved to.
   ///
   /// IMPORTANT: Only what the user was shown is allowed, not what starts with
-  /// it like for a url ending with a slash, because that may leave it (ex.
-  /// `/net/host/share/../../other/plugin.wasm` reaches another machine).
+  /// it like for an npm registry (see `get_npm_registry_download`), because
+  /// that may leave it (ex. `/net/host/share/../../other/plugin.wasm` reaches
+  /// another machine). What a path allows is kept in session files and its
+  /// text is hashed into approval ids, which other versions read, so it's
+  /// never broadened (see `SessionFile`).
   fn is_path_allowed(&self, path: &Path, resolved: &Path) -> bool {
     let (mut path, mut resolved) = (path, resolved);
     loop {
@@ -614,15 +620,7 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
     }
   }
   if !urls.is_empty() {
-    messages.push(format!(
-      concat!(
-        "dprint needs to download {} from domains that aren't trusted. ",
-        "Only download them when you trust the configuration file because a download can send information to the domain. {}"
-      ),
-      urls.iter().map(|url| quote_download(url)).collect::<Vec<_>>().join(", "),
-      ignored_settings_message.unwrap_or("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."),
-    ));
-    // unlike another url, which only allows itself
+    // said first because an editor may cut off a long message, and allowing a registry allows more than what's shown
     let registries = urls.iter().filter(|url| get_npm_registry_download_url(url).is_some()).collect::<Vec<_>>();
     if !registries.is_empty() {
       messages.push(format!(
@@ -631,6 +629,14 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
         if registries.len() == 1 { "is" } else { "are each" },
       ));
     }
+    messages.push(format!(
+      concat!(
+        "dprint needs to download {} from domains that aren't trusted. ",
+        "Only download them when you trust the configuration file because a download can send information to the domain. {}"
+      ),
+      urls.iter().map(|url| quote_download(url)).collect::<Vec<_>>().join(", "),
+      ignored_settings_message.unwrap_or("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."),
+    ));
   }
   messages.join(" ")
 }
@@ -775,6 +781,11 @@ impl TrustedDomains {
 
 /// What a download that's the proxy of an `.npmrc` file starts with, which
 /// isn't mistaken for a url because a url can't have the newline it has.
+///
+/// IMPORTANT: The forms of the downloads are kept in session files and hashed
+/// into approval ids, which other versions read, so what one allows is never
+/// broadened, and a broader allow gets a new form (ex. a new prefix) instead,
+/// which older versions match against nothing (see `SessionFile`).
 const NPMRC_PROXY_DOWNLOAD_PREFIX: &str = "npmrc-proxy:";
 /// What starts the download of an npm registry (see `get_npm_registry_download`).
 const NPM_REGISTRY_DOWNLOAD_PREFIX: &str = "npm-registry:";
@@ -1873,7 +1884,7 @@ mod test {
     assert!(ensure_allows("/net/host/proj/../shared/plugin.wasm", Some("/net/host/proj")).is_ok());
     let err = ensure_allows("/net/host/proj/../../evil/plugin.wasm", Some("/net/host/proj")).unwrap_err();
     assert!(err.download.contains("evil"), "{}", err.download);
-    // allowing a path ending with a slash doesn't allow what's under it like a url
+    // allowing a path ending with a slash doesn't allow what's under it
     policy.allow(&["/net/host/share/".to_string()]);
     assert!(ensure_allows("/net/host/share/../../evil/plugin.wasm", None).is_err());
     assert!(ensure_allows("/net/host/share/plugin.wasm", None).is_err());

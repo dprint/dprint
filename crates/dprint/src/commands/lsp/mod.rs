@@ -974,7 +974,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         if version.is_none() {
           log_warn!(
             self.environment,
-            "The editor extension supports versions {:?} of the dprint methods and the server supports versions {:?}, so it's handled like a language client.",
+            "The editor extension supports versions {:?} of the dprint methods and the server supports versions {:?}, so the dprint methods aren't used (update dprint or the editor extension).",
             capability.versions,
             SUPPORTED_METHOD_VERSIONS
           );
@@ -984,7 +984,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       None => {
         log_warn!(
           self.environment,
-          "The dprint capability of the editor extension isn't an object with versions, so it's handled like a language client."
+          "The dprint capability of the editor extension isn't an object with versions, so the dprint methods aren't used."
         );
         None
       }

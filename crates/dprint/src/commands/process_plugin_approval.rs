@@ -101,12 +101,25 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
   config: &ResolvedConfig,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
+  let approvals = get_process_plugin_approvals(config, plugin_resolver, environment);
+  // a config file without a grant (ex. without process plugins) doesn't wait on the stores
+  let grants = session_permissions.process_plugin_set_up_grants();
+  let has_grant = approvals.iter().any(|(_, approval)| {
+    approval.as_ref().is_some_and(|approval| {
+      grants
+        .iter()
+        .any(|grant| grant.config_file == approval.config_file && grant.plugin == approval.plugin)
+    })
+  });
+  if !has_grant {
+    return Ok(());
+  }
   // forgetting the decisions waits until a grant that's taken is stored (see `SessionPermissions::pause_stores`)
   let _store = session_permissions.start_store().await;
   let mut result = Ok(());
   let trusted_config_hash = get_trusted_config_hash(config);
   let permissions = session_permissions.read(environment);
-  for (plugin, approval) in get_process_plugin_approvals(config, plugin_resolver, environment) {
+  for (plugin, approval) in approvals {
     let Some(approval) = approval else {
       continue;
     };

@@ -52,8 +52,9 @@ pub struct ClientExperimentalCapability {
   /// The id of the server's session, which is unique to the server process
   /// (ex. a random one for each `dprint` executable of each editor window) and
   /// keeps what the user decides for the session when the same server is
-  /// started again with it. It's only used when it's a valid string (see
-  /// `is_valid_session_id`).
+  /// started again with it once its process exited (ex. it crashed or was
+  /// killed), and not for a restart, which is a new session. It's only used
+  /// when it's a valid string (see `is_valid_session_id`).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub session_id: Option<serde_json::Value>,
 }
@@ -114,8 +115,8 @@ impl ClientExperimentalCapability {
 #[serde(rename_all = "camelCase")]
 pub struct ServerExperimentalCapability {
   /// The version of the `dprint/*` methods it uses, which is `None` when it
-  /// doesn't support any of the client's versions and handles it like a
-  /// language client.
+  /// doesn't support any of the client's versions, which isn't handled like a
+  /// language client (every method fails with `MethodNotFound`).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub version: Option<u32>,
   /// The versions of the `dprint/*` methods the server supports (ex. to tell
@@ -602,10 +603,13 @@ pub struct ApprovalItem {
   /// `get_path_download`).
   pub specifier: String,
   pub kind: ApprovalItemKind,
-  /// The npm registry an npm plugin is from when it isn't the default one
-  /// (ex. a project's `.npmrc` sets another one for its scope), which is
-  /// escaped like the specifier. For the download of an npm registry itself,
-  /// it's the registry, which allows every url under it unlike another url.
+  /// For the download of an npm registry itself (any registry, including the
+  /// default one), it's the registry, which is the specifier too, and allowing
+  /// it allows every url under it unlike another url, while the item's `kind`
+  /// is what's downloaded from it (`plugin` or `config`). Otherwise, it's the
+  /// npm registry an npm plugin is from when it isn't the default one (ex. a
+  /// project's `.npmrc` sets another one for its scope). It's escaped like the
+  /// specifier.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub registry: Option<String>,
   /// The uri of the `.npmrc` file that sets an `npmrcProxy` as the editor

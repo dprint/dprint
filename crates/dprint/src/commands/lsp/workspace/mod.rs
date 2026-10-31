@@ -931,7 +931,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         // what it was resolved from is still watched so that fixing it is noticed
         let watch_uris = config_key
           .and_then(|(_, uri)| self.config_dependencies.borrow().get(uri.as_str()).cloned())
-          .map(|(_, dependencies)| dependencies.iter().filter_map(|path| self.editor_uri(path)).collect())
+          .map(|(_, dependencies)| dependencies.iter().filter_map(|path| self.get_watch_uri(path)).collect())
           .unwrap_or_default();
         return Ok(ConfigInfoResult {
           file_patterns,
@@ -964,7 +964,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       _ => Default::default(),
     };
     let watch_uris = config
-      .map(|config| config.local_dependencies.iter().filter_map(|path| self.editor_uri(path)).collect())
+      .map(|config| config.local_dependencies.iter().filter_map(|path| self.get_watch_uri(path)).collect())
       .unwrap_or_default();
     let approvals = self.get_scope_approvals(&scope, &target);
     Ok(ConfigInfoResult {
@@ -1547,6 +1547,17 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       log_warn!(self.environment, "{}", message);
       push_warning_notice(&mut notice, message);
     }
+    // the editor is told once reading a config file on another machine is allowed, which it may watch then
+    if decision.is_allowed() && stored.approval.config_file.on_another_machine {
+      self.send_config_changed(ConfigChangedParams {
+        config_file: Some(ConfigFileIdentifier {
+          uri: stored.approval.config_file.uri.clone(),
+          dir_uri: Some(stored.approval.config_file.dir_uri.clone()),
+        }),
+        change: Some(ConfigChange::Changed),
+        schema_only: false,
+      });
+    }
     let config = config?;
     // a config file that still fails didn't resolve to something else, so the editor is told it was denied
     if let DocumentConfig::Failed(failure) = &config
@@ -1660,7 +1671,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self
       .denied_downloads
       .borrow_mut()
-      .retain(|_, denied| config_file.as_ref().is_some_and(|(_, key)| *key != denied.config_key));
+      .retain(|_, denied| config_file.as_ref().is_some_and(|(_, key)| !is_config_key(key, &denied.config_key)));
     let session_result = self.save_session();
     let stored_result = self.forget_stored_decisions(&is_config_file).await;
     // resolving them may store what the user always allowed once it's set up
@@ -1788,9 +1799,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       });
     }
     for denied in self.denied_downloads.borrow().values() {
-      if config_file.is_none_or(|(_, key)| *key == denied.config_key) {
+      if config_file.is_none_or(|(_, key)| is_config_key(key, &denied.config_key)) {
         // a restored denial may not have every item (ex. one of a kind a newer version added),
-        // which then shows each download it's for instead
+        // which then shows each download it's for, with the items that can be told from them
         let has_every_item = denied.items.len() == denied.downloads.len();
         decisions.push(Decision {
           kind: ApprovalKind::Downloads,
@@ -1799,7 +1810,22 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             true => denied.items.iter().map(|item| item.specifier.clone()).collect(),
             false => denied.downloads.iter().map(|download| get_download_specifier(download)).collect(),
           },
-          items: has_every_item.then(|| denied.items.clone()),
+          items: match has_every_item {
+            true => Some(denied.items.clone()),
+            false => denied
+              .downloads
+              .iter()
+              .map(|download| {
+                let specifier = get_download_specifier(download);
+                denied
+                  .items
+                  .iter()
+                  .find(|item| item.specifier == specifier)
+                  .cloned()
+                  .or_else(|| self.get_download_item_from_text(download))
+              })
+              .collect(),
+          },
           allows: false,
           always: false,
         });
@@ -1815,12 +1841,24 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         kind: ApprovalKind::Downloads,
         config_file: None,
         specifiers: vec![item.map(|item| item.specifier.clone()).unwrap_or_else(|| get_download_specifier(&download))],
-        items: item.map(|item| vec![item.clone()]),
+        items: item.cloned().or_else(|| self.get_download_item_from_text(&download)).map(|item| vec![item]),
         allows: true,
         always: false,
       }
     }));
     decisions
+  }
+
+  /// Gets the item of a download from its text when its kind can be told
+  /// from it (ex. a registry, the proxy of an `.npmrc` file, or a path on
+  /// another machine), which is `None` for a url, because it may be a plugin
+  /// or a config file.
+  fn get_download_item_from_text(&self, download: &str) -> Option<ApprovalItem> {
+    let is_url = NpmrcProxy::from_download(download).is_none() && !is_path_download(download) && get_npm_registry_download_url(download).is_none();
+    if is_url {
+      return None;
+    }
+    get_download_items(&[download.to_string()], ApprovalItemKind::Plugin, &self.editor_paths).pop()
   }
 
   /// Forgets the process plugin decisions of the config files that are
@@ -1871,6 +1909,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         let key = get_found_config_key(&config_file)
           .map(|(key, _)| key)
           .unwrap_or_else(|| config_file.source.display());
+        // without a directory, the global config file's decisions are of each directory it's used for (see `is_config_key`)
+        let key = match dir_uri {
+          Some(_) => key,
+          None => key.split('\n').next().unwrap_or_default().to_string(),
+        };
         (config_file.source.display(), key)
       }
       None => (String::new(), String::new()),
@@ -2280,7 +2323,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets the failure of a config file that was found on another machine,
   /// which is used once the user allows reading it.
   fn new_config_file_on_another_machine_failure(&self, err: &ConfigFileOnAnotherMachineError) -> ConfigFailure {
-    self.stop_watching_config_file(&err.config_path);
     // what it formats changed when it was resolved before (ex. a `git pull` replaced it with a symlink to a
     // share), which the editor is told like when it fails to resolve, and it's forgotten so that it isn't
     // resolved again before reading it is allowed (see `resolve_used_configs_again`)
@@ -2313,27 +2355,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
-  /// Stops watching what a config file was resolved from with the
-  /// `watchFiles` feature when it's on another machine now (ex. a `git pull`
-  /// replaced it with a symlink to a share).
-  ///
-  /// IMPORTANT: A watcher follows symlinks like reading does, which would
-  /// contact the other machine before the user allows it.
-  fn stop_watching_config_file(&self, config_path: &Path) {
-    // the config files are known by their canonicalized paths, which the path may not be (ex. the editor's
-    // path of a workspace opened through a symlink), and its directory is what's canonicalized
-    let canonical_path = self.canonicalize_editor_path(config_path.to_path_buf());
-    let removed = {
-      let mut config_dependencies = self.config_dependencies.borrow_mut();
-      let count = config_dependencies.len();
-      config_dependencies.retain(|_, (config_file_path, _)| config_file_path != config_path && *config_file_path != canonical_path);
-      config_dependencies.len() != count
-    };
-    if removed {
-      self.register_watch_files();
-    }
-  }
-
   /// Resolves the plugins of a config file that was found.
   async fn resolve_found_config(self: &Rc<Self>, config_file: ResolvedConfigPathWithText) -> Result<DocumentConfig<TEnvironment>> {
     let key = get_config_file_key(&config_file);
@@ -2360,6 +2381,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
         // not an error because it resolves once the user allows downloading what it extends
         if let Some(err) = UntrustedDownloadError::find(&err) {
+          // ex. a file it extends that's on another machine now, whose directory isn't watched then
+          self.register_watch_files();
           let downloads = vec![err.download.clone()];
           return Ok(failed(
             NotFormattedReason::ApprovalRequired,
@@ -2556,13 +2579,26 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
       }
     }
-    // the editor watches them by its paths of them
-    let mut file_paths = file_paths.iter().map(|path| self.editor_paths.get(path)).collect::<Vec<_>>();
+    // IMPORTANT: Each is watched by its directory, which is canonicalized so it isn't a symlink, and one in a
+    // directory that may not be read is left out because watching it would follow it to another machine (ex. a
+    // directory a `git pull` replaced with a symlink to a share). A watcher of a directory doesn't follow the
+    // symlinks in it (see "Lifecycle" in the editor extension docs), so a file that's a symlink is fine.
+    file_paths.retain(|path| path.parent().is_some_and(|dir_path| self.allows_reading_path(dir_path)));
     file_paths.sort();
     if *registered != file_paths {
       self.client.register_watched_files(&file_paths);
       *registered = file_paths;
     }
+  }
+
+  /// Gets the uri of a file a config file was resolved from as the editor
+  /// knows it, which is `None` when its directory may not be read (see
+  /// `register_watch_files`), so the editor doesn't watch it.
+  fn get_watch_uri(&self, path: &Path) -> Option<Uri> {
+    if !path.parent().is_some_and(|dir_path| self.allows_reading_path(dir_path)) {
+      return None;
+    }
+    self.editor_uri(path)
   }
 
   /// Tells an editor extension that what a config file formats may have changed.
@@ -2707,9 +2743,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         match self.load_config_file(file_path.as_ref(), None) {
           Ok(config_file) => config_file,
           Err(err) => {
-            if let Some(err) = find_config_file_on_another_machine(&err) {
+            if find_config_file_on_another_machine(&err).is_some() {
               self.forget_config_file(file_path.as_ref());
-              self.stop_watching_config_file(&err.config_path);
               self.send_file_config_changed(file_path.as_ref(), ConfigChange::Changed);
             }
             continue;
@@ -3616,6 +3651,13 @@ fn get_escaped_json(value: &serde_json::Value) -> String {
   escaped
 }
 
+/// Gets whether a config key is of the config file the key is of, which is
+/// the config key of each directory the global config file is used for when
+/// the key doesn't have the directory (see `get_found_config_key`).
+fn is_config_key(key: &str, config_key: &str) -> bool {
+  config_key == key || (!key.contains('\n') && config_key.strip_prefix(key).is_some_and(|rest| rest.starts_with('\n')))
+}
+
 /// Gets a notice that's a warning the user is always told about.
 fn new_warning_notice(message: String) -> Notice {
   Notice {
@@ -3862,7 +3904,9 @@ fn get_download_specifier(download: &str) -> String {
 /// text of a download (ex. `NpmrcProxy::to_download`, or the escaped text of
 /// a path, whose escapes depend on the Unicode version of
 /// `unicode-general-category`, see `is_escaped_in_text`), and how the parts
-/// are written (see `encode_id_parts`).
+/// are written (see `encode_id_parts`). It also changes when what allowing the
+/// same items covers does, which is never for an existing form of a download
+/// (see `get_npm_registry_download`).
 const APPROVAL_ID_VERSION: u32 = 1;
 
 /// Gets an id that changes when what's approved does, which is the hash of
@@ -4087,6 +4131,22 @@ mod test {
   use crate::configuration::ConfigMapValue;
   use crate::configuration::ProcessPluginApproval;
   use crate::resolution::get_trusted_config_map_hash;
+
+  #[test]
+  fn should_match_the_config_keys_of_each_directory_of_the_global_config_file() {
+    let key = "file:///home/user/.config/dprint/dprint.json";
+    assert!(is_config_key(key, key));
+    // without a directory, it's of each directory it's used for (ex. each drive)
+    assert!(is_config_key(key, &format!("{}\nfile:///C:/", key)));
+    assert!(is_config_key(key, &format!("{}\nfile:///D:/", key)));
+    // but not of another config file
+    assert!(!is_config_key(key, &format!("{}x\nfile:///D:/", key)));
+    // and with a directory, only of that directory
+    let dir_key = format!("{}\nfile:///C:/", key);
+    assert!(is_config_key(&dir_key, &dir_key));
+    assert!(!is_config_key(&dir_key, &format!("{}\nfile:///D:/", key)));
+    assert!(!is_config_key(&dir_key, key));
+  }
 
   #[test]
   fn should_show_a_language_client_what_process_plugins_run_with() {

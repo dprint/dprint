@@ -787,7 +787,14 @@ fn alternate_plugin_filename(requested: &str, package_dir: &Path, environment: &
   } else {
     return None;
   };
-  if environment.path_exists(package_dir.join(candidate)) {
+  let candidate_path = package_dir.join(candidate);
+  // IMPORTANT: Looking it up follows a symlink, which may be to another machine (see `find_package_in_node_modules`).
+  if environment
+    .download_policy()
+    .ensure_allows_path(environment, &candidate_path, Some(package_dir))
+    .is_ok()
+    && environment.path_exists(&candidate_path)
+  {
     Some(candidate)
   } else {
     None
@@ -1973,6 +1980,25 @@ mod tests {
   }
 
   #[cfg(windows)]
+  #[test]
+  fn should_not_look_up_the_other_plugin_file_on_another_machine_in_the_editors() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo/node_modules/evil-pkg").unwrap();
+    let network_path = if cfg!(windows) { r"\\server\share\x" } else { "/net/server/share/x" };
+    environment.symlink(network_path, "/repo/node_modules/evil-pkg/plugin.json").unwrap();
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    let specifier = NpmSpecifier {
+      name: "evil-pkg".to_string(),
+      version: None,
+      path: "plugin.wasm".to_string(),
+    };
+    let err = find_npm_plugin_local_path(&specifier, Path::new("/repo"), &environment).unwrap_err();
+    // so it isn't suggested
+    assert!(err.to_string().ends_with("Is the package a dprint plugin?"), "{}", err);
+    assert_eq!(environment.stat_count("/repo/node_modules/evil-pkg/plugin.json"), 0);
+  }
+
   #[test]
   fn find_package_in_node_modules_needs_reading_one_on_another_machine_allowed_in_the_editors() {
     use crate::environment::TestEnvironment;

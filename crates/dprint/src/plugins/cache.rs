@@ -857,6 +857,15 @@ where
   /// Size + modification time of a local file via sys_traits, or `None` if it
   /// can't be stat'd. The cheap stat that backs local cache-change detection.
   fn file_size_and_mtime(&self, path: impl AsRef<Path>) -> Option<(u64, SystemTime)> {
+    let path = path.as_ref();
+    // IMPORTANT: Looking it up follows a symlink, which may be to another machine now (ex. a plugin in the
+    // project that a `git pull` replaced with a symlink to a share), which then has no stamp, so it's set up again,
+    // which checks it.
+    self
+      .environment
+      .download_policy()
+      .ensure_allows_path(&self.environment, path, path.parent())
+      .ok()?;
     let metadata = self.environment.fs_metadata(path).ok()?;
     Some((metadata.len(), metadata.modified().ok()?))
   }
@@ -980,6 +989,23 @@ mod test {
   use anyhow::Result;
   use pretty_assertions::assert_eq;
   use std::path::PathBuf;
+
+  #[test]
+  fn should_not_stamp_a_local_plugin_on_another_machine_in_the_editors() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo").unwrap();
+    let network_path = if cfg!(windows) {
+      r"\\server\share\plugin.wasm"
+    } else {
+      "/net/server/share/plugin.wasm"
+    };
+    environment.symlink(network_path, "/repo/plugin.wasm").unwrap();
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    let plugin_cache = PluginCache::new(environment.clone());
+    // ex. a `git pull` replaced a plugin that was set up with a symlink to a share
+    assert!(plugin_cache.stamp_for("/repo/plugin.wasm").is_none());
+    assert_eq!(environment.stat_count("/repo/plugin.wasm"), 0);
+  }
 
   fn make_wasm_meta(cache_key: &str, name: &str, version: &str, environment: &TestEnvironment) -> PluginCacheMeta {
     PluginCacheMeta {

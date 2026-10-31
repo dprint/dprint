@@ -113,7 +113,7 @@ fn should_say_it_supports_the_dprint_methods() {
         test_client.take_messages();
       }
     });
-    // why it's handled like a language client is logged
+    // why the dprint methods aren't used is logged
     environment.take_stderr_messages();
   }
 }
@@ -1677,6 +1677,70 @@ fn should_stop_watching_a_config_file_that_is_on_another_machine_now() {
 }
 
 #[test]
+fn should_not_watch_a_directory_of_an_extended_file_that_is_on_another_machine_now() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("extends", r#""./shared/base.json""#);
+    })
+    .build();
+  environment.mk_dir_all("/a/shared").unwrap();
+  environment.write_file("/a/shared/base.json", "{}").unwrap();
+  let mut params = editor_extension_params();
+  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));
+  params.capabilities.workspace = Some(WorkspaceClientCapabilities {
+    did_change_watched_files: Some(deno_tower_lsp::lsp_types::DidChangeWatchedFilesClientCapabilities {
+      dynamic_registration: Some(true),
+      relative_pattern_support: Some(true),
+    }),
+    ..Default::default()
+  });
+  run_session_with(&environment, params, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let watched_dirs = || {
+          let registrations = client.test_client.registrations.lock();
+          let Some(registration) = registrations.iter().find(|r| r.id == "dprint-watched-files") else {
+            return Vec::new();
+          };
+          registration.register_options.as_ref().unwrap()["watchers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|watcher| watcher["globPattern"]["baseUri"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+        };
+        let config_info = client.config_info("/a/dprint.json").await;
+        assert_eq!(config_info.status, FormatStatus::ready());
+        assert_eq!(config_info.watch_uris, vec![uri("/a/shared/base.json")]);
+        assert!(watched_dirs().contains(&uri("/a/shared").as_str().to_string()));
+        // ex. a `git pull` replaced the directory with a symlink to a share
+        environment.remove_dir_all("/a/shared").unwrap();
+        environment.symlink(network_path("shared"), "/a/shared").unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/a/shared/base.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
+        let config_info = client.config_info("/a/dprint.json").await;
+        assert_eq!(config_info.status.approvals()[0].items[0].kind, ApprovalItemKind::NetworkPath);
+        // so neither the editor nor the server watches the directory, which would follow it
+        assert_eq!(config_info.watch_uris, Vec::<Uri>::new());
+        assert!(!watched_dirs().contains(&uri("/a/shared").as_str().to_string()), "{:?}", watched_dirs());
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_approve_downloading_from_domains_that_are_not_trusted() {
   const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
   let environment = TestEnvironmentBuilder::new()
@@ -2247,11 +2311,23 @@ fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allo
         assert_eq!(client.take_config_changes(), vec![uri("/src/dprint.json")]);
         assert_eq!(environment.canonicalize_count("/src/dprint.json"), canonicalize_count);
         assert_eq!(environment.file_read_count("/src/dprint.json"), read_count);
-        assert!(
-          client.config_info("/src/dprint.json").await.status.approvals()[0]
-            .config_file
-            .on_another_machine
-        );
+        let approval = client.config_info("/src/dprint.json").await.status.approvals()[0].clone();
+        assert!(approval.config_file.on_another_machine);
+
+        // the editor is told once reading it is allowed, which is when it may watch it
+        client.take_config_changes();
+        let _ = client
+          .backend
+          .dprint_approve(
+            ApproveParams {
+              id: approval.id,
+              decision: ApprovalDecision::Allow,
+              work_done_token: None,
+            },
+            CancellationToken::new(),
+          )
+          .await;
+        assert!(client.take_config_changes().contains(&uri("/src/dprint.json")));
 
         // the same goes for the file an untitled document is formatted as
         environment.symlink(network_path("Untitled.txt"), "/Untitled.txt").unwrap();
@@ -3944,7 +4020,7 @@ fn should_restore_a_denial_of_downloads_with_items_that_are_not_known() {
   let text = format!(
     r#"{{
       "version": 1,
-      "allowedDownloads": [],
+      "allowedDownloads": [{{ "download": "npm-registry:https://npm.example.com/", "item": {{ "specifier": "x", "kind": "newKind" }} }}],
       "deniedDownloads": [{{
         "configKey": "file:///dprint.json",
         "downloads": ["{url}"],
@@ -3962,7 +4038,13 @@ fn should_restore_a_denial_of_downloads_with_items_that_are_not_known() {
       let decisions = client.decisions().await;
       let denial = decisions.iter().find(|decision| !decision.allows).unwrap();
       assert_eq!(denial.specifiers, vec![UNTRUSTED_PLUGIN_URL.to_string()]);
+      // a url may be a plugin or a config file, so its item isn't known
       assert_eq!(denial.items, None);
+      // while what a registry is can be told from what was allowed
+      let allow = decisions.iter().find(|decision| decision.allows).unwrap();
+      assert_eq!(allow.specifiers, vec!["https://npm.example.com/".to_string()]);
+      let item = &allow.items.as_ref().unwrap()[0];
+      assert_eq!(item.registry.as_deref(), Some("https://npm.example.com/"));
     }
     .boxed_local()
   });
