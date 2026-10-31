@@ -421,16 +421,18 @@ impl Permissions {
 /// decision may be before it although it was made after it (ex. it's from a
 /// machine whose clock is behind, or the decision from the future that the
 /// time of the session's decision is after was forgotten since). A stored
-/// denial that wasn't stored the last time the permissions were read removes
-/// the session's allows and set-up grants for the plugin (see `read`), which
-/// is always before the user decides, so that's after them.
+/// denial that none of the reads of the permissions saw before removes the
+/// session's allows and set-up grants for the plugin (see `read`). That's
+/// usually before the user decides again, but it's also one that was stored
+/// (ex. by another window) after the last read and before the user's
+/// decision, which then loses to it, which is the side to err on.
 #[derive(Debug, Default)]
 pub struct SessionPermissions {
   /// What the user decided about running process plugins for the session.
   process_plugin_decisions: Mutex<Vec<ProcessPluginDecision>>,
-  /// The stored denials the last time the permissions were read, which tells
+  /// The stored denials that the reads of the permissions saw, which tells
   /// apart the ones that were stored since.
-  read_stored_denials: Mutex<HashSet<ProcessPluginDecision>>,
+  stored_denial_reads: Mutex<StoredDenialReads>,
   /// The process plugins the user allowed setting up for the session.
   process_plugin_set_up_grants: Mutex<Vec<ProcessPluginSetUpGrant>>,
   /// The failures to store what the user always allowed for the process
@@ -440,6 +442,21 @@ pub struct SessionPermissions {
   /// The problems with the settings that were logged, which are only logged
   /// once because the settings are read for each request.
   logged_settings_problems: Mutex<HashSet<String>>,
+}
+
+/// The stored denials that the reads of the permissions saw (see
+/// `SessionPermissions::remove_allows_denied_since`).
+#[derive(Debug, Default)]
+struct StoredDenialReads {
+  /// How many reads started, which numbers them in the order they started
+  /// because the threads may finish them in another order.
+  started: u64,
+  /// The number of the last read that started of the ones that were applied.
+  applied: u64,
+  /// The stored denials that the reads saw, which are only added to because a
+  /// denial that's stored again is another one (its time is another), so a
+  /// read that fails or is out of date doesn't make one look new again.
+  denials: HashSet<ProcessPluginDecision>,
 }
 
 /// Where the failures to store what the user always allowed for process
@@ -489,21 +506,26 @@ impl SessionPermissions {
     let ignored_settings_message = ignored_reason.map(|reason| get_ignored_settings_message(environment, &reason));
     // only read the decisions when they're used
     let mut process_plugin_decisions = if allow_process_plugins != Some(true) {
-      match read_editor_approvals(environment) {
-        Ok(approvals) => approvals.process_plugin_decisions,
+      let read_number = self.start_stored_decisions_read();
+      let decisions = match read_editor_approvals(environment) {
+        Ok(approvals) => Some(approvals.process_plugin_decisions),
         Err(err) => {
           // IMPORTANT: Don't allow what may not have been allowed, but keep denying
           // what the user denied (ex. the file is from a newer version of dprint).
           self.log_settings_problem(environment, format!("Asking to allow process plugins again in editors. {:#}", err));
-          read_editor_approval_denials(environment)
+          try_read_editor_approval_denials(environment)
         }
+      };
+      match decisions {
+        Some(decisions) => {
+          self.remove_allows_denied_since(read_number, &decisions);
+          decisions
+        }
+        None => Vec::new(),
       }
     } else {
       Vec::new()
     };
-    if allow_process_plugins != Some(true) {
-      self.remove_allows_denied_since(&process_plugin_decisions);
-    }
     let stored_process_plugin_decision_count = process_plugin_decisions.len();
     process_plugin_decisions.extend(self.process_plugin_decisions.lock().iter().cloned());
     Permissions {
@@ -592,14 +614,28 @@ impl SessionPermissions {
     Some(grants.remove(index))
   }
 
+  /// Numbers a read of the stored decisions, which is done before reading
+  /// them (see `remove_allows_denied_since`).
+  fn start_stored_decisions_read(&self) -> u64 {
+    let mut reads = self.stored_denial_reads.lock();
+    reads.started += 1;
+    reads.started
+  }
+
   /// Removes the session's allows and set-up grants for the process plugins
-  /// that a denial was stored for since the last time the permissions were
-  /// read (see `SessionPermissions`).
-  fn remove_allows_denied_since(&self, stored_decisions: &[ProcessPluginDecision]) {
+  /// that a denial was stored for that no read saw before (see
+  /// `SessionPermissions`), from the stored decisions that a read that
+  /// succeeded got.
+  ///
+  /// A read that started before one that was already applied is out of date,
+  /// so a denial only it has may have been replaced since (ex. the user
+  /// forgot it or always allowed the plugin), which is only remembered.
+  fn remove_allows_denied_since(&self, read_number: u64, stored_decisions: &[ProcessPluginDecision]) {
     let stored_denials = stored_decisions.iter().filter(|decision| !decision.allowed).cloned().collect::<HashSet<_>>();
-    let mut read_stored_denials = self.read_stored_denials.lock();
-    let new_denials = stored_denials.difference(&read_stored_denials).collect::<Vec<_>>();
-    if !new_denials.is_empty() {
+    let mut reads = self.stored_denial_reads.lock();
+    let is_out_of_date = read_number < reads.applied;
+    let new_denials = stored_denials.difference(&reads.denials).collect::<Vec<_>>();
+    if !is_out_of_date && !new_denials.is_empty() {
       let is_denied = |config_file: &str, plugin: &str| {
         new_denials
           .iter()
@@ -615,7 +651,10 @@ impl SessionPermissions {
         .lock()
         .retain(|grant| !is_denied(&grant.config_file, &grant.plugin));
     }
-    *read_stored_denials = stored_denials;
+    if !is_out_of_date {
+      reads.applied = read_number;
+    }
+    reads.denials.extend(stored_denials);
   }
 
   fn log_settings_problem(&self, environment: &impl Environment, message: String) {
@@ -727,11 +766,20 @@ pub fn read_editor_approvals(environment: &impl Environment) -> Result<EditorApp
 /// when it doesn't parse. Only `processPluginDecisions` needs to parse (see
 /// `EditorApprovals`).
 pub(crate) fn read_editor_approval_denials(environment: &impl Environment) -> Vec<ProcessPluginDecision> {
+  try_read_editor_approval_denials(environment).unwrap_or_default()
+}
+
+/// Reads the denials like `read_editor_approval_denials`, which is `None`
+/// when the file can't be read or doesn't parse.
+fn try_read_editor_approval_denials(environment: &impl Environment) -> Option<Vec<ProcessPluginDecision>> {
   let Some(file_path) = get_editor_approvals_file_path(environment) else {
-    return Vec::new();
+    return Some(Vec::new());
   };
-  let Ok(Some((_, file))) = read_approvals_file(environment, &file_path) else {
-    return Vec::new();
+  let Ok(read_result) = read_approvals_file(environment, &file_path) else {
+    return None;
+  };
+  let Some((_, file)) = read_result else {
+    return Some(Vec::new());
   };
   let decisions = file
     .process_plugin_decisions
@@ -740,7 +788,7 @@ pub(crate) fn read_editor_approval_denials(environment: &impl Environment) -> Ve
     .filter_map(|value| parse_process_plugin_decision(value).into_applied())
     .collect::<Vec<_>>();
   // a denial that a more recent decision replaced isn't used, which is a later one on a tie
-  decisions
+  let denials = decisions
     .iter()
     .enumerate()
     .filter(|(index, decision)| {
@@ -752,7 +800,8 @@ pub(crate) fn read_editor_approval_denials(environment: &impl Environment) -> Ve
         })
     })
     .map(|(_, decision)| decision.clone())
-    .collect()
+    .collect();
+  Some(denials)
 }
 
 pub(crate) fn update_editor_approvals_without_lock(environment: &impl Environment, update: impl FnOnce(&mut EditorApprovals)) -> Result<()> {
@@ -2070,6 +2119,71 @@ mod test {
       environment.read_file(&file_path).unwrap(),
       "{ \"version\": \"2.1\", \"minVersion\": 1, \"processPluginDecisions\": [] }\n"
     );
+  }
+
+  #[test]
+  fn should_not_treat_a_stored_denial_that_was_read_as_new_after_a_failed_read() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let session_permissions = SessionPermissions::default();
+    let denial = ProcessPluginDecision {
+      decided_at: 10,
+      ..decision("/a/dprint.json", "1:a", false)
+    };
+    update_editor_approvals_without_lock(&environment, |approvals| approvals.add_process_plugin_decision(denial.clone())).unwrap();
+    assert!(
+      session_permissions
+        .read(&environment)
+        .is_process_plugin_denied(&approval("/a/dprint.json", "1:a"))
+    );
+    // the user allows it for the session, which is more recent
+    session_permissions.add_process_plugin_decision(ProcessPluginDecision {
+      decided_at: 11,
+      ..decision("/a/dprint.json", "1:a", true)
+    });
+    assert!(
+      session_permissions
+        .read(&environment)
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
+    );
+    // a read fails (ex. the user saved the file with a typo)
+    let file_path = get_editor_approvals_file_path(&environment).unwrap();
+    let text = environment.read_file(&file_path).unwrap();
+    environment.write_file(&file_path, "{ nope").unwrap();
+    session_permissions.read(&environment);
+    assert_eq!(environment.take_stderr_messages().len(), 1);
+    // which doesn't make the denial look like it was stored since
+    environment.write_file(&file_path, &text).unwrap();
+    assert!(
+      session_permissions
+        .read(&environment)
+        .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
+    );
+  }
+
+  #[test]
+  fn should_not_apply_a_denial_that_only_an_out_of_date_read_saw() {
+    let session_permissions = SessionPermissions::default();
+    let session_allow = ProcessPluginDecision {
+      decided_at: 11,
+      ..decision("/a/dprint.json", "1:a", true)
+    };
+    session_permissions.add_process_plugin_decision(session_allow.clone());
+    let denial = ProcessPluginDecision {
+      decided_at: 10,
+      ..decision("/a/dprint.json", "1:a", false)
+    };
+    // a read that started first finishes after one that started later, which saw that the denial was forgotten
+    let out_of_date_read = session_permissions.start_stored_decisions_read();
+    let read = session_permissions.start_stored_decisions_read();
+    session_permissions.remove_allows_denied_since(read, &[]);
+    session_permissions.remove_allows_denied_since(out_of_date_read, std::slice::from_ref(&denial));
+    assert_eq!(session_permissions.session_process_plugin_decisions(), vec![session_allow.clone()]);
+    // but a denial that's stored again is another one
+    let read = session_permissions.start_stored_decisions_read();
+    let stored_again = ProcessPluginDecision { decided_at: 12, ..denial };
+    session_permissions.remove_allows_denied_since(read, &[stored_again]);
+    assert_eq!(session_permissions.session_process_plugin_decisions(), Vec::new());
   }
 
   #[test]
