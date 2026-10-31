@@ -482,10 +482,11 @@ impl Environment for RealEnvironment {
   fn remove_empty_dir(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
     log_debug!(self, "Deleting directory when empty: {}", dir_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
-    fs::remove_dir(&dir_path)
+    fs::remove_dir(&dir_path).map_err(|err| io::Error::new(err.kind(), format!("Error deleting directory '{}': {:#}", dir_path.as_ref().display(), err)))
   }
 
   fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    log_debug!(self, "Reading directory entries: {}", dir_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     let entries = std::fs::read_dir(&dir_path)?;
     entries.map(|entry| entry.map(|entry| entry.path())).collect()

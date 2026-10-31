@@ -1,9 +1,8 @@
+use std::path::Path;
 use std::rc::Rc;
 
 use anyhow::Result;
 use serde::Serialize;
-
-use std::path::Path;
 
 use crate::arg_parser::CliArgParserKind;
 use crate::arg_parser::CliArgs;
@@ -148,14 +147,18 @@ fn remove_cache_dir(environment: &impl Environment, cache_dir: &CanonicalizedPat
     Err(err) => return Err(err),
   };
   for path in paths {
-    // ex. a server created it since it was checked, which is the same either way
-    if path.file_name() == sessions_dir.file_name() {
+    // ex. a server created it since it was checked, which is the same either way, while a link or a file with its
+    // name is removed like the rest
+    if path.file_name() == sessions_dir.file_name() && environment.path_kind(&path) == Some(PathKind::Dir) {
       continue;
     }
     match environment.path_kind(&path) {
       Some(PathKind::Dir) => environment.remove_dir_all(&path)?,
-      // a symlink isn't followed, which may be to a directory (ex. a junction on Windows)
-      Some(PathKind::Symlink) => environment.remove_file(&path).or_else(|_| environment.remove_dir_all(&path))?,
+      // a symlink isn't followed, which may be to a directory (ex. a junction on Windows, which only removing it as a
+      // directory removes, and which isn't followed then either)
+      Some(PathKind::Symlink) => environment
+        .remove_file(&path)
+        .or_else(|err| environment.remove_empty_dir(&path).map_err(|_| err))?,
       Some(PathKind::File) => environment.remove_file(&path)?,
       None => {}
     }
@@ -891,6 +894,16 @@ mod test {
     assert!(environment.path_exists("/cache/editor-sessions/running-0123456789.lock"));
     drop(lock);
     // and everything once no server is running, which isn't said to be kept
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert!(!environment.path_exists("/cache"));
+  }
+
+  #[test]
+  fn should_clear_cache_directory_with_a_file_named_like_the_sessions_directory() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/cache").unwrap();
+    environment.write_file("/cache/editor-sessions", "").unwrap();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert!(!environment.path_exists("/cache"));

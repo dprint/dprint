@@ -1834,6 +1834,9 @@ fn should_notice_a_change_to_a_config_file_that_is_a_symlink_to_a_file_with_anot
     move |client| {
       async move {
         assert_eq!(client.file_info("/a/file.txt").await.status, FormatStatus::ready());
+        // the editor is told to watch it too, because its watcher of the config files doesn't report it
+        let config_info = client.config_info("/a/dprint.json").await;
+        assert!(config_info.watch_uris.contains(&uri("/shared/base.json")), "{:?}", config_info.watch_uris);
         // the change is reported by the canonical path, which isn't the name of a config file
         let text = environment.read_file("/shared/base.json").unwrap();
         let text = text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1);
@@ -1849,7 +1852,20 @@ fn should_notice_a_change_to_a_config_file_that_is_a_symlink_to_a_file_with_anot
             }],
           })
           .await;
-        assert_eq!(client.wait_for_config_changes().await.len(), 1);
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/shared/base.json")]);
+        // and deleting it is like deleting the config file, which is a dangling symlink then
+        environment.remove_file("/shared/base.json").unwrap();
+        environment.remove_file("/a/dprint.json").unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/shared/base.json"),
+              typ: FileChangeType::DELETED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/shared/base.json")]);
         client.test_client.take_messages();
       }
       .boxed_local()
@@ -4327,7 +4343,7 @@ fn should_keep_denying_a_download_under_an_npm_registry_that_is_allowed() {
   let packument = json!({ "versions": { "1.0.0": { "dist": { "tarball": TARBALL_URL } } } });
   environment.add_remote_file_bytes(PACKUMENT_URL, packument.to_string().into_bytes());
   environment.add_remote_file_bytes(TARBALL_URL, create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]));
-  run_session(&environment, {
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), {
     let environment = environment.clone();
     move |client| {
       async move {
@@ -4346,6 +4362,74 @@ fn should_keep_denying_a_download_under_an_npm_registry_that_is_allowed() {
       }
       .boxed_local()
     }
+  });
+  // which is kept for a server started again for the session
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(client.config_info("/b/dprint.json").await.status, FormatStatus::ready());
+        assert!(client.config_info("/a/dprint.json").await.status.approvals()[0].denied);
+        assert_eq!(environment.remote_file_request_count(EXTENDS_URL), 0);
+        // until it's forgotten, when the registry allows it
+        client
+          .backend
+          .dprint_forget_decisions(
+            Some(ForgetDecisionsParams {
+              config_file: Some(ConfigFileIdentifier {
+                uri: uri("/a/dprint.json"),
+                dir_uri: None,
+              }),
+              work_done_token: None,
+            }),
+            CancellationToken::new(),
+          )
+          .await
+          .unwrap();
+        assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::ready());
+        assert_eq!(environment.remote_file_request_count(EXTENDS_URL), 1);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_not_deny_a_download_that_was_allowed_exactly_since() {
+  const PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(PLUGIN_URL)
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_plugin(PLUGIN_URL);
+    })
+    .with_local_config("/b/dprint.json", |c| {
+      c.add_plugin(PLUGIN_URL);
+    })
+    .build();
+  run_session(&environment, |client| {
+    async move {
+      let a_approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+      let b_approval = client.config_info("/b/dprint.json").await.status.approvals()[0].clone();
+      // the user allows it for one config file while the prompt of the other is still shown
+      client.approve(&b_approval.id, ApprovalDecision::Allow).await;
+      let err = client
+        .backend
+        .dprint_approve(
+          ApproveParams {
+            id: a_approval.id,
+            decision: ApprovalDecision::Deny,
+            work_done_token: None,
+          },
+          CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+      // which is an approval that changed, because the denial wouldn't do anything
+      assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::ServerError(-32803));
+      assert!(!client.decisions().await.iter().any(|decision| !decision.allows));
+      assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::ready());
+    }
+    .boxed_local()
   });
 }
 

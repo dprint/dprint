@@ -161,8 +161,8 @@ impl DownloadPolicy {
   }
 
   /// Sets what the user denied downloading this session for any config file,
-  /// which an allowed npm registry then doesn't allow even though it's under
-  /// it (see `TrustedDownloads::is_allowed`).
+  /// which an allowed npm registry or directory then doesn't allow even though
+  /// it's under it (see `TrustedDownloads::is_allowed` and `is_path_allowed`).
   pub fn set_denied_downloads(&self, downloads: impl IntoIterator<Item = String>) {
     if let DownloadPolicy::TrustedDomains(trusted_downloads) = self {
       *trusted_downloads.denied.lock() = downloads.into_iter().collect();
@@ -195,7 +195,8 @@ pub struct TrustedDownloads {
   /// user allowed downloading through (see `NpmrcProxy::to_download`).
   allowed: Mutex<HashSet<String>>,
   /// What the user denied downloading this session, which wins over an npm
-  /// registry that allows what's under it, but not over allowing it exactly.
+  /// registry or a directory that allows what's under it, but not over
+  /// allowing it exactly.
   denied: Mutex<HashSet<String>>,
 }
 
@@ -291,10 +292,18 @@ impl TrustedDownloads {
   /// never broadened (see `SessionFile`).
   fn is_path_allowed(&self, path: &Path, resolved: &Path) -> bool {
     let (mut path, mut resolved) = (path, resolved);
+    let mut is_first = true;
     loop {
-      if self.allowed.lock().contains(&get_path_download(path, resolved)) {
+      let download = get_path_download(path, resolved);
+      if self.allowed.lock().contains(&download) {
         return true;
       }
+      // IMPORTANT: A denial wins over allowing a directory it's in (ex. the npm package of another config file),
+      // but not over allowing it exactly.
+      if is_first && self.denied.lock().contains(&download) {
+        return false;
+      }
+      is_first = false;
       match (path.file_name(), resolved.file_name(), path.parent(), resolved.parent()) {
         (Some(name), Some(resolved_name), Some(parent), Some(resolved_parent)) if name == resolved_name => {
           path = parent;
@@ -1671,6 +1680,26 @@ mod test {
 
   fn url(text: &str) -> Url {
     Url::parse(text).unwrap()
+  }
+
+  #[test]
+  fn should_keep_denying_a_file_in_a_directory_that_is_allowed() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/project").unwrap();
+    let share_dir = if cfg!(windows) { r"\\server\share\pkg" } else { "/net/server/share/pkg" };
+    environment.symlink(share_dir, "/project/pkg").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let ensure_allows = |path: &str| policy.ensure_allows_path(&environment, Path::new(path), None);
+    let file_download = ensure_allows("/project/pkg/plugin.wasm").unwrap_err().download;
+    let dir_download = ensure_allows("/project/pkg").unwrap_err().download;
+    // the user denied the file for one config file and allowed its directory for another
+    policy.set_denied_downloads([file_download.clone()]);
+    policy.allow(&[dir_download]);
+    assert!(ensure_allows("/project/pkg/plugin.wasm").is_err());
+    assert!(ensure_allows("/project/pkg/other.wasm").is_ok());
+    // but allowing it exactly wins
+    policy.allow(&[file_download]);
+    assert!(ensure_allows("/project/pkg/plugin.wasm").is_ok());
   }
 
   #[test]

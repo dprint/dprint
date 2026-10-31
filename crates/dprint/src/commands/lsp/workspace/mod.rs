@@ -727,8 +727,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         // a config file that was used whose canonical path is the file, which may have another name (ex. a
         // `dprint.json` that's a symlink to a `base.json`), so it isn't known to be a config file by its name
         if !change.is_config_file {
-          for target in workspace.get_used_config_targets_at(&change.file_path) {
-            workspace.get_approvals_for_target(&target).await;
+          let targets = workspace.get_used_config_targets_at(&change.file_path);
+          if change.change == ConfigFileChange::Deleted && !targets.is_empty() {
+            // the config file is a dangling symlink now, which is like one that was deleted
+            workspace.handle_config_file_change(&change.file_path, ConfigFileChange::Deleted).await;
+          } else {
+            for target in targets {
+              workspace.get_approvals_for_target(&target).await;
+            }
           }
         }
         // the config file the server was started with is the only one
@@ -955,7 +961,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         // what it was resolved from is still watched so that fixing it is noticed
         let watch_uris = config_key
           .and_then(|(_, uri)| self.config_dependencies.borrow().get(uri.as_str()).cloned())
-          .map(|(_, dependencies)| dependencies.iter().filter_map(|path| self.get_watch_uri(path)).collect())
+          .map(|(config_file_path, dependencies)| self.get_watch_uris(Some(&config_file_path), &dependencies))
           .unwrap_or_default();
         return Ok(ConfigInfoResult {
           file_patterns,
@@ -988,7 +994,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       _ => Default::default(),
     };
     let watch_uris = config
-      .map(|config| config.local_dependencies.iter().filter_map(|path| self.get_watch_uri(path)).collect())
+      .map(|config| {
+        let config_file_path = config.source.maybe_local_path().map(|path| path.as_ref().to_path_buf());
+        self.get_watch_uris(config_file_path.as_deref(), &config.local_dependencies)
+      })
       .unwrap_or_default();
     let approvals = self.get_scope_approvals(&scope, &target);
     Ok(ConfigInfoResult {
@@ -1457,30 +1466,20 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   pub async fn approve(self: &Rc<Self>, id: &str, decision: ApprovalDecision) -> Result<ApproveResult> {
     let stored = self.approvals.borrow().values().flatten().find(|stored| stored.approval.id == id).cloned();
     let Some(stored) = stored else {
-      // say what needs to be approved now when the config file is known
-      let target = self.approval_files.borrow().get(id).cloned();
-      let now = match target {
-        // it's still an approval that changed when the config file can't be resolved right now
-        Some(target) => match self.resolve_approval_target(&target).await {
-          Ok(config) => Some(self.get_approvals_and_status(config, &target)),
-          Err(_) => None,
-        },
-        None => None,
-      };
-      return Err(
-        ApprovalChangedError {
-          id: id.to_string(),
-          current: now.map(|(config_file, approvals, status)| ConfigApprovals {
-            config_file,
-            approvals,
-            status,
-          }),
-        }
-        .into(),
-      );
+      return Err(self.new_approval_changed_error(id).await);
     };
     if !stored.approval.decisions.iter().any(|option| option.decision == decision) {
       return Err(InvalidParamsError(format!("The decision {:?} isn't one of the approval's decisions.", decision)).into());
+    }
+    // a denial of downloads that are each allowed exactly since (ex. for another config file) wouldn't do anything,
+    // because an exact allow wins over a denial, so it's for an approval that changed
+    if !decision.is_allowed()
+      && let ApprovalSubject::Downloads(urls) = &stored.subject
+    {
+      let allowed = self.environment.download_policy().allowed_downloads().into_iter().collect::<HashSet<_>>();
+      if urls.iter().all(|url| allowed.contains(url)) {
+        return Err(self.new_approval_changed_error(id).await);
+      }
     }
     // failing to store a decision for process plugins once they're set up is only told about
     // when what this allows sets them up (ex. not when it was a while ago)
@@ -1609,6 +1608,29 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       },
       notice,
     })
+  }
+
+  /// Gets the error for approving what isn't pending anymore, which says what
+  /// needs to be approved now when the config file is known.
+  async fn new_approval_changed_error(self: &Rc<Self>, id: &str) -> anyhow::Error {
+    let target = self.approval_files.borrow().get(id).cloned();
+    let now = match target {
+      // it's still an approval that changed when the config file can't be resolved right now
+      Some(target) => match self.resolve_approval_target(&target).await {
+        Ok(config) => Some(self.get_approvals_and_status(config, &target)),
+        Err(_) => None,
+      },
+      None => None,
+    };
+    ApprovalChangedError {
+      id: id.to_string(),
+      current: now.map(|(config_file, approvals, status)| ConfigApprovals {
+        config_file,
+        approvals,
+        status,
+      }),
+    }
+    .into()
   }
 
   /// Gets the config file of the target, what needs to be approved for it,
@@ -2641,6 +2663,20 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
+  /// Gets the uris of the files a config file was resolved from for the
+  /// editor to watch (see `get_watch_uri`), which include the config file's
+  /// canonical path when it isn't named like a config file (ex. a `dprint.json`
+  /// that's a symlink to a `base.json`), because the editor's watcher of the
+  /// config files doesn't report it.
+  fn get_watch_uris(&self, config_file_path: Option<&Path>, dependencies: &[PathBuf]) -> Vec<Uri> {
+    let config_file_path = config_file_path.filter(|path| !is_config_file_path(&self.environment, path));
+    config_file_path
+      .into_iter()
+      .chain(dependencies.iter().map(|path| path.as_path()))
+      .filter_map(|path| self.get_watch_uri(path))
+      .collect()
+  }
+
   /// Gets the uri of a file a config file was resolved from as the editor
   /// knows it, which is `None` when its directory may not be read (see
   /// `register_watch_files`), so the editor doesn't watch it.
@@ -2929,6 +2965,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       let id = get_approval_id("download", &denied.config_key, &denied.downloads);
       (id.clone(), DeniedDownload { id, ..denied })
     }));
+    // a denial of what's allowed exactly doesn't do anything (ex. kept by another version of dprint)
+    let allowed = downloads.into_iter().collect::<HashSet<_>>();
+    self
+      .denied_downloads
+      .borrow_mut()
+      .retain(|_, denied| !denied.downloads.iter().all(|download| allowed.contains(download)));
     self.denied_downloads_changed();
   }
 

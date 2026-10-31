@@ -178,7 +178,7 @@ pub struct TestEnvironment {
   canonicalize_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// The paths that are canonicalized to another one, which is like a
   /// symlink to a local file or directory (see `add_canonical_symlink`).
-  canonical_dirs: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
+  canonical_paths: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
   /// Number of times each file was opened (ex. to read its shebang line).
   file_open_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// Number of times each path was looked up following its symlinks (ex.
@@ -258,7 +258,7 @@ impl TestEnvironment {
       remote_file_request_counts: Default::default(),
       file_read_counts: Default::default(),
       canonicalize_counts: Default::default(),
-      canonical_dirs: Default::default(),
+      canonical_paths: Default::default(),
       file_open_counts: Default::default(),
       stat_counts: Default::default(),
       path_kind_count: Default::default(),
@@ -394,7 +394,7 @@ impl TestEnvironment {
   /// without making it a symlink, which is for a file because the test
   /// environment doesn't read a file through a symlink.
   pub fn add_canonical_path(&self, path: impl AsRef<Path>, canonical_path: impl AsRef<Path>) {
-    self.canonical_dirs.lock().push((self.clean_path(path), self.clean_path(canonical_path)));
+    self.canonical_paths.lock().push((self.clean_path(path), self.clean_path(canonical_path)));
   }
 
   /// Gets the number of times the path was looked up following its symlinks
@@ -1032,7 +1032,7 @@ impl Environment for TestEnvironment {
     let path = self.clean_path(path);
     *self.canonicalize_counts.lock().entry(path.clone()).or_default() += 1;
     let canonical_dir = self
-      .canonical_dirs
+      .canonical_paths
       .lock()
       .iter()
       .find_map(|(dir_path, canonical_dir_path)| Some(canonical_dir_path.join(path.strip_prefix(dir_path).ok()?)));

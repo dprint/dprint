@@ -970,7 +970,10 @@ pub struct ConfigInfoResult {
   pub other_files: Vec<OtherFiles>,
   /// The local files besides the config file that it was resolved from (ex.
   /// a config file it extends), which the editor watches for changes too by
-  /// their directories. A file whose directory may not be read is left out.
+  /// their directories. A file whose directory may not be read is left out,
+  /// and the config file's own canonical path is in it when that isn't named
+  /// like a config file (ex. a `dprint.json` that's a symlink to a
+  /// `base.json`).
   pub watch_uris: Vec<Uri>,
   pub status: FormatStatus,
 }
@@ -1057,7 +1060,8 @@ pub struct ConfigFileInfo {
   /// Whether it was found on another machine and reading it isn't allowed
   /// yet, so the editor doesn't open or read it, which would reach the other
   /// machine. Its directory is watched like any other, which is never when
-  /// it's a symlink (see "Lifecycle" in the editor extension docs).
+  /// it's a symlink that isn't a workspace folder or one of its ancestors (see
+  /// "Lifecycle" in the editor extension docs).
   /// `dprint/configChanged` is sent once it's allowed.
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub on_another_machine: bool,
