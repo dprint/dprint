@@ -111,7 +111,10 @@ impl DownloadPolicy {
   /// It follows the path through the file system like the system does (ex.
   /// `..` after a symlink on macOS and Linux, or `..` applied to the text
   /// first on Windows), and the share of the file it's relative to too, but
-  /// never looks up what's on another machine (see `resolve_network_share`).
+  /// never looks up what's on another machine (see `resolve_network_share`)
+  /// until reading it is allowed. Then it follows the path on that share
+  /// too, so a symlink there that points at a third machine needs its own
+  /// approval.
   ///
   /// IMPORTANT: What's shown and allowed is the path along with where it
   /// resolved to when that's another path (ex. `C:\project\tools\plugin.wasm ->
@@ -192,22 +195,44 @@ impl TrustedDownloads {
       network_path = resolve_network_share(environment, path, rules, Some(automounted_share.clone()));
       base_share = Some(automounted_share);
     }
-    self.ensure_allows_network_path(path, network_path, base_share.as_deref())
+    self.ensure_allows_network_path(path, network_path, base_share.as_deref(), |allowed_shares| {
+      resolve_network_share(environment, path, rules, base_share.iter().chain(allowed_shares).cloned())
+    })
   }
 
   /// Errors when the path that's on another machine may not be read without
   /// asking the user (see `DownloadPolicy::ensure_allows_path`), which it may
   /// be when it's on the share of the file it's relative to.
-  fn ensure_allows_network_path(&self, path: &Path, network_path: Option<NetworkPath>, base_share: Option<&str>) -> Result<(), UntrustedDownloadError> {
-    let Some(network_path) = network_path else {
-      return Ok(());
-    };
-    if base_share == Some(network_path.share.as_str()) || self.is_path_allowed(path, &network_path.resolved) {
-      Ok(())
-    } else {
-      Err(UntrustedDownloadError {
-        download: get_path_download(path, &network_path.resolved),
-      })
+  ///
+  /// IMPORTANT: Once reading it is allowed, it's followed again with the
+  /// symlinks on its share (`follow` with the shares that were allowed), so a
+  /// symlink there can't reach a machine the user wasn't shown (ex. an NFS
+  /// client on macOS follows a symlink to `/net/other` when it's read), which
+  /// is then approved like any other. Looking up what's on the share doesn't
+  /// contact anything new because its machine is allowed to be read.
+  fn ensure_allows_network_path(
+    &self,
+    path: &Path,
+    mut network_path: Option<NetworkPath>,
+    base_share: Option<&str>,
+    follow: impl Fn(&[String]) -> Option<NetworkPath>,
+  ) -> Result<(), UntrustedDownloadError> {
+    let mut allowed_shares = Vec::new();
+    loop {
+      let Some(current) = network_path else {
+        return Ok(());
+      };
+      if base_share == Some(current.share.as_str()) || allowed_shares.contains(&current.share) {
+        return Ok(());
+      }
+      // each share is only allowed once, but a share's symlinks may point elsewhere each time they're read
+      if allowed_shares.len() >= MAX_SYMLINKS || !self.is_path_allowed(path, &current.resolved) {
+        return Err(UntrustedDownloadError {
+          download: get_path_download(path, &current.resolved),
+        });
+      }
+      allowed_shares.push(current.share);
+      network_path = follow(&allowed_shares);
     }
   }
 
@@ -381,7 +406,11 @@ impl AncestorPaths {
       Some(_) => base.and_then(|base| self.get_base_share(environment, base)),
       None => None,
     };
-    downloads.ensure_allows_network_path(path, network_path, base_share.as_deref())?;
+    downloads.ensure_allows_network_path(path, network_path, base_share.as_deref(), |allowed_shares| {
+      let mut walk = PathWalk::new(followed_share.iter().chain(allowed_shares).cloned());
+      walk.follow(environment, path, self.rules, |_| {});
+      walk.into_network_path(path)
+    })?;
     Ok(!is_missing)
   }
 
@@ -790,9 +819,10 @@ fn is_npmrc_path_download(download: &str) -> bool {
 
 /// Gets where a path that may be on another machine is like
 /// `get_network_share`, which follows the path through the file system one
-/// component at a time from the root (see `PathWalk`). The followed share is
-/// followed like a local path because its machine is already being read (ex.
-/// the share of the config file the path is relative to).
+/// component at a time from the root (see `PathWalk`). The followed shares
+/// are followed like a local path because their machines are already being
+/// read (ex. the share of the config file the path is relative to, or one
+/// the user allowed reading).
 ///
 /// IMPORTANT: The text of the path isn't enough because `..`, the case of
 /// `/net` on a case insensitive file system, and symlinks (ex. one in the
@@ -801,8 +831,13 @@ fn is_npmrc_path_download(download: &str) -> bool {
 /// or on the followed share because looking up a host in `/net` connects to
 /// it, and a symlink is read without following it, so nothing on another
 /// machine is looked up.
-fn resolve_network_share(environment: &impl Environment, path: &Path, rules: PathRules, followed_share: Option<String>) -> Option<NetworkPath> {
-  let mut walk = PathWalk::new(followed_share);
+fn resolve_network_share(
+  environment: &impl Environment,
+  path: &Path,
+  rules: PathRules,
+  followed_shares: impl IntoIterator<Item = String>,
+) -> Option<NetworkPath> {
+  let mut walk = PathWalk::new(followed_shares);
   walk.follow(environment, path, rules, |_| {});
   walk.into_network_path(path)
 }
@@ -838,9 +873,10 @@ struct PathWalk {
   /// on the share is.
   automount_root: Option<PathBuf>,
   symlink_count: usize,
-  /// The share that's followed like a local path, because its machine is
-  /// already being read (ex. the share of a project that's on one).
-  followed_share: Option<String>,
+  /// The shares that are followed like a local path, because their machines
+  /// are already being read (ex. the share of a project that's on one, or
+  /// one the user allowed reading).
+  followed_shares: Vec<String>,
   /// Whether the last component that was looked up doesn't exist, so the
   /// path doesn't (see `AncestorPaths::ensure_allows_existing`).
   is_missing: bool,
@@ -857,7 +893,7 @@ enum PathLocation {
   /// On another machine (see `get_network_share`). What's left of the path is
   /// added to what's followed as it is, apart from a `..` that stays on the
   /// share, because what's on another machine isn't looked up. The followed
-  /// share is the exception, which is followed like a local path.
+  /// shares are the exception, which are followed like a local path.
   Share(String),
   /// It left a share with `..` (ex. `/net/host/..`), which may reach another
   /// machine after already contacting the share's, so it's on another
@@ -884,9 +920,9 @@ impl PathLocation {
 }
 
 impl PathWalk {
-  fn new(followed_share: Option<String>) -> Self {
+  fn new(followed_shares: impl IntoIterator<Item = String>) -> Self {
     PathWalk {
-      followed_share,
+      followed_shares: followed_shares.into_iter().collect(),
       ..Default::default()
     }
   }
@@ -946,7 +982,7 @@ impl PathWalk {
     self.is_missing = false;
     match &self.location {
       PathLocation::Local => {}
-      PathLocation::Share(share) if self.followed_share.as_ref() == Some(share) => {}
+      PathLocation::Share(share) if self.followed_shares.contains(share) => {}
       PathLocation::Share(_) => {
         if let OwnedComponent::Parent = component {
           let parent = self.resolved.parent().map(|parent| (parent.to_path_buf(), self.get_location(parent, rules).0));
@@ -1012,7 +1048,7 @@ impl PathWalk {
       location = PathLocation::Share(next.to_string_lossy().into_owned());
       automount_root = Some(next.clone());
     }
-    if matches!(&location, PathLocation::Share(share) if self.followed_share.as_ref() != Some(share)) {
+    if matches!(&location, PathLocation::Share(share) if !self.followed_shares.contains(share)) {
       self.resolved = next;
       self.set_location(location, automount_root);
       return;
@@ -1946,6 +1982,56 @@ mod test {
   }
 
   #[test]
+  fn should_follow_a_share_once_reading_it_is_allowed() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/project/node_modules").unwrap();
+    environment.mk_dir_all("/net/host_a/share/pkg").unwrap();
+    environment.write_file("/net/host_a/share/pkg/other.wasm", "").unwrap();
+    environment.symlink("/net/host_a/share/pkg", "/project/node_modules/pkg").unwrap();
+    // ex. the NFS client of macOS follows it when it's read, which has the automounter contact `host_b`
+    environment.symlink("/net/host_b/x/plugin.wasm", "/net/host_a/share/pkg/plugin.wasm").unwrap();
+    environment.symlink("/net/host_b/x/.npmrc", "/net/host_a/share/pkg/.npmrc").unwrap();
+    environment.symlink("/net/host_a/share/pkg2", "/net/host_a/share/pkg/same_share_link").unwrap();
+    environment.symlink("/net/host_b/x", "/net/host_a/share/pkg2").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let DownloadPolicy::TrustedDomains(downloads) = &policy else {
+      unreachable!();
+    };
+    let base = Path::new("/project");
+    let ensure_allows = |path: &str| downloads.ensure_allows_path(&environment, Path::new(path), Some(base), MACOS);
+    let download = |err: UntrustedDownloadError| err.download.replace('\\', "/");
+    // what's on the share isn't looked up before it's allowed
+    let err = ensure_allows("/project/node_modules/pkg/plugin.wasm").unwrap_err();
+    assert_eq!(download(err), "/project/node_modules/pkg/plugin.wasm -> /net/host_a/share/pkg/plugin.wasm");
+    let err = ensure_allows("/project/node_modules/pkg").unwrap_err();
+    policy.allow(&[err.download]);
+    assert!(ensure_allows("/project/node_modules/pkg/other.wasm").is_ok());
+    // but once it is, a symlink on it that reaches another machine needs to be allowed too
+    let err = ensure_allows("/project/node_modules/pkg/plugin.wasm").unwrap_err();
+    assert_eq!(download(err), "/project/node_modules/pkg/plugin.wasm -> /net/host_b/x/plugin.wasm");
+    let err = ensure_allows("/project/node_modules/pkg/same_share_link/plugin.wasm").unwrap_err();
+    assert_eq!(
+      download(err),
+      "/project/node_modules/pkg/same_share_link/plugin.wasm -> /net/host_b/x/plugin.wasm"
+    );
+    // and so do the walks of ancestor directories
+    let ancestor_paths = AncestorPaths::new(&policy, Path::new("/project/node_modules/pkg"), MACOS);
+    let err = ancestor_paths
+      .ensure_allows(&environment, Path::new("/project/node_modules/pkg/.npmrc"), Some(base))
+      .unwrap_err();
+    assert_eq!(download(err), "/project/node_modules/pkg/.npmrc -> /net/host_b/x/.npmrc");
+    assert!(
+      ancestor_paths
+        .ensure_allows(&environment, Path::new("/project/node_modules/pkg/other.wasm"), Some(base))
+        .is_ok()
+    );
+    // which is then allowed
+    let err = ensure_allows("/project/node_modules/pkg/plugin.wasm").unwrap_err();
+    policy.allow(&[err.download]);
+    assert!(ensure_allows("/project/node_modules/pkg/plugin.wasm").is_ok());
+  }
+
+  #[test]
   fn should_stop_at_the_root_of_a_share_when_going_up_ancestor_directories() {
     let ancestors = |dir: &'static str, is_net_automounted: bool| {
       std::iter::successors(Some(Path::new(dir)), move |dir| get_parent_on_share_with(dir, is_net_automounted)).collect::<Vec<_>>()
@@ -2031,7 +2117,9 @@ mod test {
     let ensure_allows_each = |path: &Path| {
       let network_path = resolve_network_share(&environment, path, MACOS, None);
       downloads
-        .ensure_allows_network_path(path, network_path, get_network_share(dir, true).as_deref())
+        .ensure_allows_network_path(path, network_path, get_network_share(dir, true).as_deref(), |allowed_shares| {
+          resolve_network_share(&environment, path, MACOS, allowed_shares.to_vec())
+        })
         .map_err(|err| err.download)
     };
     let mut paths = dir.ancestors().map(|dir| dir.join(".npmrc")).collect::<Vec<_>>();
