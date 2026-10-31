@@ -11,6 +11,7 @@ use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::utils::AncestorPaths;
 use crate::utils::escape_glob_text;
+use crate::utils::get_parent_on_share;
 
 /// Lifted from the Deno code.
 /// Copyright 2018-2024 the Deno authors. MIT license.
@@ -217,9 +218,8 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
       None
     } else {
       // ancestors aren't part of the caller's listing, so resolve them without a hint
-      dir_path
-        .parent()
-        .and_then(|parent| self.get_resolved_git_ignore_inner(parent, None, ancestor_paths))
+      // what's above the root of a share isn't on it (ex. `/net/.gitignore` is a host named `.gitignore`)
+      get_parent_on_share(dir_path).and_then(|parent| self.get_resolved_git_ignore_inner(parent, None, ancestor_paths))
     };
     let current = self.resolve_current_gitignore(dir_path, is_repo_root, hint, ancestor_paths);
     let resolved = if parent.is_none() && current.is_none() {

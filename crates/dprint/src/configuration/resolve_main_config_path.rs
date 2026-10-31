@@ -9,8 +9,11 @@ use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::SubCommand;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::utils::AncestorPaths;
 use crate::utils::PathSource;
 use crate::utils::ResolvedFilePathWithTextRef;
+use crate::utils::UntrustedDownloadError;
+use crate::utils::get_ancestors_on_share;
 use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 pub static POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
@@ -49,6 +52,28 @@ impl ResolvedConfigPathWithText {
   }
 }
 
+/// The error for a config file that was found on another machine (ex. a
+/// `dprint.json` that's a symlink to a UNC path), which the download policy
+/// doesn't allow reading without asking the user because reading it contacts
+/// the machine (see `DownloadPolicy::ensure_allows_path`).
+#[derive(Debug)]
+pub struct ConfigFileOnAnotherMachineError {
+  /// Where the config file was found, which is what's read once it's allowed.
+  /// It's in a `.config` directory when that directory is on another machine.
+  pub config_path: PathBuf,
+  /// The directory it was found for, which it applies to.
+  pub dir: PathBuf,
+  pub download: UntrustedDownloadError,
+}
+
+impl std::fmt::Display for ConfigFileOnAnotherMachineError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.download.fmt(f)
+  }
+}
+
+impl std::error::Error for ConfigFileOnAnotherMachineError {}
+
 pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
@@ -60,7 +85,8 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
       Some(parent) if is_dot_config_dir(environment, start_search_dir.as_ref()) => parent,
       _ => start_search_dir,
     };
-    let maybe_config_file = get_config_file_in_dir(&start_search_dir, environment)?;
+    let ancestor_paths = environment.download_policy().ancestor_paths(start_search_dir.as_ref());
+    let maybe_config_file = get_config_file_in_dir(start_search_dir.as_ref(), environment, &ancestor_paths, start_search_dir.as_ref())?;
 
     if let Some((path, content)) = maybe_config_file {
       let anchored_patterns_base_path = get_found_config_file_anchored_patterns_dir(&start_search_dir, start_search_dir.as_ref(), &path);
@@ -288,10 +314,20 @@ fn resolve_or_create_folder(environment: &impl Environment, path: impl AsRef<Pat
   }
 }
 
+/// Finds the config file in the directory or the closest ancestor directory.
+///
+/// IMPORTANT: It errors with a `ConfigFileOnAnotherMachineError` when the
+/// download policy doesn't allow reading the config file it finds (or the
+/// `.config` directory it's in) without asking the user, which is checked
+/// before it's read because reading it contacts the machine. One on the same
+/// share as the directory is read. It isn't skipped though, because that would
+/// use another config file than the CLI would.
 pub fn get_default_config_file_in_ancestor_directories(environment: &impl Environment, start_dir: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
-  // a `.config` directory is searched as part of its parent directory, which is next
-  for ancestor_dir in start_dir.ancestors().filter(|dir| !is_dot_config_dir(environment, dir)) {
-    if let Some((ancestor_config_path, content)) = get_config_file_in_dir(ancestor_dir, environment)? {
+  let ancestor_paths = environment.download_policy().ancestor_paths(start_dir);
+  // a `.config` directory is searched as part of its parent directory, which is next, and what's
+  // above the root of a share isn't on it (ex. `/net/dprint.json` is a host named `dprint.json`)
+  for ancestor_dir in get_ancestors_on_share(start_dir).filter(|dir| !is_dot_config_dir(environment, dir)) {
+    if let Some((ancestor_config_path, content)) = get_config_file_in_dir(ancestor_dir, environment, &ancestor_paths, start_dir)? {
       let base_path = environment.canonicalize(ancestor_dir)?;
       return Ok(Some(ResolvedConfigPathWithText {
         source: PathSource::new_local(environment.canonicalize(&ancestor_config_path)?),
@@ -374,14 +410,31 @@ pub fn get_dot_config_file_paths(environment: &impl Environment, dir: &Path) -> 
   }
 }
 
-fn get_config_file_in_dir(dir: impl AsRef<Path>, environment: &impl Environment) -> std::io::Result<Option<(PathBuf, String)>> {
+/// Gets the config file in the directory, which is in the directory or the
+/// ancestors of the base, whose config file is found (see
+/// `get_default_config_file_in_ancestor_directories`).
+fn get_config_file_in_dir(dir: &Path, environment: &impl Environment, ancestor_paths: &AncestorPaths, base: &Path) -> Result<Option<(PathBuf, String)>> {
+  // IMPORTANT: Each path is checked before it's looked up because that may contact another machine.
+  let ensure_allows = |path: &Path, config_path: &Path| {
+    ancestor_paths
+      .ensure_allows(environment, path, Some(base))
+      .map_err(|download| ConfigFileOnAnotherMachineError {
+        config_path: config_path.to_path_buf(),
+        dir: dir.to_path_buf(),
+        download,
+      })
+  };
   for file_name in &POSSIBLE_CONFIG_FILE_NAMES {
-    let config_path = dir.as_ref().join(file_name);
+    let config_path = dir.join(file_name);
+    ensure_allows(&config_path, &config_path)?;
     if let Some(text) = environment.maybe_read_file(&config_path)? {
       return Ok(Some((config_path, text)));
     }
   }
-  for config_path in get_dot_config_file_paths(environment, dir.as_ref()) {
+  let dot_config_dir = dir.join(DOT_CONFIG_DIR_NAME);
+  ensure_allows(&dot_config_dir, &dot_config_dir.join(DOT_CONFIG_FILE_NAMES[0]))?;
+  for config_path in get_dot_config_file_paths(environment, dir) {
+    ensure_allows(&config_path, &config_path)?;
     // check it's a file first because reading within a `.config` that's
     // not a directory errors on some platforms rather than not finding it
     if environment.path_is_file(&config_path)
@@ -540,5 +593,46 @@ mod tests {
 
     let result = resolve_env_var_folder(&env, "NONEXISTENT_VAR");
     assert_eq!(result, None);
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_need_reading_a_config_file_found_on_another_machine_allowed_by_the_editors() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/repo/src/sub").unwrap();
+    env.write_file("/repo/dprint.json", "{}").unwrap();
+    env.symlink(r"\\server\share\dprint.json", "/repo/src/dprint.json").unwrap();
+    env.symlink(r"\\server\share\config", "/repo/src/sub/.config").unwrap();
+    let find = |dir: &str| get_default_config_file_in_ancestor_directories(&env, Path::new(dir));
+    // the test environment can't read what's on another machine, so this is what's asked about
+    let find_asked = |dir: &str| {
+      let err = find(dir).err()?;
+      let err = err.downcast_ref::<ConfigFileOnAnotherMachineError>()?;
+      Some((err.config_path.clone(), err.dir.clone(), err.download.download.clone()))
+    };
+    // the cli reads it
+    assert_eq!(find_asked("/repo/src"), None);
+
+    // the editors ask before contacting the machine, and don't use the config file of an ancestor directory instead
+    env.set_download_policy(crate::utils::DownloadPolicy::for_editor(&env));
+    let config_path = Path::new("/repo/src").join("dprint.json");
+    let (path, dir, download) = find_asked("/repo/src").unwrap();
+    assert_eq!(path, config_path);
+    assert_eq!(dir, Path::new("/repo/src"));
+    assert_eq!(download, format!(r"{} -> \\server\share\dprint.json", config_path.display()));
+    // which includes a `.config` directory on another machine
+    let dot_config_dir = Path::new("/repo/src/sub").join(".config");
+    let (path, dir, dot_config_download) = find_asked("/repo/src/sub").unwrap();
+    assert_eq!(path, dot_config_dir.join("dprint.json"));
+    assert_eq!(dir, Path::new("/repo/src/sub"));
+    assert_eq!(dot_config_download, format!(r"{} -> \\server\share\config", dot_config_dir.display()));
+    // and it's read once it's allowed
+    env.download_policy().allow(&[download]);
+    assert_eq!(find_asked("/repo/src"), None);
+
+    // a config file that's local is found
+    env.mk_dir_all("/repo/other").unwrap();
+    let config = find("/repo/other").unwrap().unwrap();
+    assert_eq!(config.base_path, CanonicalizedPathBuf::new_for_testing("/repo"));
   }
 }

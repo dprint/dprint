@@ -21,6 +21,7 @@ pub use init_plugin_options::*;
 pub use init_preferences::*;
 pub use manipulation::*;
 pub use resolve_config::*;
+pub use resolve_main_config_path::ConfigFileOnAnotherMachineError;
 pub use resolve_main_config_path::DOT_CONFIG_DIR_NAME;
 pub use resolve_main_config_path::DOT_CONFIG_FILE_NAMES;
 pub use resolve_main_config_path::POSSIBLE_CONFIG_FILE_NAMES;

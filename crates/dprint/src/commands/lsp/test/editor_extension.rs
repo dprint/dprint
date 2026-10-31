@@ -1922,6 +1922,7 @@ fn should_approve_the_proxy_of_a_project_npmrc_on_its_own() {
             kind: ApprovalItemKind::NpmrcProxy,
             registry: None,
             npmrc_uri: Some(uri("/project/.npmrc")),
+            uri: None,
             plugin: None,
             configuration: None,
           }]
@@ -1980,6 +1981,57 @@ fn should_approve_the_proxy_of_a_project_npmrc_on_its_own() {
       }
       .boxed_local()
     }
+  });
+}
+
+#[cfg(windows)]
+#[test]
+fn should_approve_reading_a_config_file_on_another_machine() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_default_config(|c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  environment.mk_dir_all("/src").unwrap();
+  environment.symlink(r"\\server\share\dprint.json", "/src/dprint.json").unwrap();
+  run_session(&environment, |client| {
+    async move {
+      // the config file in an ancestor directory isn't used instead, which the cli wouldn't
+      let result = client.format("/src/file.txt", "text").await;
+      assert_eq!(result.not_formatted_reason(), Some(NotFormattedReason::ApprovalRequired));
+      let approvals = result.approvals();
+      assert_eq!(approvals.len(), 1);
+      let approval = &approvals[0];
+      assert_eq!(approval.kind, ApprovalKind::Downloads);
+      assert_eq!(approval.title, "Read from another machine");
+      assert_eq!(approval.config_file.uri, uri("/src/dprint.json"));
+      assert_eq!(approval.config_file.dir_uri, uri("/src"));
+      let specifier = format!(r"{} -> \\server\share\dprint.json", Path::new("/src").join("dprint.json").display());
+      assert_eq!(
+        approval.items,
+        vec![ApprovalItem {
+          specifier: specifier.clone(),
+          kind: ApprovalItemKind::NetworkPath,
+          registry: None,
+          npmrc_uri: None,
+          uri: Some(uri("/src/dprint.json")),
+          plugin: None,
+          configuration: None,
+        }]
+      );
+      assert!(
+        approval
+          .message
+          .starts_with(&format!("dprint needs to read `{}`, which is on another machine.", specifier)),
+        "{}",
+        approval.message
+      );
+      assert!(!approval.message.contains("trustedDomains"), "{}", approval.message);
+      // the config file in the directory of another file is used
+      assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+    }
+    .boxed_local()
   });
 }
 

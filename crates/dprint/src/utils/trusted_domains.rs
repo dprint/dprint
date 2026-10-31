@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -11,6 +12,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use url::Url;
 
+use crate::configuration::ConfigFileOnAnotherMachineError;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::read_settings;
 use crate::environment::DownloadProxy;
@@ -102,8 +104,10 @@ impl DownloadPolicy {
   /// asking the user, which is allowed when the file it's relative to is on the
   /// same network share (ex. a config file in a project on a share).
   ///
-  /// It follows the path through the file system (ex. `..` after a symlink),
-  /// but never looks up what's on another machine (see `resolve_network_share`).
+  /// It follows the path through the file system like the system does (ex.
+  /// `..` after a symlink on macOS and Linux, or `..` applied to the text
+  /// first on Windows), and the share of the file it's relative to too, but
+  /// never looks up what's on another machine (see `resolve_network_share`).
   ///
   /// IMPORTANT: What's shown and allowed is the path along with where it
   /// resolved to when that's another path (ex. `C:\project\tools\plugin.wasm ->
@@ -112,18 +116,17 @@ impl DownloadPolicy {
   /// Allowing a directory allows what's in it that resolves to what's in where
   /// it resolved to (ex. the files of an npm package in `node_modules`).
   pub fn ensure_allows_path(&self, environment: &impl Environment, path: &Path, base: Option<&Path>) -> Result<(), UntrustedDownloadError> {
-    let DownloadPolicy::TrustedDomains(downloads) = self else {
-      return Ok(());
-    };
-    let network_path = resolve_network_share(environment, path, IS_NET_AUTOMOUNTED);
-    downloads.ensure_allows_network_path(path, network_path, base, IS_NET_AUTOMOUNTED)
+    match self {
+      DownloadPolicy::All => Ok(()),
+      DownloadPolicy::TrustedDomains(downloads) => downloads.ensure_allows_path(environment, path, base, PATH_RULES),
+    }
   }
 
   /// Gets what checks reading the paths in the directory and its ancestors
   /// (ex. their `.npmrc` files) like `ensure_allows_path`, which follows the
   /// directories through the file system once for all of them.
   pub fn ancestor_paths(&self, dir: &Path) -> AncestorPaths {
-    AncestorPaths::new(self, dir, IS_NET_AUTOMOUNTED)
+    AncestorPaths::new(self, dir, PATH_RULES)
   }
 
   /// Allows downloading what the user was shown and allowed (the downloads
@@ -170,6 +173,15 @@ impl TrustedDownloads {
       .any(|allowed| allowed == url || (allowed.ends_with('/') && url.starts_with(allowed.as_str())))
   }
 
+  /// Errors when the path may not be read without asking the user (see
+  /// `DownloadPolicy::ensure_allows_path`).
+  fn ensure_allows_path(&self, environment: &impl Environment, path: &Path, base: Option<&Path>, rules: PathRules) -> Result<(), UntrustedDownloadError> {
+    // the share of the file it's relative to is already being read
+    let base_share = base.and_then(|base| get_network_share(base, rules.is_net_automounted));
+    let network_path = resolve_network_share(environment, path, rules, base_share);
+    self.ensure_allows_network_path(path, network_path, base, rules)
+  }
+
   /// Errors when the path that's on another machine may not be read without
   /// asking the user (see `DownloadPolicy::ensure_allows_path`).
   fn ensure_allows_network_path(
@@ -177,13 +189,13 @@ impl TrustedDownloads {
     path: &Path,
     network_path: Option<NetworkPath>,
     base: Option<&Path>,
-    is_net_automounted: bool,
+    rules: PathRules,
   ) -> Result<(), UntrustedDownloadError> {
     let Some(network_path) = network_path else {
       return Ok(());
     };
     // the file it's relative to was already resolved
-    let base_share = base.and_then(|base| get_network_share(base, is_net_automounted));
+    let base_share = base.and_then(|base| get_network_share(base, rules.is_net_automounted));
     if base_share.is_some_and(|base_share| base_share == network_path.share) || self.is_path_allowed(path, &network_path.resolved) {
       Ok(())
     } else {
@@ -260,25 +272,27 @@ impl NpmrcProxy {
 ///
 /// It follows the directories through the file system once, the first time a
 /// path is checked, and then only follows what's after the directory a path
-/// is in, instead of following each path from the root.
+/// is in, instead of following each path from the root. The share the
+/// directory is on is followed like a local path (see `PathWalk`), because
+/// its machine is already being read.
 pub struct AncestorPaths {
   /// `None` when anything may be read (see `DownloadPolicy::All`).
   downloads: Option<Arc<TrustedDownloads>>,
   dir: PathBuf,
-  is_net_automounted: bool,
+  rules: PathRules,
   /// How the directory and each of its ancestors were followed.
   walks: OnceCell<HashMap<PathBuf, PathWalk>>,
 }
 
 impl AncestorPaths {
-  fn new(policy: &DownloadPolicy, dir: &Path, is_net_automounted: bool) -> Self {
+  fn new(policy: &DownloadPolicy, dir: &Path, rules: PathRules) -> Self {
     AncestorPaths {
       downloads: match policy {
         DownloadPolicy::All => None,
         DownloadPolicy::TrustedDomains(downloads) => Some(downloads.clone()),
       },
       dir: dir.to_path_buf(),
-      is_net_automounted,
+      rules,
       walks: OnceCell::new(),
     }
   }
@@ -290,20 +304,37 @@ impl AncestorPaths {
     let Some(downloads) = &self.downloads else {
       return Ok(());
     };
+    let followed_share = get_network_share(&self.dir, self.rules.is_net_automounted);
     let walks = self
       .walks
-      .get_or_init(|| PathWalk::follow_ancestors(environment, &self.dir, self.is_net_automounted));
-    let network_path = match path.ancestors().find_map(|dir| Some((dir, walks.get(dir)?))) {
+      .get_or_init(|| PathWalk::follow_ancestors(environment, &self.dir, self.rules, followed_share.clone()));
+    // the walks are of the directories as they're followed (ex. without `..` on Windows)
+    let followed_path = self.rules.normalize(path);
+    let network_path = match followed_path.ancestors().find_map(|dir| Some((dir, walks.get(dir)?))) {
       Some((dir, walk)) => {
         let mut walk = walk.clone();
-        walk.follow(environment, path.strip_prefix(dir).unwrap_or(path), self.is_net_automounted, |_| {});
+        walk.follow(environment, followed_path.strip_prefix(dir).unwrap_or(path), self.rules, |_| {});
         walk.into_network_path(path)
       }
       // ex. it's in a directory that's after a symlink loop
-      None => resolve_network_share(environment, path, self.is_net_automounted),
+      None => resolve_network_share(environment, path, self.rules, followed_share),
     };
-    downloads.ensure_allows_network_path(path, network_path, base, self.is_net_automounted)
+    downloads.ensure_allows_network_path(path, network_path, base, self.rules)
   }
+}
+
+/// Gets the directory and its ancestors, which stop at the root of the
+/// network share it's on (see `get_parent_on_share`).
+pub fn get_ancestors_on_share(dir: &Path) -> impl Iterator<Item = &Path> {
+  std::iter::successors(Some(dir), |dir| get_parent_on_share(dir))
+}
+
+/// Gets the parent of the directory, which is `None` for the root of a
+/// network share (ex. `/net/host` on macOS) because what's above it isn't on
+/// the share. For example, `/net/.npmrc` isn't a file but a host named
+/// `.npmrc`, which the automounter would look up.
+pub fn get_parent_on_share(dir: &Path) -> Option<&Path> {
+  get_parent_on_share_with(dir, PATH_RULES.is_net_automounted)
 }
 
 /// The error for something that needs to be downloaded from where the
@@ -316,18 +347,25 @@ pub struct UntrustedDownloadError {
 
 impl std::fmt::Display for UntrustedDownloadError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match NpmrcProxy::from_download(&self.download) {
-      Some(proxy) => write!(
+    if let Some(proxy) = NpmrcProxy::from_download(&self.download) {
+      write!(
         f,
         "Downloading through the proxy {} of {} needs to be allowed because the .npmrc file isn't the user's own.",
         quote_text(&proxy.setting),
         quote_text(&proxy.npmrc_path)
-      ),
-      None => write!(
+      )
+    } else if is_path_download(&self.download) {
+      write!(
+        f,
+        "Reading {} needs to be allowed because it's on another machine.",
+        quote_download(&self.download)
+      )
+    } else {
+      write!(
         f,
         "Downloading {} needs to be allowed because its domain isn't trusted.",
-        quote_text(&self.download)
-      ),
+        quote_download(&self.download)
+      )
     }
   }
 }
@@ -343,11 +381,32 @@ impl UntrustedDownloadError {
         Self::find(inner)
       } else if let Some(ResolvePluginsError(inner)) = err.downcast_ref::<ResolvePluginsError>() {
         Self::find(inner)
+      } else if let Some(err) = err.downcast_ref::<ConfigFileOnAnotherMachineError>() {
+        Some(&err.download)
       } else {
         err.downcast_ref::<UntrustedDownloadError>()
       }
     })
   }
+}
+
+/// Gets whether a download is reading a path on another machine (see
+/// `DownloadPolicy::ensure_allows_path`), which is what isn't a url or the
+/// proxy of an `.npmrc` file.
+///
+/// A path is never mistaken for a url because it's absolute, so it starts with
+/// a slash, a backslash, or a drive letter, which is a scheme of one letter.
+pub fn is_path_download(download: &str) -> bool {
+  NpmrcProxy::from_download(download).is_none() && Url::parse(download).map_or(true, |url| url.scheme().len() == 1)
+}
+
+/// Gets the path in the project of a download that reads a path on another
+/// machine through a symlink (the path before ` -> `), which is `None` when
+/// the path itself is on another machine.
+pub fn get_path_download_local_path(download: &str) -> Option<PathBuf> {
+  // an arrow in a path is escaped, so the first one is the one between them
+  let (path, _) = download.split_once(" -> ")?;
+  Some(PathBuf::from(unescape_text(path)))
 }
 
 /// The titles of the actions of the message that asks whether to download from
@@ -356,17 +415,19 @@ pub const DOWNLOAD_ACTION_TITLE: &str = "Download";
 pub const CANCEL_DOWNLOAD_ACTION_TITLE: &str = "Cancel";
 
 /// Gets the message that asks the user whether to download what a config file
-/// needs from domains that aren't trusted, or through the proxies of `.npmrc`
-/// files that aren't the user's own.
+/// needs from domains that aren't trusted, through the proxies of `.npmrc`
+/// files that aren't the user's own, or from another machine.
 ///
 /// Each proxy is said first, starting with its setting and its file, because
 /// an editor may cut off a long message (ex. after many long urls) and the
-/// user needs to see what's sent to it.
+/// user needs to see what's sent to it. The paths are next because the
+/// settings file can't trust them.
 ///
 /// The settings file isn't said to trust a domain when the editors don't use
 /// it (see `read_ignored_settings_message`), which is said instead.
 pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_message: Option<&str>) -> String {
-  let (proxies, urls): (Vec<_>, Vec<_>) = downloads.iter().partition(|download| NpmrcProxy::from_download(download).is_some());
+  let (proxies, others): (Vec<_>, Vec<_>) = downloads.iter().partition(|download| NpmrcProxy::from_download(download).is_some());
+  let (paths, urls): (Vec<_>, Vec<_>) = others.into_iter().partition(|download| is_path_download(download));
   let mut messages = Vec::new();
   for proxy in proxies.iter().filter_map(|download| NpmrcProxy::from_download(download)) {
     messages.push(format!(
@@ -379,13 +440,30 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
       quote_text(&proxy.npmrc_path),
     ));
   }
+  if !paths.is_empty() {
+    messages.push(format!(
+      concat!(
+        "dprint needs to read {}, which {} on another machine. ",
+        "Only allow it when you trust the configuration file because reading from the machine connects to it, ",
+        "which can send it information (ex. that the project was opened, or your credentials for the machine)."
+      ),
+      paths.iter().map(|path| quote_download(path)).collect::<Vec<_>>().join(", "),
+      if paths.len() == 1 { "is" } else { "are" },
+    ));
+    if paths.iter().any(|path| is_npmrc_path_download(path)) {
+      messages.push(
+        "An .npmrc file sets where npm packages are downloaded from (ex. a company's registry for a scope), so npm packages aren't resolved until it's read."
+          .to_string(),
+      );
+    }
+  }
   if !urls.is_empty() {
     messages.push(format!(
       concat!(
         "dprint needs to download {} from domains that aren't trusted. ",
         "Only download them when you trust the configuration file because a download can send information to the domain. {}"
       ),
-      urls.iter().map(|url| quote_text(url)).collect::<Vec<_>>().join(", "),
+      urls.iter().map(|url| quote_download(url)).collect::<Vec<_>>().join(", "),
       ignored_settings_message.unwrap_or("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."),
     ));
   }
@@ -399,25 +477,48 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
 ///
 /// IMPORTANT: The editors show the message as plain text, so the text can't
 /// have anything that would end the quotes or change how the message reads. A
-/// backtick and what looks like one, a control character (ex. a newline), a
-/// space other than a plain one, and an invisible formatting character (ex. a
-/// bidi override like U+202E, which shows the text after it backwards) are
-/// shown as an escape instead (ex. `\u{60}`, `\n`, or `\u{202e}`), and so is a
-/// combining mark at the start, which would change the opening backtick.
+/// backtick and what looks like one are shown as an escape (ex. `\u{60}`) along
+/// with what `escape_text` escapes.
 pub fn quote_text(text: &str) -> String {
-  let mut quoted = String::with_capacity(text.len() + 2);
-  quoted.push('`');
-  for (index, c) in text.chars().enumerate() {
-    match c {
-      '\n' => quoted.push_str("\\n"),
-      '\r' => quoted.push_str("\\r"),
-      '\t' => quoted.push_str("\\t"),
-      c if is_escaped_in_quotes(c) || (index == 0 && is_combining_mark(c)) => quoted.extend(c.escape_unicode()),
-      c => quoted.push(c),
-    }
-  }
-  quoted.push('`');
-  quoted
+  format!("`{}`", escape_text_with(text, true, false))
+}
+
+/// Escapes text from the project that's shown as it is (ex. the specifier of an
+/// approval's item), so it can't change how what's shown around it reads.
+///
+/// IMPORTANT: A control character (ex. a newline), a space other than a plain
+/// one, an invisible formatting character (ex. a bidi override like U+202E,
+/// which shows the text after it backwards), and a combining mark at the start
+/// (which would change what's shown before it) are shown as an escape of
+/// their code point in hex instead (ex. `\u{a}` or `\u{202e}`). That's the
+/// only kind of escape, so a backslash that isn't followed by `u{` is shown as
+/// it is (ex. in a Windows path like `C:\new`), and one that is is shown as
+/// `\u{5c}`, so an escape can't be mistaken for the text.
+pub fn escape_text(text: &str) -> String {
+  escape_text_with(text, false, false)
+}
+
+/// Gets whether a character is shown as an escape in text from the project
+/// (see `escape_text`), apart from a combining mark at the start.
+pub fn is_escaped_in_text(c: char) -> bool {
+  c.is_control()
+    || (c.is_whitespace() && c != ' ')
+    || matches!(
+      c,
+      // invisible formatting characters, including the bidi ones
+      '\u{ad}' | '\u{34f}' | '\u{61c}' | '\u{115f}' | '\u{1160}' | '\u{17b4}' | '\u{17b5}' | '\u{180b}'..='\u{180f}'
+      | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{3164}' | '\u{fe00}'..='\u{fe0f}'
+      | '\u{feff}' | '\u{ffa0}' | '\u{fff9}'..='\u{fffb}' | '\u{1d173}'..='\u{1d17a}' | '\u{e0000}'..='\u{e0fff}'
+    )
+}
+
+/// Gets whether a character is a combining mark, which is shown on the
+/// character before it.
+pub fn is_combining_mark(c: char) -> bool {
+  matches!(
+    c,
+    '\u{300}'..='\u{36f}' | '\u{1ab0}'..='\u{1aff}' | '\u{1dc0}'..='\u{1dff}' | '\u{20d0}'..='\u{20ff}' | '\u{fe20}'..='\u{fe2f}'
+  )
 }
 
 /// The domains that are trusted to download from, which includes their
@@ -494,25 +595,55 @@ impl TrustedDomains {
 /// isn't mistaken for a url because a url can't have the newline it has.
 const NPMRC_PROXY_DOWNLOAD_PREFIX: &str = "npmrc-proxy:";
 
-/// Whether a path in `/net` is on another machine, which is where the
-/// automounter of macOS mounts the shares of a host when the host is looked up.
-const IS_NET_AUTOMOUNTED: bool = cfg!(target_os = "macos");
+/// How the system resolves the paths that are checked (see `PathRules`).
+const PATH_RULES: PathRules = PathRules {
+  is_net_automounted: cfg!(target_os = "macos"),
+  is_parent_lexical: cfg!(windows),
+};
 
 /// The most symlinks to follow when resolving a path, which is more than the
 /// systems follow, so reading a path with more fails anyway.
 const MAX_SYMLINKS: usize = 64;
 
+/// How a system resolves paths, which the tests change to cover each system.
+#[derive(Debug, Clone, Copy)]
+struct PathRules {
+  /// Whether a path in `/net` is on another machine, which is where the
+  /// automounter of macOS mounts the shares of a host when the host is
+  /// looked up.
+  is_net_automounted: bool,
+  /// Whether `..` is applied to the text of a path before anything in it is
+  /// followed, like Win32 does, instead of to where the path before it
+  /// resolved to (ex. `link\..\x` is `x` even when `link` is a symlink).
+  is_parent_lexical: bool,
+}
+
+impl PathRules {
+  /// Gets the path as the system follows it, which has `.` and `..` applied
+  /// to its text when `..` is lexical.
+  fn normalize<'a>(&self, path: &'a Path) -> Cow<'a, Path> {
+    if self.is_parent_lexical {
+      normalize_lexically(path)
+    } else {
+      Cow::Borrowed(path)
+    }
+  }
+}
+
 /// Gets what's shown and allowed for reading a path on another machine (see
 /// `DownloadPolicy::ensure_allows_path`), which is the path along with what it
 /// resolved to when that's another path (ex. `/project/link -> /net/host/dir`).
+///
+/// It's shown as it is (ex. the specifier of an approval's item), so each path
+/// is escaped like `quote_text` escapes text.
 ///
 /// IMPORTANT: An arrow in the paths is escaped (`-\u{3e}`) so the one between
 /// them is the only one, because otherwise a path from the project could look
 /// like it resolved somewhere else (ex. `/net/host/x -> /project/plugin.wasm`).
 fn get_path_download(path: &Path, resolved: &Path) -> String {
-  let escape_arrows = |path: &Path| path.display().to_string().replace("->", "-\\u{3e}");
-  let path_text = escape_arrows(path);
-  let resolved_text = escape_arrows(resolved);
+  let escape_path = |path: &Path| escape_text_with(&path.display().to_string(), true, true);
+  let path_text = escape_path(path);
+  let resolved_text = escape_path(resolved);
   if resolved_text == path_text {
     path_text
   } else {
@@ -520,19 +651,38 @@ fn get_path_download(path: &Path, resolved: &Path) -> String {
   }
 }
 
+/// Quotes a download in a message like `quote_text`, where a path is already
+/// escaped (see `get_path_download`).
+fn quote_download(download: &str) -> String {
+  if is_path_download(download) {
+    format!("`{}`", download)
+  } else {
+    quote_text(download)
+  }
+}
+
+/// Gets whether a download reads an `.npmrc` file on another machine.
+fn is_npmrc_path_download(download: &str) -> bool {
+  let path = get_path_download_local_path(download).unwrap_or_else(|| PathBuf::from(unescape_text(download)));
+  path.file_name().is_some_and(|name| name == ".npmrc")
+}
+
 /// Gets where a path that may be on another machine is like
 /// `get_network_share`, which follows the path through the file system one
-/// component at a time from the root (see `PathWalk`).
+/// component at a time from the root (see `PathWalk`). The followed share is
+/// followed like a local path because its machine is already being read (ex.
+/// the share of the config file the path is relative to).
 ///
 /// IMPORTANT: The text of the path isn't enough because `..`, the case of
 /// `/net` on a case insensitive file system, and symlinks (ex. one in the
 /// project that points at a UNC path) may reach another machine. Each
 /// component is only looked up once the path before it is known to be local
-/// because looking up a host in `/net` connects to it, and a symlink is read
-/// without following it, so nothing on another machine is looked up.
-fn resolve_network_share(environment: &impl Environment, path: &Path, is_net_automounted: bool) -> Option<NetworkPath> {
-  let mut walk = PathWalk::default();
-  walk.follow(environment, path, is_net_automounted, |_| {});
+/// or on the followed share because looking up a host in `/net` connects to
+/// it, and a symlink is read without following it, so nothing on another
+/// machine is looked up.
+fn resolve_network_share(environment: &impl Environment, path: &Path, rules: PathRules, followed_share: Option<String>) -> Option<NetworkPath> {
+  let mut walk = PathWalk::new(followed_share);
+  walk.follow(environment, path, rules, |_| {});
   walk.into_network_path(path)
 }
 
@@ -553,6 +703,9 @@ struct PathWalk {
   resolved: PathBuf,
   location: PathLocation,
   symlink_count: usize,
+  /// The share that's followed like a local path, because its machine is
+  /// already being read (ex. the share of a project that's on one).
+  followed_share: Option<String>,
 }
 
 /// Where a path that's followed is (see `PathWalk`).
@@ -562,7 +715,8 @@ enum PathLocation {
   Local,
   /// On another machine (see `get_network_share`). What's left of the path is
   /// added to what's followed as it is, apart from a `..` that stays on the
-  /// share, because what's on another machine isn't looked up.
+  /// share, because what's on another machine isn't looked up. The followed
+  /// share is the exception, which is followed like a local path.
   Share(String),
   /// It left a share with `..` (ex. `/net/host/..`), which may reach another
   /// machine after already contacting the share's, so it's on another
@@ -574,10 +728,28 @@ enum PathLocation {
   SymlinkLoop,
 }
 
+impl PathLocation {
+  /// Gets where a path that's followed is from its text.
+  fn from_path(path: &Path, rules: PathRules) -> Self {
+    match get_network_share(path, rules.is_net_automounted) {
+      Some(share) => PathLocation::Share(share),
+      None => PathLocation::Local,
+    }
+  }
+}
+
 impl PathWalk {
+  fn new(followed_share: Option<String>) -> Self {
+    PathWalk {
+      followed_share,
+      ..Default::default()
+    }
+  }
+
   /// Follows the directory and its ancestors, which gets how each of them was
   /// followed (see `AncestorPaths`).
-  fn follow_ancestors(environment: &impl Environment, dir: &Path, is_net_automounted: bool) -> HashMap<PathBuf, PathWalk> {
+  fn follow_ancestors(environment: &impl Environment, dir: &Path, rules: PathRules, followed_share: Option<String>) -> HashMap<PathBuf, PathWalk> {
+    let dir = rules.normalize(dir);
     // the ancestors in the order their last components are followed
     let mut ancestors = Vec::new();
     let mut ancestor = PathBuf::new();
@@ -587,8 +759,8 @@ impl PathWalk {
     }
     let mut ancestors = ancestors.into_iter();
     let mut walks = HashMap::new();
-    let mut walk = PathWalk::default();
-    walk.follow(environment, dir, is_net_automounted, |walk| {
+    let mut walk = PathWalk::new(followed_share);
+    walk.follow(environment, &dir, rules, |walk| {
       if let Some(ancestor) = ancestors.next() {
         walks.insert(ancestor, walk.clone());
       }
@@ -599,7 +771,8 @@ impl PathWalk {
   /// Follows the components of the path from where the walk is, which calls
   /// `on_component` once each of them was followed (along with what a symlink
   /// it was points at).
-  fn follow(&mut self, environment: &impl Environment, path: &Path, is_net_automounted: bool, mut on_component: impl FnMut(&PathWalk)) {
+  fn follow(&mut self, environment: &impl Environment, path: &Path, rules: PathRules, mut on_component: impl FnMut(&PathWalk)) {
+    let path = rules.normalize(path);
     // the components that are left with the next one last, where the ones of
     // the path are below the ones of the symlinks it went through
     let mut remaining = path.components().rev().filter_map(OwnedComponent::new).collect::<Vec<_>>();
@@ -620,19 +793,20 @@ impl PathWalk {
         path_components_left = remaining.len();
         is_component_pending = true;
       }
-      self.step(environment, component, &mut remaining, is_net_automounted);
+      self.step(environment, component, &mut remaining, rules);
     }
   }
 
-  fn step(&mut self, environment: &impl Environment, component: OwnedComponent, remaining: &mut Vec<OwnedComponent>, is_net_automounted: bool) {
+  fn step(&mut self, environment: &impl Environment, component: OwnedComponent, remaining: &mut Vec<OwnedComponent>, rules: PathRules) {
     match &self.location {
       PathLocation::Local => {}
+      PathLocation::Share(share) if self.followed_share.as_ref() == Some(share) => {}
       PathLocation::Share(share) => {
         if let OwnedComponent::Parent = component {
           match self.resolved.parent() {
             // ex. the root of a UNC path, which can't be left
             None => {}
-            Some(parent) if get_network_share(parent, is_net_automounted).as_ref() == Some(share) => self.resolved = parent.to_path_buf(),
+            Some(parent) if get_network_share(parent, rules.is_net_automounted).as_ref() == Some(share) => self.resolved = parent.to_path_buf(),
             // IMPORTANT: Leaving the share (ex. `/net/host/..`) may reach another machine.
             Some(_) => {
               self.resolved.push("..");
@@ -653,24 +827,26 @@ impl PathWalk {
     match component {
       OwnedComponent::Root(root) => {
         self.resolved.push(root);
-        // ex. a UNC prefix
-        if let Some(share) = get_network_share(&self.resolved, is_net_automounted) {
-          self.location = PathLocation::Share(share);
-        }
+        // ex. a UNC prefix, or an absolute symlink on the followed share that points at a local path
+        self.location = PathLocation::from_path(&self.resolved, rules);
       }
       OwnedComponent::Parent => {
         // the parent of the root is the root
         self.resolved.pop();
+        // ex. it left the followed share (`/net/host/..`), which is followed like a local path
+        self.location = PathLocation::from_path(&self.resolved, rules);
       }
       OwnedComponent::Normal(name) => {
         let next = self.resolved.join(name);
-        if let Some(share) = get_network_share(&next, is_net_automounted) {
+        let location = PathLocation::from_path(&next, rules);
+        if matches!(&location, PathLocation::Share(share) if self.followed_share.as_ref() != Some(share)) {
           self.resolved = next;
-          self.location = PathLocation::Share(share);
+          self.location = location;
           return;
         }
         if environment.path_kind(&next) != Some(PathKind::Symlink) {
           self.resolved = next;
+          self.location = location;
           return;
         }
         self.symlink_count += 1;
@@ -680,13 +856,15 @@ impl PathWalk {
         }
         match environment.read_link(&next) {
           Ok(target) => {
-            // a relative target is relative to the symlink's directory, and an absolute one replaces it
-            let target = self.resolved.join(target);
+            let target = get_symlink_target_path(&self.resolved, &target, rules);
             remaining.extend(target.components().rev().filter_map(OwnedComponent::new));
             self.resolved = PathBuf::new();
           }
           // reading the path fails the same way
-          Err(_) => self.resolved = next,
+          Err(_) => {
+            self.resolved = next;
+            self.location = location;
+          }
         }
       }
     }
@@ -742,6 +920,56 @@ impl OwnedComponent {
   }
 }
 
+/// Gets the path a symlink in the directory points at, where a relative target
+/// is relative to the directory and an absolute one replaces it.
+///
+/// IMPORTANT: Win32 applies the `..` of a target to its text too (ex. a target
+/// of `link\..\x` is the directory's `x` even when `link` is a symlink).
+fn get_symlink_target_path(dir: &Path, target: &Path, rules: PathRules) -> PathBuf {
+  let target = dir.join(target);
+  match rules.normalize(&target) {
+    Cow::Borrowed(_) => target,
+    Cow::Owned(normalized) => normalized,
+  }
+}
+
+/// Applies the `.` and `..` of a path to its text like Win32 does before it
+/// opens a path, where the parent of the root is the root. A verbatim path
+/// (ex. `\\?\C:\dir`) is used as it is.
+fn normalize_lexically(path: &Path) -> Cow<'_, Path> {
+  let mut components = path.components();
+  let is_verbatim = matches!(components.next(), Some(Component::Prefix(prefix)) if prefix.kind().is_verbatim());
+  if is_verbatim || !path.components().any(|component| matches!(component, Component::CurDir | Component::ParentDir)) {
+    return Cow::Borrowed(path);
+  }
+  let mut normalized = PathBuf::new();
+  for component in path.components() {
+    match component {
+      Component::CurDir => {}
+      Component::ParentDir => match normalized.components().next_back() {
+        Some(Component::Normal(_)) => {
+          normalized.pop();
+        }
+        Some(Component::RootDir) => {}
+        Some(Component::Prefix(_)) if normalized.has_root() => {}
+        // ex. a relative path that starts above its directory
+        _ => normalized.push(".."),
+      },
+      component => normalized.push(component),
+    }
+  }
+  Cow::Owned(normalized)
+}
+
+/// Gets the parent of the directory like `get_parent_on_share`.
+fn get_parent_on_share_with(dir: &Path, is_net_automounted: bool) -> Option<&Path> {
+  let parent = dir.parent()?;
+  match get_network_share(dir, is_net_automounted) {
+    Some(share) if get_network_share(parent, is_net_automounted).as_ref() != Some(&share) => None,
+    _ => Some(parent),
+  }
+}
+
 /// Gets where a path that may be on another machine is (ex. the server and
 /// share of a UNC path), lowercased because it's case insensitive. It's only
 /// from the text of the path, so the path needs to be resolved first (see
@@ -751,7 +979,9 @@ impl OwnedComponent {
 /// path isn't, and neither is any other kind of prefix because some of them
 /// also reach another machine (ex. `\\.\UNC\server\share` or
 /// `\\?\GLOBALROOT\Device\Mup\server\share`). On macOS, a path in `/net` is on
-/// another machine because the automounter mounts it.
+/// another machine because the automounter mounts it, and so is one in
+/// `/System/Volumes/Data/net`, which is where `/net` is on the data volume
+/// (it's treated the same even where it isn't, which is safe).
 fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
   match path.components().next()? {
     Component::Prefix(prefix) => match prefix.kind() {
@@ -765,12 +995,18 @@ fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
       _ => Some(path.to_string_lossy().to_lowercase()),
     },
     Component::RootDir if is_net_automounted => {
-      let mut components = path.components().skip(1);
-      match (components.next(), components.next()) {
-        // the file system is case insensitive by default
-        (Some(Component::Normal(net)), Some(Component::Normal(host))) if net.eq_ignore_ascii_case("net") => {
-          Some(format!("/net/{}", host.to_string_lossy().to_lowercase()))
+      let mut components = path.components().skip(1).peekable();
+      // the file system is case insensitive by default
+      let is_name = |component: Option<Component<'_>>, name: &str| matches!(component, Some(Component::Normal(value)) if value.eq_ignore_ascii_case(name));
+      if components.peek().is_some_and(|component| is_name(Some(*component), "System")) {
+        for name in ["System", "Volumes", "Data"] {
+          if !is_name(components.next(), name) {
+            return None;
+          }
         }
+      }
+      match (components.next(), components.next()) {
+        (net, Some(Component::Normal(host))) if is_name(net, "net") => Some(format!("/net/{}", host.to_string_lossy().to_lowercase())),
         _ => None,
       }
     }
@@ -778,27 +1014,62 @@ fn get_network_share(path: &Path, is_net_automounted: bool) -> Option<String> {
   }
 }
 
-/// Gets whether a character is shown as an escape in quoted text (see `quote_text`).
-fn is_escaped_in_quotes(c: char) -> bool {
-  c.is_control()
-    || (c.is_whitespace() && c != ' ')
-    || matches!(
-      c,
-      // a backtick and what looks like one
-      '`' | '\u{2cb}' | '\u{2ce}' | '\u{300}' | '\u{316}' | '\u{340}' | '\u{1fef}' | '\u{2018}' | '\u{201b}' | '\u{2035}' | '\u{ff40}'
-      // invisible formatting characters, including the bidi ones
-      | '\u{ad}' | '\u{34f}' | '\u{61c}' | '\u{115f}' | '\u{1160}' | '\u{17b4}' | '\u{17b5}' | '\u{180b}'..='\u{180f}'
-      | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{3164}' | '\u{fe00}'..='\u{fe0f}'
-      | '\u{feff}' | '\u{ffa0}' | '\u{fff9}'..='\u{fffb}' | '\u{1d173}'..='\u{1d17a}' | '\u{e0000}'..='\u{e0fff}'
-    )
+/// Escapes text from the project like `escape_text`, which also escapes a
+/// backtick and what looks like one for `quote_text`, and the `>` of an arrow
+/// (`->`) for `get_path_download`.
+fn escape_text_with(text: &str, escape_backticks: bool, escape_arrows: bool) -> String {
+  let mut escaped = String::with_capacity(text.len());
+  let mut previous = None;
+  for (index, c) in text.char_indices() {
+    let is_escaped = is_escaped_in_text(c)
+      || (index == 0 && is_combining_mark(c))
+      || (c == '\\' && text[index + 1..].starts_with("u{"))
+      || (escape_backticks && is_backtick_like(c))
+      || (escape_arrows && c == '>' && previous == Some('-'));
+    if is_escaped {
+      escaped.extend(c.escape_unicode());
+    } else {
+      escaped.push(c);
+    }
+    previous = Some(c);
+  }
+  escaped
 }
 
-/// Gets whether a character is a combining mark, which is shown on the
-/// character before it.
-fn is_combining_mark(c: char) -> bool {
+/// Gets the text that was escaped like `escape_text` (ex. a path of
+/// `get_path_download`), where each escape is a code point in hex.
+fn unescape_text(text: &str) -> String {
+  let mut unescaped = String::with_capacity(text.len());
+  let mut rest = text;
+  while let Some(index) = rest.find("\\u{") {
+    unescaped.push_str(&rest[..index]);
+    let after = &rest[index + 3..];
+    let c = after
+      .split_once('}')
+      .and_then(|(hex, _)| u32::from_str_radix(hex, 16).ok())
+      .and_then(char::from_u32);
+    match c {
+      Some(c) => {
+        unescaped.push(c);
+        rest = &after[after.find('}').unwrap() + 1..];
+      }
+      // not an escape, which escaped text doesn't have
+      None => {
+        unescaped.push_str("\\u{");
+        rest = after;
+      }
+    }
+  }
+  unescaped.push_str(rest);
+  unescaped
+}
+
+/// Gets whether a character is a backtick or looks like one, which is shown
+/// as an escape in quoted text (see `quote_text`).
+fn is_backtick_like(c: char) -> bool {
   matches!(
     c,
-    '\u{300}'..='\u{36f}' | '\u{1ab0}'..='\u{1aff}' | '\u{1dc0}'..='\u{1dff}' | '\u{20d0}'..='\u{20ff}' | '\u{fe20}'..='\u{fe2f}'
+    '`' | '\u{2cb}' | '\u{2ce}' | '\u{300}' | '\u{316}' | '\u{340}' | '\u{1fef}' | '\u{2018}' | '\u{201b}' | '\u{2035}' | '\u{ff40}'
   )
 }
 
@@ -806,6 +1077,23 @@ fn is_combining_mark(c: char) -> bool {
 mod test {
   use super::*;
   use crate::environment::TestEnvironment;
+
+  /// The paths of macOS, which has `/net` (and how Linux applies `..`).
+  const MACOS: PathRules = PathRules {
+    is_net_automounted: true,
+    is_parent_lexical: false,
+  };
+  /// The paths of Windows, which applies `..` to the text of a path.
+  const WINDOWS: PathRules = PathRules {
+    is_net_automounted: false,
+    is_parent_lexical: true,
+  };
+  /// Applies `..` like Windows with `/net` like macOS, so how Windows applies
+  /// `..` is tested on every system.
+  const LEXICAL_NET: PathRules = PathRules {
+    is_net_automounted: true,
+    is_parent_lexical: true,
+  };
 
   fn url(text: &str) -> Url {
     Url::parse(text).unwrap()
@@ -951,11 +1239,14 @@ mod test {
         .is_ok()
     );
     // but not what's outside of it
+    environment.symlink(r"\\server\share", "/project/share_link").unwrap();
     assert!(
       policy
-        .ensure_allows_path(&environment, Path::new("/project/link/../plugin.wasm"), None)
+        .ensure_allows_path(&environment, Path::new("/project/share_link/plugin.wasm"), None)
         .is_err()
     );
+    // where `..` is applied to the text first, so this is the local `\project\plugin.wasm`
+    assert!(policy.ensure_allows_path(&environment, Path::new("/project/link/../plugin.wasm"), None).is_ok());
   }
 
   #[test]
@@ -963,8 +1254,8 @@ mod test {
     let environment = TestEnvironment::new();
     environment.mk_dir_all("/home/me/project").unwrap();
     environment.mk_dir_all("/a/b").unwrap();
-    let share = |path: &str| resolve_network_share(&environment, Path::new(path), true).map(|network_path| network_path.share);
-    let resolved = |path: &str| resolve_network_share(&environment, Path::new(path), true).map(|network_path| network_path.resolved);
+    let share = |path: &str| resolve_network_share(&environment, Path::new(path), MACOS, None).map(|network_path| network_path.share);
+    let resolved = |path: &str| resolve_network_share(&environment, Path::new(path), MACOS, None).map(|network_path| network_path.resolved);
     assert_eq!(share("/home/me/project/plugin.wasm"), None);
     assert_eq!(share("/net/host/share/plugin.wasm").as_deref(), Some("/net/host"));
     // the parent directories
@@ -999,14 +1290,14 @@ mod test {
     environment.symlink("/home/me/project/loop_a", "/home/me/project/loop_b").unwrap();
     assert!(share("/home/me/project/loop_a/plugin.wasm").is_some());
     // only on macOS
-    assert!(resolve_network_share(&environment, Path::new("/net/host/plugin.wasm"), false).is_none());
+    assert!(resolve_network_share(&environment, Path::new("/net/host/plugin.wasm"), WINDOWS, None).is_none());
   }
 
   #[test]
   fn should_not_leave_a_share_without_asking() {
     let environment = TestEnvironment::new();
     environment.mk_dir_all("/home/me").unwrap();
-    let share = |path: &str| resolve_network_share(&environment, Path::new(path), true).map(|network_path| network_path.share);
+    let share = |path: &str| resolve_network_share(&environment, Path::new(path), MACOS, None).map(|network_path| network_path.share);
     // a parent directory that stays on the share
     assert_eq!(share("/net/host/proj/../shared/plugin.wasm").as_deref(), Some("/net/host"));
     // but one that leaves it may reach another machine, which nothing is the same as
@@ -1020,11 +1311,7 @@ mod test {
     let DownloadPolicy::TrustedDomains(downloads) = &policy else {
       unreachable!();
     };
-    let ensure_allows = |path: &str, base: Option<&str>| {
-      let path = Path::new(path);
-      let network_path = resolve_network_share(&environment, path, true);
-      downloads.ensure_allows_network_path(path, network_path, base.map(Path::new), true)
-    };
+    let ensure_allows = |path: &str, base: Option<&str>| downloads.ensure_allows_path(&environment, Path::new(path), base.map(Path::new), MACOS);
     // a config file on the share may use what's on it, but not what's on another machine
     assert!(ensure_allows("/net/host/proj/../shared/plugin.wasm", Some("/net/host/proj")).is_ok());
     let err = ensure_allows("/net/host/proj/../../evil/plugin.wasm", Some("/net/host/proj")).unwrap_err();
@@ -1039,9 +1326,148 @@ mod test {
   #[test]
   fn should_not_leave_the_root_of_a_unc_path() {
     let environment = TestEnvironment::new();
-    let share = |path: &str| resolve_network_share(&environment, Path::new(path), false).map(|network_path| network_path.share);
+    let share = |path: &str| resolve_network_share(&environment, Path::new(path), WINDOWS, None).map(|network_path| network_path.share);
     assert_eq!(share(r"\\server\share\..\..\other\plugin.wasm").as_deref(), Some(r"server\share"));
     assert_eq!(share(r"\\server\share\a\..\plugin.wasm").as_deref(), Some(r"server\share"));
+  }
+
+  #[test]
+  fn should_apply_parent_directories_to_the_text_first_like_windows() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/project").unwrap();
+    environment.mk_dir_all("/real/deep").unwrap();
+    environment.symlink("/real/deep", "/project/link").unwrap();
+    environment.symlink("/net/attacker/share", "/project/remote").unwrap();
+    let share = |path: &str, rules: PathRules| resolve_network_share(&environment, Path::new(path), rules, None).map(|network_path| network_path.share);
+    // `link\..` is the project's directory, so this reads `remote`
+    assert_eq!(share("/project/link/../remote/plugin.wasm", LEXICAL_NET).as_deref(), Some("/net/attacker"));
+    // which is `/real/remote` when `..` is applied after following `link`
+    assert_eq!(share("/project/link/../remote/plugin.wasm", MACOS), None);
+    // the same goes for the `..` in the target of a symlink (the test environment
+    // resolves a relative target itself, so it's checked on its own)
+    assert_eq!(
+      get_symlink_target_path(Path::new("/project"), Path::new("link/../remote"), LEXICAL_NET),
+      Path::new("/project/remote")
+    );
+    assert_eq!(
+      get_symlink_target_path(Path::new("/project"), Path::new("link/../remote"), MACOS),
+      Path::new("/project/link/../remote")
+    );
+    assert_eq!(
+      get_symlink_target_path(Path::new("/project"), Path::new("/a/./b/../../../c"), LEXICAL_NET),
+      Path::new("/c")
+    );
+    // where the parent of the root is the root
+    assert_eq!(
+      share("/../../project/link/../remote/plugin.wasm", LEXICAL_NET).as_deref(),
+      Some("/net/attacker")
+    );
+    // and the walks of ancestor directories do the same
+    let policy = DownloadPolicy::for_editor(&environment);
+    let ancestor_paths = AncestorPaths::new(&policy, Path::new("/project/link"), LEXICAL_NET);
+    let err = ancestor_paths
+      .ensure_allows(&environment, Path::new("/project/link/../remote/.npmrc"), None)
+      .unwrap_err();
+    assert_eq!(err.download.replace('\\', "/"), "/project/link/../remote/.npmrc -> /net/attacker/share/.npmrc");
+    assert!(ancestor_paths.ensure_allows(&environment, Path::new("/project/link/.npmrc"), None).is_ok());
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_apply_parent_directories_to_the_text_first_on_windows() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/project").unwrap();
+    environment.mk_dir_all("/real/deep").unwrap();
+    environment.symlink("/real/deep", "/project/link").unwrap();
+    environment.symlink(r"\\attacker.example\share", "/project/x").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let base = Some(Path::new("/project"));
+    let err = policy
+      .ensure_allows_path(&environment, Path::new(r"\project\link\..\x\plugin.wasm"), base)
+      .unwrap_err();
+    assert_eq!(err.download, r"\project\link\..\x\plugin.wasm -> \\attacker.example\share\plugin.wasm");
+    // and to the target of a relative symlink
+    assert_eq!(
+      get_symlink_target_path(Path::new(r"C:\project"), Path::new(r"link\..\x"), PATH_RULES),
+      Path::new(r"C:\project\x")
+    );
+    // but not to a verbatim one, which is used as it is
+    assert_eq!(
+      get_symlink_target_path(Path::new(r"C:\project"), Path::new(r"\\?\C:\a\..\b"), PATH_RULES),
+      Path::new(r"\\?\C:\a\..\b")
+    );
+  }
+
+  #[test]
+  fn should_follow_the_share_of_the_file_a_path_is_relative_to() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/net/fs/home/u/proj").unwrap();
+    environment.mk_dir_all("/local/dir").unwrap();
+    environment.symlink("/net/attacker/x", "/net/fs/home/u/proj/tools").unwrap();
+    environment.symlink("../shared", "/net/fs/home/u/proj/shared_link").unwrap();
+    environment.symlink("/local/dir", "/net/fs/home/u/proj/local_link").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let DownloadPolicy::TrustedDomains(downloads) = &policy else {
+      unreachable!();
+    };
+    let base = Path::new("/net/fs/home/u/proj");
+    let ensure_allows = |path: &str| downloads.ensure_allows_path(&environment, Path::new(path), Some(base), MACOS);
+    // a symlink on the share is followed because its machine is already being read
+    let err = ensure_allows("/net/fs/home/u/proj/tools/plugin.wasm").unwrap_err();
+    assert_eq!(
+      err.download.replace('\\', "/"),
+      "/net/fs/home/u/proj/tools/plugin.wasm -> /net/attacker/x/plugin.wasm"
+    );
+    assert!(ensure_allows("/net/fs/home/u/proj/plugin.wasm").is_ok());
+    assert!(ensure_allows("/net/fs/home/u/proj/shared_link/plugin.wasm").is_ok());
+    assert!(ensure_allows("/net/fs/home/u/proj/local_link/plugin.wasm").is_ok());
+    // and so do the walks of ancestor directories
+    let ancestor_paths = AncestorPaths::new(&policy, base, MACOS);
+    assert!(ancestor_paths.ensure_allows(&environment, &base.join("tools/.npmrc"), Some(base)).is_err());
+    assert!(ancestor_paths.ensure_allows(&environment, Path::new("/net/fs/home/.npmrc"), Some(base)).is_ok());
+    // but what's on another share isn't looked up
+    let count = environment.path_kind_count();
+    assert!(ensure_allows("/net/other/a/b/plugin.wasm").is_err());
+    // only `/net`
+    assert_eq!(environment.path_kind_count(), count + 1);
+  }
+
+  #[test]
+  fn should_stop_at_the_root_of_a_share_when_going_up_ancestor_directories() {
+    let ancestors = |dir: &'static str, is_net_automounted: bool| {
+      std::iter::successors(Some(Path::new(dir)), move |dir| get_parent_on_share_with(dir, is_net_automounted)).collect::<Vec<_>>()
+    };
+    // `/net/.npmrc` would be a host named `.npmrc`
+    assert_eq!(ancestors("/net/fs/proj", true), [Path::new("/net/fs/proj"), Path::new("/net/fs")]);
+    assert_eq!(
+      ancestors("/System/Volumes/Data/net/fs/proj", true),
+      [Path::new("/System/Volumes/Data/net/fs/proj"), Path::new("/System/Volumes/Data/net/fs")]
+    );
+    assert_eq!(ancestors("/home/me/proj", true).len(), 4);
+    // only on macOS
+    assert_eq!(ancestors("/net/fs/proj", false).len(), 4);
+  }
+
+  #[test]
+  fn should_treat_net_on_the_data_volume_like_net() {
+    let share = |path: &str| get_network_share(Path::new(path), true);
+    assert_eq!(share("/System/Volumes/Data/net/Host/plugin.wasm").as_deref(), Some("/net/host"));
+    assert_eq!(share("/system/volumes/data/NET/host").as_deref(), Some("/net/host"));
+    assert_eq!(share("/System/Volumes/Data/net"), None);
+    assert_eq!(share("/System/Volumes/Data/home/plugin.wasm"), None);
+    assert_eq!(share("/System/Library/net/host"), None);
+    assert_eq!(get_network_share(Path::new("/System/Volumes/Data/net/host"), false), None);
+
+    // which is the same share as `/net`
+    let environment = TestEnvironment::new();
+    let policy = DownloadPolicy::for_editor(&environment);
+    let DownloadPolicy::TrustedDomains(downloads) = &policy else {
+      unreachable!();
+    };
+    let ensure_allows = |path: &str, base: &str| downloads.ensure_allows_path(&environment, Path::new(path), Some(Path::new(base)), MACOS);
+    assert!(ensure_allows("/System/Volumes/Data/net/host/plugin.wasm", "/net/host/proj").is_ok());
+    assert!(ensure_allows("/System/Volumes/Data/net/other/plugin.wasm", "/net/host/proj").is_err());
+    assert!(ensure_allows("/System/Volumes/Data/net/other/plugin.wasm", "/home/me/proj").is_err());
   }
 
   #[test]
@@ -1055,14 +1481,14 @@ mod test {
     environment.symlink("/net/other/dir", "/x/remote").unwrap();
     let policy = DownloadPolicy::for_editor(&environment);
     let dir = Path::new("/a/b/c/d/e/f/g/h");
-    let ancestor_paths = AncestorPaths::new(&policy, dir, true);
+    let ancestor_paths = AncestorPaths::new(&policy, dir, MACOS);
     let DownloadPolicy::TrustedDomains(downloads) = &policy else {
       unreachable!();
     };
     let ensure_allows_each = |path: &Path| {
-      let network_path = resolve_network_share(&environment, path, true);
+      let network_path = resolve_network_share(&environment, path, MACOS, None);
       downloads
-        .ensure_allows_network_path(path, network_path, Some(dir), true)
+        .ensure_allows_network_path(path, network_path, Some(dir), MACOS)
         .map_err(|err| err.download)
     };
     let mut paths = dir.ancestors().map(|dir| dir.join(".npmrc")).collect::<Vec<_>>();
@@ -1084,7 +1510,7 @@ mod test {
     assert!(ancestor_paths.ensure_allows(&environment, Path::new("/a/b/.npmrc"), Some(dir)).is_ok());
 
     // the directories are only followed once, so each path only looks up what's after its directory
-    let ancestor_paths = AncestorPaths::new(&policy, dir, true);
+    let ancestor_paths = AncestorPaths::new(&policy, dir, MACOS);
     let count = environment.path_kind_count();
     for dir in dir.ancestors() {
       ancestor_paths.ensure_allows(&environment, &dir.join(".npmrc"), Some(dir)).ok();
@@ -1157,12 +1583,30 @@ mod test {
     );
     assert_eq!(quote_text("a\u{ff40}b\u{2cb}c\u{2018}d"), r"`a\u{ff40}b\u{2cb}c\u{2018}d`");
     // nor can a new line, a control character, or another kind of space
-    assert_eq!(quote_text("a\nb\r\tc\u{0}\u{1b}[31m\u{85}"), r"`a\nb\r\tc\u{0}\u{1b}[31m\u{85}`");
+    assert_eq!(quote_text("a\nb\r\tc\u{0}\u{1b}[31m\u{85}"), r"`a\u{a}b\u{d}\u{9}c\u{0}\u{1b}[31m\u{85}`");
     assert_eq!(quote_text("a\u{2028}b\u{a0}c"), r"`a\u{2028}b\u{a0}c`");
     // or an invisible formatting character (ex. one that shows the text after it backwards)
     assert_eq!(quote_text("a\u{202e}b\u{2066}c\u{200b}d\u{feff}"), r"`a\u{202e}b\u{2066}c\u{200b}d\u{feff}`");
     // or a combining mark that would change the opening backtick
     assert_eq!(quote_text("\u{301}a\u{301}"), "`\\u{301}a\u{301}`");
+  }
+
+  #[test]
+  fn should_escape_text_from_the_project() {
+    // a Windows path is readable
+    assert_eq!(escape_text(r"C:\Users\new\plugin.wasm"), r"C:\Users\new\plugin.wasm");
+    // a backtick isn't escaped without the quotes
+    assert_eq!(escape_text("a\nb\u{202e}c`d\u{2028}"), r"a\u{a}b\u{202e}c`d\u{2028}");
+    // a backslash followed by `u{` is, so an escape can't be mistaken for the text
+    assert_eq!(escape_text(r"C:\u{202e}\dir"), r"C:\u{5c}u{202e}\dir");
+    assert_eq!(escape_text("\\\u{202e}"), r"\\u{202e}");
+    // and so is a combining mark at the start, which would change what's shown before it
+    assert_eq!(escape_text("\u{301}a\u{301}"), "\\u{301}a\u{301}");
+    // each escape is of a code point, so the text is known
+    for text in [r"C:\new", "a\nb", r"\u{a}", "\\\n", r"\\u{5c}u{", "x\u{202e}\\u{", "a->b`"] {
+      assert_eq!(unescape_text(&escape_text(text)), text);
+      assert_eq!(unescape_text(&escape_text_with(text, true, true)), text);
+    }
   }
 
   #[test]
@@ -1173,6 +1617,55 @@ mod test {
       get_path_download(Path::new("/project/link"), Path::new("/net/evil/x -> /project/plugin.wasm")),
       r"/project/link -> /net/evil/x -\u{3e} /project/plugin.wasm"
     );
+  }
+
+  #[test]
+  fn should_say_that_a_path_is_read_from_another_machine() {
+    let path = get_path_download(Path::new("/project/.npmrc"), Path::new("/net/corp/cfg/.npmrc"));
+    assert_eq!(path, "/project/.npmrc -> /net/corp/cfg/.npmrc");
+    assert!(is_path_download(&path));
+    assert!(is_path_download("/net/host/plugin.wasm"));
+    assert!(is_path_download(r"C:\project\plugin.wasm"));
+    assert!(is_path_download(r"\\server\share\plugin.wasm"));
+    assert!(!is_path_download("https://example.com/plugin.wasm"));
+    let proxy = NpmrcProxy {
+      npmrc_path: "/project/.npmrc".to_string(),
+      setting: "https://proxy.example".to_string(),
+    };
+    assert!(!is_path_download(&proxy.to_download()));
+    // the path in the project is the one before the arrow
+    assert_eq!(get_path_download_local_path(&path), Some(PathBuf::from("/project/.npmrc")));
+    assert_eq!(get_path_download_local_path("/net/host/plugin.wasm"), None);
+    let escaped = get_path_download(Path::new("/project/a->b\u{202e}"), Path::new("/net/x"));
+    assert_eq!(escaped, r"/project/a-\u{3e}b\u{202e} -> /net/x");
+    assert_eq!(get_path_download_local_path(&escaped), Some(PathBuf::from("/project/a->b\u{202e}")));
+
+    assert_eq!(
+      UntrustedDownloadError { download: path.clone() }.to_string(),
+      "Reading `/project/.npmrc -> /net/corp/cfg/.npmrc` needs to be allowed because it's on another machine."
+    );
+    // it isn't said to trust a domain, which can't trust a path
+    let url = "https://example.com/plugin.wasm".to_string();
+    assert_eq!(
+      get_untrusted_download_message(&[url, path, "/net/host/plugin.wasm".to_string()], None),
+      concat!(
+        "dprint needs to read `/project/.npmrc -> /net/corp/cfg/.npmrc`, `/net/host/plugin.wasm`, which are on another machine. ",
+        "Only allow it when you trust the configuration file because reading from the machine connects to it, ",
+        "which can send it information (ex. that the project was opened, or your credentials for the machine). ",
+        "An .npmrc file sets where npm packages are downloaded from (ex. a company's registry for a scope), so npm packages ",
+        "aren't resolved until it's read. ",
+        "dprint needs to download `https://example.com/plugin.wasm` from domains that aren't trusted. ",
+        "Only download them when you trust the configuration file because a download can send information to the domain. ",
+        "Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."
+      )
+    );
+    let message = get_untrusted_download_message(&["/net/host/plugin.wasm".to_string()], None);
+    assert!(
+      message.starts_with("dprint needs to read `/net/host/plugin.wasm`, which is on another machine."),
+      "{}",
+      message
+    );
+    assert!(!message.contains(".npmrc") && !message.contains("trustedDomains"), "{}", message);
   }
 
   #[test]

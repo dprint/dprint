@@ -58,6 +58,7 @@ use crate::commands::process_plugin_approval::get_process_plugin_decision;
 use crate::commands::process_plugin_approval::store_process_plugin_action;
 use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
+use crate::configuration::ConfigFileOnAnotherMachineError;
 use crate::configuration::ConfigMapValue;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
@@ -93,11 +94,16 @@ use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::Semaphore;
 use crate::utils::UntrustedDownloadError;
+use crate::utils::escape_text;
 use crate::utils::get_bytes_hash;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
+use crate::utils::get_path_download_local_path;
 use crate::utils::get_sha256_checksum;
 use crate::utils::get_untrusted_download_message;
+use crate::utils::is_combining_mark;
+use crate::utils::is_escaped_in_text;
+use crate::utils::is_path_download;
 
 mod config_diagnostics;
 mod editor_paths;
@@ -1642,7 +1648,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       decisions.push(Decision {
         kind: ApprovalKind::ProcessPlugins,
         config_file,
-        specifiers: vec![plugin],
+        // like the specifier of its item
+        specifiers: vec![escape_text(&plugin)],
         items: None,
         allows,
         always,
@@ -1769,10 +1776,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .and_then(|info| config.trusted_config_map.get(&info.config_key))
       .map(config_map_value_to_json);
     ApprovalItem {
-      specifier: unapproved_plugin.plugin.clone(),
+      specifier: escape_text(&unapproved_plugin.plugin),
       kind: ApprovalItemKind::Plugin,
-      registry: unapproved_plugin.registry.clone(),
+      registry: unapproved_plugin.registry.as_deref().map(escape_text),
       npmrc_uri: None,
+      uri: None,
       configuration,
       plugin: info.as_ref().map(get_file_plugin),
     }
@@ -1823,11 +1831,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               decision_group: id.clone(),
               id,
               kind: ApprovalKind::Downloads,
-              // a proxy is approved on its own (see `get_download_groups`)
-              title: match urls.iter().all(|download| NpmrcProxy::from_download(download).is_some()) {
-                true => "Download through a proxy that isn't trusted".to_string(),
-                false => "Download plugins from domains that aren't trusted".to_string(),
-              },
+              title: get_download_group_title(urls).to_string(),
               config_file: config_file.clone(),
               trusted_configuration: None,
               items,
@@ -2113,6 +2117,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         config_file
       }
       Err(err) => {
+        // not an error because it's found once the user allows reading it from the other machine
+        if let Some(err) = err.chain().find_map(|err| err.downcast_ref::<ConfigFileOnAnotherMachineError>()) {
+          self.config_find_errors.borrow_mut().remove(dir_path);
+          return Ok(DocumentConfig::Failed(self.new_config_file_on_another_machine_failure(err)));
+        }
         self.show_config_find_error(dir_path, &err);
         return Ok(DocumentConfig::Failed(ConfigFailure {
           config_file: None,
@@ -2128,6 +2137,31 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       return Ok(DocumentConfig::NotFound);
     };
     self.resolve_found_config(config_file).await
+  }
+
+  /// Gets the failure of a config file that was found on another machine,
+  /// which is used once the user allows reading it.
+  fn new_config_file_on_another_machine_failure(&self, err: &ConfigFileOnAnotherMachineError) -> ConfigFailure {
+    let downloads = vec![err.download.download.clone()];
+    let config_file = self
+      .editor_uri(&err.config_path)
+      .zip(self.editor_uri(&err.dir))
+      .map(|(uri, dir_uri)| ConfigFileInfo {
+        uri,
+        dir_uri,
+        kind: self.get_config_file_kind(false),
+        in_workspace: self.is_in_workspace(&err.config_path),
+      });
+    ConfigFailure {
+      config_file,
+      // it's the path it was found at because it isn't canonicalized until it's read
+      config_key: file_path_to_uri(&err.config_path).map(|uri| (uri.as_str().to_string(), uri)),
+      // it's found again for the file once it's allowed
+      config_target: None,
+      reason: NotFormattedReason::ApprovalRequired,
+      message: self.get_untrusted_download_message(&downloads),
+      downloads,
+    }
   }
 
   /// Resolves the plugins of a config file that was found.
@@ -3180,15 +3214,43 @@ fn get_language_client_approval_message(approval: &PendingApproval) -> String {
     .filter_map(|item| Some((item.plugin.as_ref()?.config_key.clone(), item.configuration.clone()?)))
     .collect::<serde_json::Map<_, _>>();
   if !configuration.is_empty() {
-    message.push_str(&format!(" They run with this configuration: {}", serde_json::Value::Object(configuration)));
+    message.push_str(&format!(
+      " They run with this configuration: {}",
+      get_escaped_json(&serde_json::Value::Object(configuration))
+    ));
   }
   if let Some(trusted_configuration) = &approval.trusted_configuration {
     message.push_str(&format!(
       " The plugins that weren't set up before run with this configuration: {}",
-      trusted_configuration
+      get_escaped_json(trusted_configuration)
     ));
   }
   message
+}
+
+/// Gets the JSON text of a configuration from the project that's shown in a
+/// message, whose strings escape what text from the project does (see
+/// `escape_text`) as `\uXXXX`, which is still the same JSON. That's what
+/// `serde_json` doesn't escape (ex. U+2028 or a bidi override like U+202E,
+/// which would show the rest of the message backwards), and a combining mark
+/// at the start of a string, which would change its quote.
+fn get_escaped_json(value: &serde_json::Value) -> String {
+  let text = value.to_string();
+  let mut escaped = String::with_capacity(text.len());
+  let mut previous = None;
+  for c in text.chars() {
+    // what's outside of a string is only JSON's own characters, which aren't escaped
+    if is_escaped_in_text(c) || (previous == Some('"') && is_combining_mark(c)) {
+      let mut units = [0; 2];
+      for unit in c.encode_utf16(&mut units).iter() {
+        escaped.push_str(&format!("\\u{:04x}", unit));
+      }
+    } else {
+      escaped.push(c);
+    }
+    previous = Some(c);
+  }
+  escaped
 }
 
 /// Gets a notice that's a warning the user is always told about.
@@ -3330,42 +3392,66 @@ fn get_found_config_key(config_file: &ResolvedConfigPathWithText) -> Option<(Str
 }
 
 /// Gets the downloads that are each approved on their own (see
-/// `UntrustedDownloadError`), which is each proxy of an `.npmrc` file and then
-/// the urls together.
+/// `UntrustedDownloadError`), which is each proxy of an `.npmrc` file, then
+/// the paths on another machine together, and then the urls together.
 ///
 /// A proxy is approved on its own so its message and decision are only about
 /// it, because it receives every download with the credentials in its setting,
 /// which would otherwise be easy to miss among the urls (ex. an editor cuts
-/// off a long message).
+/// off a long message). The paths are approved apart from the urls because
+/// they're read from another machine instead of downloaded from a domain.
 fn get_download_groups(downloads: &[String]) -> Vec<Vec<String>> {
-  let (proxies, urls): (Vec<_>, Vec<_>) = downloads.iter().cloned().partition(|download| NpmrcProxy::from_download(download).is_some());
+  let (proxies, others): (Vec<_>, Vec<_>) = downloads.iter().cloned().partition(|download| NpmrcProxy::from_download(download).is_some());
+  let (paths, urls): (Vec<_>, Vec<_>) = others.into_iter().partition(|download| is_path_download(download));
   let mut groups = proxies.into_iter().map(|proxy| vec![proxy]).collect::<Vec<_>>();
-  if !urls.is_empty() {
-    groups.push(urls);
-  }
+  groups.extend([paths, urls].into_iter().filter(|group| !group.is_empty()));
   groups
+}
+
+/// Gets the title of the approval of a group of downloads (see `get_download_groups`).
+fn get_download_group_title(downloads: &[String]) -> &'static str {
+  if downloads.iter().all(|download| NpmrcProxy::from_download(download).is_some()) {
+    "Download through a proxy that isn't trusted"
+  } else if downloads.iter().all(|download| is_path_download(download)) {
+    "Read from another machine"
+  } else {
+    "Download plugins from domains that aren't trusted"
+  }
 }
 
 /// Gets the items of what to download (see `UntrustedDownloadError`), which
 /// are of the kind except for the proxies of `.npmrc` files, whose files are
-/// the editor's paths.
+/// the editor's paths, and the paths on another machine, whose paths in the
+/// project are the editor's paths.
 fn get_download_items(downloads: &[String], kind: ApprovalItemKind, editor_paths: &EditorPaths) -> Vec<ApprovalItem> {
   downloads
     .iter()
     .map(|download| match NpmrcProxy::from_download(download) {
       Some(proxy) => ApprovalItem {
-        specifier: proxy.setting,
+        specifier: escape_text(&proxy.setting),
         kind: ApprovalItemKind::NpmrcProxy,
         registry: None,
         npmrc_uri: file_path_to_uri(&editor_paths.get(Path::new(&proxy.npmrc_path))),
+        uri: None,
+        plugin: None,
+        configuration: None,
+      },
+      // a path is already escaped (see `DownloadPolicy::ensure_allows_path`)
+      None if is_path_download(download) => ApprovalItem {
+        specifier: download.clone(),
+        kind: ApprovalItemKind::NetworkPath,
+        registry: None,
+        npmrc_uri: None,
+        uri: get_path_download_local_path(download).and_then(|path| file_path_to_uri(&editor_paths.get(&path))),
         plugin: None,
         configuration: None,
       },
       None => ApprovalItem {
-        specifier: download.clone(),
+        specifier: escape_text(download),
         kind,
         registry: None,
         npmrc_uri: None,
+        uri: None,
         plugin: None,
         configuration: None,
       },
@@ -3377,31 +3463,44 @@ fn get_download_items(downloads: &[String], kind: ApprovalItemKind, editor_paths
 /// `get_download_items`), which is the setting of a proxy.
 fn get_download_specifier(download: &str) -> String {
   match NpmrcProxy::from_download(download) {
-    Some(proxy) => proxy.setting,
-    None => download.to_string(),
+    Some(proxy) => escape_text(&proxy.setting),
+    None if is_path_download(download) => download.to_string(),
+    None => escape_text(download),
   }
 }
 
 /// The version of how the approval ids are made, which changes them when it
 /// does (ex. what's in them changed). What's in them is part of it, which
 /// includes the item of a process plugin (see `get_process_plugin_id_part`),
-/// the hash of the trusted configuration (see `get_trusted_config_hash`), and
-/// the text of a download (ex. `NpmrcProxy::to_download`).
+/// the hash of the trusted configuration (see `get_trusted_config_hash`), the
+/// text of a download (ex. `NpmrcProxy::to_download`), and how the parts are
+/// written (see `encode_id_parts`).
 const APPROVAL_ID_VERSION: u32 = 1;
 
 /// Gets an id that changes when what's approved does, which is the hash of
-/// the version of how it's made, the kind, the config key, and the items, each
-/// on its own line. Everything in it is written out (ex. not with `Debug`,
+/// the version of how it's made, the kind, the config key, and the items (see
+/// `encode_id_parts`). Everything in it is written out (ex. not with `Debug`,
 /// which may change between versions of Rust) so that it's the same in
 /// another server.
 fn get_approval_id(kind: &str, config_key: &str, items: &[String]) -> String {
-  let mut text = format!("{}\n{}\n{}", APPROVAL_ID_VERSION, kind, config_key);
-  for item in items {
-    text.push('\n');
-    text.push_str(item);
-  }
+  let version = APPROVAL_ID_VERSION.to_string();
+  let parts = [version.as_str(), kind, config_key].into_iter().chain(items.iter().map(|item| item.as_str()));
   // what's approved is only what's identified, so it isn't a hash that can collide
-  get_sha256_checksum(text.as_bytes())
+  get_sha256_checksum(encode_id_parts(parts).as_bytes())
+}
+
+/// Writes the parts of an approval id, each on its own line after its length
+/// in bytes (ex. `3:abc`).
+///
+/// IMPORTANT: The length is what tells the parts apart, because a part may
+/// have any text (ex. a newline in a path), and two different sets of items
+/// would otherwise have the same id.
+fn encode_id_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+  let mut text = String::new();
+  for part in parts {
+    text.push_str(&format!("{}:{}\n", part.len(), part));
+  }
+  text
 }
 
 /// Gets the approval id of the process plugins of a config file and the ids
@@ -3447,32 +3546,28 @@ fn get_process_plugins_approval_id(config_key: &str, unapproved: &UnapprovedProc
   get_approval_id("processPlugins", config_key, &parts)
 }
 
-/// Gets the item of the approval id of a process plugin, which is the plugin
-/// and the hash of its configuration on the next line once the plugins are set
-/// up. Until then, it's `notSetUp` instead, followed by the checksum of the
-/// file of an unpinned npm plugin on another line because the hash of its
-/// configuration has it once it's set up. The registry an npm plugin is from
-/// is on another line when it isn't the default one.
+/// Gets the item of the approval id of a process plugin, which is the parts
+/// of it written like the parts of an id (see `encode_id_parts`). They're the
+/// plugin and the hash of its configuration once the plugins are set up. Until
+/// then, it's `notSetUp` instead, followed by the checksum of the file of an
+/// unpinned npm plugin because the hash of its configuration has it once it's
+/// set up. The registry an npm plugin is from is last when it isn't the
+/// default one.
 fn get_process_plugin_id_part(plugin: &UnapprovedProcessPlugin, is_set_up: bool) -> String {
-  let mut part = plugin.plugin.clone();
+  let mut parts = vec![plugin.plugin.clone()];
   match plugin.approval.as_ref().filter(|_| is_set_up) {
-    Some(approval) => {
-      part.push('\n');
-      part.push_str(approval.config_hash.as_deref().unwrap_or("anyConfig"));
-    }
+    Some(approval) => parts.push(approval.config_hash.as_deref().unwrap_or("anyConfig").to_string()),
     None => {
-      part.push_str("\nnotSetUp");
+      parts.push("notSetUp".to_string());
       if let Some(checksum) = &plugin.unpinned_file_checksum {
-        part.push_str("\nfile: ");
-        part.push_str(checksum);
+        parts.push(format!("file: {}", checksum));
       }
     }
   }
   if let Some(registry) = &plugin.registry {
-    part.push_str("\nregistry: ");
-    part.push_str(registry);
+    parts.push(format!("registry: {}", registry));
   }
-  part
+  encode_id_parts(parts.iter().map(|part| part.as_str()))
 }
 
 /// Gets the uri of a config file.
@@ -3646,6 +3741,7 @@ mod test {
         kind: ApprovalItemKind::Plugin,
         registry: None,
         npmrc_uri: None,
+        uri: None,
         plugin: Some(FilePlugin {
           name: "dprint-plugin-exec".to_string(),
           version: "0.5.0".to_string(),
@@ -3670,6 +3766,30 @@ mod test {
     assert_eq!(
       get_language_client_approval_message(&approval),
       r#"Allow them? The plugins that weren't set up before run with this configuration: {"exec":{"commands":[]}}"#
+    );
+    // the configuration is from the project, so it can't change how the rest of the message reads
+    let u = |hex: &str| format!("{}u{}", '\\', hex);
+    approval.trusted_configuration = Some(json!({ "exec": { "a\u{202e}b": "c\u{2028}d\u{85}e", "f": "\u{301}g`" } }));
+    let message = get_language_client_approval_message(&approval);
+    assert_eq!(
+      message,
+      format!(
+        r#"Allow them? The plugins that weren't set up before run with this configuration: {{"exec":{{"a{}b":"c{}d{}e","f":"{}g`"}}}}"#,
+        u("202e"),
+        u("2028"),
+        u("0085"),
+        u("0301")
+      )
+    );
+    // which is still the same JSON
+    let json_text = message.split_once("configuration: ").unwrap().1;
+    assert_eq!(
+      serde_json::from_str::<serde_json::Value>(json_text).unwrap(),
+      approval.trusted_configuration.unwrap()
+    );
+    assert_eq!(
+      get_escaped_json(&json!(["\u{1f600}\u{e0001}"])),
+      format!("[\"\u{1f600}{}{}\"]", u("db40"), u("dc01"))
     );
   }
 
@@ -3715,22 +3835,50 @@ mod test {
     assert_eq!(
       parts,
       vec![
-        "https://plugins.dprint.dev/exec-0.5.0.json@checksum\n1:hash",
-        "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nanyConfig",
-        "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nnotSetUp",
-        "https://plugins.dprint.dev/exec-0.5.0.json@checksum\nnotSetUp",
-        "npm:@dprint/exec@0.5.0\nnotSetUp\nregistry: https://npm.example.com/",
-        "npm:@dprint/exec\nnotSetUp\nfile: checksum",
+        "51:https://plugins.dprint.dev/exec-0.5.0.json@checksum\n6:1:hash\n",
+        "51:https://plugins.dprint.dev/exec-0.5.0.json@checksum\n9:anyConfig\n",
+        "51:https://plugins.dprint.dev/exec-0.5.0.json@checksum\n8:notSetUp\n",
+        "51:https://plugins.dprint.dev/exec-0.5.0.json@checksum\n8:notSetUp\n",
+        "22:npm:@dprint/exec@0.5.0\n8:notSetUp\n34:registry: https://npm.example.com/\n",
+        "16:npm:@dprint/exec\n8:notSetUp\n14:file: checksum\n",
         "1:2fa6774bc8dbe963c51fb07f6539189e5d272df1e4b048319a3cd9b093e6fd48",
       ]
     );
     assert_eq!(
       get_approval_id("processPlugins", "file:///a/dprint.json", &parts),
-      "36fae175f99fa1fd15be669839e0cc96ad6794e99087af71cc98920c0d7bf8aa"
+      "15b35337acc2931482ffd77c777889b302e664300ec9d9a1cc414067fd7ac002"
     );
     assert_eq!(
       get_approval_id("download", "file:///a/dprint.json", &["https://example.com/plugin.wasm".to_string()]),
-      "2ab4d0c7e0fbd9986542b36b33f2be90fd9166a85487acdfbb050927c923c5d5"
+      "fbacffebf8a3f4590c1f0be91c6ed1aa05c0cf8a64a339d54c961d3c4943e2a2"
+    );
+  }
+
+  #[test]
+  fn should_not_have_the_same_approval_id_for_other_items() {
+    let plugin = |name: &str| UnapprovedProcessPlugin {
+      plugin: name.to_string(),
+      registry: None,
+      unpinned_file_checksum: None,
+      approval: None,
+    };
+    let unapproved = |plugins: Vec<UnapprovedProcessPlugin>| UnapprovedProcessPlugins {
+      config_file: "/a/dprint.json".to_string(),
+      trusted_config_hash: "1:trusted".to_string(),
+      plugins,
+    };
+    let get_id = |plugins| get_process_plugins_approval_ids("file:///a/dprint.json", &unapproved(plugins)).0;
+    // ex. a local plugin whose path has newlines
+    assert_ne!(get_id(vec![plugin("a"), plugin("b")]), get_id(vec![plugin("a\nnotSetUp\nb")]));
+    assert_ne!(get_id(vec![plugin("a"), plugin("b")]), get_id(vec![plugin("a\n8:notSetUp\n1:b")]));
+    let items = |items: &[&str]| items.iter().map(|item| item.to_string()).collect::<Vec<_>>();
+    assert_ne!(
+      get_approval_id("download", "file:///a/dprint.json", &items(&["/a", "/b"])),
+      get_approval_id("download", "file:///a/dprint.json", &items(&["/a\n/b"]))
+    );
+    assert_ne!(
+      get_approval_id("download", "file:///a/dprint.json\n/a", &items(&["/b"])),
+      get_approval_id("download", "file:///a/dprint.json", &items(&["/a", "/b"]))
     );
   }
 
@@ -3797,6 +3945,7 @@ mod test {
           kind: ApprovalItemKind::Plugin,
           registry: None,
           npmrc_uri: None,
+          uri: None,
           plugin: None,
           configuration: None,
         },
@@ -3805,11 +3954,84 @@ mod test {
           kind: ApprovalItemKind::NpmrcProxy,
           registry: None,
           npmrc_uri: Some("file:///link/project/.npmrc".parse().unwrap()),
+          uri: None,
           plugin: None,
           configuration: None,
         },
       ]
     );
     assert_eq!(get_download_specifier(&proxy.to_download()), "https://${TOKEN}@proxy.example");
+  }
+
+  #[test]
+  fn should_approve_reading_from_another_machine_on_its_own_with_the_editors_uri() {
+    let editor_paths = EditorPaths::default();
+    editor_paths.add(Path::new("/link"), Path::new("/real"));
+    let npmrc_path = Path::new("/real/project").join(".npmrc").display().to_string();
+    let path = format!(r"{} -> \\server\share\.npmrc", npmrc_path);
+    let other_path = r"\\server\share\plugin.wasm".to_string();
+    let url = "https://example.com/plugin.wasm".to_string();
+    let proxy = NpmrcProxy {
+      npmrc_path: npmrc_path.clone(),
+      setting: "https://proxy.example".to_string(),
+    };
+    // the paths are approved apart from the urls because the settings file can't trust them
+    let downloads = vec![url.clone(), path.clone(), proxy.to_download(), other_path.clone()];
+    let groups = get_download_groups(&downloads);
+    assert_eq!(
+      groups,
+      vec![vec![proxy.to_download()], vec![path.clone(), other_path.clone()], vec![url.clone()]]
+    );
+    assert_eq!(
+      groups.iter().map(|group| get_download_group_title(group)).collect::<Vec<_>>(),
+      vec![
+        "Download through a proxy that isn't trusted",
+        "Read from another machine",
+        "Download plugins from domains that aren't trusted"
+      ]
+    );
+
+    // a path's kind is its own, whatever needs it, with the editor's path of it in the project
+    let items = get_download_items(&[path.clone(), other_path.clone()], ApprovalItemKind::Config, &editor_paths);
+    assert_eq!(
+      items,
+      vec![
+        ApprovalItem {
+          specifier: path.clone(),
+          kind: ApprovalItemKind::NetworkPath,
+          registry: None,
+          npmrc_uri: None,
+          uri: Some("file:///link/project/.npmrc".parse().unwrap()),
+          plugin: None,
+          configuration: None,
+        },
+        ApprovalItem {
+          specifier: other_path.clone(),
+          kind: ApprovalItemKind::NetworkPath,
+          registry: None,
+          npmrc_uri: None,
+          uri: None,
+          plugin: None,
+          configuration: None,
+        },
+      ]
+    );
+    assert_eq!(get_download_specifier(&path), path);
+  }
+
+  #[test]
+  fn should_escape_the_specifiers_from_the_project() {
+    let editor_paths = EditorPaths::default();
+    let proxy = NpmrcProxy {
+      npmrc_path: "/project/.npmrc".to_string(),
+      setting: "https://proxy.example/\u{202e}x".to_string(),
+    };
+    let url = "https://example.com/\u{2028}".to_string();
+    let items = get_download_items(&[url.clone(), proxy.to_download()], ApprovalItemKind::Plugin, &editor_paths);
+    assert_eq!(
+      items.iter().map(|item| item.specifier.as_str()).collect::<Vec<_>>(),
+      vec![r"https://example.com/\u{2028}", r"https://proxy.example/\u{202e}x"]
+    );
+    assert_eq!(get_download_specifier(&proxy.to_download()), r"https://proxy.example/\u{202e}x");
   }
 }

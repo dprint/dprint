@@ -324,20 +324,29 @@ impl NpmExtendsResolver {
       return Ok(sub_path.to_string());
     }
 
+    // IMPORTANT: Check a file before looking it up because it may be on another
+    // machine (see `find_package_in_node_modules`).
+    let package_paths = environment.download_policy().ancestor_paths(package_dir);
+    let file_exists = |file: &str| -> Result<bool> {
+      let path = package_dir.join(file);
+      package_paths.ensure_allows(environment, &path, Some(package_dir))?;
+      Ok(environment.path_exists(&path))
+    };
     let main = package_json
       .as_ref()
       .as_ref()
       .and_then(|p| p.get("main"))
       .and_then(|m| m.as_str())
       .filter(|m| is_json_file_name(m))
-      .and_then(normalize_package_json_path)
-      .filter(|m| environment.path_exists(package_dir.join(m)));
-    if let Some(main) = main {
+      .and_then(normalize_package_json_path);
+    if let Some(main) = main
+      && file_exists(&main)?
+    {
       return Ok(main);
     }
 
     for file_name in DEFAULT_CONFIG_FILE_NAMES {
-      if environment.path_exists(package_dir.join(file_name)) {
+      if file_exists(file_name)? {
         return Ok(file_name.to_string());
       }
     }
@@ -771,6 +780,31 @@ mod tests {
       let result = resolve_config("/dprint.json", &environment).await.unwrap();
       assert_eq!(get_number(&result, "prop1"), 1);
     });
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_need_finding_the_config_file_of_a_package_on_another_machine_allowed_by_the_editors() {
+    for (package_json, file_name) in [(r#"{ "main": "index.json" }"#, "index.json"), ("{}", "dprint.json")] {
+      let environment = TestEnvironmentBuilder::new()
+        .write_file("/dprint.json", r#"{ "extends": "npm:config" }"#)
+        .write_file("/node_modules/config/package.json", package_json)
+        .build();
+      environment
+        .symlink(format!(r"\\server\share\{}", file_name), format!("/node_modules/config/{}", file_name))
+        .unwrap();
+      environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+
+      environment.clone().run_in_runtime(async move {
+        // it isn't looked up before it's allowed
+        let err = resolve_config("/dprint.json", &environment).await.unwrap_err();
+        let path = Path::new("/").join("node_modules").join("config").join(file_name);
+        assert_eq!(
+          crate::utils::UntrustedDownloadError::find(&err).unwrap().download,
+          format!(r"{} -> \\server\share\{}", path.display(), file_name)
+        );
+      });
+    }
   }
 
   #[test]

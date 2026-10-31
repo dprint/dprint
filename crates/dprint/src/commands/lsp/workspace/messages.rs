@@ -589,17 +589,24 @@ pub struct ApprovalItem {
   /// the text of the setting of an `npmrcProxy`. A path that reaches another
   /// machine through a symlink is followed by ` -> ` and the path on that
   /// machine, and an `->` in a path is escaped so the one between them is the
-  /// only one (see `DownloadPolicy::ensure_allows_path`).
+  /// only one (see `DownloadPolicy::ensure_allows_path`). It's from the
+  /// project, so it's escaped (see `escape_text`).
   pub specifier: String,
   pub kind: ApprovalItemKind,
   /// The npm registry an npm plugin is from when it isn't the default one
-  /// (ex. a project's `.npmrc` sets another one for its scope).
+  /// (ex. a project's `.npmrc` sets another one for its scope), which is
+  /// escaped like the specifier.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub registry: Option<String>,
   /// The uri of the `.npmrc` file that sets an `npmrcProxy` as the editor
   /// knows it.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub npmrc_uri: Option<Uri>,
+  /// The uri of the path in the project of a `networkPath` that reaches the
+  /// other machine through a symlink (the path before ` -> `) as the editor
+  /// knows it.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub uri: Option<Uri>,
   /// The plugin when it was set up before.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub plugin: Option<FilePlugin>,
@@ -618,6 +625,10 @@ pub enum ApprovalItemKind {
   /// A proxy that an `.npmrc` file other than the user's own sets (ex. the
   /// project's), which downloads are sent through once it's allowed.
   NpmrcProxy,
+  /// A file or directory on another machine that's read (ex. a plugin, a
+  /// config file, an npm package, or an `.npmrc` file), which may be in the
+  /// project and reach the machine through a symlink.
+  NetworkPath,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1136,6 +1147,7 @@ mod test {
           kind: ApprovalItemKind::Plugin,
           registry: None,
           npmrc_uri: None,
+          uri: None,
           plugin: Some(FilePlugin {
             name: "dprint-plugin-exec".to_string(),
             version: "0.5.0".to_string(),
