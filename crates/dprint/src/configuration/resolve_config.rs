@@ -464,8 +464,14 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
   merge_config_map_into(&mut config.trusted_config_map, parent.trusted_config_map.clone())?;
 
-  // what the ancestor was resolved from changes this one too
-  let parent_dependencies = parent.source.maybe_local_path().map(|path| path.as_ref()).into_iter();
+  // what the ancestor was resolved from changes this one too, which includes where it was
+  // found when it's a symlink, because that changes when the symlink points elsewhere
+  let parent_dependencies = parent
+    .source
+    .maybe_local_path()
+    .map(|path| path.as_ref())
+    .into_iter()
+    .chain(parent.found_path.as_deref());
   for path in parent_dependencies.chain(parent.local_dependencies.iter().map(|path| path.as_path())) {
     if !config.local_dependencies.iter().any(|dependency| dependency == path) {
       config.local_dependencies.push(path.to_path_buf());
@@ -1434,6 +1440,27 @@ mod tests {
     )
     .unwrap();
     resolve_config_from_args(&args, environment).await
+  }
+
+  #[test]
+  fn should_know_a_config_file_that_is_a_symlink_by_where_it_was_found() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/shared/base.json", "{}")
+      .write_file("/dprint.json", "{}")
+      .build();
+    // ex. a symlink to a file with another name, which is what the editors know it by too
+    environment.add_canonical_path("/dprint.json", "/shared/base.json");
+    environment.clone().run_in_runtime(async move {
+      let specified = get_result("./dprint.json", &environment).await.unwrap();
+      assert_eq!(
+        specified.source.display(),
+        environment.canonicalize("/shared/base.json").unwrap().display().to_string()
+      );
+      assert_eq!(specified.file_path(), Some(Path::new("/").join("dprint.json").as_path()));
+      let args = parse_args(vec![String::from(""), String::from("check")], TestStdInReader::default()).unwrap();
+      let discovered = resolve_config_from_args(&args, &environment).await.unwrap();
+      assert_eq!(discovered.display(), specified.display());
+    });
   }
 
   async fn resolve_local_config(path: &str, environment: &TestEnvironment) -> ResolvedConfig {

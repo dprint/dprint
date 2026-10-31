@@ -119,25 +119,28 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 
   /// Loads the config file at the path, which is `None` when it doesn't exist.
   pub fn load_config_file(&self, path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
-    // the global config file is used for any directory, which is the cwd here
-    if let Some(global_config_file) = resolve_global_config_path_and_text(&self.environment)?
-      && global_config_file
-        .source
-        .maybe_local_path()
-        .is_some_and(|global_path| self.environment.canonicalize(path).is_ok_and(|path| path == *global_path))
-    {
-      return Ok(Some(global_config_file));
-    }
     let Some(content) = self.environment.maybe_read_file(path)? else {
       return Ok(None);
     };
     // it's used for its own directory and known by its path there, like when it's found for a file in it
     let (dirs, found_path) = resolve_config_file_dirs_at_path(&self.environment, path)?;
     let canonical_path = self.environment.canonicalize(path)?;
+    let found_path = get_config_file_found_path(found_path, canonical_path.as_ref());
+    // the global config file is used for any directory, which is the cwd here, but a symlink
+    // to it is a config file of its own directory, like when it's found for a file in it
+    let file_path = found_path.as_deref().unwrap_or(canonical_path.as_ref());
+    if let Some(global_config_file) = resolve_global_config_path_and_text(&self.environment)?
+      && global_config_file
+        .source
+        .maybe_local_path()
+        .is_some_and(|global_path| global_path.as_ref() == file_path)
+    {
+      return Ok(Some(global_config_file));
+    }
     Ok(Some(ResolvedConfigPathWithText {
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
-      found_path: get_config_file_found_path(found_path, canonical_path.as_ref()),
+      found_path,
       source: PathSource::new_local(canonical_path),
       is_first_download: false,
       content,

@@ -1759,9 +1759,19 @@ fn should_check_a_directory_alias_again_before_providing_a_path_through_it() {
         client.file_info("/repo/apps/web/shared/sub/file.txt").await;
         let config_info = client.config_info("/repo/dprint.json").await;
         assert_eq!(config_info.watch_uris, vec![uri("/repo/apps/web/shared/sub/base.json")]);
-        // it points somewhere else now (ex. a `git pull` changed it), so it isn't an alias anymore
+        // it points somewhere else now (ex. a `git pull` changed it), so it isn't an alias once the editor
+        // says a file changed
         environment.remove_canonical_path("/repo/apps/web/shared");
         environment.add_canonical_path("/repo/apps/web/shared", "/repo/other");
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/repo/dprint.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
         let config_info = client.config_info("/repo/dprint.json").await;
         assert_eq!(config_info.watch_uris, vec![uri("/repo/libs/shared/sub/base.json")]);
       }
@@ -1925,6 +1935,194 @@ fn should_notice_a_change_to_a_config_file_that_is_a_symlink_to_a_file_with_anot
       }
       .boxed_local()
     }
+  });
+}
+
+#[test]
+fn should_not_forget_a_config_file_that_is_a_symlink_when_what_it_pointed_to_is_deleted_while_it_points_elsewhere() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/shared/v1.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  environment.add_canonical_path("/a/dprint.json", "/shared/v1.json");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(client.file_info("/a/file.txt").await.status, FormatStatus::ready());
+        // a checkout points it at another file and deletes the one it pointed to
+        let text = environment.read_file("/shared/v1.json").unwrap();
+        environment.write_file("/shared/v2.json", &text).unwrap();
+        environment.remove_file("/shared/v1.json").unwrap();
+        environment.remove_canonical_path("/a/dprint.json");
+        environment.add_canonical_path("/a/dprint.json", "/shared/v2.json");
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![
+              FileEvent {
+                uri: uri("/shared/v1.json"),
+                typ: FileChangeType::DELETED,
+              },
+              FileEvent {
+                uri: uri("/a/dprint.json"),
+                typ: FileChangeType::CHANGED,
+              },
+            ],
+          })
+          .await;
+        client.wait_for_config_changes().await;
+        // so it's still known, and a change to what it points to now is noticed
+        let text = text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1);
+        environment.write_file("/shared/v2.json", &text).unwrap();
+        environment.write_file("/a/dprint.json", &text).unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/shared/v2.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_resolve_a_config_file_again_when_the_symlink_it_inherits_from_points_elsewhere() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/repo/configs/v1.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/repo/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .with_local_config("/repo/sub/dprint.json", |c| {
+      c.add_config_section("inherit", "true");
+    })
+    .build();
+  environment.add_canonical_path("/repo/dprint.json", "/repo/configs/v1.json");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(client.format("/repo/sub/file.txt", "text").await, formatted("text", "text_formatted"));
+        client.take_config_changes();
+        // a checkout points the symlink at another file
+        let text = environment.read_file("/repo/configs/v1.json").unwrap();
+        let text = text.replacen('{', r#"{ "test-plugin": { "ending": "changed" }, "#, 1);
+        environment.write_file("/repo/configs/v2.json", &text).unwrap();
+        environment.write_file("/repo/dprint.json", &text).unwrap();
+        environment.remove_canonical_path("/repo/dprint.json");
+        environment.add_canonical_path("/repo/dprint.json", "/repo/configs/v2.json");
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![FileEvent {
+              uri: uri("/repo/dprint.json"),
+              typ: FileChangeType::CHANGED,
+            }],
+          })
+          .await;
+        let mut changes = Vec::new();
+        for _ in 0..20 {
+          changes.extend(client.wait_for_config_changes().await);
+          if changes.contains(&uri("/repo/sub/dprint.json")) {
+            break;
+          }
+        }
+        assert!(changes.contains(&uri("/repo/sub/dprint.json")), "{:?}", changes);
+        assert_eq!(client.format("/repo/sub/file.txt", "text").await, formatted("text", "text_changed"));
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
+fn should_use_a_config_file_that_is_a_symlink_to_the_global_config_file_for_its_own_directory() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_global_config(|c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  let global_config_file = crate::configuration::resolve_global_config_path_and_text(&environment).unwrap().unwrap();
+  environment.mk_dir_all("/repo").unwrap();
+  environment.write_file("/repo/dprint.json", &global_config_file.content).unwrap();
+  environment.add_canonical_path("/repo/dprint.json", global_config_file.source.display());
+  run_session(&environment, |client| {
+    async move {
+      let config_file = client.file_info("/repo/file.txt").await.config_file.unwrap();
+      assert_eq!(config_file, local_config("/repo/dprint.json"));
+      // it's the same config file when it's asked about
+      let mut params = config_params("/repo/dprint.json");
+      params.config_file = Some(ConfigFileIdentifier {
+        uri: config_file.uri.clone(),
+        dir_uri: Some(config_file.dir_uri.clone()),
+      });
+      let config_info = client.backend.dprint_config_info(params, CancellationToken::new()).await.unwrap();
+      assert_eq!(config_info.config_file, Some(local_config("/repo/dprint.json")));
+      assert_eq!(config_info.status, FormatStatus::ready());
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_restore_a_path_download_that_another_version_escaped_another_way() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  // ex. kept by a version of dprint with another version of Unicode, which escaped what this one doesn't
+  let local_path = Path::new("/project").join("pkg");
+  let escaped_local_path = local_path.display().to_string().replace("pkg", "p\\u{6b}g");
+  let allowed = format!("{} -> {}", escaped_local_path, network_path("pkg"));
+  let escaped_other_path = Path::new("/project").join("other").display().to_string().replace("other", "\\u{6f}ther");
+  let denied = format!("{} -> {}", escaped_other_path, network_path("other"));
+  let session_file_path = get_session_file_path(&environment, SESSION_ID);
+  environment.mk_dir_all(session_file_path.parent().unwrap()).unwrap();
+  let text = json!({
+    "version": 1,
+    "allowedDownloads": [{ "download": allowed, "item": { "specifier": "the allowed path", "kind": "networkPath" } }],
+    "deniedDownloads": [{
+      "configKey": "file:///dprint.json",
+      "downloads": [denied],
+      "configFile": { "uri": "file:///dprint.json", "dirUri": "file:///" },
+      "items": []
+    }]
+  });
+  environment.write_file(&session_file_path, &text.to_string()).unwrap();
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      let decisions = client.decisions().await;
+      // what was allowed is the same path, so it's shown with its item
+      let allow = decisions.iter().find(|decision| decision.allows).unwrap();
+      assert_eq!(allow.specifiers, vec!["the allowed path".to_string()]);
+      // and what was denied is shown as this version makes its text
+      let denial = decisions.iter().find(|decision| !decision.allows).unwrap();
+      assert_eq!(denial.specifiers.len(), 1);
+      assert!(!denial.specifiers[0].contains("\\u{"), "{}", denial.specifiers[0]);
+      assert!(
+        denial.specifiers[0].starts_with(&Path::new("/project").join("other").display().to_string()),
+        "{}",
+        denial.specifiers[0]
+      );
+    }
+    .boxed_local()
   });
 }
 

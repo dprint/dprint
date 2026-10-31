@@ -29,7 +29,6 @@ pub use resolve_main_config_path::ResolvedConfigPathWithText;
 pub use resolve_main_config_path::ensure_allows_reading_config_file;
 pub use resolve_main_config_path::get_config_file_found_path;
 pub use resolve_main_config_path::get_default_config_file_in_ancestor_directories;
-pub use resolve_main_config_path::get_dot_config_file_base_dir;
 pub use resolve_main_config_path::get_dot_config_file_paths;
 pub use resolve_main_config_path::is_dot_config_dir;
 pub use resolve_main_config_path::resolve_config_file_dirs_at_path;

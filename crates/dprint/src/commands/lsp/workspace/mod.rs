@@ -61,14 +61,16 @@ use crate::commands::scope_container::PluginsScopeContainer;
 use crate::commands::scope_container::get_config_file_key;
 use crate::configuration::ConfigFileOnAnotherMachineError;
 use crate::configuration::ConfigMapValue;
+use crate::configuration::DOT_CONFIG_DIR_NAME;
+use crate::configuration::DOT_CONFIG_FILE_NAMES;
 use crate::configuration::NewerApprovalsFileError;
+use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::SessionPermissions;
 use crate::configuration::ensure_allows_reading_config_file;
 use crate::configuration::forget_editor_approvals;
 use crate::configuration::get_config_file_found_path;
-use crate::configuration::get_dot_config_file_base_dir;
 use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
 use crate::configuration::is_dot_config_dir;
@@ -399,6 +401,9 @@ pub struct Workspace<TEnvironment: Environment> {
   /// The paths of the directories the editor knows by another path than their
   /// canonical one, which are the paths the server provides.
   editor_paths: EditorPaths,
+  /// The canonical directories of `editor_paths` whose alias was checked since
+  /// the editor last said a file changed (see `editor_path`).
+  checked_editor_dirs: RefCell<HashSet<PathBuf>>,
   /// The ids of the approvals that a language client's user was asked about
   /// this session.
   prompted_approvals: RefCell<HashSet<String>>,
@@ -577,6 +582,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       denied_downloads: Default::default(),
       allowed_download_items: Default::default(),
       editor_paths: Default::default(),
+      checked_editor_dirs: Default::default(),
       prompted_approvals: Default::default(),
       has_notified_no_config: Default::default(),
       pending_config_changes: Default::default(),
@@ -709,6 +715,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// often change at once (ex. switching branches). Otherwise, a config file is
   /// only read again by the next request that uses it.
   pub fn config_files_changed(self: &Rc<Self>, changes: Vec<WatchedFileChange>) {
+    // a directory the editor knows by another path may lead elsewhere now (ex. after a `git pull`)
+    self.checked_editor_dirs.borrow_mut().clear();
     let mut pending_changes = self.pending_config_changes.borrow_mut();
     let was_empty = pending_changes.is_empty();
     for change in changes {
@@ -727,8 +735,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         // a config file that was resolved from the file resolves to something else now, which includes
         // one whose canonical path is the file (ex. a `dprint.json` that's a symlink to a `base.json`)
         for (config_file_path, is_canonical_path) in workspace.get_dependent_config_files(&change.file_path) {
-          let config_file_change = match is_canonical_path && change.change == ConfigFileChange::Deleted {
-            // the config file is a dangling symlink now, which is like one that was deleted
+          // the config file is a dangling symlink now, which is like one that was deleted, unless it points
+          // elsewhere now (ex. a checkout changed the symlink and deleted what it pointed to)
+          let is_deleted = is_canonical_path
+            && change.change == ConfigFileChange::Deleted
+            && workspace.allows_reading_path(&config_file_path)
+            && !workspace.environment.path_exists(&config_file_path);
+          let config_file_change = match is_deleted {
             true => ConfigFileChange::Deleted,
             false => ConfigFileChange::Changed,
           };
@@ -812,12 +825,16 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Gets the config files that were resolved from the file (ex. it's a config
   /// file they extend), with whether it's the canonical path of the config file.
+  /// A config file that's a symlink is matched by where it was found too (ex. a
+  /// config file that inherits from it, which a changed symlink changes).
   fn get_dependent_config_files(&self, file_path: &Path) -> Vec<(PathBuf, bool)> {
+    let found_path = self.canonicalize_config_file_path(file_path.to_path_buf());
     let file_path = self.canonicalize_editor_path(file_path.to_path_buf());
     let mut config_file_paths: Vec<(PathBuf, bool)> = Vec::new();
     for dependencies in self.config_dependencies.borrow().values() {
       let is_canonical_path = dependencies.canonical_path.as_ref() == Some(&file_path);
-      if (is_canonical_path || dependencies.dependencies.contains(&file_path)) && !config_file_paths.iter().any(|(path, _)| *path == dependencies.file_path) {
+      let is_dependency = dependencies.dependencies.contains(&file_path) || dependencies.dependencies.contains(&found_path);
+      if (is_canonical_path || is_dependency) && !config_file_paths.iter().any(|(path, _)| *path == dependencies.file_path) {
         config_file_paths.push((dependencies.file_path.clone(), is_canonical_path));
       }
     }
@@ -1839,13 +1856,20 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         let has_every_item = denied.items.len() == denied.downloads.len();
         decisions.push(Decision {
           kind: ApprovalKind::Downloads,
-          config_file: Some(denied.config_file.clone()),
+          config_file: Some(self.get_denial_config_file(denied)),
           specifiers: match has_every_item {
             true => denied.items.iter().map(|item| item.specifier.clone()).collect(),
             false => denied.downloads.iter().map(|download| get_download_specifier(download)).collect(),
           },
           items: match has_every_item {
-            true => Some(denied.items.clone()),
+            true => Some(
+              denied
+                .items
+                .iter()
+                .zip(&denied.downloads)
+                .map(|(item, download)| self.with_current_editor_uris(item.clone(), download))
+                .collect(),
+            ),
             false => denied
               .downloads
               .iter()
@@ -1855,7 +1879,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
                   .items
                   .iter()
                   .find(|item| item.specifier == specifier)
-                  .cloned()
+                  .map(|item| self.with_current_editor_uris(item.clone(), download))
                   .or_else(|| self.get_download_item_from_text(download))
               })
               .collect(),
@@ -1875,12 +1899,59 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         kind: ApprovalKind::Downloads,
         config_file: None,
         specifiers: vec![item.map(|item| item.specifier.clone()).unwrap_or_else(|| get_download_specifier(&download))],
-        items: item.cloned().or_else(|| self.get_download_item_from_text(&download)).map(|item| vec![item]),
+        items: item
+          .map(|item| self.with_current_editor_uris(item.clone(), &download))
+          .or_else(|| self.get_download_item_from_text(&download))
+          .map(|item| vec![item]),
         allows: true,
         always: false,
       }
     }));
     decisions
+  }
+
+  /// Gets the config file a denial is for as the editor knows it now, which
+  /// may not be the path it was shown with (ex. a directory it's in isn't an
+  /// alias anymore, see `editor_path`). The one it was shown with is kept for
+  /// one whose key isn't of a local config file of this version.
+  fn get_denial_config_file(&self, denied: &DeniedDownload) -> ConfigFileIdentifier {
+    let (uri_text, base_path) = match denied.config_key.split_once('\n') {
+      Some((uri_text, base_path)) => (uri_text, Some(Path::new(base_path))),
+      None => (denied.config_key.as_str(), None),
+    };
+    let file_path = uri_text
+      .parse::<Uri>()
+      .ok()
+      .filter(|uri| uri.scheme().as_str() == "file")
+      .and_then(|uri| uri_to_file_path(&uri));
+    let current = file_path.and_then(|file_path| {
+      let dir_path = match base_path {
+        Some(base_path) => base_path,
+        None => get_config_file_dir(&self.environment, &file_path)?,
+      };
+      let dir_uri = match denied.config_file.dir_uri {
+        Some(_) => Some(self.editor_uri(dir_path)?),
+        None => None,
+      };
+      Some(ConfigFileIdentifier {
+        uri: self.editor_uri(&file_path)?,
+        dir_uri,
+      })
+    });
+    current.unwrap_or_else(|| denied.config_file.clone())
+  }
+
+  /// Gets an item of a download that was shown before with the editor's paths
+  /// of its files now (see `editor_path`).
+  fn with_current_editor_uris(&self, item: ApprovalItem, download: &str) -> ApprovalItem {
+    match self.get_download_item_from_text(download) {
+      Some(current) if item.npmrc_uri.is_some() || item.local_uri.is_some() => ApprovalItem {
+        npmrc_uri: current.npmrc_uri,
+        local_uri: current.local_uri,
+        ..item
+      },
+      _ => item,
+    }
   }
 
   /// Gets the item of a download from its text when what it is can be told
@@ -2721,7 +2792,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       }
     }
     // the files are only checked periodically when they can't be watched (ex. their directory doesn't exist)
-    let mut watcher = match self.environment.watch_files(&file_paths) {
+    let mut watch_paths = get_dprint_files_watch_paths(&self.environment, &file_paths);
+    let mut watcher = match self.environment.watch_files(&watch_paths) {
       Ok(watcher) => Some(watcher),
       Err(err) => {
         log_debug!(
@@ -2777,9 +2849,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         let Some(workspace) = workspace.upgrade() else {
           return;
         };
-        // they're watched once they can be (ex. the directory was created)
-        if watcher.is_none() {
-          watcher = workspace.environment.watch_files(&file_paths).ok();
+        // they're watched once they can be (ex. the directory was created), and again when one that's a
+        // symlink points elsewhere now
+        let new_watch_paths = get_dprint_files_watch_paths(&workspace.environment, &file_paths);
+        if watcher.is_none() || new_watch_paths != watch_paths {
+          watcher = workspace.environment.watch_files(&new_watch_paths).ok();
+          watch_paths = new_watch_paths;
         }
         // only a change to what's in them matters (ex. not a write of the same text)
         let new_states = read_states(&workspace.environment, Some(&states));
@@ -3096,20 +3171,31 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Gets a canonicalized path as the editor knows it (see `EditorPaths`).
   ///
-  /// IMPORTANT: The alias it's through is checked again first, because it may
-  /// lead somewhere else since it was remembered (ex. a `git pull` pointed a
-  /// symlink in the workspace at a share), and it's forgotten then. Otherwise
-  /// the editor would be given a path that it follows to another machine (ex.
-  /// a directory to watch) or that names another file than the one dprint read.
+  /// IMPORTANT: The alias it's through is checked again first when the editor
+  /// said a file changed since it was last checked, because it may lead
+  /// somewhere else now (ex. a `git pull` pointed a symlink in the workspace at
+  /// a share), and it's forgotten then. Otherwise the editor would be given a
+  /// path that it follows to another machine (ex. a directory to watch) or that
+  /// names another file than the one dprint read.
   fn editor_path(&self, path: &Path) -> PathBuf {
     while let Some((canonical_dir, editor_dir)) = self.editor_paths.get_alias(path) {
-      // IMPORTANT: It's checked without following it before it's canonicalized (see `allows_reading_path`).
-      let is_alias = self.allows_reading_path(&editor_dir)
+      if self.checked_editor_dirs.borrow().contains(&canonical_dir) {
+        break;
+      }
+      // IMPORTANT: It's checked before it's canonicalized, relative to the directory it was an alias of, so
+      // one that leads to the share of that directory is still an alias (ex. a workspace folder that's a
+      // symlink to a share), while one that leads to another machine isn't, and isn't followed.
+      let is_alias = self
+        .environment
+        .download_policy()
+        .ensure_allows_path(&self.environment, &editor_dir, Some(&canonical_dir))
+        .is_ok()
         && self
           .environment
           .canonicalize_maybe_not_exists(&editor_dir)
           .is_ok_and(|dir| dir.as_ref() == canonical_dir);
       if is_alias {
+        self.checked_editor_dirs.borrow_mut().insert(canonical_dir);
         break;
       }
       self.editor_paths.remove(&canonical_dir);
@@ -3526,11 +3612,25 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// `get_config_file_found_path`).
   fn canonicalize_config_file_path(&self, path: PathBuf) -> PathBuf {
     let canonical_path = self.canonicalize_editor_path(path.clone());
-    let Some(dir_path) = get_dot_config_file_base_dir(&self.environment, &path).or_else(|| path.parent()) else {
+    let (Some(parent), Some(file_name)) = (path.parent(), path.file_name().and_then(|name| name.to_str())) else {
       return canonical_path;
     };
-    let Ok(relative_path) = path.strip_prefix(dir_path) else {
-      return canonical_path;
+    // the names as dprint finds them, which a case insensitive file system has in another case too (see
+    // `get_config_file_found_path`)
+    let file_name = POSSIBLE_CONFIG_FILE_NAMES
+      .iter()
+      .find(|name| name.eq_ignore_ascii_case(file_name))
+      .copied()
+      .unwrap_or(file_name);
+    let is_in_dot_config_dir = DOT_CONFIG_FILE_NAMES.contains(&file_name)
+      && parent
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case(DOT_CONFIG_DIR_NAME))
+      && is_dot_config_dir(&self.environment, &parent.with_file_name(DOT_CONFIG_DIR_NAME));
+    let (dir_path, relative_path) = match (is_in_dot_config_dir, parent.parent()) {
+      (true, Some(base_dir)) => (base_dir, Path::new(DOT_CONFIG_DIR_NAME).join(file_name)),
+      _ => (parent, PathBuf::from(file_name)),
     };
     // a directory that may not be read had only that canonicalized, which is the path then
     if !self.allows_reading_path(dir_path) {
@@ -3588,6 +3688,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
     if let Some((editor_dir, canonical_dir)) = alias {
       self.editor_paths.add(editor_dir, canonical_dir);
+      // it was found to be an alias by following it, which only happens when that's allowed
+      self.checked_editor_dirs.borrow_mut().insert(canonical_dir.to_path_buf());
     }
   }
 }
@@ -3791,9 +3893,6 @@ fn get_escaped_json(value: &serde_json::Value) -> String {
   escaped
 }
 
-/// Gets whether a config key is of the config file the key is of, which is
-/// the config key of each directory the global config file is used for when
-/// the key doesn't have the directory (see `get_found_config_key`).
 /// Gets whether a denial is for the config file as the process plugin
 /// decisions have it with its key, or for every config file when `None`.
 ///
@@ -3813,6 +3912,9 @@ fn is_denial_for(denied: &DeniedDownload, config_file: Option<&(String, String)>
   is_config_key(key, &denied.config_key) || is_shown_config_file
 }
 
+/// Gets whether a config key is of the config file the key is of, which is
+/// the config key of each directory the global config file is used for when
+/// the key doesn't have the directory (see `get_found_config_key`).
 fn is_config_key(key: &str, config_key: &str) -> bool {
   config_key == key || (!key.contains('\n') && config_key.strip_prefix(key).is_some_and(|rest| rest.starts_with('\n')))
 }
@@ -4126,6 +4228,23 @@ fn get_process_plugin_id_part(plugin: &UnapprovedProcessPlugin, is_set_up: bool)
     parts.push(format!("registry: {}", registry));
   }
   encode_id_parts(parts.iter().map(|part| part.as_str()))
+}
+
+/// Gets the paths to watch for changes to dprint's own files, which include
+/// the canonical path of one that's a symlink (ex. a global config file in a
+/// directory of dotfiles), because the watcher of its directory doesn't
+/// report a change to what it points to.
+fn get_dprint_files_watch_paths(environment: &impl Environment, file_paths: &[PathBuf]) -> Vec<PathBuf> {
+  let mut watch_paths = file_paths.to_vec();
+  for file_path in file_paths {
+    if let Ok(canonical_path) = environment.canonicalize(file_path)
+      && canonical_path.as_ref() != file_path.as_path()
+      && !watch_paths.iter().any(|path| path == canonical_path.as_ref())
+    {
+      watch_paths.push(canonical_path.into_path_buf());
+    }
+  }
+  watch_paths
 }
 
 /// A config file as an editor knows it, which is by the path it was found at
@@ -4522,6 +4641,22 @@ mod test {
       get_approval_id("download", "file:///a/dprint.json\n/a", &items(&["/b"])),
       get_approval_id("download", "file:///a/dprint.json", &items(&["/a", "/b"]))
     );
+  }
+
+  #[test]
+  fn should_watch_what_a_file_of_dprint_that_is_a_symlink_points_to() {
+    let environment = crate::environment::TestEnvironment::new();
+    environment.mk_dir_all("/config/dprint").unwrap();
+    environment.mk_dir_all("/dotfiles").unwrap();
+    environment.write_file("/dotfiles/dprint.json", "{}").unwrap();
+    environment.write_file("/config/dprint/dprint.json", "{}").unwrap();
+    let file_paths = vec![PathBuf::from("/config/dprint/dprint.json"), PathBuf::from("/config/dprint/dprint.jsonc")];
+    assert_eq!(get_dprint_files_watch_paths(&environment, &file_paths), file_paths);
+    // ex. a global config file in a directory of dotfiles
+    environment.add_canonical_path("/config/dprint/dprint.json", "/dotfiles/dprint.json");
+    let mut expected = file_paths.clone();
+    expected.push(environment.canonicalize("/config/dprint/dprint.json").unwrap().into_path_buf());
+    assert_eq!(get_dprint_files_watch_paths(&environment, &file_paths), expected);
   }
 
   #[test]

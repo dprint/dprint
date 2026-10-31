@@ -1712,6 +1712,25 @@ mod test {
   }
 
   #[test]
+  fn should_allow_a_symlink_to_the_share_of_the_path_it_is_relative_to() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/").unwrap();
+    let share_dir = if cfg!(windows) { r"\\server\share\work" } else { "/net/server/share/work" };
+    // ex. a workspace folder that's a symlink to a share, which the editor knows the files by
+    environment.symlink(share_dir, "/work").unwrap();
+    let policy = DownloadPolicy::for_editor(&environment);
+    assert!(policy.ensure_allows_path(&environment, Path::new("/work"), Some(Path::new("/"))).is_err());
+    // following it doesn't contact another machine than the one of the directory it's an alias of
+    assert!(policy.ensure_allows_path(&environment, Path::new("/work"), Some(Path::new(share_dir))).is_ok());
+    let other_share_dir = if cfg!(windows) { r"\\other\share\work" } else { "/net/other/share/work" };
+    assert!(
+      policy
+        .ensure_allows_path(&environment, Path::new("/work"), Some(Path::new(other_share_dir)))
+        .is_err()
+    );
+  }
+
+  #[test]
   fn should_keep_denying_what_is_in_a_denied_directory_under_one_that_is_allowed() {
     let environment = TestEnvironment::new();
     environment.mk_dir_all("/project").unwrap();

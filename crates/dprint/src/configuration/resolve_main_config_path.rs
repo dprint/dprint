@@ -142,7 +142,7 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
       .into_text()?;
     // a local config file's patterns are relative to its directory, the same as
     // when it's discovered, but a remote or npm config file has no directory
-    let dirs = match &resolved_file.source {
+    let (dirs, found_path) = match &resolved_file.source {
       PathSource::Local(source) => {
         // use the path as specified when it's a plain file path (see `resolve_local_config_file_dirs`)
         let is_file_path = !config.starts_with("~/") && !config.starts_with("file:");
@@ -151,12 +151,19 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
         } else {
           source.path.as_ref().to_path_buf()
         };
-        resolve_local_config_file_dirs(environment, &specified_path)?
+        // it's known by that path like when it's found, so what the editors allow for it is the same (see `get_config_file_found_path`)
+        let found_path = resolve_config_file_dirs_at_path(environment, &specified_path)
+          .ok()
+          .and_then(|(_, path)| get_config_file_found_path(path, source.path.as_ref()));
+        (resolve_local_config_file_dirs(environment, &specified_path)?, found_path)
       }
-      PathSource::Remote(_) | PathSource::Npm(_) => LocalConfigFileDirs {
-        base_path: cwd,
-        anchored_patterns_base_path: None,
-      },
+      PathSource::Remote(_) | PathSource::Npm(_) => (
+        LocalConfigFileDirs {
+          base_path: cwd,
+          anchored_patterns_base_path: None,
+        },
+        None,
+      ),
     };
     Ok(Some(ResolvedConfigPathWithText {
       content: resolved_file.content,
@@ -165,7 +172,7 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
       is_global_config: false,
-      found_path: None,
+      found_path,
     }))
   } else if matches!(config_discovery, ConfigDiscovery::Global) {
     resolve_global_config_path_or_error(environment).map(Some)
@@ -485,12 +492,18 @@ pub fn resolve_config_file_dirs_at_path(environment: &impl Environment, config_p
 /// A user knows the config file by where it was found, which is also where
 /// it's used, so two symlinks to the same file are two config files. It's
 /// still resolved from its canonical path (ex. what it extends is relative to
-/// that). A canonical name that's only different in case (ex. on a case
-/// insensitive file system) isn't another file.
+/// that). A canonical path that's only different in case (ex. `.Config` on a
+/// case insensitive file system, where it's found as `.config`) isn't another
+/// file, so the config file is known by its canonical path then, which has
+/// the case on disk like the editor's path of it.
 pub fn get_config_file_found_path(found_path: PathBuf, canonical_path: &Path) -> Option<PathBuf> {
-  let file_name = |path: &Path| path.file_name().and_then(|name| name.to_str()).map(|name| name.to_ascii_lowercase());
-  let is_canonical = found_path.parent() == canonical_path.parent() && file_name(&found_path).is_some_and(|name| Some(name) == file_name(canonical_path));
-  (!is_canonical).then_some(found_path)
+  let fold_case = |path: &Path| {
+    path
+      .components()
+      .map(|component| component.as_os_str().to_string_lossy().to_lowercase())
+      .collect::<Vec<_>>()
+  };
+  (fold_case(&found_path) != fold_case(canonical_path)).then_some(found_path)
 }
 
 /// Gets the path of a local config file that identifies it (see
@@ -574,9 +587,6 @@ fn get_config_file_in_dir(dir: &Path, environment: &impl Environment, ancestor_p
   Ok(None)
 }
 
-/// Gets the directory the anchored patterns of a config file found in the
-/// provided directory by [`get_config_file_in_dir`] are relative to, which is
-/// its `.config` directory when that's where the config file was found.
 /// Gets the path a config file that was found in the directory is known by
 /// (see `get_config_file_found_path`).
 fn get_found_config_file_path(base_path: &CanonicalizedPathBuf, dir: &Path, config_path: &Path, canonical_path: &Path) -> Option<PathBuf> {
@@ -584,6 +594,9 @@ fn get_found_config_file_path(base_path: &CanonicalizedPathBuf, dir: &Path, conf
   get_config_file_found_path(base_path.as_ref().join(relative_path), canonical_path)
 }
 
+/// Gets the directory the anchored patterns of a config file found in the
+/// provided directory by [`get_config_file_in_dir`] are relative to, which is
+/// its `.config` directory when that's where the config file was found.
 fn get_found_config_file_anchored_patterns_dir(base_path: &CanonicalizedPathBuf, dir: &Path, config_path: &Path) -> Option<CanonicalizedPathBuf> {
   (config_path.parent() != Some(dir)).then(|| base_path.join_panic_relative(DOT_CONFIG_DIR_NAME))
 }
@@ -605,6 +618,26 @@ fn is_home_dir(environment: &impl Environment, dir: &Path) -> bool {
 mod tests {
   use super::*;
   use crate::environment::TestEnvironment;
+
+  #[test]
+  fn should_know_a_config_file_by_where_it_was_found_only_when_that_is_another_file() {
+    // a symlink to another file
+    assert_eq!(
+      get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/shared/base.json")),
+      Some(PathBuf::from("/p/dprint.json"))
+    );
+    assert_eq!(
+      get_config_file_found_path(PathBuf::from("/p/.config/dprint.json"), Path::new("/other/dprint.json")),
+      Some(PathBuf::from("/p/.config/dprint.json"))
+    );
+    // the same file, which may be in another case on a case insensitive file system
+    assert_eq!(get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/p/dprint.json")), None);
+    assert_eq!(get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/p/Dprint.json")), None);
+    assert_eq!(
+      get_config_file_found_path(PathBuf::from("/p/.config/dprint.json"), Path::new("/p/.Config/dprint.json")),
+      None
+    );
+  }
 
   #[test]
   fn should_not_canonicalize_a_directory_on_another_machine_to_tell_whether_it_is_the_home_dir() {
