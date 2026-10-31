@@ -148,7 +148,7 @@ Print items are allocated in an `Arena`, which is passed to `PrintItems::new(are
 
 Create the arena after the data the print items borrow from (ex. the text of the file), so strings from it can be pushed without being copied by using `push_str_runtime_width_computed`. Create an arena for each file that's formatted.
 
-The memory of an arena from `Arena::new()` is freed when it's dropped. To reuse it for the next file instead, store an `ArenaPool` (ex. in the plugin's state) and create the arenas with `pool.create_arena()`, which returns their memory to the pool when they're dropped. The pool keeps the memory until it's cleared or dropped.
+The memory of an arena from `Arena::new()` is freed when it's dropped. To reuse it for the next file instead, store an `ArenaPool` (ex. in the plugin's state) and create the arenas with `pool.create_arena()`, which returns their memory to the pool when they're dropped. The pool keeps the memory until it's cleared or dropped. Wasm plugins are given a pool in `request.arena_pool`.
 
 ## Example IR Generation
 

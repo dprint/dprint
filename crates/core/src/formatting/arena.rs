@@ -153,6 +153,8 @@ impl Arena {
 /// let text = print(print_items, options);
 /// ```
 ///
+/// Wasm plugins are given a pool in the format request (`request.arena_pool`).
+///
 /// Cloning the pool is cheap and the clones share the same memory.
 #[derive(Clone, Default)]
 pub struct ArenaPool {

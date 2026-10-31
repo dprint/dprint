@@ -226,6 +226,13 @@ pub struct SyncFormatRequest<'a, TConfiguration> {
   /// Range to format.
   pub range: FormatRange,
   pub token: &'a dyn CancellationToken,
+  /// The pool to create the arenas for formatting the file from (ex. `request.arena_pool.create_arena()`),
+  /// which reuses their memory between formats.
+  ///
+  /// The memory is kept for as long as the plugin is loaded, which costs little since
+  /// the memory of a Wasm plugin doesn't shrink when it's freed.
+  #[cfg(feature = "formatting")]
+  pub arena_pool: &'a crate::formatting::ArenaPool,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]

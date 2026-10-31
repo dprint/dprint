@@ -34,6 +34,8 @@ pub struct WasmPluginState<TPlugin, TConfiguration: Clone + serde::Serialize> {
   error_text: RefCell<Option<String>>,
   unresolved_configs: RefCell<ConfigIdMap<RawFormatConfig>>,
   resolved_configs: RefCell<ConfigIdMap<PluginResolveConfigurationResult<TConfiguration>>>,
+  #[cfg(feature = "formatting")]
+  arena_pool: OnceCell<crate::formatting::ArenaPool>,
 }
 
 // SAFETY: Wasm plugins are only ever executed on a single thread.
@@ -52,6 +54,8 @@ impl<TPlugin, TConfiguration: Clone + serde::Serialize> WasmPluginState<TPlugin,
       error_text: RefCell::new(None),
       unresolved_configs: RefCell::new(ConfigIdMap::new()),
       resolved_configs: RefCell::new(ConfigIdMap::new()),
+      #[cfg(feature = "formatting")]
+      arena_pool: OnceCell::new(),
     }
   }
 }
@@ -90,6 +94,8 @@ impl<TPlugin: SyncPluginHandler<TConfiguration>, TConfiguration: Clone + serde::
       config_id,
       range,
       token: &HostCancellationToken,
+      #[cfg(feature = "formatting")]
+      arena_pool: self.arena_pool.get_or_init(Default::default),
     };
     let result = self.plugin().borrow_mut().format(request, |request| self.format_with_host(request));
     match result {
