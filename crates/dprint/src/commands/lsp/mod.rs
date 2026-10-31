@@ -950,6 +950,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     // the client is an editor extension when it supports a version of the dprint methods that the server does
     let mut features = serde_json::Map::new();
     let mut client_versions = Vec::new();
+    let mut session_id = None;
     // a capability that's null is the same as not providing it
     let dprint_capability = params
       .capabilities
@@ -963,6 +964,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         let version = capability.negotiate_version();
         features = capability.negotiate_features();
         client_versions = capability.versions.clone();
+        session_id = capability.session_id.clone();
         if version.is_none() {
           log_warn!(
             self.environment,
@@ -1043,6 +1045,10 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         workspace.set_client_kind(client_kind);
         if watches_files_outside_workspace {
           workspace.use_watch_files_registration();
+        }
+        // only an editor extension's decisions are kept for its session
+        if is_editor_extension {
+          workspace.use_session(session_id.as_ref());
         }
         async {}.boxed_local()
       })

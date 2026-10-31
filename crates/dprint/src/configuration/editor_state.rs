@@ -14,6 +14,7 @@ use jsonc_parser::cst::CstRootNode;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde::Serialize;
+use tokio::sync::Notify;
 
 use crate::environment::Environment;
 use crate::resolution::PROCESS_PLUGIN_CONFIG_HASH_VERSION;
@@ -271,7 +272,8 @@ impl ProcessPluginDecision {
 /// The user allowing a process plugin of a config file to be set up for the
 /// session, which runs it, before its configuration is known. Once it's set
 /// up, it's allowed with its configuration (see `ProcessPluginApproval`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProcessPluginSetUpGrant {
   pub config_file: String,
   /// The plugin as the config file specifies it (ex. its url and checksum).
@@ -454,6 +456,23 @@ pub struct SessionPermissions {
   /// The problems with the settings that were logged, which are only logged
   /// once because the settings are read for each request.
   logged_settings_problems: Mutex<HashSet<String>>,
+  /// Notified when what's in `SessionPermissionsState` changes (see `changed`).
+  changes: Notify,
+}
+
+/// What the session decided about process plugins, which is what an editor
+/// integration keeps in its session file so that a server that's started
+/// again for the same session behaves as if it never stopped.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SessionPermissionsState {
+  /// What the user decided for the session with the most recent last, which
+  /// includes an "Always" decision that couldn't be stored.
+  pub process_plugin_decisions: Vec<ProcessPluginDecision>,
+  pub process_plugin_set_up_grants: Vec<ProcessPluginSetUpGrant>,
+  /// The stored denials the session saw, so a denial that was stored since
+  /// is still told apart from them (see `SessionPermissions`).
+  pub seen_stored_denials: Vec<ProcessPluginDecision>,
 }
 
 /// The stored denials that the reads of the permissions saw (see
@@ -562,6 +581,7 @@ impl SessionPermissions {
   /// Uses the decision for the rest of the session.
   pub fn add_process_plugin_decision(&self, decision: ProcessPluginDecision) {
     self.process_plugin_decisions.lock().push(decision);
+    self.changes.notify_one();
   }
 
   /// Allows setting up the process plugin for the session.
@@ -571,6 +591,7 @@ impl SessionPermissions {
     let mut grants = self.process_plugin_set_up_grants.lock();
     grants.retain(|existing| existing.config_file != grant.config_file || existing.plugin != grant.plugin);
     grants.push(grant);
+    self.changes.notify_one();
   }
 
   /// Gets what the user decided for the session about running process
@@ -592,6 +613,36 @@ impl SessionPermissions {
       .lock()
       .retain(|decision| !is_config_file(&decision.approval.config_file));
     self.process_plugin_set_up_grants.lock().retain(|grant| !is_config_file(&grant.config_file));
+    self.changes.notify_one();
+  }
+
+  /// Gets what the session decided about process plugins (ex. to keep it in
+  /// a session file).
+  pub fn state(&self) -> SessionPermissionsState {
+    let mut seen_stored_denials = self.stored_denial_reads.lock().denials.iter().cloned().collect::<Vec<_>>();
+    // the same state is the same text
+    seen_stored_denials
+      .sort_by(|a, b| (a.decided_at, &a.approval.config_file, &a.approval.plugin).cmp(&(b.decided_at, &b.approval.config_file, &b.approval.plugin)));
+    SessionPermissionsState {
+      process_plugin_decisions: self.process_plugin_decisions.lock().clone(),
+      process_plugin_set_up_grants: self.process_plugin_set_up_grants.lock().clone(),
+      seen_stored_denials,
+    }
+  }
+
+  /// Uses what a session decided about process plugins before (ex. what a
+  /// server that stopped kept in the session file), which is done before
+  /// anything is decided.
+  pub fn restore(&self, state: SessionPermissionsState) {
+    *self.process_plugin_decisions.lock() = state.process_plugin_decisions;
+    *self.process_plugin_set_up_grants.lock() = state.process_plugin_set_up_grants;
+    self.stored_denial_reads.lock().denials = state.seen_stored_denials.into_iter().collect();
+  }
+
+  /// Waits until what's in `SessionPermissionsState` changed since the last
+  /// time this returned, which returns right away when it changed already.
+  pub async fn changed(&self) {
+    self.changes.notified().await;
   }
 
   /// Marks where the results of storing what the user always allowed for
@@ -628,6 +679,7 @@ impl SessionPermissions {
   pub fn take_process_plugin_set_up_grant(&self, config_file: &str, plugin: &str) -> Option<ProcessPluginSetUpGrant> {
     let mut grants = self.process_plugin_set_up_grants.lock();
     let index = grants.iter().position(|grant| grant.config_file == config_file && grant.plugin == plugin)?;
+    self.changes.notify_one();
     Some(grants.remove(index))
   }
 
@@ -671,7 +723,11 @@ impl SessionPermissions {
     if !is_out_of_date {
       reads.applied = read_number;
     }
+    let seen_count = reads.denials.len();
     reads.denials.extend(stored_denials);
+    if reads.denials.len() != seen_count {
+      self.changes.notify_one();
+    }
   }
 
   fn log_settings_problem(&self, environment: &impl Environment, message: String) {
@@ -1595,6 +1651,43 @@ mod test {
         .read(&environment)
         .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
     );
+  }
+
+  #[test]
+  fn should_keep_the_stored_denials_the_session_saw_when_its_state_is_restored() {
+    let environment = TestEnvironment::new();
+    require_approval(&environment);
+    let plugin = "https://plugins.dprint.dev/plugin.json@checksum".to_string();
+    update_editor_approvals_without_lock(&environment, |approvals| {
+      approvals.add_process_plugin_decision(ProcessPluginDecision {
+        approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), plugin.clone()),
+        allowed: false,
+        decided_at: 10,
+      })
+    })
+    .unwrap();
+    let session_permissions = SessionPermissions::default();
+    session_permissions.read(&environment);
+    // allowed for the session after the denial was seen
+    session_permissions.add_process_plugin_decision(ProcessPluginDecision {
+      decided_at: 11,
+      ..decision("/a/dprint.json", "1:a", true)
+    });
+    let state = session_permissions.state();
+    assert_eq!(state.seen_stored_denials.len(), 1);
+
+    // ex. a server that was started again for the session
+    let restored = SessionPermissions::default();
+    restored.restore(state.clone());
+    assert!(restored.read(&environment).is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert_eq!(restored.state(), state);
+    // the denial would otherwise look like it was stored since
+    let restored = SessionPermissions::default();
+    restored.restore(SessionPermissionsState {
+      seen_stored_denials: Vec::new(),
+      ..state
+    });
+    assert!(!restored.read(&environment).is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
   }
 
   #[test]

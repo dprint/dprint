@@ -16,6 +16,7 @@ use crate::commands::lsp::workspace::messages::ApprovalKind;
 use crate::commands::lsp::workspace::messages::ConfigFileIdentifier;
 use crate::commands::lsp::workspace::messages::ConfigFileInfo;
 use crate::commands::lsp::workspace::messages::ConfigFileKind;
+use crate::commands::lsp::workspace::messages::Decision;
 use crate::commands::lsp::workspace::messages::DecisionsParams;
 use crate::commands::lsp::workspace::messages::DocumentIdentifier;
 use crate::commands::lsp::workspace::messages::FileInfoParams;
@@ -3455,6 +3456,246 @@ fn should_ensure_a_stable_format_with_the_setting() {
   });
 }
 
+#[test]
+fn should_keep_the_decisions_of_the_session_when_the_server_is_started_again_for_it() {
+  const ALLOWED_URL: &str = "https://example.com/allowed/test-plugin.wasm";
+  const DENIED_URL: &str = "https://example.com/denied/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_wasm_plugin_at_url(ALLOWED_URL)
+    .add_remote_wasm_plugin_at_url(DENIED_URL)
+    .add_remote_process_plugin()
+    .with_local_config("/allowed-download/dprint.json", |c| {
+      c.add_plugin(ALLOWED_URL);
+    })
+    .with_local_config("/denied-download/dprint.json", |c| {
+      c.add_plugin(DENIED_URL);
+    })
+    .with_local_config("/allowed/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .with_local_config("/denied/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build(); // not initialized, so the plugins aren't set up
+  disallow_process_plugins(&environment);
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      for (config_file, decision) in [
+        ("/allowed-download/dprint.json", ApprovalDecision::Allow),
+        ("/denied-download/dprint.json", ApprovalDecision::Deny),
+        ("/allowed/dprint.json", ApprovalDecision::Allow),
+        ("/denied/dprint.json", ApprovalDecision::Deny),
+      ] {
+        let approval = client.config_info(config_file).await.status.approvals()[0].clone();
+        client.approve(&approval.id, decision).await;
+      }
+    }
+    .boxed_local()
+  });
+  assert!(environment.path_exists(get_session_file_path(&environment, SESSION_ID)));
+
+  // a server started again for the session uses them like the server that exited
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      assert_eq!(client.config_info("/allowed/dprint.json").await.status, FormatStatus::ready());
+      assert!(client.config_info("/denied/dprint.json").await.status.approvals()[0].denied);
+      assert!(client.config_info("/denied-download/dprint.json").await.status.approvals()[0].denied);
+      assert_eq!(client.config_info("/allowed-download/dprint.json").await.status, FormatStatus::ready());
+      // the allowed download is still allowed (the plugin is in the cache too)
+      let decisions = client.decisions().await;
+      assert!(
+        decisions
+          .iter()
+          .any(|decision| decision.allows && decision.config_file.is_none() && decision.specifiers == vec![ALLOWED_URL]),
+        "{:?}",
+        decisions
+      );
+    }
+    .boxed_local()
+  });
+
+  // and one of another session doesn't (ex. after the restart command)
+  run_session_with(&environment, session_params(OTHER_SESSION_ID), |client| {
+    async move {
+      let approval = client.config_info("/allowed/dprint.json").await.status.approvals()[0].clone();
+      assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
+      assert!(!approval.denied);
+      assert!(!client.config_info("/denied/dprint.json").await.status.approvals()[0].denied);
+      assert!(!client.config_info("/denied-download/dprint.json").await.status.approvals()[0].denied);
+      assert!(!client.decisions().await.iter().any(|decision| decision.allows));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_keep_allowing_a_process_plugin_to_be_set_up_when_the_server_is_started_again_for_the_session() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .add_remote_process_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL).add_remote_process_plugin();
+    })
+    .build();
+  disallow_process_plugins(&environment);
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
+      // the process plugins can't be set up until the download is allowed
+      let remaining = client.approve(&approvals[1].id, ApprovalDecision::Allow).await;
+      assert_eq!(
+        remaining.iter().map(|approval| approval.kind).collect::<Vec<_>>(),
+        vec![ApprovalKind::Downloads]
+      );
+    }
+    .boxed_local()
+  });
+  run_session_with(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
+      assert_eq!(
+        approvals.iter().map(|approval| approval.kind).collect::<Vec<_>>(),
+        vec![ApprovalKind::Downloads]
+      );
+      // so allowing the download sets them up
+      assert_eq!(client.approve(&approvals[0].id, ApprovalDecision::Allow).await, Vec::new());
+      assert_eq!(client.format("/file.txt_ps", "text").await, formatted("text", "text_formatted_process"));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_delete_the_session_file_when_the_client_stops_the_server() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  run_session_with(&environment, session_params(SESSION_ID), {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        client.approve(&approval.id, ApprovalDecision::Deny).await;
+        // it's kept before the decision is responded to
+        let text = environment.read_file(get_session_file_path(&environment, SESSION_ID)).unwrap();
+        assert!(text.contains(&approval.id), "{}", text);
+      }
+      .boxed_local()
+    }
+  });
+  // the session ended
+  assert!(!environment.path_exists(get_session_file_path(&environment, SESSION_ID)));
+  run_session_with(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      assert!(!client.config_info("/dprint.json").await.status.approvals()[0].denied);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
+fn should_delete_the_session_files_that_were_not_written_for_a_while() {
+  let environment = TestEnvironmentBuilder::new().build();
+  environment.set_fs_time(1_000_000);
+  let stale_file_path = get_session_file_path(&environment, OTHER_SESSION_ID);
+  environment.mk_dir_all(stale_file_path.parent().unwrap()).unwrap();
+  environment.write_file(&stale_file_path, "{}").unwrap();
+  // it's kept for a week
+  environment.set_fs_time(1_000_000 + 6 * 24 * 60 * 60);
+  run_session_with(&environment, session_params(SESSION_ID), |_| async {}.boxed_local());
+  assert!(environment.path_exists(&stale_file_path));
+  environment.set_fs_time(1_000_000 + 8 * 24 * 60 * 60);
+  // which is checked by a server of any session
+  run_session(&environment, |_| async {}.boxed_local());
+  assert!(!environment.path_exists(&stale_file_path));
+}
+
+#[test]
+fn should_ignore_a_session_id_that_is_not_valid() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  for session_id in [json!("too-short"), json!("../../0123456789abcdef"), json!(1234567890123456789u64)] {
+    let params = || {
+      let mut params = session_params(SESSION_ID);
+      params.capabilities.experimental.as_mut().unwrap()["dprint"]["sessionId"] = session_id.clone();
+      params
+    };
+    run_session_until_the_server_exits(&environment, params(), |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        assert!(client.approve(&approval.id, ApprovalDecision::Deny).await[0].denied);
+      }
+      .boxed_local()
+    });
+    // so the decisions are lost like without one
+    let sessions_dir = get_session_file_path(&environment, SESSION_ID).parent().unwrap().to_path_buf();
+    assert!(environment.dir_info(&sessions_dir).map(|entries| entries.is_empty()).unwrap_or(true));
+    run_session_until_the_server_exits(&environment, params(), |client| {
+      async move {
+        assert!(!client.config_info("/dprint.json").await.status.approvals()[0].denied);
+      }
+      .boxed_local()
+    });
+  }
+}
+
+#[test]
+fn should_forget_the_decisions_of_the_session_in_its_session_file() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .add_remote_process_plugin()
+    .with_local_config("/allowed/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .with_local_config("/denied/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_remote_process_plugin();
+    })
+    .build();
+  disallow_process_plugins(&environment);
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        for (config_file, decision) in [
+          ("/allowed/dprint.json", ApprovalDecision::Allow),
+          ("/denied/dprint.json", ApprovalDecision::Deny),
+        ] {
+          let approval = client.config_info(config_file).await.status.approvals()[0].clone();
+          client.approve(&approval.id, decision).await;
+        }
+        client
+          .backend
+          .dprint_forget_decisions(Some(ForgetDecisionsParams::default()), CancellationToken::new())
+          .await
+          .unwrap();
+        let text = environment.read_file(get_session_file_path(&environment, SESSION_ID)).unwrap();
+        let state = serde_json::from_str::<serde_json::Value>(&text).unwrap();
+        assert_eq!(state["processPluginDecisions"], json!([]), "{}", text);
+        assert_eq!(state["processPluginSetUpGrants"], json!([]), "{}", text);
+      }
+      .boxed_local()
+    }
+  });
+  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
+    async move {
+      assert!(!client.config_info("/allowed/dprint.json").await.status.approvals().is_empty());
+      assert!(!client.config_info("/denied/dprint.json").await.status.approvals()[0].denied);
+    }
+    .boxed_local()
+  });
+}
+
 /// An editor extension using the `dprint/*` methods.
 struct Client {
   backend: Rc<Backend<TestEnvironment>>,
@@ -3516,6 +3757,15 @@ impl Client {
       .unwrap()
       .config_approvals
       .approvals
+  }
+
+  async fn decisions(&self) -> Vec<Decision> {
+    self
+      .backend
+      .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
+      .await
+      .unwrap()
+      .decisions
   }
 
   async fn pending_approvals(&self) -> Vec<PendingApproval> {
@@ -3608,6 +3858,49 @@ fn run_session_with_config(
     // what's logged is sent to the editor
     test_client.take_messages();
   });
+}
+
+/// Runs a session of an editor extension whose server exits without the
+/// client stopping it (ex. it crashed), so the session doesn't end.
+fn run_session_until_the_server_exits(
+  environment: &TestEnvironment,
+  params: InitializeParams,
+  action: impl FnOnce(Client) -> LocalBoxFuture<'static, ()> + 'static,
+) {
+  let environment = environment.clone();
+  environment.clone().run_in_runtime(async move {
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, Default::default()));
+    let (tx, rx) = mpsc::unbounded_channel();
+    let recv_task = start_message_handler(&environment, &plugin_resolver, None, RemoteCacheMode::Use, Default::default(), rx);
+    let test_client = Arc::new(TestClient::default());
+    let backend = Rc::new(Backend::new(ClientWrapper::new(test_client.clone()), environment.clone(), tx, false));
+    initialize_backend(&backend, params).await;
+    action(Client {
+      backend: backend.clone(),
+      test_client: test_client.clone(),
+    })
+    .await;
+    drop(backend);
+    // it stopped without a shutdown request
+    assert!(!recv_task.await.unwrap());
+    plugin_resolver.clear_and_shutdown_initialized().await;
+    test_client.take_messages();
+  });
+}
+
+const SESSION_ID: &str = "0f8c2b1e-5a4d-4c3b-9e2f-7a6b5c4d3e2f";
+const OTHER_SESSION_ID: &str = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a";
+
+/// Gets the params of an editor extension that provides a session id.
+fn session_params(session_id: &str) -> InitializeParams {
+  let mut params = editor_extension_params();
+  params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "sessionId": session_id } }));
+  params
+}
+
+fn get_session_file_path(environment: &TestEnvironment, session_id: &str) -> PathBuf {
+  environment.get_cache_dir().join("editor-sessions").join(format!("{}.json", session_id))
 }
 
 fn editor_extension_params() -> InitializeParams {

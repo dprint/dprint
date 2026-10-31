@@ -112,6 +112,7 @@ use crate::utils::is_path_download;
 mod config_diagnostics;
 mod editor_paths;
 pub mod messages;
+mod session_file;
 
 use self::config_diagnostics::ConfigDiagnostic;
 use self::config_diagnostics::PluginSectionDiagnostic;
@@ -150,6 +151,12 @@ use self::messages::PluginInfo;
 use self::messages::RangeFormatting;
 use self::messages::Severity;
 use self::messages::ShowPolicy;
+use self::session_file::AllowedDownload;
+use self::session_file::DeniedDownload;
+use self::session_file::SESSION_FILE_REFRESH_INTERVAL;
+use self::session_file::SessionFile;
+use self::session_file::SessionState;
+use self::session_file::remove_stale_session_files;
 
 /// The error for approving what isn't pending anymore (ex. what needs to be
 /// approved changed because the config file changed).
@@ -402,6 +409,10 @@ pub struct Workspace<TEnvironment: Environment> {
   /// The files outside the workspace that the client was asked to watch for
   /// the `watchFiles` feature, which is `None` when it isn't used.
   registered_watch_files: RefCell<Option<Vec<PathBuf>>>,
+  /// The file that keeps what the user decided for the session when the
+  /// client provided a session id, so a server started again for the same
+  /// session uses it.
+  session_file: RefCell<Option<Rc<SessionFile>>>,
 }
 
 /// The plugins of a config file the last time they were known.
@@ -425,16 +436,6 @@ struct ResolvedConfigState {
   /// were denied, which changes whether the editor extension keeps acting as
   /// the formatter of its documents.
   denied: (bool, bool),
-}
-
-/// Downloads the user denied for a config file this session.
-struct DeniedDownload {
-  /// The key of the config file (see `get_config_key`).
-  config_key: String,
-  /// The config file the user was shown.
-  config_file: ConfigFileIdentifier,
-  /// What the user was shown as the approval's items.
-  items: Vec<ApprovalItem>,
 }
 
 /// What needs to be approved for a config file.
@@ -569,6 +570,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       canonical_workspace_folders: Default::default(),
       had_global_config: Default::default(),
       registered_watch_files: Default::default(),
+      session_file: Default::default(),
       environment,
       client,
       scope_container,
@@ -580,6 +582,36 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   pub fn set_client_kind(self: &Rc<Self>, client_kind: ClientKind) {
     self.client_kind.set(client_kind);
     self.watch_dprint_files();
+  }
+
+  /// Keeps what the user decides for the session in the session file of the
+  /// session id the client provided, which has what was decided before when a
+  /// server of the same session stopped without the session ending (ex. it
+  /// crashed). It's only used when the id is valid, which is logged otherwise.
+  /// The session files that weren't written for a while are deleted too.
+  pub fn use_session(self: &Rc<Self>, session_id: Option<&serde_json::Value>) {
+    let session_file = session_id.and_then(|session_id| {
+      let session_file = session_id.as_str().and_then(|session_id| SessionFile::new(&self.environment, session_id));
+      if session_file.is_none() {
+        log_warn!(
+          self.environment,
+          "Ignoring the session id {} because it isn't a string of 16 to 128 letters, digits, underscores, and hyphens, so what's decided for the session is lost when the server stops.",
+          session_id
+        );
+      }
+      session_file
+    });
+    if let Some(session_file) = session_file {
+      let session_file = Rc::new(session_file);
+      if let Some(state) = session_file.read(&self.environment) {
+        self.restore_session_state(state);
+        // so it isn't stale
+        session_file.write(&self.environment, &self.get_session_state(), true);
+      }
+      *self.session_file.borrow_mut() = Some(session_file.clone());
+      self.keep_session_file(session_file);
+    }
+    remove_stale_session_files(&self.environment);
   }
 
   /// Has the client be asked to watch the files that config files were
@@ -613,8 +645,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.scope_container.shutdown().await;
   }
 
+  /// Stops the plugins once the client stopped the server, which ends the
+  /// session, so its session file is deleted.
   pub async fn shutdown(&self) {
     self.stopped.cancel();
+    if let Some(session_file) = &*self.session_file.borrow() {
+      session_file.delete(&self.environment);
+    }
     self.scope_container.shutdown().await;
   }
 
@@ -1393,6 +1430,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           self.denied_downloads.borrow_mut().insert(
             stored.approval.id.clone(),
             DeniedDownload {
+              id: stored.approval.id.clone(),
               config_key: stored.config_key.clone(),
               config_file: ConfigFileIdentifier {
                 uri: stored.approval.config_file.uri.clone(),
@@ -1464,6 +1502,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       let workspace = self.clone();
       dprint_core::async_runtime::spawn(async move { workspace.resolve_used_configs_again().await });
     }
+    // the decision is kept before responding so a server started again for the session uses it
+    self.save_session();
     let config = config?;
     // a config file that still fails didn't resolve to something else, so the editor is told it was denied
     if let DocumentConfig::Failed(failure) = &config
@@ -1577,6 +1617,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .denied_downloads
       .borrow_mut()
       .retain(|_, denied| config_file.as_ref().is_some_and(|(_, key)| *key != denied.config_key));
+    self.save_session();
     let stored_result = self.forget_stored_decisions(&is_config_file).await;
     self.resolve_used_configs_again().await;
     // what was forgotten for the session still is when the stored decisions can't be
@@ -2592,6 +2633,76 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       };
       self.get_approvals_for_target(&target).await;
     }
+  }
+
+  /// Writes the session file whenever what the session decided about process
+  /// plugins changes (ex. a plugin the user allowed was set up, or a denial
+  /// stored elsewhere replaced an allow), and again once in a while so that it
+  /// isn't stale while the session lasts. It stops once the server shuts down.
+  fn keep_session_file(self: &Rc<Self>, session_file: Rc<SessionFile>) {
+    let workspace = Rc::downgrade(self);
+    let session_permissions = self.session_permissions.clone();
+    let stopped = self.stopped.clone();
+    dprint_core::async_runtime::spawn(async move {
+      loop {
+        let force = tokio::select! {
+          _ = stopped.cancelled() => return,
+          _ = session_permissions.changed() => false,
+          _ = tokio::time::sleep(SESSION_FILE_REFRESH_INTERVAL) => true,
+        };
+        let Some(workspace) = workspace.upgrade() else {
+          return;
+        };
+        session_file.write(&workspace.environment, &workspace.get_session_state(), force);
+      }
+    });
+  }
+
+  /// Writes what the user decided for the session to the session file when
+  /// it changed and there's one.
+  fn save_session(&self) {
+    let session_file = self.session_file.borrow().clone();
+    if let Some(session_file) = session_file {
+      session_file.write(&self.environment, &self.get_session_state(), false);
+    }
+  }
+
+  /// Gets what the user decided for the session, which is what's kept in the
+  /// session file. It's sorted so the same decisions are the same text.
+  fn get_session_state(&self) -> SessionState {
+    let allowed_items = self.allowed_download_items.borrow();
+    let mut allowed_downloads = self.environment.download_policy().allowed_downloads();
+    allowed_downloads.sort();
+    let mut denied_downloads = self.denied_downloads.borrow().values().cloned().collect::<Vec<_>>();
+    denied_downloads.sort_by(|a, b| a.id.cmp(&b.id));
+    SessionState {
+      permissions: self.session_permissions.state(),
+      allowed_downloads: allowed_downloads
+        .into_iter()
+        .map(|download| AllowedDownload {
+          item: allowed_items.get(&download).cloned(),
+          download,
+        })
+        .collect(),
+      denied_downloads,
+    }
+  }
+
+  /// Uses what the user decided for the session in a server that stopped.
+  fn restore_session_state(&self, state: SessionState) {
+    self.session_permissions.restore(state.permissions);
+    let downloads = state.allowed_downloads.iter().map(|allowed| allowed.download.clone()).collect::<Vec<_>>();
+    self.environment.download_policy().allow(&downloads);
+    self.allowed_download_items.borrow_mut().extend(
+      state
+        .allowed_downloads
+        .into_iter()
+        .filter_map(|allowed| Some((allowed.download, allowed.item?))),
+    );
+    self
+      .denied_downloads
+      .borrow_mut()
+      .extend(state.denied_downloads.into_iter().map(|denied| (denied.id.clone(), denied)));
   }
 
   /// Forgets a config file that was deleted, which isn't resolved again.

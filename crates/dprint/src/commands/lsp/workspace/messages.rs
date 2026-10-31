@@ -49,6 +49,12 @@ pub struct ClientExperimentalCapability {
   /// ignored (see `SUPPORTED_FEATURES`).
   #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
   pub features: serde_json::Map<String, serde_json::Value>,
+  /// The id of the client's session (ex. a random one for each editor
+  /// window), which keeps what the user decides for the session when the
+  /// server is started again with it. It's only used when it's a valid
+  /// string (see `is_valid_session_id`).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub session_id: Option<serde_json::Value>,
 }
 
 impl ClientExperimentalCapability {
@@ -67,7 +73,12 @@ impl ClientExperimentalCapability {
       .and_then(|features| features.as_object())
       .cloned()
       .unwrap_or_default();
-    Some(Self { versions, features })
+    let session_id = capability.get("sessionId").filter(|session_id| !session_id.is_null()).cloned();
+    Some(Self {
+      versions,
+      features,
+      session_id,
+    })
   }
 
   /// Gets the version of the `dprint/*` methods to use, which is the highest
