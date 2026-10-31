@@ -96,7 +96,11 @@ pub struct EditorState {
 ///   or `minVersion`.
 /// - `minVersion` is only raised for a change that an older reader can't
 ///   safely ignore (ex. a property of a decision that narrows what an allow
-///   covers).
+///   covers). It can't narrow what an older version does without asking (ex.
+///   downloading from a trusted domain), because a reader that refuses the
+///   file still trusts the domains of the settings file, so a decision like
+///   that is an `editor` setting of the settings file instead, which an older
+///   version that doesn't know it fails closed for (see `Settings`).
 /// - A reader whose version is lower than `minVersion` refuses the file. It
 ///   still applies the denials in it that it can parse, because denying more
 ///   than the user did is safe, but it ignores the allows and never writes to
