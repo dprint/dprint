@@ -27,6 +27,9 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 /// Every version of dprint that's installed reads the same file (ex. a
 /// project's npm dprint next to a global one), so it changes by these rules:
 ///
+/// - IMPORTANT: It's `settings.json` in the global config directory, which
+///   every version finds the same way (see `resolve_global_config_dir_path`).
+///
 /// - The editors don't use `editor` when it has a property or a value that the
 ///   version doesn't know (ex. an `editor.trustedDomains` entry that isn't a
 ///   domain), like when the file can't be read. They fail closed to the

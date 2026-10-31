@@ -100,11 +100,11 @@ pub struct EditorState {
 ///   allow covers is made to each allow instead (ex. with a new version of its
 ///   `configHash`, which an older reader doesn't use, see `is_used`), so older
 ///   versions still use the file. It can't narrow what an older version does
-///   without asking (ex.
-///   downloading from a trusted domain), because a reader that refuses the
-///   file still trusts the domains of the settings file, so a decision like
-///   that is an `editor` setting of the settings file instead, which an older
-///   version that doesn't know it fails closed for (see `Settings`).
+///   without asking (ex. downloading from a trusted domain), because a reader
+///   that refuses the file still trusts the domains of the settings file, so
+///   a decision like that is an `editor` setting of the settings file
+///   instead, which an older version that doesn't know it fails closed for
+///   (see `Settings`).
 /// - A reader whose version is lower than `minVersion` refuses the file. It
 ///   still applies the denials in it that it can parse, because denying more
 ///   than the user did is safe, but it ignores the allows and never writes to
@@ -184,10 +184,16 @@ pub struct EditorState {
 ///   a decision by the `configFile` that `dprint/decisions` lists for it too.
 /// - Every version applies a denial (which is stored for any configuration of
 ///   the plugin, see `ProcessPluginApproval::any_config`) over an allow of the
-///   same `configFile` and `plugin` in a format the version that stored the
-///   denial may not know (ex. a newer `configHash` version) whatever their
-///   times say, because that version couldn't time the denial after it or
-///   remove it. A version that stores an allow removes the denials of it.
+///   same `configFile` and `plugin` in a form the version that stored the
+///   denial may not parse (ex. a new kind of decision) whatever their times
+///   say, because that version couldn't time the denial after it or remove it.
+///   So a denial that's stored next to an allow in a newer form was stored
+///   after it, because a version that stores an allow removes the denials of
+///   the same config file and plugin, under each older form it can make too.
+/// - IMPORTANT: The file is `editor-approvals.json` and its lock is
+///   `.editor-approvals.lock`, both in the global config directory next to the
+///   settings file, which every version finds the same way (see
+///   `resolve_global_config_dir_path`).
 #[derive(Debug, Default)]
 pub struct EditorApprovals {
   /// The decisions with the most recent last, which leaves out the ones in a
@@ -1564,6 +1570,35 @@ mod test {
     // macOS only uses this directory when it's already there
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
     environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": false } }"#).unwrap();
+  }
+
+  #[test]
+  fn should_not_change_where_the_settings_and_approvals_files_are() {
+    // IMPORTANT: Every version finds these files the same way (see `EditorApprovals`), so this must not change
+    fn assert_files_in(environment: &TestEnvironment, dir_path: &str) {
+      let dir_path = Path::new(dir_path);
+      assert_eq!(get_settings_file_path(environment).unwrap(), dir_path.join("settings.json"));
+      assert_eq!(get_editor_approvals_file_path(environment).unwrap(), dir_path.join("editor-approvals.json"));
+      assert_eq!(get_editor_approvals_lock_path(environment), dir_path.join(".editor-approvals.lock"));
+    }
+
+    let environment = TestEnvironment::new();
+    environment.set_os("linux");
+    assert_files_in(&environment, "/config/dprint");
+    environment.set_os("windows");
+    assert_files_in(&environment, "/config/dprint");
+    // macOS uses the system config directory only when its dprint directory exists
+    environment.set_os("macos");
+    assert_files_in(&environment, "/home/.config/dprint");
+    environment.mk_dir_all("/config/dprint").unwrap();
+    assert_files_in(&environment, "/config/dprint");
+    environment.set_env_var("XDG_CONFIG_HOME", Some("/xdg"));
+    assert_files_in(&environment, "/xdg/dprint");
+    // which the environment variable overrides on any system, even when the directory doesn't exist
+    environment.set_env_var("DPRINT_CONFIG_DIR", Some("/custom"));
+    assert_files_in(&environment, "/custom");
+    environment.set_os("linux");
+    assert_files_in(&environment, "/custom");
   }
 
   #[test]

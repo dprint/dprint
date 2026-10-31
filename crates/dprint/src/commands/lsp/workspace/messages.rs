@@ -133,13 +133,15 @@ pub struct ServerExperimentalCapability {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file_globs: Option<Vec<String>>,
   /// The names of the config files that are looked up in a directory (ex.
-  /// one of the ancestor directories of the workspace folders), which are
-  /// empty for `dprint lsp --config` and `None` without a `version`.
+  /// one of the ancestor directories of the workspace folders), which may
+  /// have names added later, are empty for `dprint lsp --config`, and are
+  /// `None` without a `version`. A case insensitive file system (Windows and
+  /// macOS by default) finds them in any case, which the server does too.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file_names: Option<Vec<String>>,
   /// The names of the config files that are looked up in the `.config`
-  /// directory of a directory, which are empty for `dprint lsp --config` and
-  /// `None` without a `version`.
+  /// directory of a directory, like `config_file_names`. The home directory's
+  /// `.config` is an ordinary directory, which isn't looked in for them.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub dot_config_file_names: Option<Vec<String>>,
   /// What to tell the user when there isn't a `version` (ex. that dprint or
@@ -1132,6 +1134,7 @@ pub struct ConfigChangedParams {
   /// every config file may have changed.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file: Option<ConfigFileIdentifier>,
+  /// How the config file changed, which is `None` without a `config_file`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub change: Option<ConfigChange>,
   /// Whether only its schema changed (ex. a plugin's schema downloaded).

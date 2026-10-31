@@ -273,6 +273,18 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Res
 /// [`resolve_global_config_dir`], a `DPRINT_CONFIG_DIR` that doesn't exist is
 /// still where to look, since there's nothing to fall back from until
 /// something is written there.
+///
+/// IMPORTANT: Every version of dprint finds this directory the same way,
+/// because the settings file, the approvals file and its lock are in it (see
+/// `Settings` and `EditorApprovals`), and a version that found them elsewhere
+/// wouldn't see what another one stored (ex. an "Always Deny"): it's
+/// `DPRINT_CONFIG_DIR` when that isn't empty, and otherwise the `dprint`
+/// directory of the system's config directory (ex. `%APPDATA%` on Windows, and
+/// `XDG_CONFIG_HOME` or `~/.config` on Linux), which on macOS is
+/// `XDG_CONFIG_HOME` when that isn't empty, then `~/Library/Application
+/// Support` when its `dprint` directory exists, and otherwise `~/.config`. A
+/// version that changes how it's found still reads and writes those files at
+/// the place this finds.
 pub fn resolve_global_config_dir_path(environment: &impl Environment) -> Option<PathBuf> {
   match resolve_env_var_folder(environment, "DPRINT_CONFIG_DIR") {
     Some(folder) => Some(PathBuf::from(folder)),

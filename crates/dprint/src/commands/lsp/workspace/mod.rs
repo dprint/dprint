@@ -2821,7 +2821,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       editor_paths.extend(uri_to_file_path(&editor_uri));
     }
     // the local config files that were used through it, which may not have problems, apart from one the editor
-    // knows by another alias (ex. one of a directory in it that's a symlink)
+    // knows by another alias of a directory in it (ex. a symlink), which isn't one of the same directory because the
+    // editor knew those through this alias too
     let used_file_paths = self
       .used_configs
       .borrow()
@@ -2831,7 +2832,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .filter(|file_path| file_path.starts_with(canonical_dir))
       .collect::<Vec<_>>();
     for file_path in used_file_paths {
-      let is_other_alias = self.editor_paths.get_alias(&file_path).is_some_and(|(dir, _)| dir.starts_with(canonical_dir));
+      let is_other_alias = self
+        .editor_paths
+        .get_alias(&file_path)
+        .is_some_and(|(dir, _)| dir.starts_with(canonical_dir) && dir != canonical_dir);
       if !is_other_alias && let Ok(relative_path) = file_path.strip_prefix(canonical_dir) {
         editor_paths.insert(editor_dir.join(relative_path));
       }

@@ -2243,6 +2243,43 @@ fn should_not_take_back_the_diagnostics_of_a_directory_another_symlink_leads_to_
 }
 
 #[test]
+fn should_tell_about_a_config_file_known_through_a_replaced_alias_that_points_elsewhere_now() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/ws/real/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build();
+  environment.add_canonical_symlink("/ws/a", "/ws/real");
+  environment.add_canonical_symlink("/ws/b", "/ws/real");
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.file_info("/ws/a/file.txt").await;
+        client.take_config_changes();
+        // the other symlink replaces it as what the editor knows the directory by, which changes nothing
+        client.file_info("/ws/b/file.txt").await;
+        assert_eq!(client.take_config_changes(), Vec::<Uri>::new());
+        // the first one points somewhere else now, which a request through the other one finds, and the config file
+        // the editor knew through it is told about, even though the other one still knows it in the same directory
+        environment.remove_canonical_path("/ws/a");
+        environment.add_canonical_path("/ws/a", "/ws/other");
+        client.file_info("/ws/b/file.txt").await;
+        let config_changes = client.take_config_changes();
+        assert_eq!(
+          config_changes.iter().filter(|uri_| **uri_ == uri("/ws/a/dprint.json")).count(),
+          1,
+          "{:?}",
+          config_changes
+        );
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_take_back_the_diagnostics_published_through_an_alias_that_is_only_used_by_its_path_after_it_points_elsewhere() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()
