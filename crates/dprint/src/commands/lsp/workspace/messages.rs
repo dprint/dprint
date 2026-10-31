@@ -717,7 +717,7 @@ pub struct ApproveResult {
   pub config_approvals: ConfigApprovals,
   /// What to tell the user about the decision or one made before for the
   /// same config file (ex. it couldn't be stored, so it's only used for the
-  /// session).
+  /// session, or the session file couldn't be written or deleted).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notice: Option<Notice>,
 }
@@ -796,7 +796,8 @@ pub struct ForgetDecisionsResult {
   /// The decisions that were forgotten.
   pub decisions: Vec<Decision>,
   /// What to tell the user about forgetting them (ex. the stored decisions
-  /// couldn't be forgotten).
+  /// couldn't be forgotten, or the session file couldn't be written or
+  /// deleted).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notice: Option<Notice>,
 }
@@ -837,7 +838,7 @@ pub struct Decision {
   /// What it's for like an approval's items in the order of the specifiers,
   /// which is provided for downloads so a proxy or a path on another machine
   /// can be told apart from a url and shown with its file (an `npmrcProxy`
-  /// with its `npmrc_uri`, or a `networkPath` with its `uri`).
+  /// with its `npmrc_uri`, or a `networkPath` with its `local_uri`).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub items: Option<Vec<ApprovalItem>>,
   pub allows: bool,

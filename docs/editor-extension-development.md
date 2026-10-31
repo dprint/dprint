@@ -6,7 +6,7 @@ The `dprint/*` methods were introduced in dprint 0.65. Editor extensions for old
 
 An editor extension usually does the following, which the sections below describe:
 
-1. Start `dprint lsp`, send `initialize` with the `dprint` capability and a session id for the editor window (`sessionId`), check the `version` of the server's capability, and send `initialized` (see "Starting the server"). When the server exits unexpectedly, start it again with the same session id, which keeps what the user decided for the session (see "Lifecycle").
+1. Start `dprint lsp`, send `initialize` with the `dprint` capability and a session id of its own for the server (`sessionId`), check the `version` of the server's capability, and send `initialized` (see "Starting the server"). When the server exits unexpectedly, start it again with the same session id, which keeps what the user decided for the session (see "Lifecycle").
 2. Watch the configuration files (`configFileGlobs`) and the files they were resolved from (`watchUris`), and send `workspace/didChangeWatchedFiles` when they change (see "Lifecycle").
 3. When a document is opened, get its `dprint/fileInfo`, which says whether dprint formats it (`status`) or the editor extension should act as its formatter anyway (`claim`), and which configuration file is used for it (`configFile`). Get `dprint/configInfo` for that configuration file, which says which other documents it may format (see "Which documents dprint formats").
 4. Format a document with `dprint/format`. When something needs to be approved first (the `approvalRequired` reason), ask the user and send their decision with `dprint/approve` (see "Approving").
@@ -15,7 +15,7 @@ An editor extension usually does the following, which the sections below describ
 
 ## Starting the server
 
-Start one `dprint lsp` process for each `dprint` executable the editor uses (usually one for the whole editor window, not one for each workspace folder) and send the `initialize` request with the `dprint` experimental capability:
+Start one `dprint lsp` process for each `dprint` executable the editor uses (usually one for the whole editor window, not one for each workspace folder), each with its own `sessionId`, and send the `initialize` request with the `dprint` experimental capability:
 
 ```json
 {
@@ -31,7 +31,7 @@ Start one `dprint lsp` process for each `dprint` executable the editor uses (usu
 
 Then send the `initialized` notification, which is when the server registers what it needs from the client (ex. the files to watch with the `watchFiles` feature).
 
-`sessionId` identifies the editor's session, which is usually an editor window (ex. a random UUID made when the window opens). The server keeps what the user decided for the session (ex. a download they denied or a process plugin they allowed for the session) in a file for it in dprint's cache directory, so a server that's started again with the same id after the server exited unexpectedly uses what the user decided like the server that exited (see "Lifecycle"). It's 16 to 128 ASCII letters, digits, underscores (`_`), and hyphens (`-`). One that isn't valid is ignored, which is logged, and without one, what the user decided for the session is lost when the server exits.
+`sessionId` identifies the server's session, which is unique to the server: make a new one for each server the editor extension starts (ex. a random UUID for each `dprint` executable of each editor window, so the server of a project's npm dprint and the server of the global one in the same window each have their own), and only use it again to start that same server again after it exited unexpectedly. The server keeps what the user decided for the session (ex. a download they denied or a process plugin they allowed for the session) in a file for it in dprint's cache directory, so a server that's started again with the same id uses what the user decided like the server that exited (see "Lifecycle"). Two servers that are running with the same id would overwrite each other's decisions (ex. one would bring back what the user allowed in it after they denied it in the other), so a server whose id another server that's running uses doesn't keep what's decided for its session, which is logged. It's 16 to 128 ASCII letters, digits, underscores (`_`), and hyphens (`-`). One that isn't valid is ignored, which is logged, and without one, what the user decided for the session is lost when the server exits.
 
 `versions` are the versions of the `dprint/*` methods the editor extension supports. The server uses the highest one that it also supports, which is the `version` in the `dprint` experimental capability of the `capabilities` of its result:
 
@@ -67,8 +67,9 @@ interface ClientCapability {
   /** The optional behavior it supports (see "Features"). */
   features?: { [name: string]: true | object };
   /**
-   * The id of the editor's session (ex. a random UUID for each editor window), which keeps what the user decided for the session when
-   * the server is started again with it (see "Lifecycle"). It's 16 to 128 of `A-Z`, `a-z`, `0-9`, `_`, and `-`.
+   * The id of the server's session, which is unique to the server (ex. a random UUID for each `dprint` executable of each editor window)
+   * and keeps what the user decided for the session when the same server is started again with it (see "Lifecycle"). It's 16 to 128 of
+   * `A-Z`, `a-z`, `0-9`, `_`, and `-`.
    */
   sessionId?: string;
 }
@@ -144,7 +145,8 @@ Optional behavior is opted into with `features`, an object of the features the c
 - The server doesn't watch dprint's cache, so a plugin that was downloaded outside the editor (ex. by running `dprint config install` in a terminal) is only used once the configuration file is resolved again (ex. when the user approves the download, or with `dprint/reset`).
 - When the server exits unexpectedly, start it again for the next request (with a delay that grows when it keeps exiting) with the same `sessionId`, and get `dprint/configInfo` again for each configuration file the editor extension knows about and `dprint/fileInfo` for the open documents, because the new server doesn't know them (ex. the files they were resolved from) or publish their diagnostics until they're used. The server keeps what the user decided for the session in the file of its session id, which the new server uses, so it asks about the same approvals as the server that exited (ex. not about a download the user denied or a process plugin they allowed for the session) without the editor extension sending any decision again. Get the results again like after any `dprint/approve` (see "Which documents dprint formats"), and get `dprint/pendingApprovals` for the status bar item.
 - Keep which approval ids the user was asked about (see "Approving"), including after the server is started again, so a format on save doesn't ask about one again. That's the only thing about the decisions the editor extension keeps, and an id is the same in the new server.
-- A restart command is for forgetting what the user decided for the session, so stop the server with `shutdown` and `exit` and start a new one with a new `sessionId`, and forget which ids were asked about too. The server deletes the file of a session when it's stopped with `shutdown`, and deletes the files that weren't written for a week when it starts (ex. of a server that crashed and wasn't started again). `dprint/forgetDecisions` forgets the session's decisions of the configuration file (or of every one) apart from the downloads that were allowed, which stay allowed for the session (see `dprint/forgetDecisions`), and the file of the session forgets them too, so forget which of its ids were asked about. Use `dprint/reset` instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
+- A restart command is for forgetting what the user decided for the session, so stop the server with `shutdown` and `exit` and start a new one with a new `sessionId`, and forget which ids were asked about too. The server deletes the file of a session when it's stopped with `shutdown`, and deletes the files that weren't written for a week when it starts (ex. of a server that crashed and wasn't started again), apart from the ones of servers that are running. `dprint/forgetDecisions` forgets the session's decisions of the configuration file (or of every one) apart from the downloads that were allowed, which stay allowed for the session (see `dprint/forgetDecisions`), and the file of the session forgets them too, so forget which of its ids were asked about. Use `dprint/reset` instead when only the plugins need to start again (ex. after a plugin stopped responding or was changed).
+- Every version of dprint that's installed uses the same directory for the files of the sessions (`editor-sessions` in dprint's cache directory), and each one deletes the files the others left there, so they keep to the same rules: a session's file is `<id>.json` and its lock is `<id>.lock` (with temporary files named `<id>.<8 lowercase hex digits>.tmp` while it's written), a file has the `version` of its format and a server ignores a file of another version (which only means the user is asked again), a server holds an exclusive lock of `<id>.lock` while its session lasts, it writes its file again when it was last written a day before by the wall clock (checking every hour, which counts the time the machine was asleep), and every version only deletes a file with one of those names whose modification time is more than a week from now (before or after) and whose session's lock it can take. So don't keep other files in that directory.
 - A notification that changes the server's state (ex. `workspace/didChangeConfiguration`) applies to the requests sent after it.
 
 ### Which requests set up plugins
@@ -664,7 +666,9 @@ interface ApproveResult extends ConfigApprovals {
   /**
    * What to tell the user about the decision, or about one made before for the same configuration file (ex. an `always` decision
    * couldn't be stored, or the approvals file is from a newer version of dprint that this one can't write to, so it's only used
-   * for the session). The server keeps such a decision for the session like one that isn't `always` (see "Lifecycle").
+   * for the session). The server keeps such a decision for the session like one that isn't `always` (see "Lifecycle"). It also says
+   * when the file of the session couldn't be written or deleted, so what the user decided for the session before may come back if the
+   * server is started again.
    */
   notice?: Notice;
 }
@@ -722,7 +726,8 @@ interface ForgetDecisionsResult {
   decisions: Decision[];
   /**
    * What to tell the user about forgetting them (ex. the stored decisions couldn't be forgotten, which includes when the approvals
-   * file is from a newer version of dprint that this one can't write to, so only the session's decisions were).
+   * file is from a newer version of dprint that this one can't write to, so only the session's decisions were, or the file of the
+   * session couldn't be written or deleted, so they may come back if the server is started again).
    */
   notice?: Notice;
 }
@@ -814,6 +819,6 @@ These are kept here for the maintainers and aren't part of the protocol.
 - `-32803` (RequestFailed) is used for an approval that changed instead of a code in JSON-RPC's reserved range, which a client library may use for its own errors.
 - A configuration file that's asked about is resolved even when another one in its directory is what dprint uses for the directory (ex. a `dprint.jsonc` beside a `dprint.json`). Detecting that isn't worth maintaining for a mistake that's rare and obvious to the user.
 - A proxy that an `.npmrc` file other than `~/.npmrc` sets is approved like a download instead of being ignored, so a project that needs its proxy (ex. on a company's network) works once the user allows it, and a download never silently goes another way than npm would send it. Only `~/.npmrc` is trusted because the files in the ancestor directories may be the project's (ex. the root of a monorepo) or anyone's (ex. in `/tmp`), and dprint doesn't read npm's global configuration file. What's allowed is the file with the text of its setting before its environment variables are replaced, which is what the user saw, so a changed setting is asked about again, while a changed value of an environment variable isn't. Like a download, it's only allowed for the session. Each proxy is its own approval so its message starts with it and its credential warning isn't pushed past where an editor cuts off a message by long urls (VS Code cuts a notification at 1000 characters), and so the user can allow a plugin's url without the proxy. It's still the `downloads` kind because it's decided like one, and an older editor extension asks about a kind it doesn't know like "processPlugins".
-- The server keeps what the user decided for the session in a file for the client's session id, instead of the client sending the session's decisions again to a server that's started again. The clients kept getting the bookkeeping for that wrong (which ids an approval had before, which decisions replace each other, and whether an `always` decision was stored, including one stored once its process plugins were set up by a later approval), which silently allowed or denied what the user decided otherwise since. The server already knows each of these, so a file it writes after each change makes a server that's started again behave like the one that exited, and a client only keeps which ids it asked about. The file is per session id, so servers of different sessions don't share a lock, and two servers of the same session is a mistake of the client where the last one to write wins. The id only selects the file in the user's cache directory, so it can't point the server at a file of the project.
+- The server keeps what the user decided for the session in a file for the client's session id, instead of the client sending the session's decisions again to a server that's started again. The clients kept getting the bookkeeping for that wrong (which ids an approval had before, which decisions replace each other, and whether an `always` decision was stored, including one stored once its process plugins were set up by a later approval), which silently allowed or denied what the user decided otherwise since. The server already knows each of these, so a file it writes after each change makes a server that's started again behave like the one that exited, and a client only keeps which ids it asked about. The file is per session id, which is unique to a server process, so servers of different sessions don't share a lock. Two servers that are running with the same session id are a mistake of the client, so the second one doesn't use the file instead of overwriting the decisions of the first, which its lock of the session tells. The id only selects the file in the user's cache directory, so it can't point the server at a file of the project.
 - A decision isn't remembered by url or domain beyond the session, and allowing a download only allows its urls, because a broader scope (ex. trusting a domain) is the settings file's `editor.trustedDomains`, which the user edits on purpose.
 -->
