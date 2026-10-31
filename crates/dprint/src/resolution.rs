@@ -1309,12 +1309,12 @@ impl UnapprovedProcessPlugins {
 }
 
 /// Resolves the plugins of the config like `resolve_plugins_scope`, but
-/// resolves none of them when running one of its process plugins isn't approved
-/// for the config file with its configuration, so they're never set up or started.
-/// The other plugins are left out too because formatting only some of the
-/// files (or formatting them with a lower precedence plugin) would format
-/// differently than the CLI. The process plugins of the global config file
-/// are always approved because it's the user's own.
+/// resolves none of them when running one of its process plugins isn't
+/// approved for the config file with its configuration, so they're never set
+/// up or started. The other plugins are left out too because formatting only
+/// some of the files (or formatting them with a lower precedence plugin) would
+/// format differently than the CLI. The process plugins of the global config
+/// file are always approved because it's the user's own.
 pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
   config: Rc<ResolvedConfig>,
   environment: &TEnvironment,

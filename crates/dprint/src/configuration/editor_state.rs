@@ -232,7 +232,6 @@ impl EditorApprovals {
     if decisions.iter().any(|existing| is_replaced(existing) && is_more_recent(existing, &decision)) {
       return;
     }
-    // the decision for a previous configuration isn't needed anymore
     decisions.retain(|existing| !is_replaced(existing));
     decisions.push(decision);
     while decisions.len() > MAX_PROCESS_PLUGIN_DECISIONS {
@@ -705,9 +704,9 @@ impl SessionPermissions {
     self.changes.notify_one();
   }
 
-  /// Allows setting up the process plugin for the session.
-  /// It replaces the one for the plugin of the config file (ex. for a trusted
-  /// configuration that changed since), which would otherwise be taken first.
+  /// Allows setting up the process plugin for the session, which replaces the
+  /// grant for the plugin of the config file (ex. for a trusted configuration
+  /// that changed since) that would otherwise be taken first.
   pub fn add_process_plugin_set_up_grant(&self, grant: ProcessPluginSetUpGrant) {
     let mut grants = self.process_plugin_set_up_grants.lock();
     grants.retain(|existing| existing.config_file != grant.config_file || existing.plugin != grant.plugin);
@@ -1332,7 +1331,6 @@ impl ApprovalsFileRead {
       .map(|file| file.process_plugin_decisions)
       .unwrap_or_default()
       .into_iter()
-      // a decision that's in another format is left out
       .filter_map(parse_process_plugin_decision)
       .collect::<Vec<_>>();
     Some(get_unreplaced_denials(&decisions))
@@ -1835,7 +1833,7 @@ mod test {
     // it's denied with each configuration
     assert!(permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1:a")));
     assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
-    // IMPORTANT: allowing it with any configuration doesn't allow it
+    // IMPORTANT: Allowing it with any configuration doesn't allow it.
     assert!(!permissions.is_process_plugin_allowed(&approval("/b/dprint.json", "1:a")));
     // allowing it with its configuration afterwards wins (ex. running `dprint fmt`)
     let allowed = ProcessPluginDecision {

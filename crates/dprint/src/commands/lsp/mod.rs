@@ -883,7 +883,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     Ok(ResetResult {})
   }
 
-  /// Takes optional params because they were `{}` at first.
+  /// Takes optional params so that the approvals of every config file can be gotten with `{}`.
   async fn dprint_pending_approvals(&self, params: Option<PendingApprovalsParams>, _token: CancellationToken) -> LspResult<PendingApprovalsResult> {
     self.ensure_editor_extension()?;
     let params = params.unwrap_or_default();
@@ -1532,8 +1532,9 @@ impl LspOutputSink {
     }
   }
 
-  /// Sends the progress, which also goes to the progress tokens of the
-  /// requests when the client doesn't support the server's own.
+  /// Sends the progress, which goes to the progress tokens of the requests
+  /// that are being handled, and to the server's own token when there are none
+  /// and the client supports it.
   fn send_progress(&self, id: usize, progress: WorkDoneProgress) {
     let _ = self.sender.send(OutputEvent::Progress(id, progress));
   }
@@ -4965,7 +4966,6 @@ mod test {
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
   }
 
-  /// Requires the user to approve running process plugins.
   #[test]
   fn gets_the_total_progress_of_what_is_being_done() {
     assert!(get_total_progress(&[]).is_none());
@@ -4991,6 +4991,7 @@ mod test {
     assert_eq!(get_total_progress(&[unknown]).unwrap().percentage, None);
   }
 
+  /// Requires the user to approve running process plugins.
   fn disallow_process_plugins(environment: &TestEnvironment) {
     ensure_global_config_dir(environment);
     let file_path = get_settings_file_path(environment).unwrap();
@@ -5057,7 +5058,7 @@ mod test {
     applied_edits: Mutex<Vec<WorkspaceEdit>>,
     published_diagnostics: Mutex<Vec<(Uri, Vec<Diagnostic>)>>,
     config_changes: Mutex<Vec<Uri>>,
-    /// The progress that was sent with whether the client was asked to create it.
+    /// The progress that was sent with the token it was sent on.
     progress: Mutex<Vec<(NumberOrString, WorkDoneProgress)>>,
   }
 

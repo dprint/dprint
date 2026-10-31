@@ -46,8 +46,6 @@ pub async fn run_editor_service<TEnvironment: Environment>(
 
 /// What's used to send messages of a schema version to the editor.
 struct EditorContext<TBody: MessageBody> {
-  /// Shared with the threads that send messages (ex. what's logged), which
-  /// has the messages be sent in the order they're made.
   pub id_generator: Arc<AtomicIdGenerator>,
   pub writer: Arc<SingleThreadMessageWriter<EditorMessage<TBody>>>,
   pub cancellation_tokens: RcIdStore<Arc<CancellationToken>>,

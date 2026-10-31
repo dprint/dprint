@@ -468,9 +468,9 @@ pub struct LocalConfigFileDirs {
 /// path it's at where the directory it's used for is canonicalized (see
 /// `get_config_file_found_path`).
 ///
-/// Unlike `resolve_local_config_file_dirs`, it's used for the directory it's
-/// in (or the parent of its `.config` directory) rather than the directory of
-/// its canonical path, like when it's found for a file in that directory.
+/// It's used for the directory it's in (or the parent of its `.config`
+/// directory) rather than the directory of its canonical path, like when it's
+/// found for a file in that directory.
 pub fn resolve_config_file_dirs_at_path(environment: &impl Environment, config_path: &Path) -> std::io::Result<(LocalConfigFileDirs, PathBuf)> {
   let Some(lookup) = get_config_file_lookup(environment, config_path) else {
     return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "The config file path has no directory."));
@@ -614,8 +614,8 @@ pub fn get_dot_config_file_paths(environment: &impl Environment, dir: &Path) -> 
   }
 }
 
-/// Gets the config file in the directory, which is in the directory or the
-/// ancestors of the base, whose config file is found (see
+/// Gets the config file in the directory, which is the base directory or one
+/// of its ancestors that a config file is looked for in (see
 /// `get_default_config_file_in_ancestor_directories`).
 fn get_config_file_in_dir(dir: &Path, environment: &impl Environment, ancestor_paths: &AncestorPaths, base: &Path) -> Result<Option<(PathBuf, String)>> {
   // IMPORTANT: Each path is checked before it's looked up because that may contact another machine.

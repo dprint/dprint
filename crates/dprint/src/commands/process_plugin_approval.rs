@@ -166,8 +166,8 @@ pub async fn allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>
 
 /// Allows the editors to run the process plugins of the config file with its
 /// configuration, which is for when the user ran dprint with it (`dprint fmt`,
-/// `dprint check`, or `dprint config install`) because that's the same as choosing to run
-/// them. The plugins need to be set up.
+/// `dprint check`, or `dprint config install`) because that's the same as
+/// choosing to run them. The plugins need to be set up.
 ///
 /// Nothing is stored when the approvals file can't be read (ex. it's from a
 /// newer version of dprint that this version can't use, which this version
@@ -256,11 +256,11 @@ const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 
 /// Uses the decision, which is stored when it's always used, while the
 /// caller holds a store of the session permissions (see
-/// `SessionPermissions::start_store`). A decision that's
-/// stored is only read from the approvals file so that changing the file (ex.
-/// deleting it) is used, and the session uses it when storing it fails. The
-/// session also uses an allow that's stored while the editors don't use the
-/// settings, because they don't use the stored allows then (see `Settings`).
+/// `SessionPermissions::start_store`). A decision that's stored is only read
+/// from the approvals file so that changing the file (ex. deleting it) is
+/// used, and the session uses it when storing it fails. The session also uses
+/// an allow that's stored while the editors don't use the settings, because
+/// they don't use the stored allows then (see `Settings`).
 async fn add_process_plugin_decision<TEnvironment: Environment>(
   environment: &TEnvironment,
   session_permissions: &SessionPermissions,

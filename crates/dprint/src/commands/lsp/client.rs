@@ -35,14 +35,15 @@ use super::workspace::messages::ConfigChangedParams;
 /// client is asked to watch (see `ClientWrapper::register_watched_files`).
 const WATCHED_FILES_REGISTRATION_ID: &str = "dprint-watched-files";
 const DID_CHANGE_WATCHED_FILES_METHOD: &str = "workspace/didChangeWatchedFiles";
-/// Has the capabilities be replaced in the order they're replaced in.
+/// Has the capabilities be replaced one at a time in the order they're
+/// requested (see `ClientTrait::replace_capability`).
 static REPLACE_CAPABILITY_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   fn log(&self, message_type: MessageType, message: String);
   fn register_capabilities(&self, registrations: Vec<Registration>);
-  /// Unregisters the capability with the id of the registration, which is
-  /// then registered again when it's provided.
+  /// Unregisters the capability, then registers the registration in its
+  /// place when it's provided.
   fn replace_capability(&self, unregistration: Unregistration, registration: Option<Registration>);
   fn show_message(&self, message_type: MessageType, message: String);
   /// Shows a message with actions, resolving to the one the user selected.

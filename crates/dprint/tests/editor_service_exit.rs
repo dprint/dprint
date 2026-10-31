@@ -1,6 +1,6 @@
-// runs the built dprint binary as an editor service over pipes and ensures
+// Runs the built dprint binary as an editor service over pipes and ensures
 // the process exits after the close message while the editor keeps stdin
-// open. this can't be a unit test because it's about the process exiting.
+// open. This can't be a unit test because it's about the process exiting.
 #![allow(clippy::disallowed_methods)] // standalone test binary; no Environment available
 
 use std::io::Read;

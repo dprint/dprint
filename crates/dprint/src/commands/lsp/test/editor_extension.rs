@@ -302,8 +302,8 @@ struct JsonRpcConnection {
 
 impl JsonRpcConnection {
   /// Sends the request and gets its response, which ignores the messages the
-  /// server sends before it (ex. what's logged). A request without params has
-  /// `null` for them.
+  /// server sends before it (ex. what's logged). `null` params are left out of
+  /// the request.
   async fn request(&mut self, id: u32, method: &str, params: serde_json::Value) -> serde_json::Value {
     self.send(json!({ "jsonrpc": "2.0", "id": id, "method": method }), params).await;
     loop {
@@ -509,7 +509,7 @@ fn should_use_the_global_config_file_when_asked() {
         .unwrap();
       assert_eq!(info.status, FormatStatus::ready());
       assert_eq!(info.config_file.unwrap().kind, ConfigFileKind::Global);
-      // the setting
+      // or with the setting
       client
         .backend
         .did_change_configuration(DidChangeConfigurationParams {
@@ -2532,8 +2532,8 @@ fn should_not_tell_about_the_global_config_file_through_an_alias_that_points_els
         let diagnostics = client.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
         assert_eq!(diagnostics.last().unwrap().0, uri("/home/u/.config/dprint/dprint.json"));
         client.take_config_changes();
-        // a `dprint.jsonc` is the global config file's name that's looked for first now, and the alias points
-        // somewhere else
+        // a `dprint.jsonc` is created, which is the global config file's name that's looked for first, and the
+        // alias points somewhere else
         environment.write_file("/var/home/u/.config/dprint/dprint.jsonc", "{}").unwrap();
         environment.remove_canonical_path("/home");
         environment.add_canonical_path("/home", "/elsewhere");
@@ -3914,7 +3914,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(data["current"]["status"], json!({ "kind": "ready" }));
         assert_eq!(data["current"]["configFile"]["uri"], json!(uri("/dprint.json").as_str()));
 
-        // an approval that isn't pending anymore says what's needed changed
+        // and so does an id the server doesn't know
         let err = client
           .backend
           .dprint_approve(
@@ -4633,7 +4633,7 @@ fn should_change_the_id_of_a_process_plugin_that_is_not_set_up_when_the_configur
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
         // it isn't set up, so what it runs with isn't known yet
         assert_eq!(approval.items[0].configuration, None);
-        // so what it runs with is the trusted configuration of the config file
+        // so the trusted configuration of the config file, which it would run with, is provided instead
         assert_eq!(
           approval.trusted_configuration.as_ref().unwrap()["testProcessPlugin"],
           json!({ "ending": "first" })
@@ -5282,7 +5282,7 @@ fn should_only_use_always_decisions_for_the_session_with_the_approvals_of_a_newe
             CancellationToken::new(),
           )
         };
-        // it's stored once it's set up, which approving it does
+        // it's only kept for the session, which is said once it's set up, which approving it does
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
         let result = approve(approval.id.clone(), ApprovalDecision::AlwaysAllow).await.unwrap();
         assert_eq!(result.config_approvals.status, FormatStatus::ready());
@@ -5290,7 +5290,7 @@ fn should_only_use_always_decisions_for_the_session_with_the_approvals_of_a_newe
         // it's used for the session
         assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
 
-        // a decision for process plugins that are set up isn't stored right away
+        // a decision for process plugins that are already set up says it right away
         let config_text = environment.read_file("/dprint.json").unwrap();
         environment
           .write_file(
@@ -6472,7 +6472,6 @@ impl Client {
     Vec::new()
   }
 
-  /// Waits for diagnostics to be published.
   async fn wait_for_published_diagnostics(&self) -> Vec<(Uri, Vec<Diagnostic>)> {
     for _ in 0..200 {
       let diagnostics = self.test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();

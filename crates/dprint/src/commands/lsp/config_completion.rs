@@ -209,8 +209,8 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
 }
 
 /// Builds the JSON schema of config files with the config schemas of their
-/// plugins, which an editor validates config files with (ex. for the editor
-/// service's `ConfigSchema` message).
+/// plugins, which an editor validates config files with (ex. for
+/// `dprint/configSchema`).
 pub struct ConfigJsonSchemaBuilder<TEnvironment: Environment> {
   base_schema: Value,
   plugin_schemas: PluginSchemas<TEnvironment>,

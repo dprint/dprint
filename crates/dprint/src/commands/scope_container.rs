@@ -41,10 +41,9 @@ struct CachedScope<TEnvironment: Environment> {
   permissions: Permissions,
 }
 
-/// Resolves and caches the plugins of each config file for the editors, which
-/// format the files of a whole workspace and so find the config file of each
-/// file (the language server and the editor service starting with schema
-/// version 6).
+/// Resolves and caches the plugins of each config file for the language
+/// server, which formats the files of a whole workspace and so finds the
+/// config file of each file.
 pub struct PluginsScopeContainer<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,

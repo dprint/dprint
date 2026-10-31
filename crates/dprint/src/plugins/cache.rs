@@ -250,8 +250,8 @@ where
     !source_reference.is_downloaded() || self.get_set_up_plugin_info(source_reference).is_some()
   }
 
-  /// Gets the information of the plugin when it's set up in the cache, which
-  /// doesn't set it up (ex. a process plugin is run to get its information).
+  /// Gets the information of the plugin when it's set up in the cache without
+  /// setting it up (which runs a process plugin to get its information).
   pub fn get_set_up_plugin_info(&self, source_reference: &PluginSourceReference) -> Option<PluginInfo> {
     let path_source = self.cache_source_for_forget(&source_reference.path_source)?;
     let cache_key = self.compute_cache_key(&path_source).ok()?;

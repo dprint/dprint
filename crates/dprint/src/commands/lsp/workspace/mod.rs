@@ -416,7 +416,7 @@ pub struct Workspace<TEnvironment: Environment> {
   /// canonical one, which are the paths the server provides.
   editor_paths: EditorPaths,
   /// The canonical directories of `editor_paths` whose alias was checked for
-  /// the request being handled (see `editor_path`).
+  /// the task being handled (see `editor_path`).
   checked_editor_dirs: RefCell<HashSet<PathBuf>>,
   /// The ids of the approvals that a language client's user was asked about
   /// this session.
@@ -1880,9 +1880,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// The identifier is what the editor sent for it (see `is_denial_for`).
   fn get_decisions(&self, config_file: Option<&(String, String)>, identifier: Option<&(Uri, Option<Uri>)>, global_config_path: Option<&Path>) -> Vec<Decision> {
     let is_config_file = |source: &str| self.is_decisions_config_file(source, config_file, identifier, global_config_path);
-    // the stored decisions are read even when the settings allow every process plugin
-    // the denials of a file that can't be read are still used, so they're provided too, and
-    // only they're used when the settings aren't (see `SessionPermissions::read`)
+    // The stored decisions are read even when the settings allow every process plugin. The denials of a file that
+    // can't be read are still used, so they're provided too, and only they're used when the settings aren't (see
+    // `SessionPermissions::read`).
     let stored = match read_ignored_settings_message(&self.environment) {
       Some(_) => read_editor_approval_denials(&self.environment),
       None => read_editor_approvals(&self.environment)
@@ -2639,14 +2639,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// Gets the failure of a config file that was found on another machine,
   /// which is used once the user allows reading it.
   fn new_config_file_on_another_machine_failure(&self, err: &ConfigFileOnAnotherMachineError) -> ConfigFailure {
-    // what it formats changed when it was resolved before (ex. a `git pull` replaced it with a symlink to a
-    // share), which the editor is told like when it fails to resolve, and it's forgotten so that it isn't
-    // resolved again before reading it is allowed (see `resolve_used_configs_again`)
     // it's known by the path that identifies it, which is only canonicalized once reading it is allowed
     let file_path = self.canonicalize_config_file_path(err.config_path.clone());
     // IMPORTANT: The editor doesn't open its path from the problems that were published for it then, which would
     // read it from the other machine (ex. a `git pull` replaced it with a symlink to a share).
     self.clear_config_diagnostics(&file_path);
+    // what it formats changed when it was resolved before (ex. a `git pull` replaced it with a symlink to a
+    // share), which the editor is told like when it fails to resolve, and it's forgotten so that it isn't
+    // resolved again before reading it is allowed (see `resolve_used_configs_again`)
     if self.was_resolved(&file_path) {
       self.forget_config_file(&file_path);
       self.send_file_config_changed(&file_path, ConfigChange::Changed);
@@ -3123,7 +3123,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if let Some(dependencies) = dependencies {
       return self.get_dependencies_watch_uris(&dependencies);
     }
-    // reading the link doesn't follow it, and its directory was checked when it was looked up
+    // reading the link doesn't follow it, so it's only read when its directory may be
     let Some(dir_path) = file_path.parent().filter(|dir_path| self.allows_reading_path(dir_path)) else {
       return Vec::new();
     };
@@ -3338,7 +3338,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
       };
       let Some(config_file) = config_file else {
-        // the editor isn't told when the global config file is deleted
+        // the editor doesn't watch the global config file, so it's told here when that's deleted
         if previous.is_global_config
           && let Some(file_path) = previous.file_path()
         {
@@ -3480,8 +3480,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.denied_downloads_changed();
   }
 
-  /// Forgets a config file that was deleted by the path that identifies it,
-  /// which isn't resolved again.
+  /// Forgets a config file by the path that identifies it (ex. it was deleted
+  /// or is on another machine now), which isn't resolved again.
   fn forget_config_file(&self, file_path: &Path) {
     let is_config_file = |key: &String| is_config_file_key(key, file_path);
     // a task that resolved it before doesn't publish its problems (see `check_config_diagnostics`)
@@ -4667,11 +4667,9 @@ fn get_download_group_title(downloads: &[String]) -> &'static str {
 }
 
 /// Gets the items of what to download (see `UntrustedDownloadError`), which
-/// are of the kind except for the proxies of `.npmrc` files, whose files are
-/// the editor's paths, and the paths on another machine, whose paths in the
-/// project are the editor's paths.
-/// Gets the items of the downloads, with the editor's path of each local file
-/// (see `Workspace::editor_path`).
+/// are of the kind except for the proxies of `.npmrc` files and the paths on
+/// another machine, with the editor's path of each local file (see
+/// `Workspace::editor_path`).
 fn get_download_items(downloads: &[String], kind: ApprovalItemKind, editor_path: &impl Fn(&Path) -> PathBuf) -> Vec<ApprovalItem> {
   downloads
     .iter()
@@ -4765,7 +4763,6 @@ fn encode_id_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
 /// were set up before (ex. a plugin that another project set up).
 fn get_process_plugins_approval_id(config_key: &str, unapproved: &UnapprovedProcessPlugins) -> String {
   let is_set_up = unapproved.plugins.iter().all(|plugin| plugin.approval.is_some());
-  // the registry an npm plugin is from when it isn't the default one is part of what's approved too
   let mut parts = unapproved
     .plugins
     .iter()
@@ -4862,7 +4859,6 @@ impl<'a> ConfigFileRef<'a> {
   fn dir_path(&self, environment: &impl Environment) -> Option<PathBuf> {
     match self.file_path {
       Some(path) if !self.is_global => Some(get_config_file_dir(environment, path)?.to_path_buf()),
-      // the global config file is used for the directory it's resolved for (ex. a drive root)
       _ => Some(self.base_path.to_path_buf()),
     }
   }

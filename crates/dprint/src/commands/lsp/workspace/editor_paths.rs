@@ -10,7 +10,8 @@ use std::path::PathBuf;
 /// provided by the most recent one, which is the only one a change of a config
 /// file in it is told by. The ones it replaced are only kept to tell about
 /// the config files the editor knew through them once they lead elsewhere,
-/// and to provide one of them again when the most recent one does first.
+/// and to provide one of them again when the most recent one leads elsewhere
+/// first.
 #[derive(Debug, Default)]
 pub struct EditorPaths {
   /// The canonical path of each directory with the editor's path of it, which

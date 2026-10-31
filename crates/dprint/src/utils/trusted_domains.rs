@@ -1129,8 +1129,8 @@ impl PathWalk {
         if let OwnedComponent::Parent = component {
           let parent = self.resolved.parent().map(|parent| (parent.to_path_buf(), self.get_location(parent, rules).0));
           match parent {
-            // IMPORTANT: The system doesn't apply the `..` of a verbatim path (ex.
-            // `\\?\UNC\server\share\..`), so where one that would leave its root is read from isn't known.
+            // IMPORTANT: The system doesn't apply the `..` of a verbatim path (ex. `\\?\UNC\server\share\..`), so
+            // where one that would leave its root is read from isn't known.
             None if is_verbatim(&self.resolved) => {
               push_parent_dir(&mut self.resolved);
               self.set_location(PathLocation::LeftShare, None);
@@ -1164,8 +1164,8 @@ impl PathWalk {
       OwnedComponent::Parent => {
         // the parent of the root is the root
         if !self.resolved.pop() && is_verbatim(&self.resolved) {
-          // IMPORTANT: The system doesn't apply the `..` of a verbatim path (ex.
-          // `\\?\Volume{...}\..\UNC\server\share`), so where one that would leave its root is read from isn't known.
+          // IMPORTANT: The system doesn't apply the `..` of a verbatim path (ex. `\\?\Volume{...}\..\UNC\server\share`),
+          // so where one that would leave its root is read from isn't known.
           push_parent_dir(&mut self.resolved);
           self.set_location(PathLocation::Unresolved, None);
           return;
@@ -1843,7 +1843,7 @@ mod test {
       get_npm_registry_download(&url("https://corp.example.com/npm/repo")),
     ]);
     assert!(policy.allows(&url("https://example.com/plugin.wasm")));
-    // not what redirects to
+    // not what it redirects to
     assert!(!policy.allows(&url("https://example.com/other.wasm")));
     // a url ending with a slash only allows itself (ex. what a config file extends)
     assert!(policy.allows(&url("https://origin.example.com/")));
@@ -2506,7 +2506,7 @@ mod test {
     for name in ["LPT", "COM10", "console", "nullable.txt", "lpt1x"] {
       assert_eq!(share(&format!("/project/{}", name)), None, "{}", name);
     }
-    // only on windows
+    // only on Windows
     assert!(resolve_network_share(&environment, Path::new("/project/LPT1"), MACOS, None).is_none());
   }
 
@@ -2839,7 +2839,7 @@ mod test {
 
   #[test]
   fn should_not_change_the_escaped_text_of_a_path_download() {
-    // IMPORTANT: It's part of the approval ids (see APPROVAL_ID_VERSION), so a change to what's
+    // IMPORTANT: It's part of the approval ids (see `APPROVAL_ID_VERSION`), so a change to what's
     // escaped (ex. updating `unicode-general-category`, which assigns code points) changes them.
     assert_eq!(
       get_path_download(Path::new("/project/a\u{378}\u{200b}`b"), Path::new("\u{301}/net/host/\u{3fffd}\u{301}")),

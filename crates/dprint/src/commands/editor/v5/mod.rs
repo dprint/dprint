@@ -332,9 +332,9 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   }
 
   /// Says in the log that dprint isn't formatting with the config file because
-  /// its process plugins weren't allowed to run, which is only done once per session for each
-  /// configuration and not when the user denied them. Schema version 5 of
-  /// the editor service can't ask the user whether to allow them.
+  /// its process plugins weren't allowed to run, which is only done once per
+  /// session for each configuration and not when the user denied them. Schema
+  /// version 5 of the editor service can't ask the user whether to allow them.
   fn warn_unapproved_process_plugins(&mut self, unapproved: &UnapprovedProcessPlugins, permissions: &Permissions) {
     if !self.warned_process_plugins.insert(unapproved.clone()) || unapproved.is_denied(permissions) {
       return;
@@ -697,7 +697,7 @@ mod test {
     assert_eq!(stdout_messages.len(), 1);
     // the wasm plugin isn't used either so that it doesn't format differently than the cli
     assert!(stdout_messages[0].contains(r#""plugins":[]"#), "{stdout_messages:?}");
-    // the process plugin is never set up, which runs it
+    // only the warning is logged because the process plugin is never set up (setting it up runs it)
     let stderr_messages = environment.take_stderr_messages();
     assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
     assert!(

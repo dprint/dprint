@@ -175,8 +175,8 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     self.get_resolved_plugin_info(plugin_reference).is_some() || self.plugin_cache.is_installed(plugin_reference)
   }
 
-  /// Gets the information of the plugin when it's set up, which doesn't set
-  /// it up (ex. a process plugin is run to get its information).
+  /// Gets the information of the plugin when it's set up without setting it
+  /// up (which runs a process plugin to get its information).
   pub fn get_set_up_plugin_info(&self, plugin_reference: &PluginSourceReference) -> Option<PluginInfo> {
     self
       .get_resolved_plugin_info(plugin_reference)
@@ -207,7 +207,8 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     self.plugin_cache.get_npm_registry(plugin_reference)
   }
 
-  /// Gets the url the plugin is downloaded from (see `PluginCache::get_download_url`).
+  /// Gets the url the plugin is downloaded from (see
+  /// `PluginCache::get_download_url`).
   pub fn get_download_url(&self, plugin_reference: &PluginSourceReference) -> Result<Option<url::Url>, UntrustedDownloadError> {
     self.plugin_cache.get_download_url(plugin_reference)
   }

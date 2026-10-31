@@ -990,12 +990,6 @@ fn is_absolute_reference(reference: &str) -> bool {
   matches!(chars.first(), Some(c) if c.is_ascii_alphabetic()) && matches!(chars.get(1), Some(':')) && matches!(chars.get(2), Some('/' | '\\'))
 }
 
-/// Finds a .zip file in the given package directory.
-/// Returns the directory where an npm package tarball should be extracted.
-/// Namespaced by the registry so the same name@version from different registries
-/// (e.g. public npmjs.org vs a private registry) do not collide.
-///
-/// A scoped package is in a directory for its scope (ex. `@scope/name@1.0.0`).
 /// Whether the package is extracted in the npm cache, which is when it doesn't
 /// need to be downloaded.
 pub fn is_npm_package_extracted(name: &str, version: &str, registry: &NpmRegistryResolution, environment: &impl Environment) -> bool {
@@ -1003,6 +997,11 @@ pub fn is_npm_package_extracted(name: &str, version: &str, registry: &NpmRegistr
   read_npm_package_dir_checksum(&extract_dir, environment).is_some()
 }
 
+/// Returns the directory where an npm package tarball should be extracted.
+/// Namespaced by the registry so the same name@version from different registries
+/// (e.g. public npmjs.org vs a private registry) do not collide.
+///
+/// A scoped package is in a directory for its scope (ex. `@scope/name@1.0.0`).
 pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
   let mut dir = environment.get_cache_dir().join("npm").join(registry_segment);
   let (scope, name) = match package_name.split_once('/') {
