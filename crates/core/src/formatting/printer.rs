@@ -80,6 +80,9 @@ pub struct Printer<'a> {
   resolving_save_point: Option<&'a SavePoint<'a>>,
   #[cfg(feature = "tracing")]
   traces: Option<Vec<Trace>>,
+  /// Why the printer went back to an earlier point while printing the current node.
+  #[cfg(feature = "tracing")]
+  jump: Option<TraceJump>,
   #[cfg(feature = "tracing")]
   start_time: std::time::Instant,
 }
@@ -123,6 +126,8 @@ impl<'a> Printer<'a> {
       resolving_save_point: None,
       #[cfg(feature = "tracing")]
       traces: if options.enable_tracing { Some(Vec::new()) } else { None },
+      #[cfg(feature = "tracing")]
+      jump: None,
       #[cfg(feature = "tracing")]
       start_time: std::time::Instant::now(),
     }
@@ -179,7 +184,38 @@ impl<'a> Printer<'a> {
         nanos: (std::time::Instant::now() - self.start_time).as_nanos(),
         print_node_id: current_node.print_node_id,
         writer_node_id: self.writer.current_node_id(),
+        jump: self.jump.take(),
       });
+    }
+  }
+
+  /// Records why the printer is going back to an earlier point when tracing.
+  #[cfg(feature = "tracing")]
+  fn trace_jump(&mut self, get_jump: impl FnOnce(&Self) -> TraceJump) {
+    if self.traces.is_some() {
+      self.jump = Some(get_jump(self));
+    }
+  }
+
+  #[cfg(feature = "tracing")]
+  fn get_trace_info_jump(&self, info: &Info) -> TraceInfoJump {
+    let value = match info {
+      Info::LineNumber(info) => self.resolved_line_numbers.get(info.unique_id()).map(TraceInfoValue::Number),
+      Info::ColumnNumber(info) => self.resolved_column_numbers.get(info.unique_id()).map(TraceInfoValue::Number),
+      Info::IsStartOfLine(info) => self.resolved_is_start_of_lines.get(info.unique_id()).map(TraceInfoValue::Bool),
+      Info::IndentLevel(info) => self
+        .resolved_indent_levels
+        .get(info.unique_id())
+        .map(|value| TraceInfoValue::Number(value as u32)),
+      Info::LineStartColumnNumber(info) => self.resolved_line_start_column_numbers.get(info.unique_id()).map(TraceInfoValue::Number),
+      Info::LineStartIndentLevel(info) => self
+        .resolved_line_start_indent_levels
+        .get(info.unique_id())
+        .map(|value| TraceInfoValue::Number(value as u32)),
+    };
+    TraceInfoJump {
+      info: TraceInfo::from(info),
+      value: value.expect("the info was resolved before going back to the save point"),
     }
   }
 
@@ -422,6 +458,8 @@ impl<'a> Printer<'a> {
               if save_state.new_line_group_depth >= self.new_line_group_depth {
                 self.write_new_line();
               } else {
+                #[cfg(feature = "tracing")]
+                self.trace_jump(|_| TraceJump::NewLine);
                 self.update_state_to_save_point(save_state, true);
               }
             }
@@ -474,59 +512,46 @@ impl<'a> Printer<'a> {
 
   #[inline]
   fn handle_targeted_info(&mut self, info: &Info) {
-    match info {
+    let save_point = match info {
       Info::LineNumber(line_number) => {
         let line_number_id = line_number.unique_id();
         self.resolved_line_numbers.insert(line_number_id, self.writer.line_number());
-        let option_save_point = self.look_ahead_line_number_save_points.remove(&line_number_id);
-        if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
-        }
+        self.look_ahead_line_number_save_points.remove(&line_number_id)
       }
       Info::ColumnNumber(column_number) => {
         let column_number_id = column_number.unique_id();
         self.resolved_column_numbers.insert(column_number_id, self.writer.column_number());
-        let option_save_point = self.look_ahead_column_number_save_points.remove(&column_number_id);
-        if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
-        }
+        self.look_ahead_column_number_save_points.remove(&column_number_id)
       }
       Info::IsStartOfLine(is_start_of_line) => {
         let is_start_of_line_id = is_start_of_line.unique_id();
         self.resolved_is_start_of_lines.insert(is_start_of_line_id, self.writer.is_start_of_line());
-        let option_save_point = self.look_ahead_is_start_of_line_save_points.remove(&is_start_of_line_id);
-        if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
-        }
+        self.look_ahead_is_start_of_line_save_points.remove(&is_start_of_line_id)
       }
       Info::IndentLevel(indent_level) => {
         let indent_level_id = indent_level.unique_id();
         self.resolved_indent_levels.insert(indent_level_id, self.writer.indent_level());
-        let option_save_point = self.look_ahead_indent_level_save_points.remove(&indent_level_id);
-        if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
-        }
+        self.look_ahead_indent_level_save_points.remove(&indent_level_id)
       }
       Info::LineStartColumnNumber(line_start_column_number) => {
         let line_start_column_number_id = line_start_column_number.unique_id();
         self
           .resolved_line_start_column_numbers
           .insert(line_start_column_number_id, self.writer.line_start_column_number());
-        let option_save_point = self.look_ahead_line_start_column_number_save_points.remove(&line_start_column_number_id);
-        if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
-        }
+        self.look_ahead_line_start_column_number_save_points.remove(&line_start_column_number_id)
       }
       Info::LineStartIndentLevel(line_start_indent_level) => {
         let line_start_indent_level_id = line_start_indent_level.unique_id();
         self
           .resolved_line_start_indent_levels
           .insert(line_start_indent_level_id, self.writer.line_start_indent_level());
-        let option_save_point = self.look_ahead_line_start_indent_level_save_points.remove(&line_start_indent_level_id);
-        if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
-        }
+        self.look_ahead_line_start_indent_level_save_points.remove(&line_start_indent_level_id)
       }
+    };
+    if let Some(save_point) = save_point {
+      #[cfg(feature = "tracing")]
+      self.trace_jump(|printer| TraceJump::Info(printer.get_trace_info_jump(info)));
+      self.update_state_to_save_point(save_point, false);
     }
   }
 
@@ -552,6 +577,14 @@ impl<'a> Printer<'a> {
       if should_reevaluate {
         if let Some(latest_condition_value) = latest_condition_value {
           if latest_condition_value != past_condition_value {
+            #[cfg(feature = "tracing")]
+            self.trace_jump(|_| {
+              TraceJump::ConditionReevaluation(TraceConditionJump {
+                condition_id,
+                name: condition.name().to_string(),
+                value: Some(latest_condition_value),
+              })
+            });
             self.update_state_to_save_point(save_point, false);
           }
         } else {
@@ -578,6 +611,14 @@ impl<'a> Printer<'a> {
     let save_point = self.look_ahead_condition_save_points.get(&condition_id);
     if condition_value.is_some() && save_point.is_some() {
       let save_point = self.look_ahead_condition_save_points.remove(&condition_id);
+      #[cfg(feature = "tracing")]
+      self.trace_jump(|_| {
+        TraceJump::Condition(TraceConditionJump {
+          condition_id,
+          name: condition.name().to_string(),
+          value: condition_value,
+        })
+      });
       self.update_state_to_save_point(save_point.unwrap(), false);
       return;
     }
@@ -615,6 +656,8 @@ impl<'a> Printer<'a> {
 
     if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) && self.allow_new_lines() {
       let save_point = self.possible_new_line_save_point.take();
+      #[cfg(feature = "tracing")]
+      self.trace_jump(|_| TraceJump::NewLine);
       self.update_state_to_save_point(save_point.unwrap(), true);
     } else {
       self.writer.write(text);

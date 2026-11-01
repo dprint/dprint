@@ -52,6 +52,11 @@ body {
   padding-right: 3px;
 }
 
+#info-area button,
+#info-area span {
+  margin-right: 6px;
+}
+
 #slider {
   flex-shrink: 0;
   display: flex;
