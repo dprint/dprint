@@ -19,13 +19,7 @@ pub struct SavePoint<'a> {
   pub writer_state: WriterState<'a>,
   pub possible_new_line_save_point: Option<&'a SavePoint<'a>>,
   pub node: Option<PrintItemPath<'a>>,
-  pub look_ahead_condition_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  pub look_ahead_line_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  pub look_ahead_column_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  pub look_ahead_is_start_of_line_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  pub look_ahead_indent_level_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  pub look_ahead_line_start_column_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  pub look_ahead_line_start_indent_level_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  pub look_ahead_save_points: LookAheadSavePoints<'a>,
   pub next_node_stack: NodeStack<'a>,
 }
 
@@ -65,13 +59,7 @@ pub struct Printer<'a> {
   resolved_indent_levels: VecU32U8Map,
   resolved_line_start_column_numbers: VecU32U32Map,
   resolved_line_start_indent_levels: VecU32U8Map,
-  look_ahead_condition_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  look_ahead_line_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  look_ahead_column_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  look_ahead_is_start_of_line_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  look_ahead_indent_level_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  look_ahead_line_start_column_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
-  look_ahead_line_start_indent_level_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  look_ahead_save_points: LookAheadSavePoints<'a>,
   infinite_reevaluation_protector: InfiniteReevaluationProtector,
   next_node_stack: NodeStack<'a>,
   stored_condition_save_points: BumpHashMap<'a, u32, (&'a Condition<'a>, &'a SavePoint<'a>)>,
@@ -111,13 +99,7 @@ impl<'a> Printer<'a> {
       resolved_indent_levels: VecU32U8Map::with_capacity(thread_state::next_indent_level_id()),
       resolved_line_start_column_numbers: VecU32U32Map::with_capacity(thread_state::next_line_start_column_number_id()),
       resolved_line_start_indent_levels: VecU32U8Map::with_capacity(thread_state::next_line_start_indent_level_id()),
-      look_ahead_condition_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
-      look_ahead_line_number_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
-      look_ahead_column_number_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
-      look_ahead_is_start_of_line_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
-      look_ahead_indent_level_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
-      look_ahead_line_start_column_number_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
-      look_ahead_line_start_indent_level_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
+      look_ahead_save_points: LookAheadSavePoints::default(),
       infinite_reevaluation_protector: InfiniteReevaluationProtector::with_capacity(thread_state::next_condition_reevaluation_id()),
       stored_condition_save_points: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
       next_node_stack: NodeStack::default(),
@@ -225,75 +207,57 @@ impl<'a> Printer<'a> {
   }
 
   pub fn resolved_line_number(&mut self, line_number: LineNumber) -> Option<u32> {
-    let resolved_number = self.resolved_line_numbers.get(line_number.unique_id());
-    if resolved_number.is_none() && !self.look_ahead_line_number_save_points.contains_key(&line_number.unique_id()) {
-      let save_point = self.get_save_point_for_restoring_condition(line_number.name());
-      self.look_ahead_line_number_save_points.insert(line_number.unique_id(), save_point);
+    let value = self.resolved_line_numbers.get(line_number.unique_id());
+    if value.is_none() {
+      self.add_look_ahead_save_point(LookAheadKey::LineNumber(line_number.unique_id()), line_number.name());
     }
-
-    resolved_number
+    value
   }
 
   pub fn resolved_column_number(&mut self, column_number: ColumnNumber) -> Option<u32> {
-    let resolved_number = self.resolved_column_numbers.get(column_number.unique_id());
-    if resolved_number.is_none() && !self.look_ahead_column_number_save_points.contains_key(&column_number.unique_id()) {
-      let save_point = self.get_save_point_for_restoring_condition(column_number.name());
-      self.look_ahead_column_number_save_points.insert(column_number.unique_id(), save_point);
+    let value = self.resolved_column_numbers.get(column_number.unique_id());
+    if value.is_none() {
+      self.add_look_ahead_save_point(LookAheadKey::ColumnNumber(column_number.unique_id()), column_number.name());
     }
-
-    resolved_number
+    value
   }
 
   pub fn resolved_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) -> Option<bool> {
-    let resolved_is_start_of_line = self.resolved_is_start_of_lines.get(is_start_of_line.unique_id());
-    if resolved_is_start_of_line.is_none() && !self.look_ahead_is_start_of_line_save_points.contains_key(&is_start_of_line.unique_id()) {
-      let save_point = self.get_save_point_for_restoring_condition(is_start_of_line.name());
-      self.look_ahead_is_start_of_line_save_points.insert(is_start_of_line.unique_id(), save_point);
+    let value = self.resolved_is_start_of_lines.get(is_start_of_line.unique_id());
+    if value.is_none() {
+      self.add_look_ahead_save_point(LookAheadKey::IsStartOfLine(is_start_of_line.unique_id()), is_start_of_line.name());
     }
-
-    resolved_is_start_of_line
+    value
   }
 
   pub fn resolved_indent_level(&mut self, indent_level: IndentLevel) -> Option<u8> {
-    let resolved_indent_level = self.resolved_indent_levels.get(indent_level.unique_id());
-    if resolved_indent_level.is_none() && !self.look_ahead_indent_level_save_points.contains_key(&indent_level.unique_id()) {
-      let save_point = self.get_save_point_for_restoring_condition(indent_level.name());
-      self.look_ahead_indent_level_save_points.insert(indent_level.unique_id(), save_point);
+    let value = self.resolved_indent_levels.get(indent_level.unique_id());
+    if value.is_none() {
+      self.add_look_ahead_save_point(LookAheadKey::IndentLevel(indent_level.unique_id()), indent_level.name());
     }
-
-    resolved_indent_level
+    value
   }
 
   pub fn resolved_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
-    let resolved_line_start_column_number = self.resolved_line_start_column_numbers.get(line_start_column_number.unique_id());
-    if resolved_line_start_column_number.is_none()
-      && !self
-        .look_ahead_line_start_column_number_save_points
-        .contains_key(&line_start_column_number.unique_id())
-    {
-      let save_point = self.get_save_point_for_restoring_condition(line_start_column_number.name());
-      self
-        .look_ahead_line_start_column_number_save_points
-        .insert(line_start_column_number.unique_id(), save_point);
+    let value = self.resolved_line_start_column_numbers.get(line_start_column_number.unique_id());
+    if value.is_none() {
+      self.add_look_ahead_save_point(
+        LookAheadKey::LineStartColumnNumber(line_start_column_number.unique_id()),
+        line_start_column_number.name(),
+      );
     }
-
-    resolved_line_start_column_number
+    value
   }
 
   pub fn resolved_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
-    let resolved_line_start_indent_level = self.resolved_line_start_indent_levels.get(line_start_indent_level.unique_id());
-    if resolved_line_start_indent_level.is_none()
-      && !self
-        .look_ahead_line_start_indent_level_save_points
-        .contains_key(&line_start_indent_level.unique_id())
-    {
-      let save_point = self.get_save_point_for_restoring_condition(line_start_indent_level.name());
-      self
-        .look_ahead_line_start_indent_level_save_points
-        .insert(line_start_indent_level.unique_id(), save_point);
+    let value = self.resolved_line_start_indent_levels.get(line_start_indent_level.unique_id());
+    if value.is_none() {
+      self.add_look_ahead_save_point(
+        LookAheadKey::LineStartIndentLevel(line_start_indent_level.unique_id()),
+        line_start_indent_level.name(),
+      );
     }
-
-    resolved_line_start_indent_level
+    value
   }
 
   pub fn clear_info(&mut self, info: Info) {
@@ -319,13 +283,20 @@ impl<'a> Printer<'a> {
   }
 
   pub fn resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
-    if !self.resolved_conditions.contains_key(&condition_reference.id) && !self.look_ahead_condition_save_points.contains_key(&condition_reference.id) {
-      let save_point = self.get_save_point_for_restoring_condition(condition_reference.name());
-      self.look_ahead_condition_save_points.insert(condition_reference.id, save_point);
+    if !self.resolved_conditions.contains_key(&condition_reference.id) {
+      self.add_look_ahead_save_point(LookAheadKey::Condition(condition_reference.id), condition_reference.name());
     }
 
     let result = self.resolved_conditions.get(&condition_reference.id)?;
     result.map(|x| x.to_owned())
+  }
+
+  /// Remembers to go back to the condition being resolved once what it looked ahead at is resolved.
+  fn add_look_ahead_save_point(&mut self, key: LookAheadKey, name: &'static str) {
+    if !self.look_ahead_save_points.contains(key) {
+      let save_point = self.get_save_point_for_restoring_condition(name);
+      self.look_ahead_save_points.insert(key, save_point, self.arena);
+    }
   }
 
   pub fn is_forcing_no_newlines(&self) -> bool {
@@ -359,13 +330,7 @@ impl<'a> Printer<'a> {
       force_no_newlines_depth: self.force_no_newlines_depth,
       node: next_node,
       writer_state: self.writer.state(),
-      look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
-      look_ahead_line_number_save_points: self.look_ahead_line_number_save_points.clone(),
-      look_ahead_column_number_save_points: self.look_ahead_column_number_save_points.clone(),
-      look_ahead_is_start_of_line_save_points: self.look_ahead_is_start_of_line_save_points.clone(),
-      look_ahead_indent_level_save_points: self.look_ahead_indent_level_save_points.clone(),
-      look_ahead_line_start_column_number_save_points: self.look_ahead_line_start_column_number_save_points.clone(),
-      look_ahead_line_start_indent_level_save_points: self.look_ahead_line_start_indent_level_save_points.clone(),
+      look_ahead_save_points: self.look_ahead_save_points,
       next_node_stack: self.next_node_stack.clone(),
     })
   }
@@ -401,25 +366,7 @@ impl<'a> Printer<'a> {
     self.current_node = save_point.node;
     self.new_line_group_depth = save_point.new_line_group_depth;
     self.force_no_newlines_depth = save_point.force_no_newlines_depth;
-    self.look_ahead_condition_save_points.clone_from(&save_point.look_ahead_condition_save_points);
-    self
-      .look_ahead_line_number_save_points
-      .clone_from(&save_point.look_ahead_line_number_save_points);
-    self
-      .look_ahead_column_number_save_points
-      .clone_from(&save_point.look_ahead_column_number_save_points);
-    self
-      .look_ahead_is_start_of_line_save_points
-      .clone_from(&save_point.look_ahead_is_start_of_line_save_points);
-    self
-      .look_ahead_indent_level_save_points
-      .clone_from(&save_point.look_ahead_indent_level_save_points);
-    self
-      .look_ahead_line_start_column_number_save_points
-      .clone_from(&save_point.look_ahead_line_start_column_number_save_points);
-    self
-      .look_ahead_line_start_indent_level_save_points
-      .clone_from(&save_point.look_ahead_line_start_indent_level_save_points);
+    self.look_ahead_save_points = save_point.look_ahead_save_points;
     self.next_node_stack = save_point.next_node_stack.clone();
 
     if is_for_new_line {
@@ -516,36 +463,40 @@ impl<'a> Printer<'a> {
       Info::LineNumber(line_number) => {
         let line_number_id = line_number.unique_id();
         self.resolved_line_numbers.insert(line_number_id, self.writer.line_number());
-        self.look_ahead_line_number_save_points.remove(&line_number_id)
+        self.look_ahead_save_points.remove(LookAheadKey::LineNumber(line_number_id), self.arena)
       }
       Info::ColumnNumber(column_number) => {
         let column_number_id = column_number.unique_id();
         self.resolved_column_numbers.insert(column_number_id, self.writer.column_number());
-        self.look_ahead_column_number_save_points.remove(&column_number_id)
+        self.look_ahead_save_points.remove(LookAheadKey::ColumnNumber(column_number_id), self.arena)
       }
       Info::IsStartOfLine(is_start_of_line) => {
         let is_start_of_line_id = is_start_of_line.unique_id();
         self.resolved_is_start_of_lines.insert(is_start_of_line_id, self.writer.is_start_of_line());
-        self.look_ahead_is_start_of_line_save_points.remove(&is_start_of_line_id)
+        self.look_ahead_save_points.remove(LookAheadKey::IsStartOfLine(is_start_of_line_id), self.arena)
       }
       Info::IndentLevel(indent_level) => {
         let indent_level_id = indent_level.unique_id();
         self.resolved_indent_levels.insert(indent_level_id, self.writer.indent_level());
-        self.look_ahead_indent_level_save_points.remove(&indent_level_id)
+        self.look_ahead_save_points.remove(LookAheadKey::IndentLevel(indent_level_id), self.arena)
       }
       Info::LineStartColumnNumber(line_start_column_number) => {
         let line_start_column_number_id = line_start_column_number.unique_id();
         self
           .resolved_line_start_column_numbers
           .insert(line_start_column_number_id, self.writer.line_start_column_number());
-        self.look_ahead_line_start_column_number_save_points.remove(&line_start_column_number_id)
+        self
+          .look_ahead_save_points
+          .remove(LookAheadKey::LineStartColumnNumber(line_start_column_number_id), self.arena)
       }
       Info::LineStartIndentLevel(line_start_indent_level) => {
         let line_start_indent_level_id = line_start_indent_level.unique_id();
         self
           .resolved_line_start_indent_levels
           .insert(line_start_indent_level_id, self.writer.line_start_indent_level());
-        self.look_ahead_line_start_indent_level_save_points.remove(&line_start_indent_level_id)
+        self
+          .look_ahead_save_points
+          .remove(LookAheadKey::LineStartIndentLevel(line_start_indent_level_id), self.arena)
       }
     };
     if let Some(save_point) = save_point {
@@ -608,9 +559,9 @@ impl<'a> Printer<'a> {
       self.resolved_conditions.insert(condition_id, condition_value);
     }
 
-    let save_point = self.look_ahead_condition_save_points.get(&condition_id);
-    if condition_value.is_some() && save_point.is_some() {
-      let save_point = self.look_ahead_condition_save_points.remove(&condition_id);
+    if condition_value.is_some()
+      && let Some(save_point) = self.look_ahead_save_points.remove(LookAheadKey::Condition(condition_id), self.arena)
+    {
       #[cfg(feature = "tracing")]
       self.trace_jump(|_| {
         TraceJump::Condition(TraceConditionJump {
@@ -619,7 +570,7 @@ impl<'a> Printer<'a> {
           value: condition_value,
         })
       });
-      self.update_state_to_save_point(save_point.unwrap(), false);
+      self.update_state_to_save_point(save_point, false);
       return;
     }
 
@@ -693,17 +644,7 @@ impl<'a> Printer<'a> {
     // never added to the print items. In this scenario, the look ahead hash maps will
     // be cloned when creating a save point and contain items that don't need to exist
     // in them thus having an unnecessary performance impact.
-    let save_point = self
-      .look_ahead_condition_save_points
-      .values()
-      .next()
-      .or_else(|| self.look_ahead_line_number_save_points.values().next())
-      .or_else(|| self.look_ahead_column_number_save_points.values().next())
-      .or_else(|| self.look_ahead_is_start_of_line_save_points.values().next())
-      .or_else(|| self.look_ahead_indent_level_save_points.values().next())
-      .or_else(|| self.look_ahead_line_start_column_number_save_points.values().next())
-      .or_else(|| self.look_ahead_line_start_indent_level_save_points.values().next());
-    if let Some(save_point) = save_point {
+    if let Some(save_point) = self.look_ahead_save_points.save_points().next() {
       self.panic_for_save_point_existing(save_point)
     }
   }
