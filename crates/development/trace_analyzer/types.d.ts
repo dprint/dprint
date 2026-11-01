@@ -22,6 +22,42 @@ export interface Trace {
   nanos: number;
   printNodeId: number;
   writerNodeId: number | undefined;
+  /** Why printing the node made the printer go back to an earlier point. It continues from the next trace's print node. */
+  jump: Jump | undefined;
+}
+
+export type Jump = NewLineJump | InfoJump | ConditionJump | ConditionReevaluationJump;
+
+/** The line was too long, so the printer went back to the last possible newline to write a newline there. */
+export interface NewLineJump {
+  kind: "newLine";
+}
+
+/** An info was printed after a condition used it before it was resolved. */
+export interface InfoJump {
+  kind: "info";
+  content: {
+    info: Info;
+    value: number | boolean;
+  };
+}
+
+/** A condition was printed after another condition used its value before it was resolved. */
+export interface ConditionJump {
+  kind: "condition";
+  content: ConditionJumpContent;
+}
+
+/** A condition was re-evaluated and its value changed. */
+export interface ConditionReevaluationJump {
+  kind: "conditionReevaluation";
+  content: ConditionJumpContent;
+}
+
+export interface ConditionJumpContent {
+  conditionId: number;
+  name: string;
+  value: boolean | undefined;
 }
 
 export interface WriterNode {

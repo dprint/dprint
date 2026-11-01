@@ -313,6 +313,55 @@ pub struct Trace {
   pub print_node_id: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub writer_node_id: Option<u32>,
+  /// Why printing the node made the printer go back to an earlier point, if it did.
+  ///
+  /// The printer continues from the print node of the next trace.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub jump: Option<TraceJump>,
+}
+
+/// Why the printer went back to an earlier point.
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", content = "content", rename_all = "camelCase")]
+pub enum TraceJump {
+  /// The line was too long, so the printer went back to the last
+  /// possible newline to write a newline there.
+  NewLine,
+  /// An info was printed after a condition used it before it was resolved.
+  Info(TraceInfoJump),
+  /// A condition was printed after another condition used its value
+  /// before it was resolved.
+  Condition(TraceConditionJump),
+  /// A condition was re-evaluated and its value changed.
+  ConditionReevaluation(TraceConditionJump),
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceInfoJump {
+  pub info: TraceInfo,
+  /// The value the info resolved to.
+  pub value: TraceInfoValue,
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+pub enum TraceInfoValue {
+  Number(u32),
+  Bool(bool),
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceConditionJump {
+  pub condition_id: u32,
+  pub name: String,
+  /// The value the condition resolved to.
+  pub value: Option<bool>,
 }
 
 #[cfg(feature = "tracing")]

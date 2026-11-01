@@ -21,17 +21,7 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
     // get the trace print item
     let trace_print_item = match node.get_item() {
       PrintItem::String(text) => TracePrintItem::String(text.text.to_string()),
-      PrintItem::Info(info) => TracePrintItem::Info(match info {
-        Info::LineNumber(info) => TraceInfo::LineNumber(TraceInfoInner::new(info.unique_id(), info.name())),
-        Info::ColumnNumber(info) => TraceInfo::ColumnNumber(TraceInfoInner::new(info.unique_id(), info.name())),
-        Info::IsStartOfLine(info) => TraceInfo::IsStartOfLine(TraceInfoInner {
-          info_id: info.unique_id(),
-          name: info.name().to_string(),
-        }),
-        Info::IndentLevel(info) => TraceInfo::IndentLevel(TraceInfoInner::new(info.unique_id(), info.name())),
-        Info::LineStartColumnNumber(info) => TraceInfo::LineStartColumnNumber(TraceInfoInner::new(info.unique_id(), info.name())),
-        Info::LineStartIndentLevel(info) => TraceInfo::LineStartIndentLevel(TraceInfoInner::new(info.unique_id(), info.name())),
-      }),
+      PrintItem::Info(info) => TracePrintItem::Info(TraceInfo::from(&info)),
       PrintItem::Condition(condition) => {
         if let Some(true_path) = condition.true_path() {
           path_stack.push(true_path);
@@ -78,4 +68,17 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
   }
 
   print_nodes
+}
+
+impl From<&Info> for TraceInfo {
+  fn from(info: &Info) -> Self {
+    match info {
+      Info::LineNumber(info) => TraceInfo::LineNumber(TraceInfoInner::new(info.unique_id(), info.name())),
+      Info::ColumnNumber(info) => TraceInfo::ColumnNumber(TraceInfoInner::new(info.unique_id(), info.name())),
+      Info::IsStartOfLine(info) => TraceInfo::IsStartOfLine(TraceInfoInner::new(info.unique_id(), info.name())),
+      Info::IndentLevel(info) => TraceInfo::IndentLevel(TraceInfoInner::new(info.unique_id(), info.name())),
+      Info::LineStartColumnNumber(info) => TraceInfo::LineStartColumnNumber(TraceInfoInner::new(info.unique_id(), info.name())),
+      Info::LineStartIndentLevel(info) => TraceInfo::LineStartIndentLevel(TraceInfoInner::new(info.unique_id(), info.name())),
+    }
+  }
 }
