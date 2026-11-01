@@ -9,6 +9,7 @@ use super::SavePoint;
 use super::StringContainer;
 use super::WriteItem;
 use super::collections::GraphNode;
+use super::collections::LookAheadSavePointsNode;
 use super::collections::NodeStackNode;
 use super::thread_state;
 use super::thread_state::Counts;
@@ -141,6 +142,10 @@ impl Arena {
 
   pub(super) fn alloc_save_point<'a>(&'a self, save_point: SavePoint<'a>) -> &'a SavePoint<'a> {
     self.bump.alloc(save_point)
+  }
+
+  pub(super) fn alloc_look_ahead_save_points_node<'a>(&'a self, node: LookAheadSavePointsNode<'a>) -> &'a LookAheadSavePointsNode<'a> {
+    self.bump.alloc(node)
   }
 }
 
