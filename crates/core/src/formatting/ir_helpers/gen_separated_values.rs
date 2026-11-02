@@ -536,6 +536,10 @@ fn get_is_multi_line_for_multi_line<'a>(
     "isMultiLineForMultiLine",
     ConditionProperties {
       condition: arena.alloc_resolver(move |condition_context| {
+        if condition_context.is_measuring_on_one_line() {
+          // it's measured on one line, which line numbers from where it was printed before could contradict
+          return Some(false);
+        }
         let result = evaluate(start_ln, value_datas, &is_start_standalone_line_ref, end_ln, condition_context);
         // If the last result was ever true and this result is `Some(false)`,
         // that means something trailing on the last line is causing it the

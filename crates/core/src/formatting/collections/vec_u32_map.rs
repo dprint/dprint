@@ -91,8 +91,10 @@ impl VecU32BoolMap {
     let byte_index = key as usize / 4;
     if byte_index < self.0.len() {
       let option_bit_index = key % 4;
+      let value_bit_index = option_bit_index + 4;
       let byte = self.0[byte_index];
-      let byte = byte & !(1 << option_bit_index); // set off
+      // set off, and clear the value so maps with the same values are equal
+      let byte = byte & !(1 << option_bit_index) & !(1 << value_bit_index);
       self.0[byte_index] = byte;
     }
   }

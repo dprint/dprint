@@ -1155,6 +1155,12 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
     self.printer.is_measuring()
   }
 
+  /// Gets if the printer is measuring the print items that it measures on one line, where
+  /// something on multiple lines means they don't fit.
+  pub fn is_measuring_on_one_line(&self) -> bool {
+    self.printer.is_measuring_on_one_line()
+  }
+
   /// Gets if the line could break before this position.
   pub fn can_break_earlier_on_line(&self) -> bool {
     self.printer.can_break_earlier_on_line()

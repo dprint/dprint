@@ -335,9 +335,18 @@ impl<'a> Printer<'a> {
     self.measurement.is_some()
   }
 
+  /// Gets if the printer is measuring the print items that it measures on one line.
+  pub fn is_measuring_on_one_line(&self) -> bool {
+    self.measurement.as_ref().is_some_and(|measurement| !measurement.is_past_end)
+  }
+
   /// Gets if the line could break before the current position.
   pub fn can_break_earlier_on_line(&self) -> bool {
-    self.possible_new_line_save_point.is_some()
+    match self.resolving_save_point {
+      // re-evaluating at the condition's position
+      Some(save_point) => save_point.possible_new_line_save_point.is_some(),
+      None => self.possible_new_line_save_point.is_some(),
+    }
   }
 
   fn start_measurement(&mut self, request: MeasurementRequest, name: &'static str) {

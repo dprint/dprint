@@ -4,6 +4,10 @@ use super::LineNumber;
 use super::LineStartIndentLevel;
 
 pub fn is_multiple_lines(condition_context: &mut ConditionResolverContext, start_ln: LineNumber, end_ln: LineNumber) -> Option<bool> {
+  if condition_context.is_measuring_on_one_line() {
+    // it's measured on one line, which a line number from where it was printed before could contradict
+    return Some(false);
+  }
   let start_ln = condition_context.resolved_line_number(start_ln)?;
   let end_ln = condition_context.resolved_line_number(end_ln)?;
 
