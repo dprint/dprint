@@ -271,6 +271,10 @@ impl<'a> Printer<'a> {
     }
   }
 
+  pub fn max_width(&self) -> u32 {
+    self.max_width
+  }
+
   /// Gets the line number when it's resolved, without looking ahead to it when it isn't.
   pub fn peek_line_number(&self, line_number: LineNumber) -> Option<u32> {
     self.resolved_line_numbers.get(line_number.unique_id())

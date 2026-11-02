@@ -313,6 +313,7 @@ where
   ));
 
   items.push_info(end_ln);
+  items.extend(region.gen_end(arena));
   items.push_reevaluation(is_multi_line_reevaluation);
 
   return GenSeparatedValuesResult {

@@ -210,6 +210,7 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems<'_>
   let condition_reevaluation = condition.create_reevaluation();
   items.push_condition(condition);
   items.push_info(end_ln);
+  items.extend(region.gen_end(arena));
   items.push_reevaluation(condition_reevaluation);
 
   items

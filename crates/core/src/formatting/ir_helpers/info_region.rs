@@ -30,8 +30,10 @@ const MAX_CLEARS_BEFORE_ASSUMING: u32 = 8;
 /// - Otherwise, it may break differently, so the infos are cleared to be worked out again.
 ///
 /// Assuming the region fits on one line is corrected by the line breaking within it when it
-/// doesn't, but assuming it's multi-line makes the conditions using the infos keep it multi-line,
-/// so that's only assumed for regions that are worked out again so many times that it matters.
+/// doesn't, but assuming it's multi-line makes the conditions using the infos keep it multi-line.
+/// So that's only assumed for regions that are worked out again so many times that it matters,
+/// and not when its width on one line (which is remembered from when it was on one line) fits
+/// from where it starts, in which case it's assumed to fit on one line instead.
 ///
 /// Note: A region at the same column with a different indent level may break differently,
 /// but clearing in that case changes how existing code is formatted, so it isn't done.
@@ -43,6 +45,8 @@ pub struct InfoRegion<'a> {
   previous_starts: &'a RefCell<bumpalo::collections::Vec<'a, PreviousStart<'a>>>,
   /// The number of times the infos were cleared.
   clear_count: &'a Cell<u32>,
+  /// The width of the region when it was on one line, which is the same wherever it starts.
+  single_line_width: &'a Cell<Option<u32>>,
 }
 
 struct PreviousStart<'a> {
@@ -71,6 +75,7 @@ impl<'a> InfoRegion<'a> {
       last_start: arena.bump().alloc(Cell::new(None)),
       previous_starts: arena.bump().alloc(RefCell::new(bumpalo::collections::Vec::new_in(arena.bump()))),
       clear_count: arena.bump().alloc(Cell::new(0)),
+      single_line_width: arena.bump().alloc(Cell::new(None)),
     }
   }
 
@@ -88,6 +93,7 @@ impl<'a> InfoRegion<'a> {
     let last_start = self.last_start;
     let previous_starts = self.previous_starts;
     let clear_count = self.clear_count;
+    let single_line_width = self.single_line_width;
     actions::action(arena, "infoRegionStart", move |context| {
       let start = RegionStart {
         line_number: context.writer_info.line_number,
@@ -109,10 +115,22 @@ impl<'a> InfoRegion<'a> {
           let mut previous_starts = previous_starts.borrow_mut();
           remember_line_numbers(&mut previous_starts, last_start, &infos, context, arena);
           let is_repeatedly_cleared = clear_count.get() >= MAX_CLEARS_BEFORE_ASSUMING;
+          let fits_on_one_line = single_line_width.get().is_some_and(|width| start.column_number + width <= context.max_width());
           let previous = previous_starts
             .iter()
-            .find(|previous| previous.start.column_number == start.column_number && (is_repeatedly_cleared || previous.was_single_line()));
+            .find(|previous| previous.start.column_number == start.column_number)
+            .filter(|previous| previous.was_single_line() || is_repeatedly_cleared);
           match previous {
+            Some(previous) if !previous.was_single_line() && fits_on_one_line => {
+              // it was multi-line at this column, but it fits on one line, so assume that instead,
+              // which the line breaking within it corrects when what's after it doesn't fit
+              for info in infos.iter() {
+                match info {
+                  Info::LineNumber(line_number) => context.set_line_number(*line_number, start.line_number),
+                  _ => context.clear_info(*info),
+                }
+              }
+            }
             Some(previous) => {
               // assume it breaks the way it did when it started at this column before
               let delta = start.line_number as isize - previous.start.line_number as isize;
@@ -135,6 +153,19 @@ impl<'a> InfoRegion<'a> {
         }
       }
       last_start.set(Some(start));
+    })
+  }
+
+  /// Generates the items for the end of the region, which remember its width when it's on one line.
+  pub fn gen_end(&self, arena: &'a Arena) -> PrintItems<'a> {
+    let last_start = self.last_start;
+    let single_line_width = self.single_line_width;
+    actions::action(arena, "infoRegionEnd", move |context| {
+      if let Some(start) = last_start.get()
+        && context.writer_info.line_number == start.line_number
+      {
+        single_line_width.set(Some(context.writer_info.column_number - start.column_number));
+      }
     })
   }
 }
