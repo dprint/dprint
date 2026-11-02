@@ -2,6 +2,9 @@ use deno_terminal::colors;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -11,6 +14,7 @@ use crate::utils::is_terminal_interactive;
 use super::Logger;
 use super::LoggerRefreshItemKind;
 use super::LoggerTextItem;
+use super::OutputSink;
 
 // Inspired by Indicatif, but this custom implementation allows for more control over
 // what's going on under the hood and it works better with the multi-threading model
@@ -29,9 +33,20 @@ pub enum ProgressBarStyle {
 
 pub struct ProgressBar {
   id: usize,
-  logger: Arc<Logger>,
-  state: Arc<Mutex<InternalState>>,
-  pos: Arc<RwLock<usize>>,
+  inner: ProgressBarInner,
+}
+
+enum ProgressBarInner {
+  Terminal {
+    logger: Arc<Logger>,
+    state: Arc<Mutex<InternalState>>,
+    pos: Arc<RwLock<usize>>,
+  },
+  Sink {
+    sink: Arc<dyn OutputSink>,
+    total_size: usize,
+    is_finished: AtomicBool,
+  },
 }
 
 impl Drop for ProgressBar {
@@ -42,27 +57,66 @@ impl Drop for ProgressBar {
 
 impl ProgressBar {
   pub fn set_position(&self, new_pos: usize) {
-    let mut pos = self.pos.write();
-    *pos = new_pos;
+    match &self.inner {
+      ProgressBarInner::Terminal { pos, .. } => {
+        let mut pos = pos.write();
+        *pos = new_pos;
+      }
+      ProgressBarInner::Sink { sink, total_size, .. } => sink.update_progress(self.id, new_pos, *total_size),
+    }
   }
 
   pub fn finish(&self) {
-    let mut internal_state = self.state.lock();
+    match &self.inner {
+      ProgressBarInner::Terminal { logger, state, .. } => {
+        let mut internal_state = state.lock();
 
-    if let Some(index) = internal_state.progress_bars.iter().position(|p| p.id == self.id) {
-      internal_state.progress_bars.remove(index);
+        if let Some(index) = internal_state.progress_bars.iter().position(|p| p.id == self.id) {
+          internal_state.progress_bars.remove(index);
 
-      if internal_state.progress_bars.is_empty() {
-        self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars);
-        internal_state.drawer_id += 1;
+          if internal_state.progress_bars.is_empty() {
+            logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars);
+            internal_state.drawer_id += 1;
+          }
+        }
+      }
+      ProgressBarInner::Sink { sink, is_finished, .. } => {
+        if !is_finished.swap(true, Ordering::Relaxed) {
+          sink.finish_progress(self.id);
+        }
       }
     }
   }
 }
 
+/// The progress bars, which are shared by what shows progress so that they
+/// can be replaced (ex. to send the progress to an editor).
+#[derive(Clone, Default)]
+pub struct ProgressBarsCell(Arc<RwLock<Option<Arc<ProgressBars>>>>);
+
+impl ProgressBarsCell {
+  pub fn new(progress_bars: Option<Arc<ProgressBars>>) -> Self {
+    Self(Arc::new(RwLock::new(progress_bars)))
+  }
+
+  pub fn get(&self) -> Option<Arc<ProgressBars>> {
+    self.0.read().clone()
+  }
+
+  pub fn set(&self, progress_bars: Option<Arc<ProgressBars>>) {
+    *self.0.write() = progress_bars;
+  }
+}
+
 pub struct ProgressBars {
-  logger: Arc<Logger>,
-  state: Arc<Mutex<InternalState>>,
+  backend: ProgressBarsBackend,
+}
+
+enum ProgressBarsBackend {
+  /// Draws the progress bars on the terminal.
+  Terminal { logger: Arc<Logger>, state: Arc<Mutex<InternalState>> },
+  /// Sends the progress to the sink instead (ex. to an editor).
+  Sink { sink: Arc<dyn OutputSink>, next_id: AtomicUsize },
 }
 
 struct ProgressBarState {
@@ -91,20 +145,48 @@ impl ProgressBars {
   pub fn new(logger: &Arc<Logger>) -> Option<Self> {
     if ProgressBars::are_supported() {
       Some(ProgressBars {
-        logger: logger.clone(),
-        state: Arc::new(Mutex::new(InternalState {
-          drawer_id: 0,
-          progress_bar_counter: 0,
-          progress_bars: Vec::new(),
-        })),
+        backend: ProgressBarsBackend::Terminal {
+          logger: logger.clone(),
+          state: Arc::new(Mutex::new(InternalState {
+            drawer_id: 0,
+            progress_bar_counter: 0,
+            progress_bars: Vec::new(),
+          })),
+        },
       })
     } else {
       None
     }
   }
 
+  /// Creates progress bars that send the progress to the sink instead of
+  /// drawing them.
+  pub fn with_sink(sink: Arc<dyn OutputSink>) -> Self {
+    ProgressBars {
+      backend: ProgressBarsBackend::Sink {
+        sink,
+        next_id: Default::default(),
+      },
+    }
+  }
+
   pub fn add_progress(&self, message: String, style: ProgressBarStyle, total_size: usize) -> ProgressBar {
-    let mut internal_state = self.state.lock();
+    let (logger, state) = match &self.backend {
+      ProgressBarsBackend::Terminal { logger, state } => (logger, state),
+      ProgressBarsBackend::Sink { sink, next_id } => {
+        let id = next_id.fetch_add(1, Ordering::Relaxed);
+        sink.start_progress(id, &message, total_size);
+        return ProgressBar {
+          id,
+          inner: ProgressBarInner::Sink {
+            sink: sink.clone(),
+            total_size,
+            is_finished: Default::default(),
+          },
+        };
+      }
+    };
+    let mut internal_state = state.lock();
     let id = internal_state.progress_bar_counter;
     let pos = Arc::new(RwLock::new(0));
     let pb_state = ProgressBarState {
@@ -117,25 +199,27 @@ impl ProgressBars {
     };
     let pb = ProgressBar {
       id,
-      logger: self.logger.clone(),
-      state: self.state.clone(),
-      pos,
+      inner: ProgressBarInner::Terminal {
+        logger: logger.clone(),
+        state: state.clone(),
+        pos,
+      },
     };
     internal_state.progress_bars.push(pb_state);
     internal_state.progress_bar_counter += 1;
 
     if internal_state.progress_bars.len() == 1 {
-      self.start_draw_thread(&mut internal_state);
+      Self::start_draw_thread(logger, state, &mut internal_state);
     }
 
     pb
   }
 
-  fn start_draw_thread(&self, internal_state: &mut InternalState) {
+  fn start_draw_thread(logger: &Arc<Logger>, state: &Arc<Mutex<InternalState>>, internal_state: &mut InternalState) {
     internal_state.drawer_id += 1;
     let drawer_id = internal_state.drawer_id;
-    let internal_state = self.state.clone();
-    let logger = self.logger.clone();
+    let internal_state = state.clone();
+    let logger = logger.clone();
     dprint_core::async_runtime::spawn_blocking(move || {
       loop {
         {

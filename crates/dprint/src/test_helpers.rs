@@ -10,6 +10,7 @@ use thiserror::Error;
 
 use crate::AppError;
 use crate::arg_parser::parse_args;
+use crate::environment::Environment;
 use crate::environment::TestEnvironment;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
@@ -80,6 +81,15 @@ pub static PROCESS_PLUGIN_ZIP_CHECKSUM: Lazy<String> = Lazy::new(|| crate::utils
 /// path (npm-installed process plugins ship the executable inside the
 /// tarball; dprint extracts the full tarball at setup time).
 pub static PROCESS_PLUGIN_BINARY_BYTES: Lazy<Vec<u8>> = Lazy::new(|| std::fs::read(&*TEST_PROCESS_PLUGIN_PATH).unwrap());
+
+/// Has the editors run process plugins without the user approving them,
+/// which is for the tests that aren't about approving them.
+pub fn allow_process_plugins_in_editors(environment: &TestEnvironment) {
+  let file_path = crate::configuration::get_settings_file_path(environment).unwrap();
+  // macOS only uses this directory when it's already there
+  environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+  environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": true } }"#).unwrap();
+}
 
 /// Filename that a per-platform npm package would ship for the test process
 /// plugin's executable (`test-process-plugin.exe` on Windows, otherwise

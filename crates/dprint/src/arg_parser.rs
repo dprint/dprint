@@ -1251,6 +1251,8 @@ EXAMPLES:
     .subcommand(
       Command::new("lsp")
       .about("Starts up a language server for formatting files.")
+      // its config file is watched and provided by its path
+      .after_help("The --config of the language server is a local JSON configuration file (a path, a ~/ path, or a file: url), which can extend a remote one.")
     )
     .arg(
       Arg::new("config")

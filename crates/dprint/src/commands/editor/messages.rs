@@ -1,141 +1,49 @@
+//! What the messages of every schema version of the editor service share.
+
 use dprint_core::communication::Message;
 use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
-use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Result;
 use std::io::Write;
-use std::path::PathBuf;
 
-use dprint_core::plugins::FormatRange;
-
+/// A message between the editor and the editor service, where the body is one
+/// of the messages of a schema version.
 #[derive(Debug)]
-pub struct EditorMessage {
+pub struct EditorMessage<TBody: MessageBody> {
   pub id: u32,
-  pub body: EditorMessageBody,
+  pub body: TBody,
 }
 
-impl EditorMessage {
-  pub fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>) -> Result<EditorMessage> {
+impl<TBody: MessageBody> EditorMessage<TBody> {
+  pub fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>) -> Result<Self> {
     let id = reader.read_u32()?;
-    let message_kind = reader.read_u32()?;
+    let kind = reader.read_u32()?;
     let body_length = reader.read_u32()?;
-    let body = match message_kind {
-      0 => EditorMessageBody::Success(reader.read_u32()?),
-      1 => {
-        let message_id = reader.read_u32()?;
-        let data = reader.read_sized_bytes()?;
-        EditorMessageBody::Error(message_id, data)
-      }
-      2 => EditorMessageBody::Close,
-      3 => EditorMessageBody::IsAlive,
-      4 => {
-        let file_path = reader.read_sized_bytes()?;
-        EditorMessageBody::CanFormat(PathBuf::from(String::from_utf8_lossy(&file_path).to_string()))
-      }
-      5 => {
-        let message_id = reader.read_u32()?;
-        let can_format = reader.read_u32()?;
-        EditorMessageBody::CanFormatResponse(message_id, can_format)
-      }
-      6 => {
-        let file_path = reader.read_sized_bytes()?;
-        let start_byte_index = reader.read_u32()?;
-        let end_byte_index = reader.read_u32()?;
-        let override_config = reader.read_sized_bytes()?;
-        let file_text = reader.read_sized_bytes()?;
-        // clamp the range to the text because the plugins index into the text with it
-        let end_byte_index = std::cmp::min(end_byte_index as usize, file_text.len());
-        let start_byte_index = std::cmp::min(start_byte_index as usize, end_byte_index);
-        EditorMessageBody::Format(FormatEditorMessageBody {
-          file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
-          range: if start_byte_index == 0 && end_byte_index == file_text.len() {
-            None
-          } else {
-            Some(std::ops::Range {
-              start: start_byte_index,
-              end: end_byte_index,
-            })
-          },
-          file_bytes: file_text,
-          override_config,
-        })
-      }
-      7 => {
-        let message_id = reader.read_u32()?;
-        let response_kind = reader.read_u32()?;
-        let data = match response_kind {
-          0 => None,
-          1 => Some(reader.read_sized_bytes()?),
-          _ => {
-            return Err(std::io::Error::new(
-              ErrorKind::InvalidData,
-              format!("Unknown format response kind: {}", response_kind),
-            ));
-          }
-        };
-        EditorMessageBody::FormatResponse(message_id, data)
-      }
-      8 => EditorMessageBody::CancelFormat(reader.read_u32()?),
-      _ => {
-        let data = reader.read_bytes(body_length as usize)?;
-        EditorMessageBody::Unknown(message_kind, data)
-      }
-    };
+    let body = TBody::read(reader, kind, body_length)?;
     reader.read_success_bytes()?;
     Ok(EditorMessage { id, body })
   }
 }
 
-impl Message for EditorMessage {
+impl<TBody: MessageBody> Message for EditorMessage<TBody> {
   fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
-    let mut builder = MessageBuilder::new(self.id, self.body.as_u32());
-    match &self.body {
-      EditorMessageBody::Success(message_id) => {
-        builder.add_number(*message_id);
-      }
-      EditorMessageBody::Error(message_id, data) => {
-        builder.add_number(*message_id);
-        builder.add_bytes(data);
-      }
-      EditorMessageBody::Close => {}
-      EditorMessageBody::IsAlive => {}
-      EditorMessageBody::CanFormat(path_buf) => {
-        let path = path_buf.to_string_lossy().to_string();
-        builder.add_owned_bytes(path.into_bytes());
-      }
-      EditorMessageBody::CanFormatResponse(message_id, can_format) => {
-        builder.add_number(*message_id);
-        builder.add_number(*can_format);
-      }
-      EditorMessageBody::Format(body) => {
-        let path = body.file_path.to_string_lossy().to_string();
-        builder.add_owned_bytes(path.into_bytes());
-        builder.add_number(body.range.as_ref().map(|r| r.start as u32).unwrap_or(0));
-        builder.add_number(body.range.as_ref().map(|r| r.end as u32).unwrap_or_else(|| body.file_bytes.len() as u32));
-        builder.add_bytes(&body.override_config);
-        builder.add_bytes(&body.file_bytes);
-      }
-      EditorMessageBody::FormatResponse(message_id, data) => {
-        builder.add_number(*message_id);
-        match &data {
-          None => {
-            builder.add_number(0);
-          }
-          Some(data) => {
-            builder.add_number(1);
-            builder.add_bytes(data);
-          }
-        }
-      }
-      EditorMessageBody::CancelFormat(message_id) => {
-        builder.add_number(*message_id);
-      }
-      EditorMessageBody::Unknown(_, _) => unreachable!(), // should never be written
-    }
-    builder.write(writer)?;
-    Ok(())
+    let mut builder = MessageBuilder::new(self.id, self.body.kind());
+    self.body.write(&mut builder);
+    builder.write(writer)
   }
+}
+
+/// The messages of a schema version of the editor service.
+pub trait MessageBody: std::fmt::Debug + Send + Sync + Sized + 'static {
+  /// Reads the body of a message of the kind, which is `body_length` bytes.
+  fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>, kind: u32, body_length: u32) -> Result<Self>;
+  /// Adds the body to the message that's being written.
+  fn write<'a>(&'a self, builder: &mut MessageBuilder<'a>);
+  /// The kind of message, which decides what the body is.
+  fn kind(&self) -> u32;
+  /// The response to a message that couldn't be handled.
+  fn error(message_id: u32, data: Vec<u8>) -> Self;
 }
 
 enum NumberOrBytes<'a> {
@@ -144,7 +52,7 @@ enum NumberOrBytes<'a> {
   OwnedBytes(Vec<u8>),
 }
 
-struct MessageBuilder<'a> {
+pub struct MessageBuilder<'a> {
   message_id: u32,
   kind: u32,
   parts: Vec<NumberOrBytes<'a>>,
@@ -197,44 +105,4 @@ impl<'a> MessageBuilder<'a> {
       })
       .sum::<usize>() as u32
   }
-}
-
-#[derive(Debug)]
-pub enum EditorMessageBody {
-  Success(u32),
-  Error(u32, Vec<u8>),
-  Close,
-  IsAlive,
-  CanFormat(PathBuf),
-  CanFormatResponse(u32, u32),
-  Format(FormatEditorMessageBody),
-  FormatResponse(u32, Option<Vec<u8>>),
-  CancelFormat(u32),
-  #[allow(dead_code)]
-  Unknown(u32, Vec<u8>),
-}
-
-impl EditorMessageBody {
-  pub fn as_u32(&self) -> u32 {
-    match self {
-      EditorMessageBody::Success(_) => 0,
-      EditorMessageBody::Error(_, _) => 1,
-      EditorMessageBody::Close => 2,
-      EditorMessageBody::IsAlive => 3,
-      EditorMessageBody::CanFormat(_) => 4,
-      EditorMessageBody::CanFormatResponse(_, _) => 5,
-      EditorMessageBody::Format(_) => 6,
-      EditorMessageBody::FormatResponse(_, _) => 7,
-      EditorMessageBody::CancelFormat(_) => 8,
-      EditorMessageBody::Unknown(_, _) => unreachable!(),
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct FormatEditorMessageBody {
-  pub file_path: PathBuf,
-  pub range: FormatRange,
-  pub override_config: Vec<u8>,
-  pub file_bytes: Vec<u8>,
 }

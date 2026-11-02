@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::future::Future;
@@ -36,10 +37,12 @@ use sys_traits::FsMetadata;
 use sys_traits::FsMetadataValue;
 use sys_traits::FsRead;
 use sys_traits::FsReadDir;
+use sys_traits::FsReadLink;
 use sys_traits::FsRemoveDirAll;
 use sys_traits::FsRemoveFile;
 use sys_traits::FsRename;
 use sys_traits::FsSetPermissions;
+use sys_traits::FsSymlinkFile;
 use sys_traits::FsWrite;
 use sys_traits::SystemRandom;
 use sys_traits::SystemTimeNow;
@@ -54,17 +57,26 @@ use super::DirEntry;
 use super::DownloadOptions;
 use super::DownloadedFile;
 use super::Environment;
+use super::FileLock;
 use super::FilePermissions;
+use super::FilesWatcher;
 use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
+use crate::utils::DownloadPolicy;
 use crate::utils::LogLevel;
+use crate::utils::OutputSink;
+use crate::utils::ProgressBars;
+use crate::utils::ProgressBarsCell;
 use crate::utils::PromptScreen;
 use crate::utils::PromptTerminal;
 use crate::utils::ScriptedPromptTerminal;
 use crate::utils::ShowConfirmStrategy;
 use crate::utils::TerminalSize;
 use crate::utils::get_bytes_hash;
+use crate::utils::get_sink_text;
+use crate::utils::get_stderr_text;
+use crate::utils::log_action_with_progress;
 
 #[derive(Default)]
 struct BufferData {
@@ -139,6 +151,10 @@ impl Write for TestPipeWriter {
 #[derive(Clone)]
 pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
+  download_policy: Arc<Mutex<DownloadPolicy>>,
+  /// Where to log and show progress instead of stderr.
+  output_sink: Arc<Mutex<Option<Arc<dyn OutputSink>>>>,
+  progress_bars: ProgressBarsCell,
   sys: Arc<InMemorySys>,
   staged_files: Arc<Mutex<Vec<PathBuf>>>,
   dirty_files: Arc<Mutex<Vec<PathBuf>>>,
@@ -158,6 +174,24 @@ pub struct TestEnvironment {
   remote_file_request_counts: Arc<Mutex<HashMap<String, usize>>>,
   /// Number of times each file was read (whether or not it existed).
   file_read_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
+  /// Number of times each path was canonicalized, which follows its symlinks.
+  canonicalize_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
+  /// The paths that are canonicalized to another one, which is like a
+  /// symlink to a local file or directory (see `add_canonical_symlink`).
+  canonical_paths: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
+  /// Number of times each file was opened (ex. to read its shebang line).
+  file_open_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
+  /// Number of times each path was looked up following its symlinks (ex.
+  /// `path_exists` or `fs_metadata`).
+  stat_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
+  /// How many times the kind of a path was gotten (see `Environment::path_kind`).
+  path_kind_count: Arc<Mutex<usize>>,
+  /// The directories that are the roots of an automounter's file system (see
+  /// `Environment::is_automount_dir`).
+  automount_dirs: Arc<Mutex<HashSet<PathBuf>>>,
+  /// The paths where a share is mounted from another machine when they're
+  /// looked up (see `Environment::is_automount_point`).
+  automount_points: Arc<Mutex<HashSet<PathBuf>>>,
   /// URLs whose requests never get a response.
   unresponsive_remote_files: Arc<Mutex<Vec<String>>>,
   selection_result: Arc<Mutex<usize>>,
@@ -190,12 +224,25 @@ pub struct TestEnvironment {
   /// succeeding, independent of any running process. Models a flaky deletion
   /// (e.g. a file briefly locked) that succeeds on retry.
   remove_dir_all_failures: Arc<Mutex<usize>>,
+  /// The files that are watched with what's told when one changes.
+  file_watchers: Arc<Mutex<Vec<(Vec<PathBuf>, tokio::sync::mpsc::UnboundedSender<()>)>>>,
+  /// The files that are locked (see `Environment::try_lock_file`).
+  locked_files: Arc<Mutex<HashSet<PathBuf>>>,
+  /// The files that fail to be written (ex. the disk is full).
+  failing_file_writes: Arc<Mutex<HashSet<PathBuf>>>,
+  /// The files that fail to be deleted (ex. another process has them open).
+  failing_file_removes: Arc<Mutex<HashSet<PathBuf>>>,
+  /// The files that fail to be locked (ex. the file system doesn't support it).
+  failing_file_locks: Arc<Mutex<HashSet<PathBuf>>>,
 }
 
 impl TestEnvironment {
   pub fn new() -> TestEnvironment {
     let env = TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
+      download_policy: Default::default(),
+      output_sink: Default::default(),
+      progress_bars: Default::default(),
       sys: Default::default(),
       staged_files: Default::default(),
       dirty_files: Default::default(),
@@ -210,6 +257,13 @@ impl TestEnvironment {
       remote_file_proxies: Default::default(),
       remote_file_request_counts: Default::default(),
       file_read_counts: Default::default(),
+      canonicalize_counts: Default::default(),
+      canonical_paths: Default::default(),
+      file_open_counts: Default::default(),
+      stat_counts: Default::default(),
+      path_kind_count: Default::default(),
+      automount_dirs: Default::default(),
+      automount_points: Default::default(),
       unresponsive_remote_files: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       prompt_terminal: Default::default(),
@@ -234,6 +288,11 @@ impl TestEnvironment {
       run_command_results: Default::default(),
       running_processes: Default::default(),
       remove_dir_all_failures: Default::default(),
+      file_watchers: Default::default(),
+      locked_files: Default::default(),
+      failing_file_writes: Default::default(),
+      failing_file_removes: Default::default(),
+      failing_file_locks: Default::default(),
     };
     env.mk_dir_all("/").unwrap();
     env
@@ -319,6 +378,71 @@ impl TestEnvironment {
     self.file_read_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
   }
 
+  /// Makes the path a symlink to another local file or directory that it's
+  /// canonicalized to, along with the paths in it (ex. a workspace opened
+  /// through a symlink), which canonicalizing doesn't do otherwise.
+  pub fn add_canonical_symlink(&self, dir_path: impl AsRef<Path>, canonical_dir_path: impl AsRef<Path>) {
+    let (dir_path, canonical_dir_path) = (self.clean_path(dir_path), self.clean_path(canonical_dir_path));
+    if let Some(parent) = dir_path.parent() {
+      self.mk_dir_all(parent).unwrap();
+    }
+    self.symlink(&canonical_dir_path, &dir_path).unwrap();
+    self.add_canonical_path(dir_path, canonical_dir_path);
+  }
+
+  /// Makes the path canonicalize to another one like `add_canonical_symlink`
+  /// without making it a symlink, which is for a file because the test
+  /// environment doesn't read a file through a symlink.
+  pub fn add_canonical_path(&self, path: impl AsRef<Path>, canonical_path: impl AsRef<Path>) {
+    self.canonical_paths.lock().push((self.clean_path(path), self.clean_path(canonical_path)));
+  }
+
+  /// Removes the canonical path that was added for the path (see
+  /// `add_canonical_path`), which is like replacing a symlink with a file.
+  pub fn remove_canonical_path(&self, path: impl AsRef<Path>) {
+    let path = self.clean_path(path);
+    self.canonical_paths.lock().retain(|(added_path, _)| *added_path != path);
+  }
+
+  /// Gets the number of times the path was looked up following its symlinks
+  /// (ex. `path_exists` or `fs_metadata`), which reaches another machine on a
+  /// real file system when it's a symlink to one.
+  pub fn stat_count(&self, path: impl AsRef<Path>) -> usize {
+    self.stat_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
+  }
+
+  /// Gets the number of times the file was opened (ex. to read its shebang
+  /// line), whether or not it existed.
+  pub fn file_open_count(&self, path: impl AsRef<Path>) -> usize {
+    self.file_open_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
+  }
+
+  /// Gets the number of times the path was canonicalized, which follows its
+  /// symlinks on a real file system (ex. to another machine).
+  pub fn canonicalize_count(&self, path: impl AsRef<Path>) -> usize {
+    self.canonicalize_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
+  }
+
+  /// Gets the number of times the kind of any path was gotten.
+  pub fn path_kind_count(&self) -> usize {
+    *self.path_kind_count.lock()
+  }
+
+  /// Makes the directory the root of an automounter's file system (ex. `/net`
+  /// with autofs), whose children may be mounted from another machine (see
+  /// `Environment::is_automount_dir`).
+  pub fn add_automount_dir(&self, dir_path: impl AsRef<Path>) {
+    let dir_path = self.clean_path(dir_path);
+    self.automount_dirs.lock().insert(dir_path);
+  }
+
+  /// Makes the path where a share is mounted from another machine when it's
+  /// looked up (ex. an AFS cell, see `Environment::is_automount_point`).
+  pub fn add_automount_point(&self, path: impl AsRef<Path>) {
+    let path = self.clean_path(path);
+    self.automount_points.lock().insert(path);
+  }
+
   /// Makes requests of the URL not get a response, which models a host
   /// that accepts a connection and then doesn't answer.
   pub fn add_unresponsive_remote_file(&self, url: &str) {
@@ -397,10 +521,6 @@ impl TestEnvironment {
     *self.is_stdout_machine_readable.lock() = value;
   }
 
-  pub fn set_log_level(&self, value: LogLevel) {
-    *self.log_level.lock() = value;
-  }
-
   pub fn stdout_reader(&self) -> Box<dyn Read + Send> {
     Box::new(self.std_out_pipe.lock().1.clone())
   }
@@ -471,6 +591,27 @@ impl TestEnvironment {
     *self.remove_dir_all_failures.lock() = count;
   }
 
+  /// Sets whether writing the file fails, which includes an atomic write.
+  pub fn set_file_write_fails(&self, file_path: impl AsRef<Path>, fails: bool) {
+    set_contains(&self.failing_file_writes, self.clean_path(file_path), fails);
+  }
+
+  /// Sets whether deleting the file fails.
+  pub fn set_file_remove_fails(&self, file_path: impl AsRef<Path>, fails: bool) {
+    set_contains(&self.failing_file_removes, self.clean_path(file_path), fails);
+  }
+
+  /// Sets whether locking the file fails (see `Environment::try_lock_file`).
+  pub fn set_file_lock_fails(&self, file_path: impl AsRef<Path>, fails: bool) {
+    set_contains(&self.failing_file_locks, self.clean_path(file_path), fails);
+  }
+
+  /// Creates a symlink at `link` that points at `original`, which may be
+  /// relative to the symlink's directory.
+  pub fn symlink(&self, original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
+    self.sys.fs_symlink_file(original, self.clean_path(link))
+  }
+
   pub fn take_run_commands(&self) -> Vec<(Vec<OsString>, io::Result<Option<i32>>)> {
     self.run_command_results.lock().drain(..).collect()
   }
@@ -485,6 +626,15 @@ impl TestEnvironment {
     rt.block_on(future)
   }
 
+  /// Tells the watchers of the file that it changed, which forgets the ones
+  /// that were dropped.
+  fn notify_file_watchers(&self, file_path: &Path) {
+    self
+      .file_watchers
+      .lock()
+      .retain(|(file_paths, sender)| !file_paths.iter().any(|path| path == file_path) || sender.send(()).is_ok());
+  }
+
   pub fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {
     // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
     let file_path = PathBuf::from(path.as_ref().to_string_lossy().replace("\\", "/"));
@@ -496,6 +646,47 @@ impl TestEnvironment {
     .clean();
     PathBuf::from(path.to_string_lossy().replace("\\", "/"))
   }
+}
+
+impl TestEnvironment {
+  fn ensure_file_write_succeeds(&self, file_path: &Path) -> io::Result<()> {
+    match self.failing_file_writes.lock().contains(&self.clean_path(file_path)) {
+      true => Err(io::Error::new(io::ErrorKind::StorageFull, format!("Failed writing '{}'.", file_path.display()))),
+      false => Ok(()),
+    }
+  }
+
+  fn ensure_file_remove_succeeds(&self, file_path: &Path) -> io::Result<()> {
+    let file_path = self.clean_path(file_path);
+    // a file that doesn't exist isn't found instead
+    match self.failing_file_removes.lock().contains(&file_path) && self.sys.fs_exists_no_err(&file_path) {
+      true => Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("Failed deleting '{}'.", file_path.display()),
+      )),
+      false => Ok(()),
+    }
+  }
+}
+
+/// Releases a lock of a file when it's dropped (see `Environment::try_lock_file`).
+struct TestFileLockGuard {
+  file_path: PathBuf,
+  locked_files: Arc<Mutex<HashSet<PathBuf>>>,
+}
+
+impl Drop for TestFileLockGuard {
+  fn drop(&mut self) {
+    self.locked_files.lock().remove(&self.file_path);
+  }
+}
+
+fn set_contains(set: &Mutex<HashSet<PathBuf>>, path: PathBuf, contains: bool) {
+  let mut set = set.lock();
+  match contains {
+    true => set.insert(path),
+    false => set.remove(&path),
+  };
 }
 
 impl Drop for TestEnvironment {
@@ -540,6 +731,7 @@ impl BaseFsMetadata for TestEnvironment {
   type Metadata = sys_traits::impls::InMemoryMetadata;
 
   fn base_fs_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    *self.stat_counts.lock().entry(self.clean_path(path)).or_default() += 1;
     (*self.sys).base_fs_metadata(path)
   }
 
@@ -552,6 +744,7 @@ impl BaseFsOpen for TestEnvironment {
   type File = sys_traits::impls::InMemoryFile;
 
   fn base_fs_open(&self, path: &Path, options: &sys_traits::OpenOptions) -> io::Result<Self::File> {
+    *self.file_open_counts.lock().entry(self.clean_path(path)).or_default() += 1;
     (*self.sys).base_fs_open(path, options)
   }
 }
@@ -564,13 +757,21 @@ impl BaseFsRead for TestEnvironment {
 
 impl BaseFsRemoveFile for TestEnvironment {
   fn base_fs_remove_file(&self, path: &Path) -> io::Result<()> {
-    (*self.sys).base_fs_remove_file(path)
+    self.ensure_file_remove_succeeds(path)?;
+    (*self.sys).base_fs_remove_file(path)?;
+    self.notify_file_watchers(&self.clean_path(path));
+    Ok(())
   }
 }
 
 impl BaseFsRename for TestEnvironment {
   fn base_fs_rename(&self, from: &Path, to: &Path) -> io::Result<()> {
-    (*self.sys).base_fs_rename(from, to)
+    self.ensure_file_write_succeeds(to)?;
+    (*self.sys).base_fs_rename(from, to)?;
+    // ex. an atomic write
+    self.notify_file_watchers(&self.clean_path(from));
+    self.notify_file_watchers(&self.clean_path(to));
+    Ok(())
   }
 }
 
@@ -601,6 +802,7 @@ impl SystemTimeNow for TestEnvironment {
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
   async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
+    self.download_policy.lock().ensure_allows_download(url, options.proxy)?;
     self.remote_file_auth.lock().insert(url.to_string(), options.auth.map(|s| s.to_string()));
     self.remote_file_proxies.lock().insert(url.to_string(), format!("{:?}", options.proxy));
     self.remote_file_options.lock().insert(url.to_string(), format!("{:?}", options));
@@ -671,18 +873,27 @@ impl Environment for TestEnvironment {
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
-    self.sys.fs_write(file_path, bytes)
+    self.ensure_file_write_succeeds(&file_path)?;
+    self.sys.fs_write(&file_path, bytes)?;
+    self.notify_file_watchers(&file_path);
+    Ok(())
   }
 
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()> {
     let path_from = self.clean_path(path_from);
     let path_to = self.clean_path(path_to);
-    self.sys.fs_rename(&path_from, &path_to)
+    self.sys.fs_rename(&path_from, &path_to)?;
+    self.notify_file_watchers(&path_from);
+    self.notify_file_watchers(&path_to);
+    Ok(())
   }
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
-    self.sys.fs_remove_file(file_path)
+    self.ensure_file_remove_succeeds(&file_path)?;
+    self.sys.fs_remove_file(&file_path)?;
+    self.notify_file_watchers(&file_path);
+    Ok(())
   }
 
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
@@ -749,17 +960,57 @@ impl Environment for TestEnvironment {
     Ok(entries)
   }
 
+  fn try_lock_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<FileLock>> {
+    let file_path = self.clean_path(file_path);
+    if self.failing_file_locks.lock().contains(&file_path) {
+      return Err(io::Error::new(io::ErrorKind::Unsupported, format!("Failed locking '{}'.", file_path.display())));
+    }
+    if !self.sys.fs_exists_no_err(&file_path) {
+      self.sys.fs_write(&file_path, b"")?;
+    }
+    if !self.locked_files.lock().insert(file_path.clone()) {
+      return Ok(None);
+    }
+    Ok(Some(FileLock::new(TestFileLockGuard {
+      file_path,
+      locked_files: self.locked_files.clone(),
+    })))
+  }
+
+  fn remove_empty_dir(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
+    let dir_path = self.clean_path(dir_path);
+    if !self.dir_entry_paths(&dir_path)?.is_empty() {
+      return Err(io::Error::new(
+        io::ErrorKind::DirectoryNotEmpty,
+        format!("Directory not empty: {}", dir_path.display()),
+      ));
+    }
+    self.sys.fs_remove_dir_all(&dir_path)
+  }
+
+  fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let dir_path = self.clean_path(dir_path);
+    let mut paths = Vec::new();
+    for entry in self.sys.fs_read_dir(&dir_path)? {
+      paths.push(self.clean_path(entry?.path()));
+    }
+    Ok(paths)
+  }
+
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
     let path = self.clean_path(file_path);
+    *self.stat_counts.lock().entry(path.clone()).or_default() += 1;
     self.sys.fs_exists_no_err(path)
   }
 
   fn path_is_file(&self, file_path: impl AsRef<Path>) -> bool {
     let path = self.clean_path(file_path);
+    *self.stat_counts.lock().entry(path.clone()).or_default() += 1;
     self.sys.fs_is_file_no_err(path)
   }
 
   fn path_kind(&self, file_path: impl AsRef<Path>) -> Option<PathKind> {
+    *self.path_kind_count.lock() += 1;
     let path = self.clean_path(file_path);
     let metadata = self.sys.fs_symlink_metadata(path).ok()?;
     Some(match metadata.file_type() {
@@ -769,8 +1020,32 @@ impl Environment for TestEnvironment {
     })
   }
 
+  fn read_link(&self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    let path = self.clean_path(path);
+    self.sys.fs_read_link(path)
+  }
+
+  fn is_automount_dir(&self, dir_path: impl AsRef<Path>) -> bool {
+    let dir_path = self.clean_path(dir_path);
+    self.automount_dirs.lock().contains(&dir_path)
+  }
+
+  fn is_automount_point(&self, path: impl AsRef<Path>) -> bool {
+    let path = self.clean_path(path);
+    self.automount_points.lock().contains(&path)
+  }
+
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     let path = self.clean_path(path);
+    *self.canonicalize_counts.lock().entry(path.clone()).or_default() += 1;
+    let canonical_dir = self
+      .canonical_paths
+      .lock()
+      .iter()
+      .find_map(|(dir_path, canonical_dir_path)| Some(canonical_dir_path.join(path.strip_prefix(dir_path).ok()?)));
+    if let Some(path) = canonical_dir {
+      return Ok(CanonicalizedPathBuf::new(self.clean_path(path)));
+    }
     // todo: use sys_traits to implement this properly
     // if !self.path_exists(&path) {
     //   Err(io::Error::new(io::ErrorKind::NotFound, "Path not found."))
@@ -834,8 +1109,32 @@ impl Environment for TestEnvironment {
     self.stdout_messages.lock().push(String::from(text));
   }
 
-  fn log_stderr_with_context(&self, text: &str, _: &str) {
-    self.stderr_messages.lock().push(String::from(text));
+  fn log_stderr_with_context(&self, level: LogLevel, text: &str, context_name: &str) {
+    if let Some(sink) = &*self.output_sink.lock() {
+      sink.log(level, &get_sink_text(text, context_name));
+      return;
+    }
+    self.stderr_messages.lock().push(get_stderr_text(level, text).into_owned());
+  }
+
+  fn set_output_sink(&self, sink: Arc<dyn OutputSink>) {
+    *self.output_sink.lock() = Some(sink.clone());
+    self.progress_bars.set(Some(Arc::new(ProgressBars::with_sink(sink))));
+  }
+
+  fn download_policy(&self) -> DownloadPolicy {
+    self.download_policy.lock().clone()
+  }
+
+  fn set_download_policy(&self, policy: DownloadPolicy) {
+    *self.download_policy.lock() = policy;
+  }
+
+  fn watch_files(&self, file_paths: &[PathBuf]) -> io::Result<FilesWatcher> {
+    let (sender, changes) = tokio::sync::mpsc::unbounded_channel();
+    let file_paths = file_paths.iter().map(|path| self.clean_path(path)).collect();
+    self.file_watchers.lock().push((file_paths, sender));
+    Ok(FilesWatcher::new(changes, ()))
   }
 
   fn log_machine_readable(&self, text: &[u8]) {
@@ -847,8 +1146,11 @@ impl Environment for TestEnvironment {
     &self,
     message: &str,
     action: TCreate,
-    _: usize,
+    total_size: usize,
   ) -> TResult {
+    if let Some(progress_bars) = self.progress_bars() {
+      return log_action_with_progress(Some(&progress_bars), message, action, total_size);
+    }
     self.__log_stderr__(message);
     action(Box::new(|_| {}))
   }
@@ -935,6 +1237,14 @@ impl Environment for TestEnvironment {
 
   fn log_level(&self) -> LogLevel {
     *self.log_level.lock()
+  }
+
+  fn set_log_level(&self, log_level: LogLevel) {
+    *self.log_level.lock() = log_level;
+  }
+
+  fn progress_bars(&self) -> Option<Arc<ProgressBars>> {
+    self.progress_bars.get()
   }
 
   fn compile_wasm(&self, bytes: &[u8]) -> Result<CompilationResult> {

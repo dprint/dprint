@@ -39,17 +39,22 @@ use super::DirEntry;
 use super::DownloadOptions;
 use super::DownloadedFile;
 use super::Environment;
+use super::FileLock;
 use super::FilePermissions;
+use super::FilesWatcher;
 use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
+use crate::utils::DownloadPolicy;
 use crate::utils::FastInsecureHasher;
 use crate::utils::LogLevel;
 use crate::utils::Logger;
 use crate::utils::LoggerOptions;
 use crate::utils::LoggerPromptTerminal;
 use crate::utils::NoProxy;
+use crate::utils::OutputSink;
 use crate::utils::ProgressBars;
+use crate::utils::ProgressBarsCell;
 use crate::utils::PromptTerminal;
 use crate::utils::RealUrlDownloader;
 use crate::utils::ShowConfirmStrategy;
@@ -75,10 +80,11 @@ pub struct RealEnvironmentOptions {
 
 #[derive(Clone)]
 pub struct RealEnvironment {
-  progress_bars: Option<Arc<ProgressBars>>,
+  progress_bars: ProgressBarsCell,
   url_downloader: Arc<RealUrlDownloader>,
   logger: Arc<Logger>,
   system: Arc<Mutex<System>>,
+  download_policy: Arc<Mutex<DownloadPolicy>>,
 }
 
 impl RealEnvironment {
@@ -88,7 +94,7 @@ impl RealEnvironment {
       is_stdout_machine_readable: options.is_stdout_machine_readable,
       log_level: options.log_level,
     }));
-    let progress_bars = ProgressBars::new(&logger).map(Arc::new);
+    let progress_bars = ProgressBarsCell::new(ProgressBars::new(&logger).map(Arc::new));
     let no_proxy = NoProxy::from_env();
     let url_downloader = Arc::new(RealUrlDownloader::new(
       progress_bars.clone(),
@@ -101,6 +107,7 @@ impl RealEnvironment {
       logger,
       progress_bars,
       system: Default::default(),
+      download_policy: Default::default(),
     };
 
     // ensure the cache directory is created
@@ -257,6 +264,7 @@ impl SystemTimeNow for RealEnvironment {
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
   async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
+    self.download_policy.lock().ensure_allows_download(url, options.proxy)?;
     log_debug!(self, "Downloading url: {}", url);
 
     self.url_downloader.download(url, options).await
@@ -449,6 +457,48 @@ impl Environment for RealEnvironment {
     Ok(entries)
   }
 
+  fn try_lock_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<FileLock>> {
+    let file_path = file_path.as_ref();
+    log_debug!(self, "Locking file: {}", file_path.display());
+    let with_context = |err: io::Error| io::Error::new(err.kind(), format!("Error locking file '{}': {:#}", file_path.display(), err));
+    let file = fs::OpenOptions::new()
+      .read(true)
+      .write(true)
+      .create(true)
+      .truncate(false)
+      .open(file_path)
+      .map_err(with_context)?;
+    // IMPORTANT: Every version of dprint needs to take the same kind of lock (see `EditorApprovals` and
+    // `SessionFile`), which is `flock(2)` on Unix and `LockFileEx` of the whole file on Windows. fs3 calls
+    // them directly, unlike std's `File::try_lock`, which may change what it uses with the toolchain.
+    match fs3::FileExt::try_lock_exclusive(&file) {
+      // IMPORTANT: Another process may have deleted the file while this opened it (ex. a cleanup of a stale session
+      // lock), and then a lock of the file that was opened doesn't exclude a process that locks the file at the path
+      // now, so it's only locked when the path still names the file this opened (see `SessionFile`).
+      Ok(()) => match is_same_file_at_path(&file, file_path) {
+        // closing the file releases the lock
+        Ok(true) => Ok(Some(FileLock::new(file))),
+        Ok(false) => Ok(None),
+        Err(err) => Err(with_context(err)),
+      },
+      Err(err) if err.raw_os_error().is_some() && err.raw_os_error() == fs3::lock_contended_error().raw_os_error() => Ok(None),
+      Err(err) => Err(with_context(err)),
+    }
+  }
+
+  fn remove_empty_dir(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
+    log_debug!(self, "Deleting directory when empty: {}", dir_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
+    fs::remove_dir(&dir_path).map_err(|err| io::Error::new(err.kind(), format!("Error deleting directory '{}': {:#}", dir_path.as_ref().display(), err)))
+  }
+
+  fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    log_debug!(self, "Reading directory entries: {}", dir_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
+    let entries = std::fs::read_dir(&dir_path)?;
+    entries.map(|entry| entry.map(|entry| entry.path())).collect()
+  }
+
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
     log_debug!(self, "Checking path exists: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
@@ -472,6 +522,22 @@ impl Environment for RealEnvironment {
     } else {
       PathKind::File
     })
+  }
+
+  fn read_link(&self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    log_debug!(self, "Reading symlink: {}", path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
+    fs::read_link(path)
+  }
+
+  fn is_automount_dir(&self, dir_path: impl AsRef<Path>) -> bool {
+    log_debug!(self, "Getting the file system of: {}", dir_path.as_ref().display());
+    is_automount_dir(dir_path.as_ref())
+  }
+
+  fn is_automount_point(&self, path: impl AsRef<Path>) -> bool {
+    log_debug!(self, "Getting whether a share is mounted at: {}", path.as_ref().display());
+    is_automount_point(path.as_ref())
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
@@ -546,8 +612,51 @@ impl Environment for RealEnvironment {
     self.logger.log_machine_readable(bytes);
   }
 
-  fn log_stderr_with_context(&self, text: &str, context_name: &str) {
-    self.logger.log_stderr_with_context(text, context_name);
+  fn log_stderr_with_context(&self, level: LogLevel, text: &str, context_name: &str) {
+    self.logger.log_stderr_with_context(level, text, context_name);
+  }
+
+  fn set_output_sink(&self, sink: Arc<dyn OutputSink>) {
+    self.logger.set_sink(sink.clone());
+    self.progress_bars.set(Some(Arc::new(ProgressBars::with_sink(sink))));
+  }
+
+  fn download_policy(&self) -> DownloadPolicy {
+    self.download_policy.lock().clone()
+  }
+
+  fn set_download_policy(&self, policy: DownloadPolicy) {
+    *self.download_policy.lock() = policy;
+  }
+
+  fn watch_files(&self, file_paths: &[PathBuf]) -> io::Result<FilesWatcher> {
+    use notify::Watcher;
+
+    let (sender, changes) = tokio::sync::mpsc::unbounded_channel();
+    let file_names = file_paths
+      .iter()
+      .filter_map(|path| path.file_name().map(|name| name.to_os_string()))
+      .collect::<HashSet<_>>();
+    let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+      // the directories are watched, so only their files with these names are changes
+      if let Ok(event) = result
+        && event.paths.iter().any(|path| path.file_name().is_some_and(|name| file_names.contains(name)))
+      {
+        let _ = sender.send(());
+      }
+    })
+    .map_err(io::Error::other)?;
+    // a file may not exist yet (ex. it's created later), so its directory is watched
+    let mut dir_paths = Vec::new();
+    for dir_path in file_paths.iter().filter_map(|path| path.parent()) {
+      if !dir_paths.contains(&dir_path) {
+        dir_paths.push(dir_path);
+      }
+    }
+    for dir_path in dir_paths {
+      watcher.watch(dir_path, notify::RecursiveMode::NonRecursive).map_err(io::Error::other)?;
+    }
+    Ok(FilesWatcher::new(changes, watcher))
   }
 
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
@@ -556,7 +665,7 @@ impl Environment for RealEnvironment {
     action: TCreate,
     total_size: usize,
   ) -> TResult {
-    log_action_with_progress(self.progress_bars.as_deref(), message, action, total_size)
+    log_action_with_progress(self.progress_bars.get().as_deref(), message, action, total_size)
   }
 
   fn get_cache_dir(&self) -> CanonicalizedPathBuf {
@@ -637,6 +746,10 @@ impl Environment for RealEnvironment {
     self.logger.log_level()
   }
 
+  fn set_log_level(&self, log_level: LogLevel) {
+    self.logger.set_log_level(log_level);
+  }
+
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {
     crate::plugins::compile_wasm(wasm_bytes, self.max_threads())
   }
@@ -698,8 +811,8 @@ impl Environment for RealEnvironment {
     Box::new(io::stdin())
   }
 
-  fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
-    self.progress_bars.as_ref()
+  fn progress_bars(&self) -> Option<Arc<ProgressBars>> {
+    self.progress_bars.get()
   }
 
   #[cfg(windows)]
@@ -788,9 +901,291 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> io::R
   }
 }
 
+/// Gets whether the directory is the root of an automounter's file system
+/// (see `Environment::is_automount_dir`) from the type of its file system.
+///
+/// IMPORTANT: Linux's `statfs` mounts what an automounter mounts at the
+/// directory (ex. the share of a direct map), so the type is gotten from a
+/// descriptor that `O_PATH` opens, which doesn't mount it, and that doesn't
+/// look up the directory's children either.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn is_automount_dir(dir_path: &Path) -> bool {
+  use std::os::fd::AsRawFd;
+  use std::os::fd::FromRawFd;
+  use std::os::fd::OwnedFd;
+  use std::os::unix::ffi::OsStrExt;
+
+  let Ok(dir_path) = std::ffi::CString::new(dir_path.as_os_str().as_bytes()) else {
+    return false;
+  };
+  // SAFETY: the path is nul terminated
+  let fd = unsafe { libc::open(dir_path.as_ptr(), libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+  if fd < 0 {
+    return false;
+  }
+  // SAFETY: the descriptor was just opened and nothing else owns it
+  let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+  let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
+  // SAFETY: the descriptor is open and the buffer has the size of what's written to it
+  if unsafe { libc::fstatfs(fd.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
+    return false;
+  }
+  // SAFETY: it succeeded, so it was written
+  let stat = unsafe { stat.assume_init() };
+  // the type's size and sign differ between the targets
+  #[allow(clippy::unnecessary_cast)]
+  let is_autofs = stat.f_type as u64 == AUTOFS_SUPER_MAGIC;
+  is_autofs
+}
+
+/// Gets whether the directory is the root of an automounter's file system
+/// (see `Environment::is_automount_dir`) from the type of its file system,
+/// which `statfs` gets without looking up the directory's children.
+#[cfg(any(target_vendor = "apple", target_os = "freebsd"))]
+fn is_automount_dir(dir_path: &Path) -> bool {
+  use std::os::unix::ffi::OsStrExt;
+
+  let Ok(dir_path) = std::ffi::CString::new(dir_path.as_os_str().as_bytes()) else {
+    return false;
+  };
+  let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
+  // SAFETY: the path is nul terminated and the buffer has the size of what's written to it
+  if unsafe { libc::statfs(dir_path.as_ptr(), stat.as_mut_ptr()) } != 0 {
+    return false;
+  }
+  // SAFETY: it succeeded, so it was written
+  let stat = unsafe { stat.assume_init() };
+  // SAFETY: the name is nul terminated
+  let type_name = unsafe { std::ffi::CStr::from_ptr(stat.f_fstypename.as_ptr()) };
+  type_name.to_bytes() == b"autofs"
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple", target_os = "freebsd")))]
+fn is_automount_dir(_dir_path: &Path) -> bool {
+  false
+}
+
+/// Gets whether a share is mounted at the path when it's looked up (see
+/// `Environment::is_automount_point`) from `statx`, which doesn't mount it
+/// with `AT_NO_AUTOMOUNT`.
+///
+/// It's called with `syscall` because the C libraries that dprint is built
+/// with may not have it (musl, and glibc before 2.28), and it's `false` when
+/// the kernel doesn't have it either (before Linux 4.11).
+#[cfg(target_os = "linux")]
+fn is_automount_point(path: &Path) -> bool {
+  use std::os::unix::ffi::OsStrExt;
+
+  let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+    return false;
+  };
+  let mut stat = Statx {
+    _mask_and_block_size: [0; 2],
+    stx_attributes: 0,
+    _rest: [0; 30],
+  };
+  // SAFETY: the path is nul terminated and the buffer has the size of what the kernel writes to it
+  let result = unsafe {
+    libc::syscall(
+      libc::SYS_statx,
+      libc::AT_FDCWD,
+      path.as_ptr(),
+      libc::AT_SYMLINK_NOFOLLOW | libc::AT_NO_AUTOMOUNT,
+      STATX_TYPE,
+      &mut stat as *mut Statx,
+    )
+  };
+  result == 0 && (stat.stx_attributes & STATX_ATTR_AUTOMOUNT) != 0
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_automount_point(_path: &Path) -> bool {
+  false
+}
+
+/// The `f_type` of an `autofs` file system on Linux.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const AUTOFS_SUPER_MAGIC: u64 = 0x0187;
+
+/// What `statx` is asked for, which is only the type because the attributes
+/// are always gotten. The `libc` crate only has it and the attribute below
+/// for some C libraries (ex. not musl).
+#[cfg(target_os = "linux")]
+const STATX_TYPE: libc::c_uint = 0x0001;
+
+/// The attribute of `statx` for an automount point.
+#[cfg(target_os = "linux")]
+const STATX_ATTR_AUTOMOUNT: u64 = 0x1000;
+
+/// The `statx` struct of Linux, which is 256 bytes on every architecture,
+/// where only the attributes are read.
+#[cfg(target_os = "linux")]
+#[repr(C)]
+struct Statx {
+  /// `stx_mask` and `stx_blksize`.
+  _mask_and_block_size: [u32; 2],
+  stx_attributes: u64,
+  _rest: [u64; 30],
+}
+
+#[cfg(target_os = "linux")]
+const _: () = assert!(std::mem::size_of::<Statx>() == 256);
+
+/// Gets whether the path names the file that's open, which isn't the case
+/// when it was deleted or replaced since it was opened.
+fn is_same_file_at_path(file: &fs::File, file_path: &Path) -> io::Result<bool> {
+  let open_file = same_file::Handle::from_file(file.try_clone()?)?;
+  match same_file::Handle::from_path(file_path) {
+    Ok(file_at_path) => Ok(open_file == file_at_path),
+    Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+    // a file system that deletes a file once its last handle is closed (ex. FAT on Windows) denies opening it
+    // while it's deleted
+    Err(err) if cfg!(windows) && err.kind() == io::ErrorKind::PermissionDenied => Ok(false),
+    Err(err) => Err(err),
+  }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
+
+  #[test]
+  fn should_watch_files_that_may_not_exist() {
+    use dprint_core::async_runtime::FutureExt;
+
+    RealEnvironment::run_test_with_real_env(|environment| {
+      async move {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("settings.json");
+        let mut watcher = environment.watch_files(std::slice::from_ref(&file_path)).unwrap();
+        // another file in the directory isn't a change
+        environment.write_file(temp_dir.path().join("other.json"), "{}").unwrap();
+        environment.write_file(&file_path, "{}").unwrap();
+        let change = tokio::time::timeout(std::time::Duration::from_secs(10), watcher.changes.recv()).await;
+        assert!(matches!(change, Ok(Some(()))));
+        // a directory that doesn't exist can't be watched
+        assert!(environment.watch_files(&[temp_dir.path().join("missing").join("settings.json")]).is_err());
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  #[allow(clippy::disallowed_methods)]
+  fn should_write_a_file_atomically_through_a_symlink() {
+    let environment = RealEnvironment::new(RealEnvironmentOptions {
+      log_level: LogLevel::Info,
+      is_stdout_machine_readable: false,
+    })
+    .unwrap();
+    let temp_dir = tempfile::tempdir().unwrap();
+    // ex. a dotfiles repository
+    let target_path = temp_dir.path().join("dotfiles").join("settings.json");
+    fs::create_dir_all(target_path.parent().unwrap()).unwrap();
+    fs::write(&target_path, "{}").unwrap();
+    let link_path = temp_dir.path().join("settings.json");
+    #[cfg(unix)]
+    let result = std::os::unix::fs::symlink(&target_path, &link_path);
+    #[cfg(windows)]
+    let result = std::os::windows::fs::symlink_file(&target_path, &link_path);
+    // creating a symlink needs developer mode or elevation on Windows
+    if result.is_err() {
+      return;
+    }
+    #[cfg(unix)]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      fs::set_permissions(&target_path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    environment.atomic_write_file_bytes_through_symlinks(&link_path, b"new").unwrap();
+    // the file it leads to is written with its permissions, and it's still a symlink to it
+    assert_eq!(fs::read_to_string(&target_path).unwrap(), "new");
+    assert!(fs::symlink_metadata(&link_path).unwrap().file_type().is_symlink());
+    #[cfg(unix)]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      assert_eq!(fs::metadata(&target_path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+    // a file that doesn't exist yet is created
+    let new_path = temp_dir.path().join("new.json");
+    environment.atomic_write_file_bytes_through_symlinks(&new_path, b"new").unwrap();
+    assert_eq!(fs::read_to_string(&new_path).unwrap(), "new");
+    // a read-only file isn't written over
+    let mut permissions = fs::metadata(&target_path).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&target_path, permissions.clone()).unwrap();
+    assert!(environment.atomic_write_file_bytes_through_symlinks(&link_path, b"other").is_err());
+    assert_eq!(fs::read_to_string(&target_path).unwrap(), "new");
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    fs::set_permissions(&target_path, permissions).unwrap();
+    // and neither is a symlink that doesn't lead to a file (ex. its volume isn't mounted yet)
+    fs::remove_file(&target_path).unwrap();
+    assert!(environment.atomic_write_file_bytes_through_symlinks(&link_path, b"other").is_err());
+    assert!(fs::symlink_metadata(&link_path).unwrap().file_type().is_symlink());
+  }
+
+  #[test]
+  fn should_lock_a_file_once() {
+    use dprint_core::async_runtime::FutureExt;
+
+    RealEnvironment::run_test_with_real_env(|environment| {
+      async move {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("session.lock");
+        let lock = environment.try_lock_file(&file_path).unwrap().unwrap();
+        assert!(environment.path_exists(&file_path));
+        // including by another lock of this process
+        assert!(environment.try_lock_file(&file_path).unwrap().is_none());
+        // a held lock can be deleted
+        environment.remove_file(&file_path).unwrap();
+        drop(lock);
+        let lock = environment.try_lock_file(&file_path).unwrap();
+        assert!(lock.is_some());
+      }
+      .boxed_local()
+    });
+  }
+
+  #[test]
+  #[allow(clippy::disallowed_methods)]
+  fn should_only_take_a_lock_of_the_file_the_path_still_names() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("session.lock");
+    fs::write(&file_path, "").unwrap();
+    let file = fs::File::open(&file_path).unwrap();
+    assert!(is_same_file_at_path(&file, &file_path).unwrap());
+    // another process deleted it while this opened it
+    fs::remove_file(&file_path).unwrap();
+    assert!(!is_same_file_at_path(&file, &file_path).unwrap());
+    // and another one created and locked a new one
+    fs::write(&file_path, "").unwrap();
+    assert!(!is_same_file_at_path(&file, &file_path).unwrap());
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_keep_the_verbatim_prefix_of_a_long_canonical_path() {
+    use dprint_core::async_runtime::FutureExt;
+
+    // IMPORTANT: A canonical path is how a local config file is stored in the approvals file (see
+    // `EditorApprovals`), which keeps `\\?\` when it's too long to be without it, which every version does too.
+    RealEnvironment::run_test_with_real_env(|environment| {
+      async move {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut dir_path = temp_dir.path().to_path_buf();
+        while dir_path.as_os_str().len() < 300 {
+          dir_path.push("a".repeat(50));
+        }
+        environment.mk_dir_all(&dir_path).unwrap();
+        let canonical_path = environment.canonicalize(&dir_path).unwrap();
+        assert!(canonical_path.to_string_lossy().starts_with(r"\\?\"), "{}", canonical_path.display());
+        let short_path = environment.canonicalize(temp_dir.path()).unwrap();
+        assert!(!short_path.to_string_lossy().starts_with(r"\\?\"), "{}", short_path.display());
+      }
+      .boxed_local()
+    });
+  }
 
   #[test]
   fn should_get_cache_dir_based_on_env_var() {

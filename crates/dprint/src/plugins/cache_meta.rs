@@ -5,6 +5,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::PluginInfo;
 
 use super::implementations::WASM_CACHE_VERSION;
@@ -33,6 +34,12 @@ pub struct LocalStamp {
 /// `plugins/<hash>.json`, where `<hash>` is derived from the plugin's source
 /// (see [`entry_hash`]). Replaces the old global `plugin-cache-manifest.json`
 /// so changing one plugin never rewrites state for the others.
+///
+/// IMPORTANT: Another version of dprint with the same cache signature (see
+/// `current_signature`) may rewrite this (see `store_file_matching_info`),
+/// which drops a field it doesn't know. So a new field must be safe when it's
+/// missing (ex. a missing `npm_executable_checksum` has the plugin set up
+/// again), or `PLUGIN_CACHE_SCHEMA_VERSION` is raised for it.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginCacheMeta {
@@ -70,6 +77,23 @@ pub struct PluginCacheMeta {
   /// remote and versioned-npm sources, whose mere presence is a cache hit.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub local_stamps: Option<Vec<LocalStamp>>,
+  /// The files the plugin matched the last time an editor resolved each
+  /// config file with it (the most recent first), which an editor uses to know
+  /// what a config file formats before its plugins can be used (ex. the user
+  /// needs to approve them). It's for each config file because what a plugin
+  /// matches may depend on its configuration (ex. the extensions of the exec
+  /// plugin's commands).
+  #[serde(skip_serializing_if = "Vec::is_empty", default)]
+  pub config_file_matching: Vec<ConfigFileMatching>,
+}
+
+/// The files a plugin matched when an editor resolved a config file with it.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigFileMatching {
+  /// Identifies the config file (ex. its url).
+  pub config: String,
+  pub file_matching: FileMatchingInfo,
 }
 
 impl PluginCacheMeta {
@@ -197,6 +221,7 @@ mod test {
       npm_executable_sub_path: None,
       npm_executable_checksum: None,
       local_stamps: None,
+      config_file_matching: Vec::new(),
     }
   }
 

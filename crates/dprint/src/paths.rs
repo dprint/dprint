@@ -154,6 +154,15 @@ pub fn get_plugin_names_for_file_on_disk<'a>(
   if path_plugin_names.has_claiming_plugin() || !plugin_name_maps.may_match_shebang(file_path) {
     return path_plugin_names.into_names();
   }
+  // IMPORTANT: Reading a file on another machine (ex. a symlink to a share that the editor gave as the file
+  // of a document) contacts the machine, so its shebang isn't known until reading it is allowed.
+  if environment
+    .download_policy()
+    .ensure_allows_path(environment, file_path, file_path.parent())
+    .is_err()
+  {
+    return path_plugin_names.into_names();
+  }
   match read_file_shebang_line(environment, file_path) {
     // an additive plugin may still have matched by path, so keep those when the
     // shebang doesn't resolve to a plugin
