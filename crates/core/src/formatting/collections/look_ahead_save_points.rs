@@ -62,6 +62,7 @@ impl<'a> LookAheadSavePoints<'a> {
     }
   }
 
+  #[cfg(debug_assertions)]
   pub fn save_points(&self) -> impl Iterator<Item = &'a SavePoint<'a>> {
     self.iter().map(|node| node.save_point)
   }
