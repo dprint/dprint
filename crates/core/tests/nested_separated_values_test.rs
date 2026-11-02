@@ -131,3 +131,117 @@ fn should_not_print_values_twice_per_level() {
   assert!(text.contains("innermost"));
   assert!(elapsed.as_secs() < 5, "took {elapsed:?} for a depth that should now be linear");
 }
+
+/// Builds `depth` calls inside one another like `a0.b0(a1.b1(a2.b2(z.y)))`, where each call's
+/// arguments are separated values.
+fn gen_nested_calls(arena: &dprint_core::formatting::Arena, depth: usize) -> PrintItems<'_> {
+  let mut inner = "z.y".into_print_items(arena);
+  for i in (0..depth).rev() {
+    let value = inner;
+    let args = ir_helpers::gen_separated_values(
+      |_| {
+        vec![ir_helpers::GeneratedValue {
+          items: value,
+          lines_span: None,
+          allow_inline_multi_line: false,
+          allow_inline_single_line: false,
+          is_known_multi_line: false,
+        }]
+      },
+      ir_helpers::GenSeparatedValuesOptions {
+        prefer_hanging: false,
+        force_use_new_lines: false,
+        max_blank_lines: 0,
+        single_line_options: ir_helpers::SingleLineOptions::separated_same_line(", ".into_print_items(arena)),
+        indent_width: 2,
+        multi_line_options: ir_helpers::MultiLineOptions::surround_newlines_indented(),
+        force_possible_newline_at_start: false,
+      },
+    )
+    .items;
+    inner = {
+      let mut items = PrintItems::new(arena);
+      items.push_string(format!("a{i}.b{i}("));
+      items.extend(args);
+      items.push_str(")");
+      items
+    };
+  }
+  inner
+}
+
+fn nested_calls_print_options() -> PrintOptions {
+  PrintOptions {
+    indent_width: 2,
+    max_width: 80,
+    use_tabs: false,
+    new_line_text: "
+",
+  }
+}
+
+#[test]
+fn should_print_nested_calls_over_multiple_lines() {
+  let text = dprint_core::formatting::format(|arena| gen_nested_calls(arena, 16), nested_calls_print_options());
+  assert_eq!(
+    text,
+    concat!(
+      "a0.b0(
+",
+      "  a1.b1(
+",
+      "    a2.b2(
+",
+      "      a3.b3(
+",
+      "        a4.b4(
+",
+      "          a5.b5(
+",
+      "            a6.b6(
+",
+      "              a7.b7(
+",
+      "                a8.b8(
+",
+      "                  a9.b9(
+",
+      "                    a10.b10(a11.b11(a12.b12(a13.b13(a14.b14(a15.b15(z.y))))))
+",
+      "                  )
+",
+      "                )
+",
+      "              )
+",
+      "            )
+",
+      "          )
+",
+      "        )
+",
+      "      )
+",
+      "    )
+",
+      "  )
+",
+      ")",
+    )
+  );
+}
+
+/// When a call's arguments become multi-line, the calls within them move to a different column,
+/// which used to make each of them work out again whether its arguments are multi-line. Each of
+/// those then moved the calls within it, so the printer went back exponentially many times
+/// (3.4 million times at depth 24).
+#[test]
+#[cfg(feature = "tracing")]
+fn should_not_go_back_exponentially_many_times_for_nested_calls() {
+  use dprint_core::formatting::*;
+
+  let arena = Arena::new();
+  let result = trace_printing(gen_nested_calls(&arena, 24), nested_calls_print_options());
+  let jump_count = result.traces.iter().filter(|trace| trace.jump.is_some()).count();
+  assert!(jump_count < 20_000, "went back {jump_count} times");
+}

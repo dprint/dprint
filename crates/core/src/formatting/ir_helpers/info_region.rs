@@ -5,6 +5,11 @@ use super::super::Arena;
 use super::super::actions;
 use super::super::print_items::*;
 
+/// The number of times a region's infos are cleared before the region is assumed to break the
+/// way it did when it started at the same column before, which only happens when it's nested in
+/// regions that keep moving it.
+const MAX_CLEARS_BEFORE_ASSUMING: u32 = 8;
+
 /// Infos resolved within a region of print items, whose resolved values are only
 /// correct for where the region started when they were resolved.
 ///
@@ -17,7 +22,16 @@ use super::super::print_items::*;
 ///   Clearing them would be correct too, but each one would have to be worked out again, along
 ///   with every one in the regions nested within it, so a region nested n deep would be printed
 ///   2^n times.
+/// - When it starts at a column it started at before, its line numbers are set to what they
+///   were there, shifted by the lines it moved, when it fit on one line there or after its
+///   infos were cleared many times. A region nested in others that each go back and forth
+///   between a few positions would otherwise be worked out again every time, so it would be
+///   printed exponentially many times.
 /// - Otherwise, it may break differently, so the infos are cleared to be worked out again.
+///
+/// Assuming the region fits on one line is corrected by the line breaking within it when it
+/// doesn't, but assuming it's multi-line makes the conditions using the infos keep it multi-line,
+/// so that's only assumed for regions that are worked out again so many times that it matters.
 ///
 /// Note: A region at the same column with a different indent level may break differently,
 /// but clearing in that case changes how existing code is formatted, so it isn't done.
@@ -25,6 +39,23 @@ use super::super::print_items::*;
 pub struct InfoRegion<'a> {
   infos: &'a RefCell<bumpalo::collections::Vec<'a, Info>>,
   last_start: &'a Cell<Option<RegionStart>>,
+  /// The line numbers resolved when the region started at each column it left.
+  previous_starts: &'a RefCell<bumpalo::collections::Vec<'a, PreviousStart<'a>>>,
+  /// The number of times the infos were cleared.
+  clear_count: &'a Cell<u32>,
+}
+
+struct PreviousStart<'a> {
+  start: RegionStart,
+  /// The resolved value of each info that's a line number, by its index in the infos.
+  line_numbers: bumpalo::collections::Vec<'a, Option<u32>>,
+}
+
+impl PreviousStart<'_> {
+  /// Gets if the region's line numbers were all on the line it started on.
+  fn was_single_line(&self) -> bool {
+    self.line_numbers.iter().all(|value| *value == Some(self.start.line_number))
+  }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -38,6 +69,8 @@ impl<'a> InfoRegion<'a> {
     Self {
       infos: arena.bump().alloc(RefCell::new(bumpalo::collections::Vec::new_in(arena.bump()))),
       last_start: arena.bump().alloc(Cell::new(None)),
+      previous_starts: arena.bump().alloc(RefCell::new(bumpalo::collections::Vec::new_in(arena.bump()))),
+      clear_count: arena.bump().alloc(Cell::new(0)),
     }
   }
 
@@ -53,6 +86,8 @@ impl<'a> InfoRegion<'a> {
   pub fn gen_start(&self, arena: &'a Arena) -> PrintItems<'a> {
     let infos = self.infos;
     let last_start = self.last_start;
+    let previous_starts = self.previous_starts;
+    let clear_count = self.clear_count;
     actions::action(arena, "infoRegionStart", move |context| {
       let start = RegionStart {
         line_number: context.writer_info.line_number,
@@ -61,22 +96,79 @@ impl<'a> InfoRegion<'a> {
       if let Some(last_start) = last_start.get()
         && last_start != start
       {
+        let infos = infos.borrow();
         if last_start.column_number == start.column_number {
           // only the line changed, which only changes the line numbers
           let delta = start.line_number as isize - last_start.line_number as isize;
-          for info in infos.borrow().iter() {
+          for info in infos.iter() {
             if let Info::LineNumber(line_number) = info {
               context.shift_line_number(*line_number, delta);
             }
           }
         } else {
-          for info in infos.borrow().iter() {
-            context.clear_info(*info);
+          let mut previous_starts = previous_starts.borrow_mut();
+          remember_line_numbers(&mut previous_starts, last_start, &infos, context, arena);
+          let is_repeatedly_cleared = clear_count.get() >= MAX_CLEARS_BEFORE_ASSUMING;
+          let previous = previous_starts
+            .iter()
+            .find(|previous| previous.start.column_number == start.column_number && (is_repeatedly_cleared || previous.was_single_line()));
+          match previous {
+            Some(previous) => {
+              // assume it breaks the way it did when it started at this column before
+              let delta = start.line_number as isize - previous.start.line_number as isize;
+              for (info, value) in infos.iter().zip(previous.line_numbers.iter()) {
+                match (info, value) {
+                  (Info::LineNumber(line_number), Some(value)) => {
+                    context.set_line_number(*line_number, (*value as isize + delta) as u32);
+                  }
+                  _ => context.clear_info(*info),
+                }
+              }
+            }
+            None => {
+              clear_count.set(clear_count.get() + 1);
+              for info in infos.iter() {
+                context.clear_info(*info);
+              }
+            }
           }
         }
       }
       last_start.set(Some(start));
     })
+  }
+}
+
+/// Remembers the line numbers that were resolved when the region started at the start it's leaving.
+///
+/// When it fit on one line at that column before, that's kept instead, because assuming it fits is
+/// corrected when it doesn't, while assuming it's multi-line isn't.
+fn remember_line_numbers<'a>(
+  previous_starts: &mut bumpalo::collections::Vec<'a, PreviousStart<'a>>,
+  start: RegionStart,
+  infos: &[Info],
+  context: &ConditionResolverContext,
+  arena: &'a Arena,
+) {
+  let line_numbers = infos.iter().map(|info| match info {
+    Info::LineNumber(line_number) => context.peek_line_number(*line_number),
+    _ => None,
+  });
+  match previous_starts.iter_mut().find(|previous| previous.start.column_number == start.column_number) {
+    Some(previous) => {
+      let is_single_line = line_numbers.clone().all(|value| value == Some(start.line_number));
+      if previous.was_single_line() && !is_single_line {
+        return;
+      }
+      previous.start = start;
+      previous.line_numbers.clear();
+      previous.line_numbers.extend(line_numbers);
+    }
+    None => {
+      let mut values = bumpalo::collections::Vec::with_capacity_in(infos.len(), arena.bump());
+      values.extend(line_numbers);
+      previous_starts.push(PreviousStart { start, line_numbers: values });
+    }
   }
 }
 
