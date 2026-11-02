@@ -547,7 +547,9 @@ fn get_is_multi_line_for_multi_line<'a>(
         if last_result.get() && matches!(result, Some(false)) {
           return Some(true);
         }
-        last_result.set(result.unwrap_or(false));
+        if !condition_context.is_measuring() {
+          last_result.set(result.unwrap_or(false));
+        }
         result
       }),
       false_path: None,

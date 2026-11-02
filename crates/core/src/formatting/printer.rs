@@ -66,6 +66,12 @@ pub struct Printer<'a> {
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
+  /// The measurement in progress of whether print items fit on the rest of the line.
+  measurement: Option<Measurement<'a>>,
+  /// The measurement the condition being resolved asked for.
+  requested_measurement: Option<MeasurementRequest>,
+  /// Whether print items fit on the line by the line number measured up to.
+  measurement_results: BumpHashMap<'a, u32, MeasurementResult>,
   #[cfg(feature = "tracing")]
   traces: Option<Vec<Trace>>,
   /// Why the printer went back to an earlier point while printing the current node.
@@ -106,6 +112,9 @@ impl<'a> Printer<'a> {
       max_width: options.max_width,
       skip_moving_next: false,
       resolving_save_point: None,
+      measurement: None,
+      requested_measurement: None,
+      measurement_results: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
       #[cfg(feature = "tracing")]
       traces: if options.enable_tracing { Some(Vec::new()) } else { None },
       #[cfg(feature = "tracing")]
@@ -142,6 +151,10 @@ impl<'a> Printer<'a> {
 
       // println!("{}", self.writer.to_string_for_debugging());
 
+      if self.measurement.is_some() && matches!(current_node.item, PrintItem::String(_)) && self.is_measured_text_too_wide() {
+        self.finish_measurement(false);
+      }
+
       if self.skip_moving_next {
         self.skip_moving_next = false;
       } else if let Some(current_node) = self.current_node {
@@ -150,6 +163,12 @@ impl<'a> Printer<'a> {
 
       while self.current_node.is_none() && !self.next_node_stack.is_empty() {
         self.current_node = self.next_node_stack.pop();
+      }
+
+      if self.current_node.is_none() && self.measurement.is_some() {
+        // the end of the print items is the end of the line
+        self.finish_measurement(true);
+        self.skip_moving_next = false;
       }
     }
 
@@ -261,6 +280,7 @@ impl<'a> Printer<'a> {
   }
 
   pub fn clear_info(&mut self, info: Info) {
+    self.record_info_for_measurement(&info);
     match info {
       Info::LineNumber(info) => self.resolved_line_numbers.remove(info.unique_id()),
       Info::ColumnNumber(info) => self.resolved_column_numbers.remove(info.unique_id()),
@@ -278,7 +298,202 @@ impl<'a> Printer<'a> {
   pub fn shift_line_number(&mut self, info: LineNumber, delta: isize) {
     let id = info.unique_id();
     if let Some(value) = self.resolved_line_numbers.get(id) {
+      self.record_for_measurement(|_| MeasurementUndo::LineNumber(id, Some(value)));
       self.resolved_line_numbers.insert(id, (value as isize + delta) as u32);
+    }
+  }
+
+  /// Gets if the print items from the position fit on the rest of the line without newlines
+  /// up to the line number, along with the items after it up to where the line would break.
+  ///
+  /// Returns `None` the first time at a position, then the printer measures and resolves the
+  /// condition again.
+  pub fn fits_on_line_until(&mut self, line_number: LineNumber, position: (u32, u32), stop_at_first_break: bool) -> Option<bool> {
+    let request = MeasurementRequest {
+      end_line_number_id: line_number.unique_id(),
+      stop_at_first_break,
+    };
+    if let Some(measurement) = self.measurement.as_mut() {
+      // everything is on one line while measuring, and when it all fits, so does this
+      if !measurement.is_past_end {
+        measurement.nested.push((request, position));
+      }
+      return Some(true);
+    }
+    match self.measurement_results.get(&request.end_line_number_id) {
+      Some(result) if result.start == position && result.stop_at_first_break == stop_at_first_break => Some(result.fits),
+      _ => {
+        self.requested_measurement = Some(request);
+        None
+      }
+    }
+  }
+
+  /// Gets if the printer is measuring whether print items fit on the line, in which
+  /// case what it prints and resolves is undone afterwards.
+  pub fn is_measuring(&self) -> bool {
+    self.measurement.is_some()
+  }
+
+  /// Gets if the line could break before the current position.
+  pub fn can_break_earlier_on_line(&self) -> bool {
+    self.possible_new_line_save_point.is_some()
+  }
+
+  fn start_measurement(&mut self, request: MeasurementRequest, name: &'static str) {
+    let save_point = self.create_save_point(name, self.current_node);
+    self.measurement = Some(Measurement {
+      request,
+      save_point,
+      start: (self.writer.line_number(), self.writer.column_number()),
+      is_past_end: false,
+      new_line_group_depth: self.new_line_group_depth,
+      force_no_newlines_depth: self.force_no_newlines_depth,
+      nested: Vec::new(),
+      undo: Vec::new(),
+      #[cfg(debug_assertions)]
+      snapshot: self.measurement_snapshot(),
+    });
+    // measure the items up to the end on one line
+    self.force_no_newlines_depth += 1;
+  }
+
+  fn finish_measurement(&mut self, fits: bool) {
+    let measurement = self.measurement.take().unwrap();
+    for undo in measurement.undo.into_iter().rev() {
+      match undo {
+        MeasurementUndo::LineNumber(id, value) => restore_u32(&mut self.resolved_line_numbers, id, value),
+        MeasurementUndo::ColumnNumber(id, value) => restore_u32(&mut self.resolved_column_numbers, id, value),
+        MeasurementUndo::LineStartColumnNumber(id, value) => restore_u32(&mut self.resolved_line_start_column_numbers, id, value),
+        MeasurementUndo::LineNumberAnchor(id, value) => restore_u32(&mut self.resolved_line_number_anchors, id, value),
+        MeasurementUndo::IndentLevel(id, value) => restore_u8(&mut self.resolved_indent_levels, id, value),
+        MeasurementUndo::LineStartIndentLevel(id, value) => restore_u8(&mut self.resolved_line_start_indent_levels, id, value),
+        MeasurementUndo::IsStartOfLine(id, value) => match value {
+          Some(value) => self.resolved_is_start_of_lines.insert(id, value),
+          None => self.resolved_is_start_of_lines.remove(id),
+        },
+        MeasurementUndo::Condition(id, value) => match value {
+          Some(value) => {
+            self.resolved_conditions.insert(id, value);
+          }
+          None => {
+            self.resolved_conditions.remove(&id);
+          }
+        },
+        MeasurementUndo::StoredConditionSavePoint(id, value) => match value {
+          Some(value) => {
+            self.stored_condition_save_points.insert(id, value);
+          }
+          None => {
+            self.stored_condition_save_points.remove(&id);
+          }
+        },
+      }
+    }
+    #[cfg(debug_assertions)]
+    self.verify_measurement_restored(&measurement.snapshot);
+
+    if fits {
+      for (request, start) in measurement.nested {
+        self.measurement_results.insert(
+          request.end_line_number_id,
+          MeasurementResult {
+            start,
+            stop_at_first_break: request.stop_at_first_break,
+            fits: true,
+          },
+        );
+      }
+    }
+    self.measurement_results.insert(
+      measurement.request.end_line_number_id,
+      MeasurementResult {
+        start: measurement.start,
+        stop_at_first_break: measurement.request.stop_at_first_break,
+        fits,
+      },
+    );
+    #[cfg(feature = "tracing")]
+    self.trace_jump(|_| TraceJump::Measurement(TraceMeasurementJump { fits }));
+    self.update_state_to_save_point(measurement.save_point, false);
+
+    fn restore_u32(map: &mut VecU32U32Map, id: u32, value: Option<u32>) {
+      match value {
+        Some(value) => map.insert(id, value),
+        None => map.remove(id),
+      }
+    }
+
+    fn restore_u8(map: &mut VecU32U8Map, id: u32, value: Option<u8>) {
+      match value {
+        Some(value) => map.insert(id, value),
+        None => map.remove(id),
+      }
+    }
+  }
+
+  /// Gets if the text written while measuring goes past the line width.
+  ///
+  /// Like when printing, only text that's allowed to cause a newline counts, which excludes
+  /// text printed without newlines (ex. a trailing comment).
+  fn is_measured_text_too_wide(&self) -> bool {
+    let measurement = self.measurement.as_ref().unwrap();
+    let measured_depth = measurement.force_no_newlines_depth + if measurement.is_past_end { 0 } else { 1 };
+    self.force_no_newlines_depth == measured_depth && self.writer.column_number() > self.max_width
+  }
+
+  #[inline]
+  fn record_for_measurement(&mut self, get_undo: impl FnOnce(&Self) -> MeasurementUndo<'a>) {
+    if self.measurement.is_some() {
+      let undo = get_undo(self);
+      if let Some(measurement) = self.measurement.as_mut() {
+        measurement.undo.push(undo);
+      }
+    }
+  }
+
+  fn record_info_for_measurement(&mut self, info: &Info) {
+    self.record_for_measurement(|printer| match info {
+      Info::LineNumber(info) => MeasurementUndo::LineNumber(info.unique_id(), printer.resolved_line_numbers.get(info.unique_id())),
+      Info::ColumnNumber(info) => MeasurementUndo::ColumnNumber(info.unique_id(), printer.resolved_column_numbers.get(info.unique_id())),
+      Info::IsStartOfLine(info) => MeasurementUndo::IsStartOfLine(info.unique_id(), printer.resolved_is_start_of_lines.get(info.unique_id())),
+      Info::IndentLevel(info) => MeasurementUndo::IndentLevel(info.unique_id(), printer.resolved_indent_levels.get(info.unique_id())),
+      Info::LineStartColumnNumber(info) => {
+        MeasurementUndo::LineStartColumnNumber(info.unique_id(), printer.resolved_line_start_column_numbers.get(info.unique_id()))
+      }
+      Info::LineStartIndentLevel(info) => {
+        MeasurementUndo::LineStartIndentLevel(info.unique_id(), printer.resolved_line_start_indent_levels.get(info.unique_id()))
+      }
+    });
+  }
+
+  #[cfg(debug_assertions)]
+  fn measurement_snapshot(&self) -> MeasurementSnapshot {
+    let mut conditions = self.resolved_conditions.iter().map(|(id, value)| (*id, *value)).collect::<Vec<_>>();
+    conditions.sort();
+    let mut stored_save_points = self
+      .stored_condition_save_points
+      .iter()
+      .map(|(id, (_, save_point))| (*id, *save_point as *const SavePoint as usize))
+      .collect::<Vec<_>>();
+    stored_save_points.sort();
+    MeasurementSnapshot {
+      line_numbers: self.resolved_line_numbers.clone(),
+      column_numbers: self.resolved_column_numbers.clone(),
+      is_start_of_lines: self.resolved_is_start_of_lines.clone(),
+      indent_levels: self.resolved_indent_levels.clone(),
+      line_start_column_numbers: self.resolved_line_start_column_numbers.clone(),
+      line_start_indent_levels: self.resolved_line_start_indent_levels.clone(),
+      line_number_anchors: self.resolved_line_number_anchors.clone(),
+      conditions,
+      stored_save_points,
+    }
+  }
+
+  #[cfg(debug_assertions)]
+  fn verify_measurement_restored(&self, snapshot: &MeasurementSnapshot) {
+    if self.measurement_snapshot() != *snapshot {
+      panic!("Debug panic! Measuring whether print items fit on the line didn't restore what it resolved.");
     }
   }
 
@@ -378,6 +593,31 @@ impl<'a> Printer<'a> {
 
   #[inline]
   fn handle_signal(&mut self, signal: &Signal) {
+    if let Some(measurement) = &self.measurement {
+      match signal {
+        Signal::NewLine | Signal::ExpectNewLine if !measurement.is_past_end => {
+          // the items up to the end can't be on one line
+          self.finish_measurement(false);
+          return;
+        }
+        Signal::NewLine | Signal::ExpectNewLine => {
+          self.finish_measurement(true);
+          return;
+        }
+        Signal::PossibleNewLine | Signal::SpaceOrNewLine if measurement.is_past_end => {
+          // the line breaks at the first possible newline after the end that's in the same or an
+          // outer new line group, because the printer breaks earlier on the line before breaking
+          // in a deeper one
+          if measurement.request.stop_at_first_break || self.new_line_group_depth <= measurement.new_line_group_depth {
+            self.finish_measurement(true);
+          } else if matches!(signal, Signal::SpaceOrNewLine) {
+            self.writer.space_if_not_trailing();
+          }
+          return;
+        }
+        _ => {}
+      }
+    }
     match signal {
       Signal::NewLine => {
         if self.allow_new_lines() {
@@ -433,6 +673,7 @@ impl<'a> Printer<'a> {
       Signal::StartForceNoNewLines => self.force_no_newlines_depth += 1,
       Signal::FinishForceNoNewLines => self.force_no_newlines_depth -= 1,
       Signal::SpaceIfNotTrailing => self.writer.space_if_not_trailing(),
+      Signal::KeepLineBeforeHere => self.possible_new_line_save_point = None,
     }
   }
 
@@ -447,11 +688,13 @@ impl<'a> Printer<'a> {
           if difference != 0 {
             let line_number_id = anchor.line_number_id();
             if let Some(value) = self.resolved_line_numbers.get(line_number_id) {
+              self.record_for_measurement(|_| MeasurementUndo::LineNumber(line_number_id, Some(value)));
               let new_value = ((value as isize) + difference) as u32;
               self.resolved_line_numbers.insert(line_number_id, new_value);
             }
           }
         }
+        self.record_for_measurement(|printer| MeasurementUndo::LineNumberAnchor(id, printer.resolved_line_number_anchors.get(id)));
         self.resolved_line_number_anchors.insert(id, current_line_number);
       }
     }
@@ -459,6 +702,11 @@ impl<'a> Printer<'a> {
 
   #[inline]
   fn handle_targeted_info(&mut self, info: &Info) {
+    if self.measurement.is_some() {
+      self.record_info_for_measurement(info);
+      self.resolve_info_while_measuring(info);
+      return;
+    }
     let save_point = match info {
       Info::LineNumber(line_number) => {
         let line_number_id = line_number.unique_id();
@@ -506,8 +754,37 @@ impl<'a> Printer<'a> {
     }
   }
 
+  /// Resolves the info without going back to the conditions that looked ahead at it,
+  /// since what's resolved while measuring is undone.
+  fn resolve_info_while_measuring(&mut self, info: &Info) {
+    match info {
+      Info::LineNumber(info) => {
+        self.resolved_line_numbers.insert(info.unique_id(), self.writer.line_number());
+        let measurement = self.measurement.as_mut().unwrap();
+        if info.unique_id() == measurement.request.end_line_number_id && !measurement.is_past_end {
+          // measure the rest of the line normally
+          measurement.is_past_end = true;
+          self.force_no_newlines_depth -= 1;
+        }
+      }
+      Info::ColumnNumber(info) => self.resolved_column_numbers.insert(info.unique_id(), self.writer.column_number()),
+      Info::IsStartOfLine(info) => self.resolved_is_start_of_lines.insert(info.unique_id(), self.writer.is_start_of_line()),
+      Info::IndentLevel(info) => self.resolved_indent_levels.insert(info.unique_id(), self.writer.indent_level()),
+      Info::LineStartColumnNumber(info) => self
+        .resolved_line_start_column_numbers
+        .insert(info.unique_id(), self.writer.line_start_column_number()),
+      Info::LineStartIndentLevel(info) => self
+        .resolved_line_start_indent_levels
+        .insert(info.unique_id(), self.writer.line_start_indent_level()),
+    }
+  }
+
   #[inline]
   fn handle_condition_reevaluation(&mut self, condition_reevaluation: &ConditionReevaluation) {
+    if self.measurement.is_some() {
+      // the condition was resolved before the measurement, so it's re-evaluated after
+      return;
+    }
     let condition_id = condition_reevaluation.condition_id;
     if let Some((condition, save_point)) = self.stored_condition_save_points.get(&condition_id).cloned()
       && let Some(past_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned())
@@ -516,6 +793,8 @@ impl<'a> Printer<'a> {
       let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
       let latest_condition_value = condition.resolve(&mut context);
       self.resolving_save_point.take();
+      // the position re-evaluated at was measured when the condition was resolved
+      self.requested_measurement = None;
 
       // Do not re-evaluate the condition if it's flipped back and forth a decent number of times.
       // If it hits the max number of times it can flip then an error will be logged.
@@ -551,15 +830,24 @@ impl<'a> Printer<'a> {
 
     if condition.store_save_point {
       let save_point = self.get_save_point_for_restoring_condition(condition.name());
+      self.record_for_measurement(|printer| {
+        MeasurementUndo::StoredConditionSavePoint(condition_id, printer.stored_condition_save_points.get(&condition_id).copied())
+      });
       self.stored_condition_save_points.insert(condition.unique_id(), (condition, save_point));
     }
 
     let condition_value = condition.resolve(&mut ConditionResolverContext::new(self, self.get_writer_info()));
     if condition.is_stored {
+      self.record_for_measurement(|printer| MeasurementUndo::Condition(condition_id, printer.resolved_conditions.get(&condition_id).copied()));
       self.resolved_conditions.insert(condition_id, condition_value);
     }
 
+    if let Some(request) = self.requested_measurement.take() {
+      self.start_measurement(request, condition.name());
+    }
+
     if condition_value.is_some()
+      && self.measurement.is_none()
       && let Some(save_point) = self.look_ahead_save_points.remove(LookAheadKey::Condition(condition_id), self.arena)
     {
       #[cfg(feature = "tracing")]
@@ -605,7 +893,7 @@ impl<'a> Printer<'a> {
     #[cfg(debug_assertions)]
     self.validate_string(text.text);
 
-    if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) && self.allow_new_lines() {
+    if self.measurement.is_none() && self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) && self.allow_new_lines() {
       let save_point = self.possible_new_line_save_point.take();
       #[cfg(feature = "tracing")]
       self.trace_jump(|_| TraceJump::NewLine);
@@ -693,4 +981,65 @@ impl<'a> Printer<'a> {
       panic!("Debug panic! The writer was still aligning after printing.");
     }
   }
+}
+
+/// A measurement of whether print items fit on the rest of the line.
+struct Measurement<'a> {
+  request: MeasurementRequest,
+  /// Where to go back to once the measurement is done.
+  save_point: &'a SavePoint<'a>,
+  start: (u32, u32),
+  /// Whether the end was printed, after which the rest of the line is measured normally.
+  is_past_end: bool,
+  /// The new line group depth when the measurement started.
+  new_line_group_depth: u16,
+  /// The force no newlines depth when the measurement started.
+  force_no_newlines_depth: u8,
+  /// The measurements requested within this one, which fit when this one does.
+  nested: Vec<(MeasurementRequest, (u32, u32))>,
+  /// The values from before the measurement changed them.
+  undo: Vec<MeasurementUndo<'a>>,
+  #[cfg(debug_assertions)]
+  snapshot: MeasurementSnapshot,
+}
+
+#[derive(Clone, Copy)]
+struct MeasurementRequest {
+  end_line_number_id: u32,
+  /// Whether the line ends at the first possible newline after the end, regardless of its new line group.
+  stop_at_first_break: bool,
+}
+
+#[derive(Clone, Copy)]
+struct MeasurementResult {
+  start: (u32, u32),
+  stop_at_first_break: bool,
+  fits: bool,
+}
+
+enum MeasurementUndo<'a> {
+  LineNumber(u32, Option<u32>),
+  ColumnNumber(u32, Option<u32>),
+  IsStartOfLine(u32, Option<bool>),
+  IndentLevel(u32, Option<u8>),
+  LineStartColumnNumber(u32, Option<u32>),
+  LineStartIndentLevel(u32, Option<u8>),
+  LineNumberAnchor(u32, Option<u32>),
+  Condition(u32, Option<Option<bool>>),
+  StoredConditionSavePoint(u32, Option<(&'a Condition<'a>, &'a SavePoint<'a>)>),
+}
+
+/// The values a measurement could change, to check that it restored them.
+#[cfg(debug_assertions)]
+#[derive(PartialEq)]
+struct MeasurementSnapshot {
+  line_numbers: VecU32U32Map,
+  column_numbers: VecU32U32Map,
+  is_start_of_lines: VecU32BoolMap,
+  indent_levels: VecU32U8Map,
+  line_start_column_numbers: VecU32U32Map,
+  line_start_indent_levels: VecU32U8Map,
+  line_number_anchors: VecU32U32Map,
+  conditions: Vec<(u32, Option<bool>)>,
+  stored_save_points: Vec<(u32, usize)>,
 }

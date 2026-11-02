@@ -26,7 +26,7 @@ export interface Trace {
   jump: Jump | undefined;
 }
 
-export type Jump = NewLineJump | InfoJump | ConditionJump | ConditionReevaluationJump;
+export type Jump = NewLineJump | InfoJump | ConditionJump | ConditionReevaluationJump | MeasurementJump;
 
 /** The line was too long, so the printer went back to the last possible newline to write a newline there. */
 export interface NewLineJump {
@@ -52,6 +52,14 @@ export interface ConditionJump {
 export interface ConditionReevaluationJump {
   kind: "conditionReevaluation";
   content: ConditionJumpContent;
+}
+
+/** The printer measured whether print items fit on the line for a condition. */
+export interface MeasurementJump {
+  kind: "measurement";
+  content: {
+    fits: boolean;
+  };
 }
 
 export interface ConditionJumpContent {
@@ -141,7 +149,8 @@ export type Signal =
   | "FinishAlign"
   | "StartForceNoNewLines"
   | "FinishForceNoNewLines"
-  | "SpaceIfNotTrailing";
+  | "SpaceIfNotTrailing"
+  | "KeepLineBeforeHere";
 
 export interface StringItem {
   kind: "string";

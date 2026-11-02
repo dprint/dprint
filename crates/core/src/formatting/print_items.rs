@@ -335,6 +335,15 @@ pub enum TraceJump {
   Condition(TraceConditionJump),
   /// A condition was re-evaluated and its value changed.
   ConditionReevaluation(TraceConditionJump),
+  /// The printer measured whether print items fit on the line for a condition.
+  Measurement(TraceMeasurementJump),
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceMeasurementJump {
+  pub fits: bool,
 }
 
 #[cfg(feature = "tracing")]
@@ -626,6 +635,9 @@ pub enum Signal {
   FinishForceNoNewLines,
   /// Signal that a space should occur if not trailing.
   SpaceIfNotTrailing,
+  /// Signal that the line shouldn't break before this point, which forgets the last possible
+  /// newline (ex. after a condition decided that the text up to here stays on the line).
+  KeepLineBeforeHere,
 }
 
 #[derive(Clone)]
@@ -1118,6 +1130,34 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
     let line = self.printer.resolved_line_number(line_and_column.line)?;
     let column = self.printer.resolved_column_number(line_and_column.column)?;
     Some((line, column))
+  }
+
+  /// Gets if the print items from here fit on the rest of the line without newlines up to the
+  /// line number, along with the items after it up to where the line would break.
+  ///
+  /// Returns `None` the first time at a position, then the printer measures and resolves the
+  /// condition again. What the printer resolves while measuring is undone afterwards.
+  pub fn fits_on_line_until(&mut self, line_number: LineNumber) -> Option<bool> {
+    let position = (self.writer_info.line_number, self.writer_info.column_number);
+    self.printer.fits_on_line_until(line_number, position, false)
+  }
+
+  /// Like `fits_on_line_until`, but the line ends at the first possible newline after the
+  /// line number (ex. to measure the first line of text that will break there).
+  pub fn fits_on_line_until_first_break(&mut self, line_number: LineNumber) -> Option<bool> {
+    let position = (self.writer_info.line_number, self.writer_info.column_number);
+    self.printer.fits_on_line_until(line_number, position, true)
+  }
+
+  /// Gets if the printer is measuring whether print items fit on the line, in which case
+  /// what's resolved is undone afterwards, so state kept outside the printer shouldn't change.
+  pub fn is_measuring(&self) -> bool {
+    self.printer.is_measuring()
+  }
+
+  /// Gets if the line could break before this position.
+  pub fn can_break_earlier_on_line(&self) -> bool {
+    self.printer.can_break_earlier_on_line()
   }
 
   /// Gets the line number or returns None when not yet resolved.

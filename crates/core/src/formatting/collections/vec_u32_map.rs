@@ -7,6 +7,7 @@ use std::fmt::Display;
 
 /// More efficient memory storage version of for
 /// u32 values where it uses u32::MAX to mean None.
+#[derive(Clone, PartialEq)]
 pub struct VecU32U32Map(VecU32MapWithValuedNone<u32>);
 
 impl VecU32U32Map {
@@ -29,6 +30,7 @@ impl VecU32U32Map {
 
 /// More efficient memory storage version of VecU32Map for
 /// u8 values where it uses u8::MAX to mean None.
+#[derive(Clone, PartialEq)]
 pub struct VecU32U8Map(VecU32MapWithValuedNone<u8>);
 
 impl VecU32U8Map {
@@ -54,6 +56,7 @@ impl VecU32U8Map {
 /// the second 4 are the values.
 ///
 /// This was made mainly for fun.
+#[derive(Clone, PartialEq)]
 pub struct VecU32BoolMap(Vec<u8>);
 
 impl VecU32BoolMap {
@@ -114,6 +117,7 @@ impl VecU32BoolMap {
 /// A map that uses a value (ex. u32::MAX) to mean `None`.
 /// This can be more memory efficient by not requiring extra data for the Option
 /// especially in this scenario where the max value will likely never be hit.
+#[derive(Clone, PartialEq)]
 struct VecU32MapWithValuedNone<T: Clone + Copy + PartialEq + Display>(VecU32MapWithDefault<T>);
 
 impl<T: Clone + Copy + PartialEq + Display> VecU32MapWithValuedNone<T> {
@@ -143,6 +147,7 @@ impl<T: Clone + Copy + PartialEq + Display> VecU32MapWithValuedNone<T> {
 /// data will be stored.
 ///
 /// Use VecU32Map if you are storing some data optionally.
+#[derive(Clone, PartialEq)]
 pub struct VecU32MapWithDefault<T: Clone> {
   vec: Vec<T>,
   default: T,

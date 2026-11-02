@@ -130,6 +130,7 @@ fn test_tracing_jumps() {
       }
       TraceJump::Condition(jump) => format!("condition {} {:?}", jump.name, jump.value),
       TraceJump::ConditionReevaluation(jump) => format!("conditionReevaluation {} {:?}", jump.name, jump.value),
+      TraceJump::Measurement(jump) => format!("measurement {}", jump.fits),
     }
   }
 }

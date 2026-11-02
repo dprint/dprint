@@ -75,7 +75,9 @@ impl<'a> InfoRegion<'a> {
           }
         }
       }
-      last_start.set(Some(start));
+      if !context.is_measuring() {
+        last_start.set(Some(start));
+      }
     })
   }
 }

@@ -526,6 +526,9 @@ function getJumpText(jump, nextTrace) {
       case "conditionReevaluation":
         return `Condition ${jump.content.name} (${jump.content.conditionId}) changed to ${jump.content.value} when re-evaluated, `
           + "so it went back to print it again.";
+      case "measurement":
+        return `It measured that the print items ${jump.content.fits ? "fit" : "don't fit"} on the line, `
+          + "so it went back to the condition that asked.";
     }
   }
 }
