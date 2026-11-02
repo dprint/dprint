@@ -23,6 +23,16 @@ pub struct PluginInfo {
   /// Generally in the format: https://plugins.dprint.dev/<org-or-user>/<repo>/latest.json
   /// For example: https://plugins.dprint.dev/dprint/dprint-plugin-typescript/latest.json
   pub update_url: Option<String>,
+  /// Whether the plugin formats the range of a format request.
+  ///
+  /// - `Some(true)` - Editors give the plugin the range as it is and use what
+  ///   it formats, so it decides what to format around the range (ex. the
+  ///   nodes it overlaps).
+  /// - `Some(false)` - Editors don't format a range with the plugin.
+  /// - `None` - The plugin doesn't say, so editors give it the range expanded
+  ///   to whole lines and only keep the changes within those lines.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub supports_range_formatting: Option<bool>,
 }
 
 /// Message for when a plugin's [`FileMatchingInfo`] can't be deserialized. A

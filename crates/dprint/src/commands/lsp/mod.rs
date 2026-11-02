@@ -75,6 +75,7 @@ use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginConfigDiagnosticsError;
+use crate::resolution::RangeFormattingSupport;
 
 use self::client::ClientWrapper;
 use self::config::LspPluginsScopeContainer;
@@ -95,8 +96,10 @@ use self::notebook::get_notebook_document_sync_options;
 use self::notebook::trim_formatted_cell_text;
 use self::settings::LspSettings;
 use self::text::LineIndex;
-use self::text::get_edits;
+use self::text::RangeFormat;
+use self::text::get_range_utf16_edits;
 use self::text::normalize_to_source_line_endings;
+use self::text::to_lsp_edits;
 use self::untitled::get_untitled_file_path;
 use self::untitled::get_untitled_registrations;
 use self::untitled::is_untitled_uri;
@@ -122,6 +125,9 @@ const USE_GLOBAL_CONFIG_OPTION: &str = "useGlobalConfig";
 /// work regardless of whether the server is set to use the global config file.
 const FORMAT_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatWithGlobalConfig";
 const FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatSelectionWithGlobalConfig";
+
+const RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE: &str =
+  "dprint did not format the selection because a plugin that formats this document doesn't support formatting part of it.";
 
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
@@ -236,6 +242,8 @@ enum NotFormattedReason {
   NotMatched,
   /// No plugin in the config file handles the file.
   NoPlugin,
+  /// A plugin that formats the file doesn't support formatting a range.
+  RangeFormattingNotSupported,
   /// The document is already formatted.
   Unchanged,
   /// Formatting failed, which is logged.
@@ -264,6 +272,7 @@ impl NotFormattedReason {
         MessageType::INFO,
         "dprint did not format this document because no plugin in the configuration file in use handles it.".to_string(),
       )),
+      NotFormattedReason::RangeFormattingNotSupported => Some((MessageType::INFO, RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string())),
       NotFormattedReason::Failed => Some((
         MessageType::WARNING,
         "dprint failed to format this document. See the language server's log for details.".to_string(),
@@ -337,14 +346,21 @@ async fn handle_format_request<TEnvironment: Environment>(
     .get_plugin_names_from_file_path_and_bytes(&request.file_path, request.file_text.as_bytes())
     .is_empty();
   let token = request.token.clone();
-  // the range is given to the plugin, but is needed after for a notebook cell
-  let maybe_cell_range = request.notebook_path.as_ref().map(|_| request.range.clone());
+  let range_format = match request.range.clone() {
+    Some(range) => match scope.range_formatting_support(&request.file_path, request.file_text.as_bytes()) {
+      RangeFormattingSupport::Supported => RangeFormat::new(&request.file_text, Some(range), true),
+      RangeFormattingSupport::Unknown => RangeFormat::new(&request.file_text, Some(range), false),
+      RangeFormattingSupport::NotSupported => return Ok(FormatOutcome::NotFormatted(NotFormattedReason::RangeFormattingNotSupported)),
+    },
+    None => RangeFormat::new(&request.file_text, None, true),
+  };
+  let is_notebook_cell = request.notebook_path.is_some();
   let Some(result) = scope
     .format_stable(
       HostFormatRequest {
         file_path: request.file_path,
         file_bytes: request.file_text.as_bytes().to_vec(),
-        range: request.range,
+        range: range_format.plugin_range.clone(),
         override_config: Default::default(),
         token: request.token,
       },
@@ -365,18 +381,18 @@ async fn handle_format_request<TEnvironment: Environment>(
     // the editor owns the document's line endings, so match them rather than
     // imposing the plugin's configured newline kind (see #965)
     let new_text = normalize_to_source_line_endings(&request.file_text, new_text);
-    let new_text = match maybe_cell_range {
-      Some(range) => {
-        let new_text = trim_formatted_cell_text(&request.file_text, new_text, &range);
-        if new_text == *request.file_text {
-          return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
-        }
-        new_text
+    let new_text = if is_notebook_cell {
+      let new_text = trim_formatted_cell_text(&request.file_text, new_text, &range_format.cell_range());
+      if new_text == *request.file_text {
+        return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
       }
-      None => new_text,
+      new_text
+    } else {
+      new_text
     };
     let line_index = request.maybe_line_index.unwrap_or_else(|| Arc::new(LineIndex::new(&request.file_text)));
-    Ok(FormatOutcome::Edits(get_edits(&request.file_text, &new_text, &line_index)))
+    let edits = get_range_utf16_edits(&request.file_text, &new_text, &range_format.edits_range);
+    Ok(FormatOutcome::Edits(to_lsp_edits(edits, &line_index)))
   })
   .await?
 }
@@ -542,8 +558,13 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   async fn format_document(&self, uri: &Uri, range: Option<Range>, options: &FormattingOptions, token: CancellationToken) -> Option<Vec<TextEdit>> {
     let use_global_config = self.state.lock().settings.use_global_config || has_use_global_config_option(options);
     let outcome = self.format(uri, range, use_global_config, token).await?;
-    if matches!(outcome, FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile)) {
-      self.notify_no_config();
+    match outcome {
+      FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile) => self.notify_no_config(),
+      // only logged because a client may format a range without the user asking (ex. on paste)
+      FormatOutcome::NotFormatted(NotFormattedReason::RangeFormattingNotSupported) => {
+        self.client.log_info(RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE.to_string());
+      }
+      _ => {}
     }
     outcome.into_edits()
   }
@@ -1364,6 +1385,7 @@ mod test {
               CancellationToken::new(),
             )
             .await;
+          // the process plugin formats the range itself
           assert_eq!(
             result.unwrap().unwrap(),
             vec![
@@ -2185,7 +2207,7 @@ mod test {
             }])
           );
 
-          // range formatting before the end of the cell keeps the trailing whitespace
+          // the range is expanded to its whole lines, which is the whole cell here
           let result = backend
             .range_formatting(
               DocumentRangeFormattingParams {
@@ -2199,20 +2221,10 @@ mod test {
             .await;
           assert_eq!(
             result.unwrap(),
-            Some(vec![
-              TextEdit {
-                range: Range::new(Position::new(0, 1), Position::new(0, 1)),
-                new_text: "_formatt".to_string()
-              },
-              TextEdit {
-                range: Range::new(Position::new(0, 2), Position::new(0, 2)),
-                new_text: "d\n_".to_string()
-              },
-              TextEdit {
-                range: Range::new(Position::new(0, 6), Position::new(0, 6)),
-                new_text: "_formatted  ".to_string()
-              },
-            ])
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 6), Position::new(0, 6)),
+              new_text: "_formatted".to_string()
+            }])
           );
 
           // language without a plugin

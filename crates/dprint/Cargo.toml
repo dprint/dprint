@@ -25,7 +25,7 @@ deno_semver = "=0.10.1"
 deno_terminal = "=0.2.3"
 deno_tower_lsp = "=0.5.0"
 dirs = "=6.0.0"
-dprint-core = { path = "../core", version = "=0.74.1", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "=0.75.0", features = ["process", "wasm"] }
 dunce = "=1.0.4"
 flate2 = "=1.1.9"
 fs3 = "=0.5.0"
