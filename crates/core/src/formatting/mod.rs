@@ -8,6 +8,7 @@ pub mod condition_resolvers;
 pub mod conditions;
 pub mod ir_helpers;
 
+mod arena;
 mod collections;
 mod infinite_reevaluation_protection;
 mod print;
@@ -22,6 +23,11 @@ mod writer;
 pub mod tokens;
 pub mod utils;
 
+pub use arena::Arena;
+pub use arena::ArenaPool;
+/// The bump allocator crate used by [`Arena`], for allocating other values in it
+/// (ex. `bumpalo::collections::Vec::new_in(arena.bump())`).
+pub use bumpalo;
 pub use print::PrintOptions;
 #[cfg(feature = "tracing")]
 pub use print::TracingResult;

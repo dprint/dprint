@@ -15,7 +15,11 @@ function onLoad() {
     refreshApp();
   });
   const codeView = createCodeView();
-  const infoArea = createInfoArea();
+  const infoArea = createInfoArea(traceIndex => {
+    appData.traceIndex = traceIndex;
+    appData.selectedNodeId = traceResult.traces[traceIndex].printNodeId;
+    refreshApp();
+  });
   const graph = createGraph(printNodeId => {
     const traceIndex = getNextTraceIndex();
     // might not have had a trace that visited this print node
@@ -103,7 +107,8 @@ function getNodeHoverText(node) {
     case "rcPath":
       return `RcPath (${node.printNodeId})`;
     case "signal":
-      return `Signal: ${printItem.content} (${node.printNodeId})`;
+      // a signal with data is an object (ex. `{ "StartAlign": 2 }`)
+      return `Signal: ${typeof printItem.content === "string" ? printItem.content : JSON.stringify(printItem.content)} (${node.printNodeId})`;
     case "string":
       return `String: ${printItem.content} (${node.printNodeId})`;
     case "anchor":
@@ -422,23 +427,107 @@ function createNodeInfoArea() {
   };
 }
 
-function createInfoArea() {
+/** @param {(traceIndex: number) => void} onTraceIndexChange */
+function createInfoArea(onTraceIndexChange) {
+  /** @type {number[]} */
+  const jumpTraceIndexes = [];
+  traceResult.traces.forEach((trace, index) => {
+    if (trace.jump != null) {
+      jumpTraceIndexes.push(index);
+    }
+  });
+  let currentTraceIndex = 0;
   const mainElement = document.createElement("div");
   mainElement.id = "info-area";
+  const timeElement = document.createElement("div");
   const currentTimeLabel = document.createElement("label");
   currentTimeLabel.textContent = "Time:";
-  mainElement.appendChild(currentTimeLabel);
+  timeElement.appendChild(currentTimeLabel);
   const timeSpan = document.createElement("span");
-  mainElement.appendChild(timeSpan);
+  timeElement.appendChild(timeSpan);
+  mainElement.appendChild(timeElement);
+
+  const jumpElement = document.createElement("div");
+  const jumpLabel = document.createElement("label");
+  jumpLabel.textContent = "Jump:";
+  jumpElement.appendChild(jumpLabel);
+  const previousJumpButton = createButton("Previous", () => {
+    const previousIndexes = jumpTraceIndexes.filter(index => index < currentTraceIndex);
+    if (previousIndexes.length > 0) {
+      onTraceIndexChange(previousIndexes[previousIndexes.length - 1]);
+    }
+  });
+  jumpElement.appendChild(previousJumpButton);
+  const nextJumpButton = createButton("Next", () => {
+    const nextIndexes = jumpTraceIndexes.filter(index => index > currentTraceIndex);
+    if (nextIndexes.length > 0) {
+      onTraceIndexChange(nextIndexes[0]);
+    }
+  });
+  jumpElement.appendChild(nextJumpButton);
+  const jumpCountSpan = document.createElement("span");
+  jumpElement.appendChild(jumpCountSpan);
+  const jumpTextSpan = document.createElement("span");
+  jumpElement.appendChild(jumpTextSpan);
+  mainElement.appendChild(jumpElement);
 
   return {
     element: mainElement,
     /** @param {number} index */
     setTraceIndex(index) {
+      currentTraceIndex = index;
       const trace = traceResult.traces[index];
       timeSpan.textContent = formatNanos(trace.nanos);
+      const jumpsSoFar = jumpTraceIndexes.filter(jumpIndex => jumpIndex <= index).length;
+      jumpCountSpan.textContent = `${jumpsSoFar} of ${jumpTraceIndexes.length}`;
+      previousJumpButton.disabled = jumpTraceIndexes.length === 0 || jumpTraceIndexes[0] >= index;
+      nextJumpButton.disabled = jumpTraceIndexes.length === 0 || jumpTraceIndexes[jumpTraceIndexes.length - 1] <= index;
+      const nextTrace = traceResult.traces[index + 1];
+      jumpTextSpan.textContent = trace.jump == null ? "" : getJumpText(trace.jump, nextTrace);
     },
   };
+
+  /**
+   * @param {string} text
+   * @param {() => void} onClick
+   */
+  function createButton(text, onClick) {
+    const button = document.createElement("button");
+    button.textContent = text;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+}
+
+/**
+ * Gets text that explains why the printer went back to an earlier point.
+ * @param {import("./types").Jump} jump
+ * @param {import("./types").Trace | undefined} nextTrace
+ */
+function getJumpText(jump, nextTrace) {
+  const reason = getReason();
+  if (nextTrace == null) {
+    return reason;
+  }
+  return `${reason} Continues from ${getNodeHoverText(traceResult.getPrintNode(nextTrace.printNodeId))}.`;
+
+  function getReason() {
+    switch (jump.kind) {
+      case "newLine":
+        return "The line was too long, so it went back to the last possible newline to write a newline there.";
+      case "info": {
+        const info = jump.content.info;
+        return `Info ${info.content.name} - ${info.kind} (${info.content.infoId}) resolved to ${jump.content.value}, `
+          + "so it went back to the condition that used it before it was resolved.";
+      }
+      case "condition":
+        return `Condition ${jump.content.name} (${jump.content.conditionId}) resolved to ${jump.content.value}, `
+          + "so it went back to the condition that used it before it was resolved.";
+      case "conditionReevaluation":
+        return `Condition ${jump.content.name} (${jump.content.conditionId}) changed to ${jump.content.value} when re-evaluated, `
+          + "so it went back to print it again.";
+    }
+  }
 }
 
 function createCodeView() {

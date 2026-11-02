@@ -127,7 +127,7 @@ line-range-args = ["--lines=$first-$last"]
 patterns = ["glob:'**/*.ts'"]
 ```
 
-The range is passed on to the plugin the same way as range formatting in the [language server](/lsp), so what's formatted is up to the plugin. A plugin that doesn't support range formatting may format the entire file or leave the text as-is.
+The range is passed on to the plugin, so what's formatted is up to the plugin. A plugin that doesn't support range formatting may format the entire file or leave the text as-is.
 
 ### Formatting a list of files from Standard Input
 

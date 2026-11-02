@@ -3,8 +3,10 @@ use super::StringContainer;
 
 #[derive(Clone, Copy)]
 pub enum WriteItem<'a> {
-  String(&'a StringContainer),
+  String(&'a StringContainer<'a>),
   Indent(u8),
+  /// Columns of spaces after the indentation.
+  Align(u32),
   NewLine,
   Tab,
   Space,
@@ -36,16 +38,21 @@ impl WriteItemsPrinter {
   }
 
   pub fn print<'a>(&self, items: impl Iterator<Item = WriteItem<'a>>) -> String {
-    items.fold(String::new(), |acc, item| match item {
-      WriteItem::Indent(n) => match self.indent {
-        Indentation::Tabs => acc + &str::repeat("\t", n as usize),
-        Indentation::Spaces(width) => acc + &str::repeat(" ", width * n as usize),
-      },
-      WriteItem::NewLine => acc + self.newline,
-      WriteItem::Tab => acc + "\t",
-      WriteItem::Space => acc + " ",
-      WriteItem::String(StringContainer { text, .. }) => acc + text,
-    })
+    let mut text = String::new();
+    for item in items {
+      match item {
+        WriteItem::Indent(n) => match self.indent {
+          Indentation::Tabs => text.extend(std::iter::repeat_n('\t', n as usize)),
+          Indentation::Spaces(width) => text.extend(std::iter::repeat_n(' ', width * n as usize)),
+        },
+        WriteItem::Align(columns) => text.extend(std::iter::repeat_n(' ', columns as usize)),
+        WriteItem::NewLine => text.push_str(self.newline),
+        WriteItem::Tab => text.push('\t'),
+        WriteItem::Space => text.push(' '),
+        WriteItem::String(StringContainer { text: item_text, .. }) => text.push_str(item_text),
+      }
+    }
+    text
   }
 }
 

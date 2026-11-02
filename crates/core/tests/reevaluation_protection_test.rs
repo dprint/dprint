@@ -1,6 +1,6 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::cell::Cell;
 
+use dprint_core::formatting::IntoPrintItems;
 use dprint_core::formatting::PrintItems;
 use dprint_core::formatting::PrintOptions;
 use dprint_core::formatting::conditions::if_true_or;
@@ -8,20 +8,19 @@ use dprint_core::formatting::conditions::if_true_or;
 #[test]
 fn should_stabilize_after_reevaluation_flipping() {
   let result = dprint_core::formatting::format(
-    || {
-      let mut items = PrintItems::new();
-      let cell = RefCell::new(false);
+    |arena| {
+      let mut items = PrintItems::new(arena);
+      let cell: &Cell<bool> = arena.bump().alloc(Cell::new(false));
       // cause an infinite loop
       let mut condition = if_true_or(
         "flipping",
-        Rc::new(move |_| {
+        arena.alloc_resolver(move |_| {
           // flip forever
-          let mut value = cell.borrow_mut();
-          *value = !*value;
-          Some(*value)
+          cell.set(!cell.get());
+          Some(cell.get())
         }),
-        "1".into(),
-        "2".into(),
+        "1".into_print_items(arena),
+        "2".into_print_items(arena),
       );
       let reevaluation = condition.create_reevaluation();
       items.push_condition(condition);

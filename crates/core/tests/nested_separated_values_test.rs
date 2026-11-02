@@ -1,3 +1,4 @@
+use dprint_core::formatting::IntoPrintItems;
 use dprint_core::formatting::PrintItems;
 use dprint_core::formatting::PrintOptions;
 use dprint_core::formatting::ir_helpers;
@@ -10,9 +11,9 @@ use dprint_core::formatting::ir_helpers;
 /// be found out by printing.
 fn print_nested(depth: usize, declare_known_multi_line: bool) -> String {
   dprint_core::formatting::format(
-    || {
+    |arena| {
       let mut inner = {
-        let mut items = PrintItems::new();
+        let mut items = PrintItems::new(arena);
         items.push_str("innermost");
         items
       };
@@ -31,7 +32,7 @@ fn print_nested(depth: usize, declare_known_multi_line: bool) -> String {
               },
               ir_helpers::GeneratedValue {
                 items: {
-                  let mut items = PrintItems::new();
+                  let mut items = PrintItems::new(arena);
                   items.push_str("second");
                   items
                 },
@@ -46,8 +47,8 @@ fn print_nested(depth: usize, declare_known_multi_line: bool) -> String {
             prefer_hanging: false,
             // the innermost group is the one already written over several lines
             force_use_new_lines: i == 0,
-            allow_blank_lines: false,
-            single_line_options: ir_helpers::SingleLineOptions::separated_same_line(", ".into()),
+            max_blank_lines: 0,
+            single_line_options: ir_helpers::SingleLineOptions::separated_same_line(", ".into_print_items(arena)),
             indent_width: 2,
             multi_line_options: ir_helpers::MultiLineOptions::surround_newlines_indented(),
             force_possible_newline_at_start: false,
@@ -55,7 +56,7 @@ fn print_nested(depth: usize, declare_known_multi_line: bool) -> String {
         )
         .items;
         inner = {
-          let mut items = PrintItems::new();
+          let mut items = PrintItems::new(arena);
           items.push_str("[");
           items.extend(group);
           items.push_str("]");

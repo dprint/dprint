@@ -1,16 +1,4 @@
-use std::borrow::Cow;
 use std::cell::UnsafeCell;
-use std::rc::Rc;
-
-use super::Condition;
-use super::ConditionResolver;
-use super::PrintNodeCell;
-use super::SavePoint;
-use super::StringContainer;
-use super::UnsafePrintLifetime;
-use super::WriteItem;
-use super::collections::GraphNode;
-use super::collections::NodeStackNode;
 
 #[derive(Default)]
 pub struct Counts {
@@ -29,98 +17,8 @@ pub struct Counts {
   graph_node_id_count: u32,
 }
 
-/// This file is a dumpster fireand the API is actually really
-/// unsafe if used incorrectly. The way it ended up this way was
-/// because I wanted to try out the performance improvements of
-/// a bump allocator without having to deal with lifetimes everywhere.
-/// Anyway, this landed and I haven't had time to go through and
-/// make the API safe.
-pub struct BumpAllocator {
-  condition_resolvers: Vec<ConditionResolver>,
-  bump: bumpalo::Bump,
-}
-
-impl BumpAllocator {
-  fn new() -> Self {
-    Self {
-      condition_resolvers: Default::default(),
-      bump: bumpalo::Bump::new(),
-    }
-  }
-
-  pub fn inner(&self) -> &bumpalo::Bump {
-    &self.bump
-  }
-
-  pub fn alloc_condition(&mut self, condition: Condition) -> UnsafePrintLifetime<Condition> {
-    unsafe {
-      // Leak the Rc that gets stored in the bump allocator, then add another
-      // rc in a vector that we store here, which will cause a decrement of the
-      // rc when this is dropped.
-      let condition_resolver = condition.condition.clone();
-      let rc_raw = Rc::into_raw(condition_resolver);
-      Rc::decrement_strong_count(rc_raw);
-      self.condition_resolvers.push(Rc::from_raw(rc_raw));
-    }
-    let condition = self.bump.alloc(condition);
-    unsafe { std::mem::transmute::<&Condition, UnsafePrintLifetime<Condition>>(condition) }
-  }
-
-  pub fn alloc_string(&self, item: Cow<'static, str>) -> UnsafePrintLifetime<StringContainer> {
-    match item {
-      Cow::Borrowed(item) => self.alloc_string_container(item),
-      Cow::Owned(item) => self.alloc_str(&item),
-    }
-  }
-
-  /// Copies the string into the bump allocator, where it lives for the rest of the print.
-  ///
-  /// This exists so a caller holding a string it doesn't own can hand it over without allocating a
-  /// `String` first, which would be copied here and then immediately freed.
-  pub fn alloc_str(&self, item: &str) -> UnsafePrintLifetime<StringContainer> {
-    let string = self.bump.alloc_str(item);
-    let string = unsafe { std::mem::transmute::<&str, UnsafePrintLifetime<str>>(string) };
-    self.alloc_string_container(string)
-  }
-
-  fn alloc_string_container(&self, text: UnsafePrintLifetime<str>) -> UnsafePrintLifetime<StringContainer> {
-    let string = self.bump.alloc(StringContainer::new(text));
-    unsafe { std::mem::transmute::<&StringContainer, UnsafePrintLifetime<StringContainer>>(string) }
-  }
-
-  pub fn alloc_write_item_graph_node<'a>(&'a self, node: GraphNode<'a, WriteItem<'a>>) -> &'a GraphNode<'a, WriteItem<'a>> {
-    self.bump.alloc(node)
-  }
-
-  pub fn alloc_node_stack_node<'a>(&'a self, node: NodeStackNode<'a>) -> &'a NodeStackNode<'a> {
-    self.bump.alloc(node)
-  }
-
-  pub fn alloc_save_point<'a>(&'a self, save_point: SavePoint<'a>) -> &'a SavePoint<'a> {
-    self.bump.alloc(save_point)
-  }
-
-  pub fn alloc_print_node_cell(&self, cell: PrintNodeCell) -> UnsafePrintLifetime<PrintNodeCell> {
-    let result = self.bump.alloc(cell);
-    unsafe { std::mem::transmute::<&PrintNodeCell, UnsafePrintLifetime<PrintNodeCell>>(result) }
-  }
-
-  pub fn reset(&mut self) {
-    self.bump.reset();
-    self.condition_resolvers.clear();
-  }
-}
-
 thread_local! {
-  static BUMP_ALLOCATOR: UnsafeCell<BumpAllocator> = UnsafeCell::new(BumpAllocator::new());
   static COUNTS: UnsafeCell<Counts> = UnsafeCell::new(Default::default());
-}
-
-pub fn with_bump_allocator<TReturn>(action: impl FnOnce(&mut BumpAllocator) -> TReturn) -> TReturn {
-  BUMP_ALLOCATOR.with(|bump_cell| unsafe {
-    let bump = bump_cell.get();
-    action(&mut *bump)
-  })
 }
 
 pub fn take_counts() -> Counts {

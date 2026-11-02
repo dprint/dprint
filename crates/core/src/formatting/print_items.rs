@@ -1,37 +1,44 @@
-use std::borrow::Cow;
 use std::cell::UnsafeCell;
 use std::mem;
-use std::rc::Rc;
 
+use super::Arena;
 use super::condition_resolvers;
 use super::printer::Printer;
 use super::thread_state;
 
-#[derive(Default)]
-pub struct PrintItems {
-  pub(super) first_node: Option<PrintItemPath>,
-  last_node: Option<PrintItemPath>,
+/// A list of print items allocated in an [`Arena`].
+pub struct PrintItems<'a> {
+  arena: &'a Arena,
+  pub(super) first_node: Option<PrintItemPath<'a>>,
+  last_node: Option<PrintItemPath<'a>>,
 }
 
-impl PrintItems {
-  pub fn new() -> Self {
+impl<'a> PrintItems<'a> {
+  pub fn new(arena: &'a Arena) -> Self {
     Self {
+      arena,
       first_node: None,
       last_node: None,
     }
   }
 
-  pub fn into_rc_path(self) -> Option<PrintItemPath> {
+  /// Gets the arena the print items are allocated in.
+  #[inline]
+  pub fn arena(&self) -> &'a Arena {
+    self.arena
+  }
+
+  pub fn into_rc_path(self) -> Option<PrintItemPath<'a>> {
     self.first_node
   }
 
-  pub fn push_item(&mut self, item: PrintItem) {
+  pub fn push_item(&mut self, item: PrintItem<'a>) {
     self.push_item_internal(item);
   }
 
   #[inline]
-  fn push_item_internal(&mut self, item: PrintItem) {
-    let node = thread_state::with_bump_allocator(|bump| bump.alloc_print_node_cell(PrintNodeCell::new(item)));
+  fn push_item_internal(&mut self, item: PrintItem<'a>) {
+    let node = self.arena.alloc_print_node_cell(PrintNodeCell::new(item));
     if let Some(first_node) = &self.first_node {
       let new_last_node = node.get_last_next().unwrap_or(node);
       self.last_node.as_ref().unwrap_or(first_node).set_next(Some(node));
@@ -41,10 +48,8 @@ impl PrintItems {
       self.first_node = Some(node);
     }
   }
-}
 
-impl PrintItems {
-  pub fn extend(&mut self, items: PrintItems) {
+  pub fn extend(&mut self, items: PrintItems<'a>) {
     if let Some(first_node) = items.first_node {
       if let Some(current_first_node) = &self.first_node {
         self.last_node.as_ref().unwrap_or(current_first_node).set_next(Some(first_node));
@@ -63,10 +68,14 @@ impl PrintItems {
 
   /// Pushes a string that will have its width computed at runtime.
   ///
+  /// The string isn't copied, so this can be used for text that lives at least
+  /// as long as the arena, such as the text of the file being formatted.
+  ///
   /// Instead of using this, prefer to use `push_sc` where possible
   /// with the `sc!` macro from the dprint-core-macros crate.
-  pub fn push_str_runtime_width_computed(&mut self, item: &'static str) {
-    self.push_cow_string(Cow::Borrowed(item))
+  pub fn push_str_runtime_width_computed(&mut self, item: &'a str) {
+    let string_container = self.arena.alloc_string_container(item);
+    self.push_item_internal(PrintItem::String(string_container));
   }
 
   pub fn push_force_current_line_indentation(&mut self) {
@@ -80,33 +89,29 @@ impl PrintItems {
   }
 
   /// Pushes a string that's had its width computed at compile time.
-  pub fn push_sc(&mut self, item: &'static StringContainer) {
+  pub fn push_sc(&mut self, item: &'a StringContainer<'a>) {
     self.push_item_internal(PrintItem::String(item))
   }
 
+  /// Pushes a string, copying it into the arena.
   pub fn push_string(&mut self, item: String) {
-    self.push_cow_string(Cow::Owned(item))
+    self.push_str(&item);
   }
 
-  /// Pushes a borrowed string, copying it into the printer's allocator, and computes its width at
+  /// Pushes a borrowed string, copying it into the arena, and computes its width at
   /// runtime.
   ///
   /// Prefer `push_sc` with the `sc!` macro for text known at compile time, and
-  /// `push_str_runtime_width_computed` for a `&'static str`, since neither copies. Use this for
-  /// text the caller doesn't own: it avoids building a `String` only for the printer to copy it and
-  /// throw it away.
+  /// `push_str_runtime_width_computed` for text that lives as long as the arena, since
+  /// neither copies. Use this for other text the caller doesn't own: it avoids building
+  /// a `String` only for it to be copied and thrown away.
   pub fn push_str(&mut self, item: &str) {
-    let string_container = thread_state::with_bump_allocator(|bump| bump.alloc_str(item));
+    let string_container = self.arena.alloc_str(item);
     self.push_item_internal(PrintItem::String(string_container));
   }
 
-  fn push_cow_string(&mut self, item: Cow<'static, str>) {
-    let string_container = thread_state::with_bump_allocator(|bump| bump.alloc_string(item));
-    self.push_item_internal(PrintItem::String(string_container));
-  }
-
-  pub fn push_condition(&mut self, condition: Condition) {
-    let condition = thread_state::with_bump_allocator(|bump| bump.alloc_condition(condition));
+  pub fn push_condition(&mut self, condition: Condition<'a>) {
+    let condition = self.arena.alloc_condition(condition);
     self.push_item_internal(PrintItem::Condition(condition));
   }
 
@@ -131,11 +136,11 @@ impl PrintItems {
     self.push_item_internal(PrintItem::Signal(signal));
   }
 
-  pub fn push_path(&mut self, path: PrintItemPath) {
+  pub fn push_path(&mut self, path: PrintItemPath<'a>) {
     self.push_item_internal(PrintItem::RcPath(path))
   }
 
-  pub fn push_optional_path(&mut self, path: Option<PrintItemPath>) {
+  pub fn push_optional_path(&mut self, path: Option<PrintItemPath<'a>>) {
     if let Some(path) = path {
       self.push_path(path);
     }
@@ -198,25 +203,25 @@ impl PrintItems {
     }
   }
 
-  pub fn iter(&self) -> PrintItemsIterator {
+  pub fn iter(&self) -> PrintItemsIterator<'a> {
     PrintItemsIterator { node: self.first_node }
   }
 }
 
-pub struct PrintItemsIterator {
-  node: Option<PrintItemPath>,
+pub struct PrintItemsIterator<'a> {
+  node: Option<PrintItemPath<'a>>,
 }
 
-impl PrintItemsIterator {
-  pub fn new(path: PrintItemPath) -> Self {
+impl<'a> PrintItemsIterator<'a> {
+  pub fn new(path: PrintItemPath<'a>) -> Self {
     Self { node: Some(path) }
   }
 }
 
-impl Iterator for PrintItemsIterator {
-  type Item = PrintItem;
+impl<'a> Iterator for PrintItemsIterator<'a> {
+  type Item = PrintItem<'a>;
 
-  fn next(&mut self) -> Option<PrintItem> {
+  fn next(&mut self) -> Option<PrintItem<'a>> {
     let node = self.node.take();
 
     match node {
@@ -229,52 +234,71 @@ impl Iterator for PrintItemsIterator {
   }
 }
 
-impl From<&'static str> for PrintItems {
-  fn from(value: &'static str) -> Self {
-    let mut items = PrintItems::new();
-    items.push_str_runtime_width_computed(value);
+/// Converts a value into print items allocated in an arena.
+pub trait IntoPrintItems<'a> {
+  fn into_print_items(self, arena: &'a Arena) -> PrintItems<'a>;
+}
+
+impl<'a> IntoPrintItems<'a> for PrintItems<'a> {
+  fn into_print_items(self, _arena: &'a Arena) -> PrintItems<'a> {
+    self
+  }
+}
+
+impl<'a> IntoPrintItems<'a> for &'a str {
+  fn into_print_items(self, arena: &'a Arena) -> PrintItems<'a> {
+    let mut items = PrintItems::new(arena);
+    items.push_str_runtime_width_computed(self);
     items
   }
 }
 
-impl From<String> for PrintItems {
-  fn from(value: String) -> Self {
-    let mut items = PrintItems::new();
-    items.push_string(value);
+impl<'a> IntoPrintItems<'a> for &'a StringContainer<'a> {
+  fn into_print_items(self, arena: &'a Arena) -> PrintItems<'a> {
+    let mut items = PrintItems::new(arena);
+    items.push_sc(self);
     items
   }
 }
 
-impl From<Condition> for PrintItems {
-  fn from(value: Condition) -> Self {
-    let mut items = PrintItems::new();
-    items.push_condition(value);
+impl<'a> IntoPrintItems<'a> for String {
+  fn into_print_items(self, arena: &'a Arena) -> PrintItems<'a> {
+    let mut items = PrintItems::new(arena);
+    items.push_string(self);
     items
   }
 }
 
-impl From<Signal> for PrintItems {
-  fn from(value: Signal) -> Self {
-    let mut items = PrintItems::new();
-    items.push_signal(value);
+impl<'a> IntoPrintItems<'a> for Condition<'a> {
+  fn into_print_items(self, arena: &'a Arena) -> PrintItems<'a> {
+    let mut items = PrintItems::new(arena);
+    items.push_condition(self);
     items
   }
 }
 
-impl From<PrintItemPath> for PrintItems {
-  fn from(value: PrintItemPath) -> Self {
-    let mut items = PrintItems::new();
-    items.push_path(value);
+impl<'a> IntoPrintItems<'a> for Signal {
+  fn into_print_items(self, arena: &'a Arena) -> PrintItems<'a> {
+    let mut items = PrintItems::new(arena);
+    items.push_signal(self);
     items
   }
 }
 
-impl<T> From<Option<T>> for PrintItems
-where
-  PrintItems: From<T>,
-{
-  fn from(value: Option<T>) -> Self {
-    value.map(PrintItems::from).unwrap_or_default()
+impl<'a> IntoPrintItems<'a> for PrintItemPath<'a> {
+  fn into_print_items(self, arena: &'a Arena) -> PrintItems<'a> {
+    let mut items = PrintItems::new(arena);
+    items.push_path(self);
+    items
+  }
+}
+
+impl<'a, T: IntoPrintItems<'a>> IntoPrintItems<'a> for Option<T> {
+  fn into_print_items(self, arena: &'a Arena) -> PrintItems<'a> {
+    match self {
+      Some(value) => value.into_print_items(arena),
+      None => PrintItems::new(arena),
+    }
   }
 }
 
@@ -289,6 +313,55 @@ pub struct Trace {
   pub print_node_id: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub writer_node_id: Option<u32>,
+  /// Why printing the node made the printer go back to an earlier point, if it did.
+  ///
+  /// The printer continues from the print node of the next trace.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub jump: Option<TraceJump>,
+}
+
+/// Why the printer went back to an earlier point.
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", content = "content", rename_all = "camelCase")]
+pub enum TraceJump {
+  /// The line was too long, so the printer went back to the last
+  /// possible newline to write a newline there.
+  NewLine,
+  /// An info was printed after a condition used it before it was resolved.
+  Info(TraceInfoJump),
+  /// A condition was printed after another condition used its value
+  /// before it was resolved.
+  Condition(TraceConditionJump),
+  /// A condition was re-evaluated and its value changed.
+  ConditionReevaluation(TraceConditionJump),
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceInfoJump {
+  pub info: TraceInfo,
+  /// The value the info resolved to.
+  pub value: TraceInfoValue,
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+pub enum TraceInfoValue {
+  Number(u32),
+  Bool(bool),
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceConditionJump {
+  pub condition_id: u32,
+  pub name: String,
+  /// The value the condition resolved to.
+  pub value: Option<bool>,
 }
 
 #[cfg(feature = "tracing")]
@@ -387,15 +460,15 @@ pub struct TraceCondition {
   pub false_path: Option<u32>,
 }
 
-pub struct PrintNode {
-  pub(super) next: Option<PrintItemPath>,
-  pub(super) item: PrintItem,
+pub struct PrintNode<'a> {
+  pub(super) next: Option<PrintItemPath<'a>>,
+  pub(super) item: PrintItem<'a>,
   #[cfg(feature = "tracing")]
   pub print_node_id: u32,
 }
 
-impl PrintNode {
-  fn new(item: PrintItem) -> PrintNode {
+impl<'a> PrintNode<'a> {
+  fn new(item: PrintItem<'a>) -> PrintNode<'a> {
     PrintNode {
       item,
       next: None,
@@ -404,7 +477,7 @@ impl PrintNode {
     }
   }
 
-  fn set_next(&mut self, new_next: Option<PrintItemPath>) {
+  fn set_next(&mut self, new_next: Option<PrintItemPath<'a>>) {
     let past_next = mem::replace(&mut self.next, new_next);
 
     if let Some(past_next) = past_next
@@ -416,36 +489,36 @@ impl PrintNode {
 }
 
 /// A fast implementation of RefCell<PrintNode> that avoids runtime checks on borrows.
-pub struct PrintNodeCell {
-  value: UnsafeCell<PrintNode>,
+pub struct PrintNodeCell<'a> {
+  value: UnsafeCell<PrintNode<'a>>,
 }
 
-impl PrintNodeCell {
-  pub(super) fn new(item: PrintItem) -> PrintNodeCell {
+impl<'a> PrintNodeCell<'a> {
+  pub(super) fn new(item: PrintItem<'a>) -> PrintNodeCell<'a> {
     PrintNodeCell {
       value: UnsafeCell::new(PrintNode::new(item)),
     }
   }
 
   #[inline]
-  pub(super) fn get_item(&self) -> PrintItem {
+  pub(super) fn get_item(&self) -> PrintItem<'a> {
     unsafe { (*self.value.get()).item.clone() }
   }
 
   #[inline]
-  pub(super) fn get_next(&self) -> Option<PrintItemPath> {
+  pub(super) fn get_next(&self) -> Option<PrintItemPath<'a>> {
     unsafe { (*self.value.get()).next }
   }
 
   #[inline]
-  pub(super) fn set_next(&self, new_next: Option<PrintItemPath>) {
+  pub(super) fn set_next(&self, new_next: Option<PrintItemPath<'a>>) {
     unsafe {
       (*self.value.get()).set_next(new_next);
     }
   }
 
   #[inline]
-  pub(super) fn get_last_next(&self) -> Option<PrintItemPath> {
+  pub(super) fn get_last_next(&self) -> Option<PrintItemPath<'a>> {
     let mut current = self.get_next();
     loop {
       if let Some(last) = &current
@@ -468,37 +541,27 @@ impl PrintNodeCell {
   /// Gets the node unsafely. Be careful when using this and ensure no mutation is
   /// happening during the borrow.
   #[inline]
-  pub(super) unsafe fn get_node(&self) -> *mut PrintNode {
+  pub(super) unsafe fn get_node(&self) -> *mut PrintNode<'a> {
     self.value.get()
   }
 
   #[inline]
-  pub fn take_next(self) -> Option<PrintItemPath> {
+  pub fn take_next(self) -> Option<PrintItemPath<'a>> {
     self.value.into_inner().next.take()
   }
 }
 
-pub type PrintItemPath = UnsafePrintLifetime<PrintNodeCell>;
-
-/// This lifetime value is a lie that is not represented or enforced by the compiler.
-/// What actually happens is the reference will remain active until the print
-/// items are printed. At that point, it's unsafe to use them anymore.
-///
-/// To get around this unsafeness, the API would have to be sacrificed by passing
-/// around an object that wraps an arena. Perhaps that will be the way going forward
-/// in the future, but for now this was an easy way to get the big performance
-/// boost from an arena without changing the API much.
-pub(super) type UnsafePrintLifetime<T> = &'static T;
+pub type PrintItemPath<'a> = &'a PrintNodeCell<'a>;
 
 /* Print item and kinds */
 
 /// The different items the printer could encounter.
 #[derive(Clone)]
-pub enum PrintItem {
-  String(UnsafePrintLifetime<StringContainer>),
-  Condition(UnsafePrintLifetime<Condition>),
+pub enum PrintItem<'a> {
+  String(&'a StringContainer<'a>),
+  Condition(&'a Condition<'a>),
   Signal(Signal),
-  RcPath(PrintItemPath),
+  RcPath(PrintItemPath<'a>),
   Anchor(Anchor),
   Info(Info),
   ConditionReevaluation(ConditionReevaluation),
@@ -535,6 +598,28 @@ pub enum Signal {
   StartIgnoringIndent,
   /// Signal to the printer that it should start using indentation again.
   FinishIgnoringIndent,
+  /// Signal the start of a section whose indentation starts from no indentation
+  /// instead of the current indentation, which can then be indented with `StartIndent`
+  /// (ex. to indent relative to text written as is while ignoring the indentation).
+  ///
+  /// The indent levels in the section (ex. of an `IndentLevel` info) count from the
+  /// start of the section, so they shouldn't be compared with the indent levels from
+  /// outside of it. The column numbers are the actual columns. A `QueueStartIndent`
+  /// from before the section is applied after it.
+  StartResettingIndent,
+  /// Signal the end of a section that reset the indentation, which restores the
+  /// indentation from before. The indents and aligns started in the section must be
+  /// finished first.
+  FinishResettingIndent,
+  /// Signal the start of a section that's aligned by the number of columns of spaces
+  /// after the indentation (ex. to line up with text that isn't at an indent level).
+  /// The alignment always goes after the indentation, so with tabs it's tabs then spaces.
+  ///
+  /// The alignment isn't part of the indent levels (ex. of an `IndentLevel` info),
+  /// but it's included in the column numbers.
+  StartAlign(u8),
+  /// Signal the end of the most recent section that aligns.
+  FinishAlign,
   /// Signal to the printer that it shouldn't print any new lines.
   StartForceNoNewLines,
   /// Signal to the printer that it should finish not printing any new lines.
@@ -867,7 +952,7 @@ impl ConditionReevaluation {
 /// These conditions are extremely flexible and can even be resolved based on
 /// information found later on in the file.
 #[derive(Clone)]
-pub struct Condition {
+pub struct Condition<'a> {
   /// Unique identifier.
   id: u32,
   /// Name for debugging purposes.
@@ -878,15 +963,15 @@ pub struct Condition {
   pub(super) is_stored: bool,
   pub(super) store_save_point: bool,
   /// The condition to resolve.
-  pub(super) condition: ConditionResolver,
+  pub(super) condition: ConditionResolver<'a>,
   /// The items to print when the condition is true.
-  pub(super) true_path: Option<PrintItemPath>,
+  pub(super) true_path: Option<PrintItemPath<'a>>,
   /// The items to print when the condition is false or undefined (not yet resolved).
-  pub(super) false_path: Option<PrintItemPath>,
+  pub(super) false_path: Option<PrintItemPath<'a>>,
 }
 
-impl Condition {
-  pub fn new(name: &'static str, properties: ConditionProperties) -> Self {
+impl<'a> Condition<'a> {
+  pub fn new(name: &'static str, properties: ConditionProperties<'a>) -> Self {
     Self::new_internal(name, properties)
   }
 
@@ -912,7 +997,7 @@ impl Condition {
     )
   }
 
-  fn new_internal(_name: &'static str, properties: ConditionProperties) -> Self {
+  fn new_internal(_name: &'static str, properties: ConditionProperties<'a>) -> Self {
     Self {
       id: thread_state::next_condition_id(),
       is_stored: false,
@@ -939,12 +1024,12 @@ impl Condition {
   }
 
   #[inline]
-  pub fn true_path(&self) -> &Option<PrintItemPath> {
+  pub fn true_path(&self) -> &Option<PrintItemPath<'a>> {
     &self.true_path
   }
 
   #[inline]
-  pub fn false_path(&self) -> &Option<PrintItemPath> {
+  pub fn false_path(&self) -> &Option<PrintItemPath<'a>> {
     &self.false_path
   }
 
@@ -990,24 +1075,25 @@ impl ConditionReference {
   }
 
   /// Creates a condition resolver that checks the value of the condition this references.
-  pub fn create_resolver(&self) -> ConditionResolver {
+  pub fn create_resolver<'a>(&self, arena: &'a Arena) -> ConditionResolver<'a> {
     let captured_self = *self;
-    Rc::new(move |condition_context: &mut ConditionResolverContext| condition_context.resolved_condition(&captured_self))
+    arena.alloc_resolver(move |condition_context| condition_context.resolved_condition(&captured_self))
   }
 }
 
 /// Properties for the condition.
-pub struct ConditionProperties {
+pub struct ConditionProperties<'a> {
   /// The condition to resolve.
-  pub condition: ConditionResolver,
+  pub condition: ConditionResolver<'a>,
   /// The items to print when the condition is true.
-  pub true_path: Option<PrintItems>,
+  pub true_path: Option<PrintItems<'a>>,
   /// The items to print when the condition is false or undefined (not yet resolved).
-  pub false_path: Option<PrintItems>,
+  pub false_path: Option<PrintItems<'a>>,
 }
 
-/// Function used to resolve a condition.
-pub type ConditionResolver = Rc<dyn Fn(&mut ConditionResolverContext) -> Option<bool>>;
+/// Function used to resolve a condition, which is allocated in an arena with
+/// [`Arena::alloc_resolver`] (or is static, like the ones in `condition_resolvers`).
+pub type ConditionResolver<'a> = &'a dyn Fn(&mut ConditionResolverContext) -> Option<bool>;
 
 /// Context used when resolving a condition.
 pub struct ConditionResolverContext<'a, 'b> {
@@ -1091,24 +1177,24 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
 
 /// A container that holds the string's value and character count.
 #[derive(Clone)]
-pub struct StringContainer {
+pub struct StringContainer<'a> {
   /// The string value.
-  pub text: UnsafePrintLifetime<str>,
+  pub text: &'a str,
   /// The cached character count.
   /// It is much faster to cache this than to recompute it all the time.
   pub(super) char_count: u32,
 }
 
-impl StringContainer {
+impl<'a> StringContainer<'a> {
   /// Creates a new string container.
-  pub fn new(text: UnsafePrintLifetime<str>) -> Self {
+  pub fn new(text: &'a str) -> Self {
     let char_count = unicode_width::UnicodeWidthStr::width(text) as u32;
     Self { text, char_count }
   }
 
   /// This is used by the sc! proc macro and should not be used otherwise
   /// because the character count is pre-computed.
-  pub const fn proc_macro_new_with_char_count(text: UnsafePrintLifetime<str>, char_count: u32) -> Self {
+  pub const fn proc_macro_new_with_char_count(text: &'a str, char_count: u32) -> Self {
     Self { text, char_count }
   }
 }
@@ -1120,6 +1206,8 @@ pub struct WriterInfo {
   pub column_number: u32,
   pub indent_level: u8,
   pub line_start_indent_level: u8,
+  /// The columns of spaces after the indentation that the line started with.
+  pub line_start_align_columns: u32,
   pub indent_width: u8,
   pub expect_newline_next: bool,
 }
@@ -1142,7 +1230,7 @@ impl WriterInfo {
   }
 
   pub fn line_start_column_number(&self) -> u32 {
-    (self.line_start_indent_level as u32) * (self.indent_width as u32)
+    (self.line_start_indent_level as u32) * (self.indent_width as u32) + self.line_start_align_columns
   }
 
   /// Gets the line and column number.

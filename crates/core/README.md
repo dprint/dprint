@@ -16,10 +16,10 @@ Use:
 
 <!-- dprint-ignore -->
 ```rust
-let result = dprint_core::formatting::format(|| {
-    let print_items = ...; // parsed out IR (see example below)
-    print_items
-}, PrintOptions {
+// create the arena after the data the print items borrow from
+let arena = Arena::new();
+let print_items = ...; // parsed out IR allocated in the arena (see example below)
+let result = dprint_core::formatting::print(print_items, PrintOptions {
     indent_width: 4,
     max_width: 10,
     use_tabs: false,

@@ -69,7 +69,7 @@ Condition re-evaluations can be added to the graph to force a condition to be re
 let mut condition: Condition = ...;
 let condition_reevaluation = condition.create_reevaluation();
 
-let mut items = PrintItems::new();
+let mut items = PrintItems::new(arena);
 items.push_condition(condition);
 // ...more items added here...
 
@@ -108,12 +108,12 @@ Anchors provide a way to update infos in the future when an anchor's line number
 For example, given the following code...
 
 ```rs
-let mut items = PrintItems::new();
+let mut items = PrintItems::new(arena);
 let end_ln = LineNumber::new("end");
 
 // ...lots of code here...
 items.push_anchor(LineNumberAnchor::new(end_ln));
-items.extend(actions::action("outputEndLine", move |context| {
+items.extend(actions::action(arena, "outputEndLine", move |context| {
   eprintln!("{:?}", context.resolved_line_number(end_ln));
 }));
 // ...lots of code here...
@@ -144,7 +144,11 @@ The printer will enforce these rules in debug builds.
 
 #### Allocation
 
-Print items are allocated in a thread local bump allocator. Create them within the closure provided to `dprint_core::formatting::format(...)` and don't use them outside of it, since the allocator is reset once it returns.
+Print items are allocated in an `Arena`, which is passed to `PrintItems::new(arena)` and the helpers that create print items. The print items borrow the arena, so the compiler ensures they aren't used after it's dropped.
+
+Create the arena after the data the print items borrow from (ex. the text of the file), so strings from it can be pushed without being copied by using `push_str_runtime_width_computed`. Create an arena for each file that's formatted.
+
+The memory of an arena from `Arena::new()` is freed when it's dropped. To reuse it for the next file instead, store an `ArenaPool` (ex. in the plugin's state) and create the arenas with `pool.create_arena()`, which returns their memory to the pool when they're dropped. The pool keeps the memory until it's cleared or dropped. Wasm plugins are given a pool in `request.arena_pool`.
 
 ## Example IR Generation
 
@@ -156,7 +160,7 @@ enum Node<'a> {
   ArrayElement(&'a ArrayElement),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct Position {
   /// Line number in the original source code.
   pub line_number: u32,
@@ -208,13 +212,14 @@ four]
 Here's some example IR generation:
 
 ```rust
-use std::rc::Rc;
-
 use dprint_core::formatting::*;
 
 pub fn format(expr: &ArrayLiteralExpression) -> String {
-  dprint_core::formatting::format(
-    || gen_node(Node::ArrayLiteralExpression(expr)),
+  // the arena is created after the expression, so the print items can borrow from it
+  let arena = Arena::new();
+  let print_items = gen_node(&arena, Node::ArrayLiteralExpression(expr));
+  dprint_core::formatting::print(
+    print_items,
     PrintOptions {
       indent_width: 4,
       max_width: 10,
@@ -226,29 +231,31 @@ pub fn format(expr: &ArrayLiteralExpression) -> String {
 
 // IR generation functions
 
-fn gen_node(node: Node) -> PrintItems {
+fn gen_node<'a>(arena: &'a Arena, node: Node<'a>) -> PrintItems<'a> {
   // in a real implementation this function would deal with surrounding comments
 
   match node {
-    Node::ArrayLiteralExpression(expr) => gen_array_literal_expression(expr),
-    Node::ArrayElement(array_element) => gen_array_element(array_element),
+    Node::ArrayLiteralExpression(expr) => gen_array_literal_expression(arena, expr),
+    Node::ArrayElement(array_element) => gen_array_element(arena, array_element),
   }
 }
 
-fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
-  let mut items = PrintItems::new();
+fn gen_array_literal_expression<'a>(arena: &'a Arena, expr: &'a ArrayLiteralExpression) -> PrintItems<'a> {
+  let mut items = PrintItems::new(arena);
   let start_ln = LineNumber::new("start");
   let end_ln = LineNumber::new("end");
   let is_multiple_lines = create_is_multiple_lines_resolver(
-    expr.position.clone(),
-    expr.elements.iter().map(|e| e.position.clone()).collect(),
+    arena,
+    expr.position,
+    // the resolver needs to be `Copy`, so it references the positions in the arena
+    arena.bump().alloc_slice_fill_iter(expr.elements.iter().map(|e| e.position)),
     start_ln,
     end_ln,
   );
 
   // actions::if_column_number_changes is a helper that uses lower level IR to tell when the column number
   // changes at this point
-  items.extend(actions::if_column_number_changes(move |context| {
+  items.extend(actions::if_column_number_changes(arena, move |context| {
     context.clear_info(end_ln);
   }));
 
@@ -256,37 +263,45 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   items.push_anchor(LineNumberAnchor::new(end_ln)); // updates the line number of end_ln when this changes
 
   items.push_str("[");
-  items.push_condition(conditions::if_true("arrayStartNewLine", is_multiple_lines.clone(), Signal::NewLine.into()));
-
-  let generated_elements = gen_elements(&expr.elements, &is_multiple_lines).into_rc_path();
-  items.push_condition(conditions::if_true_or(
-    "indentIfMultipleLines",
-    is_multiple_lines.clone(),
-    ir_helpers::with_indent(generated_elements.into()),
-    generated_elements.into(),
+  items.push_condition(conditions::if_true(
+    "arrayStartNewLine",
+    is_multiple_lines,
+    Signal::NewLine.into_print_items(arena),
   ));
 
-  items.push_condition(conditions::if_true("arrayEndNewLine", is_multiple_lines, Signal::NewLine.into()));
+  let generated_elements = gen_elements(arena, &expr.elements, is_multiple_lines).into_rc_path();
+  items.push_condition(conditions::if_true_or(
+    "indentIfMultipleLines",
+    is_multiple_lines,
+    ir_helpers::with_indent(generated_elements.into_print_items(arena)),
+    generated_elements.into_print_items(arena),
+  ));
+
+  items.push_condition(conditions::if_true(
+    "arrayEndNewLine",
+    is_multiple_lines,
+    Signal::NewLine.into_print_items(arena),
+  ));
   items.push_str("]");
 
   items.push_info(end_ln);
 
   return items;
 
-  fn gen_elements(elements: &[ArrayElement], is_multiple_lines: &ConditionResolver) -> PrintItems {
-    let mut items = PrintItems::new();
+  fn gen_elements<'a>(arena: &'a Arena, elements: &'a [ArrayElement], is_multiple_lines: ConditionResolver<'a>) -> PrintItems<'a> {
+    let mut items = PrintItems::new(arena);
     let elements_len = elements.len();
 
     for (i, elem) in elements.iter().enumerate() {
-      items.extend(gen_node(Node::ArrayElement(elem)));
+      items.extend(gen_node(arena, Node::ArrayElement(elem)));
 
       if i < elements_len - 1 {
         items.push_str(",");
         items.push_condition(conditions::if_true_or(
           "afterCommaSeparator",
-          is_multiple_lines.clone(),
-          Signal::NewLine.into(),
-          Signal::SpaceOrNewLine.into(),
+          is_multiple_lines,
+          Signal::NewLine.into_print_items(arena),
+          Signal::SpaceOrNewLine.into_print_items(arena),
         ));
       }
     }
@@ -295,14 +310,21 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   }
 }
 
-fn gen_array_element(element: &ArrayElement) -> PrintItems {
-  element.text.to_string().into()
+fn gen_array_element<'a>(arena: &'a Arena, element: &'a ArrayElement) -> PrintItems<'a> {
+  // the text outlives the arena, so it doesn't need to be copied
+  element.text.as_str().into_print_items(arena)
 }
 
 // helper functions
 
-fn create_is_multiple_lines_resolver(parent_position: Position, child_positions: Vec<Position>, start_ln: LineNumber, end_ln: LineNumber) -> ConditionResolver {
-  Rc::new(move |condition_context: &mut ConditionResolverContext| {
+fn create_is_multiple_lines_resolver<'a>(
+  arena: &'a Arena,
+  parent_position: Position,
+  child_positions: &'a [Position],
+  start_ln: LineNumber,
+  end_ln: LineNumber,
+) -> ConditionResolver<'a> {
+  arena.alloc_resolver(move |condition_context| {
     // no items, so format on the same line
     if child_positions.is_empty() {
       return Some(false);
