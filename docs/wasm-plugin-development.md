@@ -69,6 +69,8 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
          // the schema url for your config file or "".to_string() if no config
          config_schema_url: format!("https://plugins.dprint.dev/{repo_name}/{}/schema.json", env!("CARGO_PKG_VERSION")),
          update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
+         // whether `format` formats the request's range (see `PluginInfo::supports_range_formatting`)
+         supports_range_formatting: Some(false),
        }
      }
 
@@ -201,6 +203,7 @@ Initialization functions:
   - `helpUrl` - A string containing the URL to some web help.
   - `configSchemaUrl` - URL of the JSON schema for the plugin's configuration or an empty string.
   - `updateUrl` - Optional URL used to check for updates (ex. `https://plugins.dprint.dev/<org>/<repo>/latest.json`).
+  - `supportsRangeFormatting` - Boolean for whether the plugin formats the range of a format request, which should always be provided. When `true`, editors give the plugin the range as it is and use what it formats, so it decides what to format around the range (ex. the nodes it overlaps). When `false`, editors don't format a range with the plugin.
 
 Formatting functions:
 
