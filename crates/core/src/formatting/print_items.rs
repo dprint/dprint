@@ -1169,6 +1169,22 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
     self.printer.shift_line_number(info, delta)
   }
 
+  /// Gets the maximum width of a line.
+  pub fn max_width(&self) -> u32 {
+    self.printer.max_width()
+  }
+
+  /// Gets the line number when it's resolved, without looking ahead to it when it isn't.
+  pub fn peek_line_number(&self, line_number: LineNumber) -> Option<u32> {
+    self.printer.peek_line_number(line_number)
+  }
+
+  /// Sets the line number to a value that was worked out before (ex. when the text it
+  /// refers to is printed at the same position again).
+  pub fn set_line_number(&mut self, line_number: LineNumber, value: u32) {
+    self.printer.set_line_number(line_number, value)
+  }
+
   /// Gets if the printer is currently forcing no newlines.
   pub fn is_forcing_no_newlines(&self) -> bool {
     self.printer.is_forcing_no_newlines()

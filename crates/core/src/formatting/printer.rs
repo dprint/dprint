@@ -271,6 +271,20 @@ impl<'a> Printer<'a> {
     }
   }
 
+  pub fn max_width(&self) -> u32 {
+    self.max_width
+  }
+
+  /// Gets the line number when it's resolved, without looking ahead to it when it isn't.
+  pub fn peek_line_number(&self, line_number: LineNumber) -> Option<u32> {
+    self.resolved_line_numbers.get(line_number.unique_id())
+  }
+
+  /// Sets the line number to a value that was worked out before.
+  pub fn set_line_number(&mut self, line_number: LineNumber, value: u32) {
+    self.resolved_line_numbers.insert(line_number.unique_id(), value);
+  }
+
   /// Moves an already resolved line number by `delta` lines.
   ///
   /// This keeps a resolution usable when whatever it refers to has shifted up or down the page
