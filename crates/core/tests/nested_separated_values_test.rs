@@ -245,3 +245,19 @@ fn should_not_go_back_exponentially_many_times_for_nested_calls() {
   let jump_count = result.traces.iter().filter(|trace| trace.jump.is_some()).count();
   assert!(jump_count < 20_000, "went back {jump_count} times");
 }
+
+/// Whether the arguments are multi-line isn't known until they're printed, so they're printed as
+/// if they're on one line. When they turn out to be, the printer doesn't go back to print the
+/// same thing again.
+#[test]
+#[cfg(feature = "tracing")]
+fn should_not_go_back_for_nested_calls_on_one_line() {
+  use dprint_core::formatting::*;
+
+  let arena = Arena::new();
+  let result = trace_printing(gen_nested_calls(&arena, 3), nested_calls_print_options());
+  let jump_count = result.traces.iter().filter(|trace| trace.jump.is_some()).count();
+  assert_eq!(jump_count, 0);
+  let text = dprint_core::formatting::format(|arena| gen_nested_calls(arena, 3), nested_calls_print_options());
+  assert_eq!(text, "a0.b0(a1.b1(a2.b2(z.y)))");
+}

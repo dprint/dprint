@@ -66,6 +66,9 @@ pub struct Printer<'a> {
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
+  /// Whether the condition being resolved doesn't go back once what it gets that isn't
+  /// resolved yet is resolved, because it's re-evaluated after that instead.
+  is_not_looking_ahead: bool,
   #[cfg(feature = "tracing")]
   traces: Option<Vec<Trace>>,
   /// Why the printer went back to an earlier point while printing the current node.
@@ -106,6 +109,7 @@ impl<'a> Printer<'a> {
       max_width: options.max_width,
       skip_moving_next: false,
       resolving_save_point: None,
+      is_not_looking_ahead: false,
       #[cfg(feature = "tracing")]
       traces: if options.enable_tracing { Some(Vec::new()) } else { None },
       #[cfg(feature = "tracing")]
@@ -305,9 +309,15 @@ impl<'a> Printer<'a> {
     result.map(|x| x.to_owned())
   }
 
+  /// Sets whether to go back to the condition being resolved once what it gets that isn't
+  /// resolved yet is resolved, and returns what it was.
+  pub fn replace_is_not_looking_ahead(&mut self, value: bool) -> bool {
+    std::mem::replace(&mut self.is_not_looking_ahead, value)
+  }
+
   /// Remembers to go back to the condition being resolved once what it looked ahead at is resolved.
   fn add_look_ahead_save_point(&mut self, key: LookAheadKey, name: &'static str) {
-    if !self.look_ahead_save_points.contains(key) {
+    if !self.is_not_looking_ahead && !self.look_ahead_save_points.contains(key) {
       let save_point = self.get_save_point_for_restoring_condition(name);
       self.look_ahead_save_points.insert(key, save_point, self.arena);
     }
@@ -513,10 +523,39 @@ impl<'a> Printer<'a> {
           .remove(LookAheadKey::LineStartIndentLevel(line_start_indent_level_id), self.arena)
       }
     };
-    if let Some(save_point) = save_point {
+    if let Some(save_point) = save_point
+      && !self.resolve_looked_ahead_condition_as_false(save_point)
+    {
       #[cfg(feature = "tracing")]
       self.trace_jump(|printer| TraceJump::Info(printer.get_trace_info_jump(info)));
       self.update_state_to_save_point(save_point, false);
+    }
+  }
+
+  /// Resolves the condition that looked ahead when it's false now and was printed while it
+  /// wasn't resolved, which is the same as false for some conditions, so going back would
+  /// only print the same thing again.
+  fn resolve_looked_ahead_condition_as_false(&mut self, save_point: &'a SavePoint<'a>) -> bool {
+    let Some(path) = save_point.node else {
+      return false;
+    };
+    // ok because values won't be mutated while printing
+    let PrintItem::Condition(condition) = (unsafe { &*path.get_node() }).item else {
+      return false;
+    };
+    let condition_id = condition.unique_id();
+    if !condition.is_unknown_same_as_false || !condition.is_stored || self.resolved_conditions.get(&condition_id) != Some(&None) {
+      return false;
+    }
+    self.resolving_save_point.replace(save_point);
+    let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
+    let value = context.without_looking_ahead(|context| condition.resolve(context));
+    self.resolving_save_point.take();
+    if value == Some(false) {
+      self.resolved_conditions.insert(condition_id, Some(false));
+      true
+    } else {
+      false
     }
   }
 
