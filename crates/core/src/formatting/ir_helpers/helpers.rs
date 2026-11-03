@@ -208,6 +208,8 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems<'_>
     },
   );
   let condition_reevaluation = condition.create_reevaluation();
+  // nothing else uses it, so it's only printed again when it's multi-line
+  condition.set_unknown_same_as_false();
   items.push_condition(condition);
   items.push_info(end_ln);
   items.extend(region.gen_end(arena));
