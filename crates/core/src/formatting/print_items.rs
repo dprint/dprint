@@ -1055,6 +1055,9 @@ impl<'a> Condition<'a> {
   /// Says that what's printed when the condition isn't resolved yet is the same as when it's
   /// false, including by the conditions using its value. When it looked ahead and turns out to be
   /// false, the printer then doesn't go back to print the same thing again.
+  ///
+  /// This is only needed when the condition has a reference, since the printer already doesn't
+  /// go back to a condition without one when it takes the same path as before.
   pub fn set_unknown_same_as_false(&mut self) {
     self.is_unknown_same_as_false = true;
   }
