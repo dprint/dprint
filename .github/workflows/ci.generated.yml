@@ -483,10 +483,40 @@ jobs:
         run: cargo build -p dprint --locked
       - name: Test known plugins
         run: ./.github/scripts/test_known_plugins.ts target/debug/dprint
+  packslip:
+    name: packslip
+    needs:
+      - build
+    if: 'startsWith(github.ref, ''refs/tags/'')'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 15
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: "*-artifacts"
+      - name: Create packslip
+        id: packslip
+        uses: jdx/packslip@3a4afb16b29d3ac639fcd35cbe99124184f71859 # v1.11.1
+        with:
+          artifacts: x86_64-apple-darwin-artifacts/dprint-x86_64-apple-darwin.zip aarch64-apple-darwin-artifacts/dprint-aarch64-apple-darwin.zip x86_64-pc-windows-msvc-artifacts/dprint-x86_64-pc-windows-msvc.zip aarch64-pc-windows-msvc-artifacts/dprint-aarch64-pc-windows-msvc.zip x86_64-unknown-linux-gnu-artifacts/dprint-x86_64-unknown-linux-gnu.zip x86_64-unknown-linux-musl-artifacts/dprint-x86_64-unknown-linux-musl.zip aarch64-unknown-linux-gnu-artifacts/dprint-aarch64-unknown-linux-gnu.zip aarch64-unknown-linux-musl-artifacts/dprint-aarch64-unknown-linux-musl.zip riscv64gc-unknown-linux-gnu-artifacts/dprint-riscv64gc-unknown-linux-gnu.zip riscv64gc-unknown-linux-musl-artifacts/dprint-riscv64gc-unknown-linux-musl.zip s390x-unknown-linux-gnu-artifacts/dprint-s390x-unknown-linux-gnu.zip loongarch64-unknown-linux-gnu-artifacts/dprint-loongarch64-unknown-linux-gnu.zip loongarch64-unknown-linux-musl-artifacts/dprint-loongarch64-unknown-linux-musl.zip powerpc64le-unknown-linux-gnu-artifacts/dprint-powerpc64le-unknown-linux-gnu.zip powerpc64le-unknown-linux-musl-artifacts/dprint-powerpc64le-unknown-linux-musl.zip aarch64-linux-android-artifacts/dprint-aarch64-linux-android.zip x86_64-linux-android-artifacts/dprint-x86_64-linux-android.zip x86_64-unknown-freebsd-artifacts/dprint-x86_64-unknown-freebsd.zip aarch64-unknown-freebsd-artifacts/dprint-aarch64-unknown-freebsd.zip
+          bin: dprint
+          attest: link
+          upload: false
+      - name: Upload packslip
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: packslip-bundle
+          path: "${{ steps.packslip.outputs.bundle }}"
+          if-no-files-found: error
   draft_release:
     name: draft_release
     needs:
       - build
+      - packslip
     if: 'startsWith(github.ref, ''refs/tags/'')'
     runs-on: ubuntu-latest
     permissions:
@@ -598,6 +628,7 @@ jobs:
             x86_64-unknown-freebsd-artifacts/dprint-x86_64-unknown-freebsd.zip
             aarch64-unknown-freebsd-artifacts/dprint-aarch64-unknown-freebsd.zip
             SHASUMS256.txt
+            packslip-bundle/packslip.sigstore.json
           body: |
             ## Changes
 
@@ -614,6 +645,12 @@ jobs:
 
             ```shell
             gh attestation verify dprint-x86_64-unknown-linux-gnu.zip --repo dprint/dprint
+            ```
+
+            The zips are also described by a signed [packslip](https://packslip.dev) (`packslip.sigstore.json`):
+
+            ```shell
+            packslip verify packslip.sigstore.json --artifact dprint-x86_64-unknown-linux-gnu.zip
             ```
 
             ## Checksums
