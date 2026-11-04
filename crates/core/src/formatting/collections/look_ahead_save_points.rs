@@ -2,7 +2,7 @@ use crate::formatting::Arena;
 use crate::formatting::SavePoint;
 
 /// What a condition looked ahead at before it was resolved.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LookAheadKey {
   Condition(u32),
   LineNumber(u32),
@@ -62,6 +62,7 @@ impl<'a> LookAheadSavePoints<'a> {
     }
   }
 
+  #[cfg(debug_assertions)]
   pub fn save_points(&self) -> impl Iterator<Item = &'a SavePoint<'a>> {
     self.iter().map(|node| node.save_point)
   }

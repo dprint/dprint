@@ -40,7 +40,8 @@ fn test_tracing() {
 }
 
 #[test]
-#[cfg(feature = "tracing")]
+// the names of infos and conditions are only kept in debug builds
+#[cfg(all(feature = "tracing", debug_assertions))]
 fn test_tracing_jumps() {
   use dprint_core::formatting::*;
 

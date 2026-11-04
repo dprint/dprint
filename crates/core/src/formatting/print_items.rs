@@ -962,6 +962,8 @@ pub struct Condition<'a> {
   /// will store the condition and it will be retrievable via a condition resolver.
   pub(super) is_stored: bool,
   pub(super) store_save_point: bool,
+  /// If what's printed when the condition isn't resolved yet is the same as when it's false.
+  pub(super) is_unknown_same_as_false: bool,
   /// The condition to resolve.
   pub(super) condition: ConditionResolver<'a>,
   /// The items to print when the condition is true.
@@ -1002,6 +1004,7 @@ impl<'a> Condition<'a> {
       id: thread_state::next_condition_id(),
       is_stored: false,
       store_save_point: false,
+      is_unknown_same_as_false: false,
       #[cfg(debug_assertions)]
       name: _name,
       condition: properties.condition,
@@ -1047,6 +1050,16 @@ impl<'a> Condition<'a> {
     self.store_save_point = true;
     self.is_stored = true;
     ConditionReevaluation::new(self.name(), self.id)
+  }
+
+  /// Says that what's printed when the condition isn't resolved yet is the same as when it's
+  /// false, including by the conditions using its value. When it looked ahead and turns out to be
+  /// false, the printer then doesn't go back to print the same thing again.
+  ///
+  /// This is only needed when the condition has a reference, since the printer already doesn't
+  /// go back to a condition without one when it takes the same path as before.
+  pub fn set_unknown_same_as_false(&mut self) {
+    self.is_unknown_same_as_false = true;
   }
 }
 
@@ -1167,6 +1180,34 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
   /// the page, so that it stays correct relative to everything around it.
   pub fn shift_line_number(&mut self, info: LineNumber, delta: isize) {
     self.printer.shift_line_number(info, delta)
+  }
+
+  /// Gets the maximum width of a line.
+  pub fn max_width(&self) -> u32 {
+    self.printer.max_width()
+  }
+
+  /// Runs `f` without the printer going back to this condition once the infos and conditions
+  /// it gets that aren't resolved yet are resolved.
+  ///
+  /// This is for a condition that's re-evaluated after them (see `Condition::create_reevaluation`),
+  /// which only goes back when its value changes, so it can assume a value until then.
+  pub fn without_looking_ahead<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+    let was_not_looking_ahead = self.printer.replace_is_not_looking_ahead(true);
+    let result = f(self);
+    self.printer.replace_is_not_looking_ahead(was_not_looking_ahead);
+    result
+  }
+
+  /// Gets the line number when it's resolved, without looking ahead to it when it isn't.
+  pub fn peek_line_number(&self, line_number: LineNumber) -> Option<u32> {
+    self.printer.peek_line_number(line_number)
+  }
+
+  /// Sets the line number to a value that was worked out before (ex. when the text it
+  /// refers to is printed at the same position again).
+  pub fn set_line_number(&mut self, line_number: LineNumber, value: u32) {
+    self.printer.set_line_number(line_number, value)
   }
 
   /// Gets if the printer is currently forcing no newlines.

@@ -313,6 +313,7 @@ where
   ));
 
   items.push_info(end_ln);
+  items.extend(region.gen_end(arena));
   items.push_reevaluation(is_multi_line_reevaluation);
 
   return GenSeparatedValuesResult {
@@ -532,7 +533,7 @@ fn get_is_multi_line_for_multi_line<'a>(
   end_ln: LineNumber,
 ) -> Condition<'a> {
   let last_result: &Cell<bool> = arena.bump().alloc(Cell::new(false));
-  return Condition::new(
+  let mut condition = Condition::new(
     "isMultiLineForMultiLine",
     ConditionProperties {
       condition: arena.alloc_resolver(move |condition_context| {
@@ -554,6 +555,10 @@ fn get_is_multi_line_for_multi_line<'a>(
       true_path: None,
     },
   );
+  // the conditions using it print the same when it's not resolved yet as when it's false
+  // (ex. a separator on the same line), so it's only printed again when it's multi-line
+  condition.set_unknown_same_as_false();
+  return condition;
 
   fn evaluate(
     start_ln: LineNumber,

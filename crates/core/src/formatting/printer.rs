@@ -66,6 +66,15 @@ pub struct Printer<'a> {
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
+  /// Whether the condition being resolved doesn't go back once what it gets that isn't
+  /// resolved yet is resolved, because it's re-evaluated after that instead.
+  is_not_looking_ahead: bool,
+  /// Whether the condition being resolved looked ahead at something that isn't resolved yet.
+  did_look_ahead: bool,
+  /// What each condition that looked ahead was resolved to when it was printed.
+  looked_ahead_values: BumpHashMap<'a, u32, Option<bool>>,
+  /// What more than one condition looked ahead at, where only the first one is gone back to.
+  shared_look_ahead_keys: hashbrown::HashSet<LookAheadKey, BuildHasherDefault<rustc_hash::FxHasher>, &'a bumpalo::Bump>,
   #[cfg(feature = "tracing")]
   traces: Option<Vec<Trace>>,
   /// Why the printer went back to an earlier point while printing the current node.
@@ -106,6 +115,10 @@ impl<'a> Printer<'a> {
       max_width: options.max_width,
       skip_moving_next: false,
       resolving_save_point: None,
+      is_not_looking_ahead: false,
+      did_look_ahead: false,
+      looked_ahead_values: BumpHashMap::with_hasher_in(Default::default(), arena.bump()),
+      shared_look_ahead_keys: hashbrown::HashSet::with_hasher_in(Default::default(), arena.bump()),
       #[cfg(feature = "tracing")]
       traces: if options.enable_tracing { Some(Vec::new()) } else { None },
       #[cfg(feature = "tracing")]
@@ -271,6 +284,20 @@ impl<'a> Printer<'a> {
     }
   }
 
+  pub fn max_width(&self) -> u32 {
+    self.max_width
+  }
+
+  /// Gets the line number when it's resolved, without looking ahead to it when it isn't.
+  pub fn peek_line_number(&self, line_number: LineNumber) -> Option<u32> {
+    self.resolved_line_numbers.get(line_number.unique_id())
+  }
+
+  /// Sets the line number to a value that was worked out before.
+  pub fn set_line_number(&mut self, line_number: LineNumber, value: u32) {
+    self.resolved_line_numbers.insert(line_number.unique_id(), value);
+  }
+
   /// Moves an already resolved line number by `delta` lines.
   ///
   /// This keeps a resolution usable when whatever it refers to has shifted up or down the page
@@ -291,11 +318,23 @@ impl<'a> Printer<'a> {
     result.map(|x| x.to_owned())
   }
 
+  /// Sets whether to go back to the condition being resolved once what it gets that isn't
+  /// resolved yet is resolved, and returns what it was.
+  pub fn replace_is_not_looking_ahead(&mut self, value: bool) -> bool {
+    std::mem::replace(&mut self.is_not_looking_ahead, value)
+  }
+
   /// Remembers to go back to the condition being resolved once what it looked ahead at is resolved.
   fn add_look_ahead_save_point(&mut self, key: LookAheadKey, name: &'static str) {
+    if self.is_not_looking_ahead {
+      return;
+    }
     if !self.look_ahead_save_points.contains(key) {
       let save_point = self.get_save_point_for_restoring_condition(name);
       self.look_ahead_save_points.insert(key, save_point, self.arena);
+      self.did_look_ahead = true;
+    } else if self.resolving_save_point.is_none() {
+      self.shared_look_ahead_keys.insert(key);
     }
   }
 
@@ -499,11 +538,52 @@ impl<'a> Printer<'a> {
           .remove(LookAheadKey::LineStartIndentLevel(line_start_indent_level_id), self.arena)
       }
     };
-    if let Some(save_point) = save_point {
+    if let Some(save_point) = save_point
+      && !self.is_going_back_unneeded(look_ahead_key(info), save_point)
+    {
       #[cfg(feature = "tracing")]
       self.trace_jump(|printer| TraceJump::Info(printer.get_trace_info_jump(info)));
       self.update_state_to_save_point(save_point, false);
     }
+  }
+
+  /// Gets if the condition that looked ahead at what was just resolved prints the same as when it
+  /// was printed, in which case going back would only print the same thing again.
+  fn is_going_back_unneeded(&mut self, key: LookAheadKey, save_point: &'a SavePoint<'a>) -> bool {
+    if self.shared_look_ahead_keys.contains(&key) {
+      // another condition looked ahead at it too, which is only printed again by going back
+      return false;
+    }
+    let Some(path) = save_point.node else {
+      return false;
+    };
+    // ok because values won't be mutated while printing
+    let PrintItem::Condition(condition) = (unsafe { &*path.get_node() }).item else {
+      return false;
+    };
+    let condition_id = condition.unique_id();
+    let Some(printed_value) = self.looked_ahead_values.get(&condition_id).copied() else {
+      return false;
+    };
+    // what it looks ahead at that still isn't resolved goes back to it once it is
+    self.resolving_save_point.replace(save_point);
+    let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
+    let value = condition.resolve(&mut context);
+    self.resolving_save_point.take();
+    let is_same_path = value.unwrap_or(false) == printed_value.unwrap_or(false);
+    let is_same = if condition.is_stored {
+      // the conditions using its value got what it was
+      value == printed_value || is_same_path && condition.is_unknown_same_as_false
+    } else {
+      is_same_path
+    };
+    if is_same {
+      if condition.is_stored {
+        self.resolved_conditions.insert(condition_id, value);
+      }
+      self.looked_ahead_values.insert(condition_id, value);
+    }
+    is_same
   }
 
   #[inline]
@@ -554,7 +634,11 @@ impl<'a> Printer<'a> {
       self.stored_condition_save_points.insert(condition.unique_id(), (condition, save_point));
     }
 
+    self.did_look_ahead = false;
     let condition_value = condition.resolve(&mut ConditionResolverContext::new(self, self.get_writer_info()));
+    if self.did_look_ahead {
+      self.looked_ahead_values.insert(condition_id, condition_value);
+    }
     if condition.is_stored {
       self.resolved_conditions.insert(condition_id, condition_value);
     }
@@ -692,5 +776,16 @@ impl<'a> Printer<'a> {
     if self.writer.is_aligning() {
       panic!("Debug panic! The writer was still aligning after printing.");
     }
+  }
+}
+
+fn look_ahead_key(info: &Info) -> LookAheadKey {
+  match info {
+    Info::LineNumber(info) => LookAheadKey::LineNumber(info.unique_id()),
+    Info::ColumnNumber(info) => LookAheadKey::ColumnNumber(info.unique_id()),
+    Info::IsStartOfLine(info) => LookAheadKey::IsStartOfLine(info.unique_id()),
+    Info::IndentLevel(info) => LookAheadKey::IndentLevel(info.unique_id()),
+    Info::LineStartColumnNumber(info) => LookAheadKey::LineStartColumnNumber(info.unique_id()),
+    Info::LineStartIndentLevel(info) => LookAheadKey::LineStartIndentLevel(info.unique_id()),
   }
 }
