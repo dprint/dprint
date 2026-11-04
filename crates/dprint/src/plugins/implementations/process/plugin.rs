@@ -5,6 +5,7 @@ use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 use parking_lot::Mutex;
 use std::path::PathBuf;
@@ -66,14 +67,16 @@ pub struct ProcessPlugin<TEnvironment: Environment> {
   environment: TEnvironment,
   executable_file_path: PathBuf,
   plugin_info: PluginInfo,
+  capabilities: PluginCapabilities,
 }
 
 impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
-  pub fn new(environment: TEnvironment, executable_file_path: PathBuf, plugin_info: PluginInfo) -> Self {
+  pub fn new(environment: TEnvironment, executable_file_path: PathBuf, plugin_info: PluginInfo, capabilities: PluginCapabilities) -> Self {
     ProcessPlugin {
       environment,
       executable_file_path,
       plugin_info,
+      capabilities,
     }
   }
 }
@@ -82,6 +85,10 @@ impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
 impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
   fn info(&self) -> &PluginInfo {
     &self.plugin_info
+  }
+
+  fn capabilities(&self) -> &PluginCapabilities {
+    &self.capabilities
   }
 
   fn is_process_plugin(&self) -> bool {

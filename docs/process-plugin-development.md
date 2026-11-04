@@ -105,7 +105,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
      ) -> FormatResult {
        // format here
        //
-       // - make sure to check the range of the request!! If you can't handle
+       // - make sure to check the ranges of the request!! If you can't handle
        //   range formatting, then return `Ok(None)` to signify no change.
        // - use `format_with_host(HostFormatRequest { .. }).await` to format with another plugin
        // - if you are doing a lot of synchronous work, you should format with
@@ -234,6 +234,10 @@ Response: Success message
 Message body: None
 
 Response: Data message - JSON serialized plugin info
+
+The plugin info has a `capabilities` object for what the plugin's messages support, which `dprint-core` adds for the plugin. The CLI treats a plugin that doesn't send it as supporting none of them:
+
+- `multiRangeFormat` - Boolean for whether the plugin reads the Format Ranges message (`17`).
 
 #### `6` - Get License Text (CLI to Plugin)
 
@@ -403,6 +407,26 @@ Message body:
 - File text.
 
 Response: Format Text Response or Error response
+
+#### `17` - Format Ranges (CLI to Plugin)
+
+Only sent to a plugin whose plugin info has the `multiRangeFormat` capability. The ranges are in order and don't overlap or touch, and the plugin formats each of them in the text it was given and responds with the text formatted once.
+
+Message body:
+
+- u32 - File path content length
+- File path
+- u32 - Number of ranges
+- For each range:
+  - u32 - Start byte index to format
+  - u32 - End byte index to format
+- u32 - Configuration identifier
+- u32 - Override configuration length
+- JSON override configuration
+- u32 - File text content length
+- File text
+
+Response: Format text response or Error response
 
 ### Creating a `plugin.json` file
 

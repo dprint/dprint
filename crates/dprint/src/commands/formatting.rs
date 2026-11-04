@@ -28,6 +28,7 @@ use crate::format::EnsureStableFormat;
 use crate::format::LineRangesByPath;
 use crate::format::RunForFilePathError;
 use crate::format::get_line_range_byte_range;
+use crate::format::get_line_ranges_byte_ranges;
 use crate::format::merge_line_ranges;
 use crate::format::run_parallelized;
 use crate::incremental::GetIncrementalFileOptions;
@@ -121,7 +122,7 @@ async fn output_stdin_format<TEnvironment: Environment>(
         HostFormatRequest {
           file_path,
           file_bytes: file_bytes.to_vec(),
-          range: None,
+          ranges: None,
           override_config: Default::default(),
           token: Arc::new(NullCancellationToken),
         },
@@ -588,10 +589,29 @@ async fn format_line_ranges<TEnvironment: Environment>(
   line_ranges: &[LineRange],
   plugins_scope: &Rc<PluginsScope<TEnvironment>>,
 ) -> Result<Option<Vec<u8>>> {
+  let line_ranges = merge_line_ranges(line_ranges);
+  if plugins_scope.supports_multi_range_format(file_path, file_bytes) {
+    let ranges = get_line_ranges_byte_ranges(file_bytes, &line_ranges);
+    if ranges.is_empty() {
+      return Ok(None); // past the end of the text
+    }
+    return Ok(
+      plugins_scope
+        .format(HostFormatRequest {
+          file_path: file_path.to_path_buf(),
+          file_bytes: file_bytes.to_vec(),
+          ranges: Some(ranges),
+          override_config: Default::default(),
+          token: Arc::new(NullCancellationToken),
+        })
+        .await?,
+    );
+  }
   let mut formatted_bytes: Option<Vec<u8>> = None;
-  // go from the last range to the first so that formatting a range
-  // doesn't shift the lines of the ranges that are still to be formatted
-  for line_range in merge_line_ranges(line_ranges).into_iter().rev() {
+  // a plugin that formats one range at a time is given the ranges from the
+  // last to the first so that formatting a range doesn't shift the lines of
+  // the ranges that are still to be formatted
+  for line_range in line_ranges.into_iter().rev() {
     let current_bytes = formatted_bytes.as_deref().unwrap_or(file_bytes);
     let Some(range) = get_line_range_byte_range(current_bytes, line_range) else {
       continue; // past the end of the text
@@ -600,7 +620,7 @@ async fn format_line_ranges<TEnvironment: Environment>(
       .format(HostFormatRequest {
         file_path: file_path.to_path_buf(),
         file_bytes: current_bytes.to_vec(),
-        range: Some(range),
+        ranges: Some(vec![range]),
         override_config: Default::default(),
         token: Arc::new(NullCancellationToken),
       })
@@ -5796,6 +5816,23 @@ text2"
     // past the end of the text
     assert_eq!(run(vec!["--lines", "6-7"], text), vec![text]);
     assert_eq!(run(vec!["--lines", "50-60"], text), vec![text]);
+  }
+
+  #[test]
+  fn should_format_line_ranges_for_stdin_fmt_with_process_plugin() {
+    // the ranges are sent to the process plugin in one message
+    let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin().build();
+    let text = "line1\nline2\nline3\nline4\n_formatted_process";
+    run_test_cli_with_stdin(
+      vec!["fmt", "--stdin", "file.txt_ps", "--lines", "1", "--lines", "3-4"],
+      &environment,
+      TestStdInReader::from(text),
+    )
+    .unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["_formatted_process_\nline2\n_formatted_process_\n_formatted_process"]
+    );
   }
 
   #[test]

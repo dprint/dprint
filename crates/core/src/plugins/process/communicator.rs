@@ -42,11 +42,11 @@ use crate::plugins::FILE_MATCHING_INFO_ERROR_MESSAGE;
 use crate::plugins::FileMatchingInfo;
 use crate::plugins::FormatConfigId;
 use crate::plugins::FormatError;
-use crate::plugins::FormatRange;
+use crate::plugins::FormatRanges;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
 use crate::plugins::NullCancellationToken;
-use crate::plugins::PluginInfo;
+use crate::plugins::PluginInfoMessage;
 use crate::plugins::error_to_string;
 
 type Result<T> = std::result::Result<T, FormatError>;
@@ -122,7 +122,8 @@ pub type HostFormatCallback = Rc<dyn Fn(HostFormatRequest) -> LocalBoxFuture<'st
 pub struct ProcessPluginCommunicatorFormatRequest {
   pub file_path: PathBuf,
   pub file_bytes: Arc<Vec<u8>>,
-  pub range: FormatRange,
+  /// Several ranges need the plugin to have the `multi_range_format` capability.
+  pub ranges: FormatRanges,
   pub config_id: FormatConfigId,
   pub override_config: ConfigKeyMap,
   pub on_host_format: HostFormatCallback,
@@ -341,7 +342,7 @@ impl ProcessPluginCommunicator {
     self.send_with_acknowledgement(MessageBody::IsAlive).await.is_ok()
   }
 
-  pub async fn plugin_info(&self) -> Result<PluginInfo> {
+  pub async fn plugin_info(&self) -> Result<PluginInfoMessage> {
     self.send_receiving_data(MessageBody::GetPluginInfo).await
   }
 
@@ -379,7 +380,7 @@ impl ProcessPluginCommunicator {
         MessageBody::FormatShared(FormatMessageBody {
           file_path: request.file_path,
           file_bytes: request.file_bytes,
-          range: request.range,
+          ranges: request.ranges,
           config_id: request.config_id,
           override_config: serde_json::to_vec(&request.override_config).unwrap(),
         }),
@@ -653,7 +654,7 @@ async fn host_format(context: Rc<Context>, message_id: u32, body: HostFormatMess
   let result = callback(HostFormatRequest {
     file_path: body.file_path,
     file_bytes: body.file_text,
-    range: body.range,
+    ranges: body.range.map(|range| vec![range]),
     override_config: serde_json::from_slice(&body.override_config).unwrap(),
     token,
   })

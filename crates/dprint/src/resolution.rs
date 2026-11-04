@@ -20,9 +20,10 @@ use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatError;
-use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatRanges;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::HostFormatCallback;
 use indexmap::IndexMap;
@@ -215,6 +216,10 @@ impl PluginWithConfig {
     self.plugin.info()
   }
 
+  pub fn capabilities(&self) -> &PluginCapabilities {
+    self.plugin.capabilities()
+  }
+
   pub async fn initialize(self: &Rc<Self>) -> Result<InitializedPluginWithConfig> {
     let instance = self.plugin.initialize().await?;
     Ok(InitializedPluginWithConfig {
@@ -259,7 +264,8 @@ impl PluginWithConfig {
 pub struct InitializedPluginWithConfigFormatRequest {
   pub file_path: PathBuf,
   pub file_bytes: Arc<Vec<u8>>,
-  pub range: FormatRange,
+  /// Several ranges need the plugin to have the `multi_range_format` capability.
+  pub ranges: FormatRanges,
   pub override_config: ConfigKeyMap,
   pub on_host_format: HostFormatCallback,
   pub token: Arc<dyn CancellationToken>,
@@ -338,7 +344,7 @@ impl InitializedPluginWithConfig {
       .format_text(InitializedPluginFormatRequest {
         file_path: request.file_path,
         file_text: request.file_bytes,
-        range: request.range,
+        ranges: request.ranges,
         config: self.plugin.format_config.clone(),
         override_config: request.override_config,
         on_host_format: request.on_host_format,
@@ -415,6 +421,16 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
 
   pub fn ensure_plugins_found(&self) -> Result<(), NoPluginsFoundError> {
     if self.plugins.is_empty() { Err(NoPluginsFoundError) } else { Ok(()) }
+  }
+
+  /// Gets whether the plugins that format the file can be given several
+  /// ranges in one format request (see `PluginCapabilities::multi_range_format`).
+  pub fn supports_multi_range_format(&self, file_path: &Path, file_bytes: &[u8]) -> bool {
+    self
+      .plugin_name_maps
+      .get_plugin_names_from_file_path_and_bytes(file_path, file_bytes)
+      .iter()
+      .all(|name| self.plugins.get(name).is_some_and(|plugin| plugin.capabilities().multi_range_format))
   }
 
   /// Gets whether the plugins that format the file format the range of a
@@ -584,7 +600,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
         .format_shared(SharedFormatRequest {
           file_path: request.file_path,
           file_bytes: Arc::new(request.file_bytes),
-          range: request.range,
+          ranges: request.ranges,
           override_config: request.override_config,
           is_plugin_request,
           token: request.token,
@@ -599,8 +615,8 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   /// it's stable the same way `dprint fmt` does. This shouldn't be used for host
   /// formatting (ex. code blocks) because the outer text is already made stable.
   pub async fn format_stable(self: &Rc<Self>, request: HostFormatRequest, ensure_stable_format: EnsureStableFormat) -> FormatResult {
-    // the range wouldn't apply to the formatted text, so only format a range once
-    if !ensure_stable_format.0 || request.range.is_some() {
+    // the ranges wouldn't apply to the formatted text, so only format ranges once
+    if !ensure_stable_format.0 || request.ranges.is_some() {
       return self.format(request).await;
     }
     let file_path = request.file_path;
@@ -609,7 +625,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     let new_request = |file_bytes: Arc<Vec<u8>>| SharedFormatRequest {
       file_path: file_path.clone(),
       file_bytes,
-      range: None,
+      ranges: None,
       override_config: override_config.clone(),
       is_plugin_request: false,
       token: token.clone(),
@@ -646,7 +662,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     let SharedFormatRequest {
       file_path,
       file_bytes,
-      range,
+      ranges,
       override_config,
       is_plugin_request,
       token,
@@ -659,11 +675,11 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       .collect::<Vec<_>>();
     log_debug!(
       self.environment,
-      "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
+      "Host formatting {} - File length: {} - Plugins: [{}] - Ranges: {:?}",
       file_path.display(),
       file_bytes.len(),
       plugins.iter().map(|plugin| plugin.name()).collect::<Vec<_>>().join(", "),
-      range,
+      ranges,
     );
     let plugin_file_path = self.plugin_name_maps.get_plugin_file_path(&file_path, &file_bytes);
     // a plugin might be asking to format with the file path it was given
@@ -677,7 +693,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
             .format_text(InitializedPluginWithConfigFormatRequest {
               file_path: plugin_file_path.to_path_buf(),
               file_bytes: file_text.clone(),
-              range: range.clone(),
+              ranges: ranges.clone(),
               override_config: plugin.get_merged_overrides_for_path(real_file_path, &override_config, is_plugin_request),
               on_host_format: self.create_host_format_callback(),
               token: token.clone(),
@@ -702,7 +718,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
 struct SharedFormatRequest {
   file_path: PathBuf,
   file_bytes: Arc<Vec<u8>>,
-  range: FormatRange,
+  ranges: FormatRanges,
   override_config: ConfigKeyMap,
   /// Whether a plugin made the request (ex. to format a code block) instead of
   /// dprint or an editor.

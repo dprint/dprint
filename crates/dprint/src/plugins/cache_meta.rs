@@ -5,6 +5,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
+use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 
 use super::implementations::WASM_CACHE_VERSION;
@@ -52,6 +53,11 @@ pub struct PluginCacheMeta {
   /// wants an age signal).
   pub created_time: u64,
   pub info: PluginInfo,
+  /// What the dprint-core the plugin was built with supports. Entries written
+  /// before this existed don't have it, which is the same as a plugin that
+  /// doesn't send it.
+  #[serde(default)]
+  pub capabilities: PluginCapabilities,
   /// Executable path relative to the plugin's extract dir. Process plugins only.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub executable_sub_path: Option<String>,
@@ -193,6 +199,7 @@ mod test {
         update_url: None,
         supports_range_formatting: None,
       },
+      capabilities: PluginCapabilities::CURRENT,
       executable_sub_path: None,
       npm_executable_sub_path: None,
       npm_executable_checksum: None,
@@ -207,6 +214,24 @@ mod test {
     let meta = make_meta(&current_signature(&environment));
     write_meta("abc123", &meta, &environment).unwrap();
     assert_eq!(read_meta("abc123", &environment), Some(meta));
+  }
+
+  #[test]
+  fn should_read_meta_without_capabilities() {
+    // written by a dprint from before capabilities existed
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all(plugins_dir(&environment)).unwrap();
+    let meta = make_meta(&current_signature(&environment));
+    let mut json = serde_json::to_value(&meta).unwrap();
+    json.as_object_mut().unwrap().remove("capabilities").unwrap();
+    environment.write_file(meta_path("old", &environment), &json.to_string()).unwrap();
+    assert_eq!(
+      read_meta("old", &environment),
+      Some(PluginCacheMeta {
+        capabilities: PluginCapabilities::default(),
+        ..meta
+      })
+    );
   }
 
   #[test]

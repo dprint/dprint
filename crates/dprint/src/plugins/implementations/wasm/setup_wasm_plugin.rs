@@ -35,7 +35,8 @@ pub async fn setup_wasm_plugin<TEnvironment: Environment>(
   environment.atomic_write_file_bytes(dest_file_path, &compile_result.bytes)?;
 
   Ok(SetupPluginResult {
-    plugin_info: compile_result.plugin_info,
+    plugin_info: compile_result.plugin_info.info,
+    capabilities: compile_result.plugin_info.capabilities,
     file_path: dest_file_path.to_path_buf(),
     executable_sub_path: None,
   })

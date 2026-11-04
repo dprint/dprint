@@ -1,7 +1,7 @@
 use std::fmt;
 
 use anyhow::Result;
-use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::PluginInfoMessage;
 
 use crate::environment::Environment;
 use crate::utils::PathSource;
@@ -14,7 +14,7 @@ use crate::utils::validate_plugin_extension;
 #[derive(Clone)]
 pub struct CompilationResult {
   pub bytes: Vec<u8>,
-  pub plugin_info: PluginInfo,
+  pub plugin_info: PluginInfoMessage,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

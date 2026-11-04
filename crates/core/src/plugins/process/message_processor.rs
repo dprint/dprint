@@ -29,7 +29,9 @@ use crate::plugins::FormatError;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
+use crate::plugins::PluginInfoMessage;
 use crate::plugins::error_to_string;
+use crate::plugins::single_format_range;
 
 type Result<T> = std::result::Result<T, FormatError>;
 
@@ -113,7 +115,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
         }
         MessageBody::GetPluginInfo => {
           handle_message(&context, message.id, || {
-            let plugin_info = handler.plugin_info();
+            let plugin_info = PluginInfoMessage::current(handler.plugin_info());
             let data = serde_json::to_vec(&plugin_info)?;
             Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
           });
@@ -204,7 +206,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           let token = Arc::new(CancellationToken::new());
           let request = FormatRequest {
             file_path: body.file_path,
-            range: body.range,
+            ranges: body.ranges,
             config_id: body.config_id,
             config: match context.configs.get_cloned(body.config_id.as_raw()) {
               Some(config) => {
@@ -299,6 +301,11 @@ fn host_format<TConfiguration: Serialize + Clone + Send + Sync>(
   original_message_id: u32,
   request: HostFormatRequest,
 ) -> LocalBoxFuture<'static, FormatResult> {
+  // the message to the host has a single range
+  let range = match single_format_range(request.ranges) {
+    Ok(range) => range,
+    Err(err) => return async move { Err(err) }.boxed_local(),
+  };
   let (tx, rx) = tokio::sync::oneshot::channel::<FormatResult>();
   let id = context.id_generator.next();
   context.format_host_senders.store(id, tx);
@@ -311,7 +318,7 @@ fn host_format<TConfiguration: Serialize + Clone + Send + Sync>(
         original_message_id,
         file_path: request.file_path,
         file_text: request.file_bytes,
-        range: request.range,
+        range,
         override_config: serde_json::to_vec(&request.override_config).unwrap(),
       }),
     })

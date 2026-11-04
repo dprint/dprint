@@ -281,7 +281,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         .canonicalize_maybe_not_exists(&body.file_path)
         .map(|p| p.into_path_buf())
         .unwrap_or(body.file_path),
-      range: body.range,
+      ranges: body.range.map(|range| vec![range]),
       override_config: if body.override_config.is_empty() {
         Default::default()
       } else {

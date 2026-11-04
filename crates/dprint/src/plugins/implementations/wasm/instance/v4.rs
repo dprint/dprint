@@ -18,11 +18,11 @@ use dprint_core::plugins::FILE_MATCHING_INFO_ERROR_MESSAGE;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatError;
-use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatRanges;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::PluginInfoMessage;
 use dprint_core::plugins::wasm::JsonResponse;
 use wasmtime::Caller;
 use wasmtime::Engine;
@@ -163,11 +163,8 @@ fn host_format(
     memory.read(&caller, file_bytes_ptr as usize, &mut buf).unwrap();
     buf
   };
-  let range = if range_start == 0 && range_end == file_bytes_len {
-    None
-  } else {
-    Some(range_start as usize..range_end as usize)
-  };
+  let range = range_start as usize..range_end as usize;
+  let ranges = if range == (0..file_bytes_len as usize) { None } else { Some(vec![range]) };
   let (token, host_format_sender) = {
     let env = env(&caller);
     (env.token.clone(), env.host_format_sender.clone())
@@ -175,7 +172,7 @@ fn host_format(
   let request = HostFormatRequest {
     file_path,
     file_bytes,
-    range,
+    ranges,
     override_config,
     token,
   };
@@ -260,19 +257,10 @@ impl InitializedWasmPluginInstanceV4 {
     &mut self,
     file_path: &Path,
     file_bytes: &[u8],
-    range: FormatRange,
+    ranges: FormatRanges,
     config: &FormatConfig,
     override_config: Option<&str>,
   ) -> Result<FormatResult> {
-    self.inner_setup_formatting(file_path, file_bytes, override_config)?;
-    let response_code = match range {
-      Some(range) => self.wasm_functions.format_range(config.id, range)?,
-      None => self.wasm_functions.format(config.id)?,
-    };
-    self.inner_handle_response(response_code)
-  }
-
-  fn inner_setup_formatting(&mut self, file_path: &Path, file_bytes: &[u8], override_config: Option<&str>) -> Result<()> {
     // send override config if necessary
     if let Some(override_config) = override_config {
       self.send_string(override_config)?;
@@ -283,8 +271,30 @@ impl InitializedWasmPluginInstanceV4 {
     self.send_string(&file_path.to_string_lossy())?;
     self.wasm_functions.set_file_path()?;
 
-    // send file text
-    self.send_bytes(file_bytes)
+    let response_code = match ranges.as_deref() {
+      None => {
+        self.send_bytes(file_bytes)?;
+        self.wasm_functions.format(config.id)?
+      }
+      // every plugin has `format_range`, so a single range is given that way
+      Some([range]) => {
+        self.send_bytes(file_bytes)?;
+        self.wasm_functions.format_range(config.id, range.clone())?
+      }
+      // only a plugin with the multi range format capability has `set_format_ranges`
+      Some(ranges) => {
+        let mut bytes = Vec::with_capacity(ranges.len() * 8);
+        for range in ranges {
+          bytes.extend_from_slice(&(range.start as u32).to_le_bytes());
+          bytes.extend_from_slice(&(range.end as u32).to_le_bytes());
+        }
+        self.send_bytes(&bytes)?;
+        self.wasm_functions.set_format_ranges()?;
+        self.send_bytes(file_bytes)?;
+        self.wasm_functions.format(config.id)?
+      }
+    };
+    self.inner_handle_response(response_code)
   }
 
   fn inner_handle_response(&mut self, response_code: WasmFormatResult) -> Result<FormatResult> {
@@ -349,7 +359,7 @@ impl InitializedWasmPluginInstanceV4 {
 }
 
 impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
-  fn plugin_info(&mut self) -> Result<PluginInfo> {
+  fn plugin_info(&mut self) -> Result<PluginInfoMessage> {
     let len = self.wasm_functions.get_plugin_info()?;
     let json_bytes = self.receive_bytes(len)?;
     Ok(serde_json::from_slice(&json_bytes)?)
@@ -398,7 +408,7 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
     &mut self,
     file_path: &Path,
     file_bytes: &[u8],
-    range: FormatRange,
+    ranges: FormatRanges,
     config: &FormatConfig,
     override_config: &ConfigKeyMap,
     token: Arc<dyn CancellationToken>,
@@ -410,7 +420,7 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
     };
     self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);
     self.ensure_config(config).map_err(FormatError::new)?;
-    match self.inner_format_text(file_path, file_bytes, range, config, override_config.as_deref()) {
+    match self.inner_format_text(file_path, file_bytes, ranges, config, override_config.as_deref()) {
       Ok(inner) => inner,
       Err(err) => Err(CriticalFormatError(FormatError::new(err)).into()),
     }
@@ -485,6 +495,12 @@ impl WasmFunctions {
   #[inline]
   pub fn set_file_path(&mut self) -> Result<()> {
     let func = self.get_export::<(), ()>("set_file_path")?;
+    Ok(func.call(&mut self.store, ())?)
+  }
+
+  #[inline]
+  pub fn set_format_ranges(&mut self) -> Result<()> {
+    let func = self.get_export::<(), ()>("set_format_ranges")?;
     Ok(func.call(&mut self.store, ())?)
   }
 

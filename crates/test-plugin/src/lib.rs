@@ -173,7 +173,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
 
     let inner_format_text = if self.has_panicked {
       panic!("Previously panicked. Plugin should not have been used by the CLI again.")
-    } else if let Some(range) = request.range {
+    } else if let Some(ranges) = request.ranges {
       if let Some(new_text) = file_text.strip_prefix("plugin-range: ") {
         format!(
           "plugin-range: {}",
@@ -181,14 +181,14 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
             format_with_host(SyncHostFormatRequest {
               file_path: &PathBuf::from("./test.txt_ps"),
               file_bytes: new_text.as_bytes(),
-              range: Some(range),
+              ranges: Some(ranges),
               override_config: &Default::default(),
             }),
             new_text
           )?
         )
       } else {
-        format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..])
+        format_ranges(&file_text, &ranges, &request.config.ending)
       }
     } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
       format!(
@@ -197,7 +197,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
           format_with_host(SyncHostFormatRequest {
             file_path: &PathBuf::from("./test.txt_ps"),
             file_bytes: new_text.as_bytes(),
-            range: None,
+            ranges: None,
             override_config: &ConfigKeyMap::new(),
           }),
           new_text,
@@ -212,7 +212,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
           format_with_host(SyncHostFormatRequest {
             file_path: &PathBuf::from("./test.txt_ps"),
             file_bytes: new_text.as_bytes(),
-            range: None,
+            ranges: None,
             override_config: &config_map,
           }),
           new_text
@@ -241,6 +241,16 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       Ok(Some(format!("{}_{}", inner_format_text, request.config.ending).into_bytes()))
     }
   }
+}
+
+/// Replaces each range with `_<ending>_`, from the last to the first so that
+/// the earlier ranges still apply.
+fn format_ranges(text: &str, ranges: &[std::ops::Range<usize>], ending: &str) -> String {
+  let mut text = text.to_string();
+  for range in ranges.iter().rev() {
+    text = format!("{}_{}_{}", &text[0..range.start], ending, &text[range.end..]);
+  }
+  text
 }
 
 generate_plugin_code!(TestWasmPlugin, TestWasmPlugin::new());

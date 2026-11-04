@@ -12,6 +12,7 @@ use crate::communication::Message;
 use crate::plugins::ConfigChange;
 use crate::plugins::FormatConfigId;
 use crate::plugins::FormatRange;
+use crate::plugins::FormatRanges;
 
 use crate::communication::MessageReader;
 use crate::communication::MessageWriter;
@@ -38,6 +39,7 @@ mod message_ids {
   pub const FORMAT_RESPONSE_ID: MessageId = 14;
   pub const CANCEL_FORMAT_ID: MessageId = 15;
   pub const HOST_FORMAT_ID: MessageId = 16;
+  pub const FORMAT_RANGES_ID: MessageId = 17;
 }
 
 #[derive(Debug)]
@@ -93,14 +95,37 @@ impl ProcessPluginMessage {
         let file_text = reader.read_sized_bytes()?;
         MessageBody::Format(FormatMessageBody {
           file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
-          range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
+          ranges: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
             None
           } else {
-            Some(std::ops::Range {
+            Some(vec![std::ops::Range {
               start: start_byte_index as usize,
               end: end_byte_index as usize,
-            })
+            }])
           },
+          config_id,
+          file_bytes: file_text,
+          override_config,
+        })
+      }
+      message_ids::FORMAT_RANGES_ID => {
+        let file_path = reader.read_sized_bytes()?;
+        let ranges_len = reader.read_u32()?;
+        let mut ranges = Vec::with_capacity(ranges_len as usize);
+        for _ in 0..ranges_len {
+          let start_byte_index = reader.read_u32()?;
+          let end_byte_index = reader.read_u32()?;
+          ranges.push(std::ops::Range {
+            start: start_byte_index as usize,
+            end: end_byte_index as usize,
+          });
+        }
+        let config_id = FormatConfigId::from_raw(reader.read_u32()?);
+        let override_config = reader.read_sized_bytes()?;
+        let file_text = reader.read_sized_bytes()?;
+        MessageBody::Format(FormatMessageBody {
+          file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
+          ranges: Some(ranges),
           config_id,
           file_bytes: file_text,
           override_config,
@@ -302,18 +327,35 @@ pub struct CheckConfigUpdatesResponseBody {
 #[derive(Debug)]
 pub struct FormatMessageBody<TFileBytes = Vec<u8>> {
   pub file_path: PathBuf,
-  pub range: FormatRange,
+  pub ranges: FormatRanges,
   pub config_id: FormatConfigId,
   pub override_config: Vec<u8>,
   pub file_bytes: TFileBytes,
 }
 
 impl<TFileBytes> FormatMessageBody<TFileBytes> {
+  /// Writes a `Format` message, which every plugin reads, unless there are
+  /// several ranges, which is a `FormatRanges` message that only a plugin
+  /// with the `multiRangeFormat` capability reads.
   fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>, file_bytes: &[u8]) -> Result<()> {
-    writer.send_u32(message_ids::FORMAT_ID)?;
-    writer.send_sized_bytes(self.file_path.to_string_lossy().as_bytes())?;
-    writer.send_u32(self.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
-    writer.send_u32(self.range.as_ref().map(|r| r.end).unwrap_or(file_bytes.len()) as u32)?;
+    match self.ranges.as_deref() {
+      Some(ranges) if ranges.len() != 1 => {
+        writer.send_u32(message_ids::FORMAT_RANGES_ID)?;
+        writer.send_sized_bytes(self.file_path.to_string_lossy().as_bytes())?;
+        writer.send_u32(ranges.len() as u32)?;
+        for range in ranges {
+          writer.send_u32(range.start as u32)?;
+          writer.send_u32(range.end as u32)?;
+        }
+      }
+      ranges => {
+        let range = ranges.and_then(|ranges| ranges.first());
+        writer.send_u32(message_ids::FORMAT_ID)?;
+        writer.send_sized_bytes(self.file_path.to_string_lossy().as_bytes())?;
+        writer.send_u32(range.map(|r| r.start).unwrap_or(0) as u32)?;
+        writer.send_u32(range.map(|r| r.end).unwrap_or(file_bytes.len()) as u32)?;
+      }
+    }
     writer.send_u32(self.config_id.as_raw())?;
     writer.send_sized_bytes(&self.override_config)?;
     writer.send_sized_bytes(file_bytes)
@@ -327,4 +369,47 @@ pub struct HostFormatMessageBody {
   pub range: FormatRange,
   pub override_config: Vec<u8>,
   pub file_text: Vec<u8>,
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  #[allow(clippy::single_range_in_vec_init)]
+  fn format_message_ranges_roundtrip() {
+    // (message kind, ranges read)
+    fn roundtrip(ranges: FormatRanges) -> (u32, FormatRanges) {
+      let message = ProcessPluginMessage {
+        id: 1,
+        body: MessageBody::Format(FormatMessageBody {
+          file_path: PathBuf::from("file.ts"),
+          ranges,
+          config_id: FormatConfigId::from_raw(2),
+          override_config: Vec::new(),
+          file_bytes: b"0123456789".to_vec(),
+        }),
+      };
+      let mut bytes = Vec::new();
+      message.write(&mut MessageWriter::new(&mut bytes)).unwrap();
+      let message_kind = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
+      let message = ProcessPluginMessage::read(&mut MessageReader::new(std::io::Cursor::new(bytes))).unwrap();
+      match message.body {
+        MessageBody::Format(body) => {
+          assert_eq!(body.file_path, PathBuf::from("file.ts"));
+          assert_eq!(body.config_id, FormatConfigId::from_raw(2));
+          assert_eq!(body.file_bytes, b"0123456789");
+          (message_kind, body.ranges)
+        }
+        body => panic!("unexpected body: {:?}", body),
+      }
+    }
+
+    // every plugin reads a format message with one range or the whole text
+    assert_eq!(roundtrip(None), (message_ids::FORMAT_ID, None));
+    assert_eq!(roundtrip(Some(vec![2..4])), (message_ids::FORMAT_ID, Some(vec![2..4])));
+    assert_eq!(roundtrip(Some(vec![0..10])), (message_ids::FORMAT_ID, None));
+    // several ranges are a format ranges message
+    assert_eq!(roundtrip(Some(vec![1..2, 5..8])), (message_ids::FORMAT_RANGES_ID, Some(vec![1..2, 5..8])));
+  }
 }

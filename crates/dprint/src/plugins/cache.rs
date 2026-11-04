@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 use sys_traits::FsMetadata;
 use sys_traits::FsMetadataValue;
@@ -48,6 +49,7 @@ use crate::utils::verify_sha256_checksum;
 pub struct PluginCacheItem {
   pub file_path: PathBuf,
   pub info: PluginInfo,
+  pub capabilities: PluginCapabilities,
   pub plugin_kind: PluginKind,
   /// Whether this process set the plugin up (downloaded, compiled, or
   /// extracted it) instead of it already being in the cache.
@@ -626,6 +628,7 @@ where
       plugin_kind,
       created_time: self.environment.get_time_secs(),
       info: setup_result.plugin_info.clone(),
+      capabilities: setup_result.capabilities.clone(),
       executable_sub_path: setup_result.executable_sub_path,
       npm_executable_sub_path,
       npm_executable_checksum,
@@ -637,6 +640,7 @@ where
     Ok(PluginCacheItem {
       file_path: setup_result.file_path,
       info: setup_result.plugin_info,
+      capabilities: setup_result.capabilities,
       plugin_kind,
       was_set_up: true,
     })
@@ -664,6 +668,7 @@ where
     Some(PluginCacheItem {
       file_path,
       info: meta.info,
+      capabilities: meta.capabilities,
       plugin_kind: meta.plugin_kind,
       // a hit may be for an entry set up earlier in this process (ex. by
       // `dprint add` warming the cache)
@@ -857,6 +862,7 @@ mod test {
         update_url: None,
         supports_range_formatting: None,
       },
+      capabilities: Default::default(),
       executable_sub_path: None,
       npm_executable_sub_path: None,
       npm_executable_checksum: None,

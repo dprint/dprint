@@ -360,7 +360,7 @@ async fn handle_format_request<TEnvironment: Environment>(
       HostFormatRequest {
         file_path: request.file_path,
         file_bytes: request.file_text.as_bytes().to_vec(),
-        range: range_format.plugin_range.clone(),
+        ranges: range_format.plugin_range.clone().map(|range| vec![range]),
         override_config: Default::default(),
         token: request.token,
       },

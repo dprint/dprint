@@ -14,8 +14,9 @@ use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatError;
-use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatRanges;
 use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::HostFormatCallback;
 
@@ -45,6 +46,9 @@ pub fn anyhow_to_format_error(err: anyhow::Error) -> FormatError {
 pub trait Plugin: Send + Sync {
   fn info(&self) -> &PluginInfo;
 
+  /// What the dprint-core the plugin was built with supports.
+  fn capabilities(&self) -> &PluginCapabilities;
+
   /// Initializes the plugin.
   async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>>;
 
@@ -61,7 +65,8 @@ pub struct FormatConfig {
 pub struct InitializedPluginFormatRequest {
   pub file_path: PathBuf,
   pub file_text: Arc<Vec<u8>>,
-  pub range: FormatRange,
+  /// Several ranges need the plugin to have the `multi_range_format` capability.
+  pub ranges: FormatRanges,
   pub config: Arc<FormatConfig>,
   pub override_config: ConfigKeyMap,
   pub on_host_format: HostFormatCallback,
@@ -119,6 +124,10 @@ impl TestPlugin {
 impl Plugin for TestPlugin {
   fn info(&self) -> &PluginInfo {
     &self.info
+  }
+
+  fn capabilities(&self) -> &PluginCapabilities {
+    &PluginCapabilities::CURRENT
   }
 
   fn is_process_plugin(&self) -> bool {

@@ -9,7 +9,7 @@ use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatError;
-use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatRanges;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::process::HostFormatCallback;
@@ -21,6 +21,7 @@ use std::time::Instant;
 
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
+use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 
 use super::WasmHostFormatSender;
@@ -41,10 +42,11 @@ pub struct WasmPlugin<TEnvironment: Environment> {
   module: WasmModule,
   environment: TEnvironment,
   plugin_info: PluginInfo,
+  capabilities: PluginCapabilities,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(module: WasmModule, plugin_info: PluginInfo, environment: TEnvironment) -> Result<Self> {
+  pub fn new(module: WasmModule, plugin_info: PluginInfo, capabilities: PluginCapabilities, environment: TEnvironment) -> Result<Self> {
     let initializes_on_start = plugin_initializes_on_start(&plugin_info);
     if initializes_on_start {
       log_warn!(
@@ -59,6 +61,7 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
       module,
       environment,
       plugin_info,
+      capabilities,
     })
   }
 }
@@ -67,6 +70,10 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
 impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
   fn info(&self) -> &PluginInfo {
     &self.plugin_info
+  }
+
+  fn capabilities(&self) -> &PluginCapabilities {
+    &self.capabilities
   }
 
   fn is_process_plugin(&self) -> bool {
@@ -97,7 +104,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
 struct WasmPluginFormatMessage {
   file_path: PathBuf,
   file_bytes: Arc<Vec<u8>>,
-  range: FormatRange,
+  ranges: FormatRanges,
   config: Arc<FormatConfig>,
   override_config: ConfigKeyMap,
   token: Arc<dyn CancellationToken>,
@@ -330,7 +337,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
               let result = instance.format_text(
                 &request.file_path,
                 &request.file_bytes,
-                request.range.clone(),
+                request.ranges.clone(),
                 &request.config,
                 &request.override_config,
                 request.token.clone(),
@@ -442,7 +449,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
     let message = Arc::new(WasmPluginFormatMessage {
       file_path: request.file_path,
       file_bytes: request.file_text,
-      range: request.range,
+      ranges: request.ranges,
       config: request.config,
       override_config: request.override_config,
       token: request.token,

@@ -4,7 +4,7 @@ use std::sync::Weak;
 
 use anyhow::Context;
 use anyhow::Result;
-use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::PluginInfoMessage;
 
 use super::create_identity_import_object;
 use super::create_wasm_plugin_instance;
@@ -39,7 +39,7 @@ pub fn compile(wasm_bytes: &[u8], max_threads: usize) -> Result<CompilationResul
       // check if this is a plugin that's known to initialize itself on start
       let module = module.clone().with_initializes_on_start(true);
       match module.has_initialize_export().then(|| get_plugin_info(&module)) {
-        Some(Ok(plugin_info)) if plugin_initializes_on_start(&plugin_info) => plugin_info,
+        Some(Ok(plugin_info)) if plugin_initializes_on_start(&plugin_info.info) => plugin_info,
         _ => return Err(err),
       }
     }
@@ -48,7 +48,7 @@ pub fn compile(wasm_bytes: &[u8], max_threads: usize) -> Result<CompilationResul
   Ok(CompilationResult { bytes, plugin_info })
 }
 
-fn get_plugin_info(module: &WasmModule) -> Result<PluginInfo> {
+fn get_plugin_info(module: &WasmModule) -> Result<PluginInfoMessage> {
   let linker = create_identity_import_object(module.version(), module.engine())?;
   let mut store = module.new_store(WasmHostState::Empty);
   let instance = load_instance(&mut store, module, linker)?;
