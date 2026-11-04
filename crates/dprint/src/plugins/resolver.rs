@@ -4,7 +4,6 @@ use anyhow::bail;
 use dprint_core::async_runtime::future;
 use dprint_core::communication::IdGenerator;
 use dprint_core::plugins::FormatConfigId;
-use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -44,10 +43,6 @@ impl PluginWrapper {
 
   pub fn info(&self) -> &PluginInfo {
     self.plugin.info()
-  }
-
-  pub fn capabilities(&self) -> &PluginCapabilities {
-    self.plugin.capabilities()
   }
 
   pub fn is_process_plugin(&self) -> bool {

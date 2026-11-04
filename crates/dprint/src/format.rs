@@ -353,27 +353,12 @@ where
     line_ranges: &[LineRange],
   ) -> Result<(Instant, Arc<Vec<u8>>)> {
     let start_instant = Instant::now();
-    let line_ranges = merge_line_ranges(line_ranges);
-    if context.plugins.iter().all(|(plugin, _)| plugin.capabilities().multi_range_format) {
-      let ranges = get_line_ranges_byte_ranges(file_text, &line_ranges);
-      if ranges.is_empty() {
-        return Ok((start_instant, file_text.clone())); // past the end of the text
-      }
-      let (_, formatted_text) = run_single_pass_for_file_path(context, file_paths, file_text, Some(ranges)).await?;
-      return Ok((start_instant, formatted_text));
+    let ranges = get_line_ranges_byte_ranges(file_text, &merge_line_ranges(line_ranges));
+    if ranges.is_empty() {
+      return Ok((start_instant, file_text.clone())); // past the end of the text
     }
-    // a plugin that formats one range at a time is given the ranges from the
-    // last to the first so that formatting a range doesn't shift the lines of
-    // the ranges that are still to be formatted
-    let mut file_text = file_text.clone();
-    for line_range in line_ranges.into_iter().rev() {
-      let Some(range) = get_line_range_byte_range(&file_text, line_range) else {
-        continue; // past the end of the text
-      };
-      let (_, formatted_text) = run_single_pass_for_file_path(context, file_paths, &file_text, Some(vec![range])).await?;
-      file_text = formatted_text;
-    }
-    Ok((start_instant, file_text))
+    let (_, formatted_text) = run_single_pass_for_file_path(context, file_paths, file_text, Some(ranges)).await?;
+    Ok((start_instant, formatted_text))
   }
 
   async fn run_single_pass_for_file_path<TEnvironment: Environment>(

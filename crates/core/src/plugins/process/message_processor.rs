@@ -5,6 +5,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+use super::MAX_SCHEMA_VERSION_ENV_VAR;
+use super::MIN_PLUGIN_SCHEMA_VERSION;
 use super::PLUGIN_SCHEMA_VERSION;
 use super::context::ProcessContext;
 use super::context::StoredConfig;
@@ -29,7 +31,6 @@ use crate::plugins::FormatError;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
-use crate::plugins::PluginInfoMessage;
 use crate::plugins::error_to_string;
 use crate::plugins::single_format_range;
 
@@ -115,7 +116,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
         }
         MessageBody::GetPluginInfo => {
           handle_message(&context, message.id, || {
-            let plugin_info = PluginInfoMessage::current(handler.plugin_info());
+            let plugin_info = handler.plugin_info();
             let data = serde_json::to_vec(&plugin_info)?;
             Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
           });
@@ -407,9 +408,40 @@ fn schema_establishment_phase<TRead: Read + Unpin, TWrite: Write + Unpin>(
 
   // 2. The client responds with `0` (4 bytes) for success
   stdout.send_u32(0)?;
-  // 3. Then 4 bytes for the schema version
-  stdout.send_u32(PLUGIN_SCHEMA_VERSION)?;
+  // 3. Then 4 bytes for the schema version, which is the newest one the host supports too
+  let host_max_schema_version = std::env::var(MAX_SCHEMA_VERSION_ENV_VAR).ok();
+  stdout.send_u32(negotiate_schema_version(host_max_schema_version.as_deref()))?;
   stdout.flush()?;
 
   Ok(())
+}
+
+/// Gets the schema version to use with a host that says the newest one it
+/// supports (see `MAX_SCHEMA_VERSION_ENV_VAR`). A host that doesn't say is from
+/// before the schema version was negotiated and only accepts the oldest one.
+fn negotiate_schema_version(host_max_schema_version: Option<&str>) -> u32 {
+  match host_max_schema_version.and_then(|version| version.trim().parse::<u32>().ok()) {
+    Some(host_max_schema_version) => host_max_schema_version.clamp(MIN_PLUGIN_SCHEMA_VERSION, PLUGIN_SCHEMA_VERSION),
+    None => MIN_PLUGIN_SCHEMA_VERSION,
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn negotiates_schema_version_with_host() {
+    // a host from before the schema version was negotiated
+    assert_eq!(negotiate_schema_version(None), 5);
+    assert_eq!(negotiate_schema_version(Some("")), 5);
+    assert_eq!(negotiate_schema_version(Some("not a number")), 5);
+    // the newest version both support
+    assert_eq!(negotiate_schema_version(Some("5")), 5);
+    assert_eq!(negotiate_schema_version(Some("6")), 6);
+    assert_eq!(negotiate_schema_version(Some(" 6 ")), 6);
+    assert_eq!(negotiate_schema_version(Some("7")), 6);
+    // a host can't support less than the oldest version
+    assert_eq!(negotiate_schema_version(Some("4")), 5);
+  }
 }

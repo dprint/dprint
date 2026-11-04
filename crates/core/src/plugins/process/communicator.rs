@@ -16,6 +16,9 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use super::FORMAT_RANGES_SCHEMA_VERSION;
+use super::MAX_SCHEMA_VERSION_ENV_VAR;
+use super::MIN_PLUGIN_SCHEMA_VERSION;
 use super::PLUGIN_SCHEMA_VERSION;
 use super::messages::CheckConfigUpdatesMessageBody;
 use super::messages::CheckConfigUpdatesResponseBody;
@@ -46,7 +49,7 @@ use crate::plugins::FormatRanges;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
 use crate::plugins::NullCancellationToken;
-use crate::plugins::PluginInfoMessage;
+use crate::plugins::PluginInfo;
 use crate::plugins::error_to_string;
 
 type Result<T> = std::result::Result<T, FormatError>;
@@ -122,7 +125,7 @@ pub type HostFormatCallback = Rc<dyn Fn(HostFormatRequest) -> LocalBoxFuture<'st
 pub struct ProcessPluginCommunicatorFormatRequest {
   pub file_path: PathBuf,
   pub file_bytes: Arc<Vec<u8>>,
-  /// Several ranges need the plugin to have the `multi_range_format` capability.
+  /// A plugin from before `FORMAT_RANGES_SCHEMA_VERSION` is given several ranges one at a time.
   pub ranges: FormatRanges,
   pub config_id: FormatConfigId,
   pub override_config: ConfigKeyMap,
@@ -151,6 +154,7 @@ pub struct ProcessPluginCommunicator {
   #[cfg(windows)]
   job: Option<ProcessJob>,
   context: Rc<Context>,
+  schema_version: u32,
 }
 
 impl Drop for ProcessPluginCommunicator {
@@ -177,7 +181,13 @@ impl ProcessPluginCommunicator {
 
     let shutdown_flag = Arc::new(AtomicFlag::default());
     let mut command = Command::new(executable_file_path);
-    command.args(&args).stdin(Stdio::piped()).stderr(Stdio::piped()).stdout(Stdio::piped());
+    command
+      .args(&args)
+      // tells the plugin the newest schema version it may respond with
+      .env(MAX_SCHEMA_VERSION_ENV_VAR, PLUGIN_SCHEMA_VERSION.to_string())
+      .stdin(Stdio::piped())
+      .stderr(Stdio::piped())
+      .stdout(Stdio::piped());
     #[cfg(unix)]
     command.process_group(0);
     let mut child = command.spawn().map_err(|err| start_process_error(executable_file_path, &args, err))?;
@@ -205,13 +215,13 @@ impl ProcessPluginCommunicator {
     })
     .await??;
 
-    if schema_version != PLUGIN_SCHEMA_VERSION {
+    if !(MIN_PLUGIN_SCHEMA_VERSION..=PLUGIN_SCHEMA_VERSION).contains(&schema_version) {
       // kill the child to prevent it from ouputting to stderr
       let _ = child.kill();
-      let err = if schema_version < PLUGIN_SCHEMA_VERSION {
+      let err = if schema_version < MIN_PLUGIN_SCHEMA_VERSION {
         CommunicatorError::PluginTooOld {
           actual: schema_version,
-          expected: PLUGIN_SCHEMA_VERSION,
+          expected: MIN_PLUGIN_SCHEMA_VERSION,
         }
       } else {
         CommunicatorError::CliTooOld {
@@ -279,7 +289,14 @@ impl ProcessPluginCommunicator {
       job,
       child: RefCell::new(Some(child)),
       context,
+      schema_version,
     })
+  }
+
+  /// The schema version the plugin responded with, which is the newest one
+  /// that it and this host support.
+  pub fn schema_version(&self) -> u32 {
+    self.schema_version
   }
 
   /// Perform a graceful shutdown.
@@ -342,7 +359,7 @@ impl ProcessPluginCommunicator {
     self.send_with_acknowledgement(MessageBody::IsAlive).await.is_ok()
   }
 
-  pub async fn plugin_info(&self) -> Result<PluginInfoMessage> {
+  pub async fn plugin_info(&self) -> Result<PluginInfo> {
     self.send_receiving_data(MessageBody::GetPluginInfo).await
   }
 
@@ -370,6 +387,45 @@ impl ProcessPluginCommunicator {
   }
 
   pub async fn format_text(&self, request: ProcessPluginCommunicatorFormatRequest) -> FormatResult {
+    let has_several_ranges = request.ranges.as_ref().is_some_and(|ranges| ranges.len() > 1);
+    if has_several_ranges && self.schema_version < FORMAT_RANGES_SCHEMA_VERSION {
+      self.format_ranges_one_at_a_time(request).await
+    } else {
+      self.format_text_once(request).await
+    }
+  }
+
+  /// Formats the ranges of a plugin that reads one range per format message
+  /// from the last range to the first, which keeps the earlier ranges where
+  /// they are in the text that formatting a range changed.
+  async fn format_ranges_one_at_a_time(&self, request: ProcessPluginCommunicatorFormatRequest) -> FormatResult {
+    let ranges = request.ranges.unwrap_or_default();
+    let mut file_bytes = request.file_bytes;
+    let mut had_change = false;
+    for range in ranges.into_iter().rev() {
+      let result = self
+        .format_text_once(ProcessPluginCommunicatorFormatRequest {
+          file_path: request.file_path.clone(),
+          file_bytes: file_bytes.clone(),
+          ranges: Some(vec![range]),
+          config_id: request.config_id,
+          override_config: request.override_config.clone(),
+          on_host_format: request.on_host_format.clone(),
+          token: request.token.clone(),
+        })
+        .await?;
+      if request.token.is_cancelled() {
+        return Ok(None);
+      }
+      if let Some(new_file_bytes) = result {
+        file_bytes = Arc::new(new_file_bytes);
+        had_change = true;
+      }
+    }
+    Ok(had_change.then(|| Arc::unwrap_or_clone(file_bytes)))
+  }
+
+  async fn format_text_once(&self, request: ProcessPluginCommunicatorFormatRequest) -> FormatResult {
     let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
 
     let message_id = self.context.id_generator.next();

@@ -9,7 +9,6 @@ use crate::plugins::CheckConfigUpdatesMessage;
 use crate::plugins::FormatConfigId;
 use crate::plugins::FormatError;
 use crate::plugins::FormatResult;
-use crate::plugins::PluginInfoMessage;
 use crate::plugins::PluginResolveConfigurationResult;
 use crate::plugins::RawFormatConfig;
 use crate::plugins::SyncFormatRequest;
@@ -151,7 +150,7 @@ impl<TPlugin: SyncPluginHandler<TConfiguration>, TConfiguration: Clone + serde::
   // INFORMATION & CONFIGURATION
 
   pub fn get_plugin_info(&self) -> usize {
-    let plugin_info = PluginInfoMessage::current(self.plugin().borrow_mut().plugin_info());
+    let plugin_info = self.plugin().borrow_mut().plugin_info();
     self.set_shared_bytes(serde_json::to_vec(&plugin_info).unwrap())
   }
 

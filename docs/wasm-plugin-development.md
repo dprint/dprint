@@ -204,8 +204,6 @@ Initialization functions:
   - `configSchemaUrl` - URL of the JSON schema for the plugin's configuration or an empty string.
   - `updateUrl` - Optional URL used to check for updates (ex. `https://plugins.dprint.dev/<org>/<repo>/latest.json`).
   - `supportsRangeFormatting` - Boolean for whether the plugin formats the range of a format request, which should always be provided. When `true`, editors give the plugin the range as it is and use what it formats, so it decides what to format around the range (ex. the nodes it overlaps). When `false`, editors don't format a range with the plugin.
-  - `capabilities` - Optional object for what the plugin's exports support, which `dprint-core` adds for the plugin. The CLI treats a plugin that doesn't provide it as supporting none of them.
-    - `multiRangeFormat` - Boolean for whether the plugin has `set_format_ranges`.
 
 Formatting functions:
 
@@ -225,7 +223,7 @@ Optional functions:
   - Output: `{ "kind": "ok", "data": [...changes] }` or `{ "kind": "err", "data": "error message" }`, where a change is `{ "path": ["propName", 0], "kind": "Set" | "Add" | "Remove", "value": ... }` (no `value` for `"Remove"`)
 - `format_range(config_id: u32, range_start: u32, range_end: u32) -> u32` - Called like `format` to format a single range of the file text.
   - Response is same as `format`
-- `set_format_ranges()` - Called by the CLI before writing the file text for the plugin to take from its local byte array and store that data as the ranges to format with `format`. The data is a start and end byte index for each range as little-endian u32s. The ranges are in order and don't overlap or touch, and the plugin formats each of them in the text and returns the text formatted once. Only called when the plugin info has the `multiRangeFormat` capability.
+- `set_format_ranges()` - Called by the CLI before writing the file text for the plugin to take from its local byte array and store that data as the ranges to format with `format`. The data is a start and end byte index for each range as little-endian u32s. The ranges are in order and don't overlap or touch, and the plugin formats each of them in the text and returns the text formatted once. The CLI checks for this export and gives a plugin without it one range at a time with `format_range`.
 
 ### Wasm Imports
 

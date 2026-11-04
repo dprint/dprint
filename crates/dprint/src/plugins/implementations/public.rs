@@ -1,7 +1,6 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 
 use super::WasmModuleCreator;
@@ -18,7 +17,6 @@ use crate::utils::PluginKind;
 pub struct SetupPluginResult {
   pub file_path: PathBuf,
   pub plugin_info: PluginInfo,
-  pub capabilities: PluginCapabilities,
   /// For process plugins, the executable's path relative to its extract dir.
   /// Stored in the cache meta so the file path can be re-derived on a hit
   /// without re-extracting. `None` for wasm plugins and for process plugins
@@ -129,12 +127,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
 
       let executable_path = super::process::get_test_safe_executable_path(&cache_item.info.version, cache_item.file_path, &environment);
       Ok(CreatedPlugin {
-        plugin: Box::new(process::ProcessPlugin::new(
-          environment,
-          executable_path,
-          cache_item.info,
-          cache_item.capabilities,
-        )),
+        plugin: Box::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)),
         was_set_up: cache_item.was_set_up,
       })
     }
@@ -154,7 +147,6 @@ async fn create_wasm_plugin<TEnvironment: Environment>(
     let environment = environment.clone();
     let file_path = cache_item.file_path.clone();
     let plugin_info = cache_item.info.clone();
-    let capabilities = cache_item.capabilities.clone();
     let wasm_module_creator = wasm_module_creator.clone();
     move || {
       // memory mapping the file is much faster than reading it, but only do
@@ -175,7 +167,7 @@ async fn create_wasm_plugin<TEnvironment: Environment>(
       } else {
         read_module()?
       };
-      wasm::WasmPlugin::new(module, plugin_info, capabilities, environment)
+      wasm::WasmPlugin::new(module, plugin_info, environment)
     }
   })
   .await?

@@ -23,7 +23,6 @@ use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRanges;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
-use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::HostFormatCallback;
 use indexmap::IndexMap;
@@ -216,10 +215,6 @@ impl PluginWithConfig {
     self.plugin.info()
   }
 
-  pub fn capabilities(&self) -> &PluginCapabilities {
-    self.plugin.capabilities()
-  }
-
   pub async fn initialize(self: &Rc<Self>) -> Result<InitializedPluginWithConfig> {
     let instance = self.plugin.initialize().await?;
     Ok(InitializedPluginWithConfig {
@@ -264,7 +259,6 @@ impl PluginWithConfig {
 pub struct InitializedPluginWithConfigFormatRequest {
   pub file_path: PathBuf,
   pub file_bytes: Arc<Vec<u8>>,
-  /// Several ranges need the plugin to have the `multi_range_format` capability.
   pub ranges: FormatRanges,
   pub override_config: ConfigKeyMap,
   pub on_host_format: HostFormatCallback,
@@ -421,16 +415,6 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
 
   pub fn ensure_plugins_found(&self) -> Result<(), NoPluginsFoundError> {
     if self.plugins.is_empty() { Err(NoPluginsFoundError) } else { Ok(()) }
-  }
-
-  /// Gets whether the plugins that format the file can be given several
-  /// ranges in one format request (see `PluginCapabilities::multi_range_format`).
-  pub fn supports_multi_range_format(&self, file_path: &Path, file_bytes: &[u8]) -> bool {
-    self
-      .plugin_name_maps
-      .get_plugin_names_from_file_path_and_bytes(file_path, file_bytes)
-      .iter()
-      .all(|name| self.plugins.get(name).is_some_and(|plugin| plugin.capabilities().multi_range_format))
   }
 
   /// Gets whether the plugins that format the file format the range of a

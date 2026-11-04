@@ -336,7 +336,7 @@ pub struct FormatMessageBody<TFileBytes = Vec<u8>> {
 impl<TFileBytes> FormatMessageBody<TFileBytes> {
   /// Writes a `Format` message, which every plugin reads, unless there are
   /// several ranges, which is a `FormatRanges` message that only a plugin
-  /// with the `multiRangeFormat` capability reads.
+  /// with `FORMAT_RANGES_SCHEMA_VERSION` or newer reads.
   fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>, file_bytes: &[u8]) -> Result<()> {
     match self.ranges.as_deref() {
       Some(ranges) if ranges.len() != 1 => {

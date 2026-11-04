@@ -1,4 +1,4 @@
-# Creating a Process Plugin (Schema Version 5)
+# Creating a Process Plugin (Schema Version 6)
 
 Process plugins are created (as opposed to the recommended Wasm plugins), when the language does not have good support for compiling to a single _.wasm_ file.
 
@@ -145,18 +145,22 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
    `handle_process_stdio_messages` then uses your plugin handler to read and write messages over stdin and stdout.
 
-## Schema Version 5 Overview
+## Schema Version 6 Overview
 
 Process plugins are expected to read and respond to messages on a single thread, then spawn formatting threads/tasks for doing concurrent formatting.
+
+Schema version 6 is schema version 5 with the Format Ranges message (`17`), and the CLI supports both.
 
 ### Schema Version Establishment
 
 To maintain compatibility with past dprint clients, an initial schema version establishment phase occurs that is the same as past schema versions.
 
 1. An initial `0` (4 bytes) is sent asking for the schema version.
-2. The plugin responds with `0` (4 bytes) for success, then `5` (4 bytes) for the schema version.
+2. The plugin responds with `0` (4 bytes) for success, then 4 bytes for the schema version.
 
 These are raw u32 values and not messages.
+
+The CLI sets the `DPRINT_MAX_SCHEMA_VERSION` environment variable on the plugin's process with the newest schema version it supports (ex. `6`), and the plugin responds with the newest schema version that both it and the CLI support. A CLI from before this variable existed only supports schema version `5`, so the plugin must respond with `5` when the variable isn't set. The CLI only sends the messages of the schema version the plugin responded with.
 
 ### Executing
 
@@ -234,10 +238,6 @@ Response: Success message
 Message body: None
 
 Response: Data message - JSON serialized plugin info
-
-The plugin info has a `capabilities` object for what the plugin's messages support, which `dprint-core` adds for the plugin. The CLI treats a plugin that doesn't send it as supporting none of them:
-
-- `multiRangeFormat` - Boolean for whether the plugin reads the Format Ranges message (`17`).
 
 #### `6` - Get License Text (CLI to Plugin)
 
@@ -410,7 +410,7 @@ Response: Format Text Response or Error response
 
 #### `17` - Format Ranges (CLI to Plugin)
 
-Only sent to a plugin whose plugin info has the `multiRangeFormat` capability. The ranges are in order and don't overlap or touch, and the plugin formats each of them in the text it was given and responds with the text formatted once.
+Only sent to a plugin that responded with schema version `6` or newer. The ranges are in order and don't overlap or touch, and the plugin formats each of them in the text it was given and responds with the text formatted once.
 
 Message body:
 

@@ -126,8 +126,7 @@ async fn start_communicator_and_collect_info<TEnvironment: Environment>(
   communicator.shutdown().await;
 
   Ok(SetupPluginResult {
-    plugin_info: plugin_info.info,
-    capabilities: plugin_info.capabilities,
+    plugin_info,
     file_path: plugin_executable_file_path,
     executable_sub_path,
   })

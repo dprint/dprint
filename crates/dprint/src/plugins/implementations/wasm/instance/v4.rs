@@ -22,7 +22,7 @@ use dprint_core::plugins::FormatRanges;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use dprint_core::plugins::PluginInfoMessage;
+use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::wasm::JsonResponse;
 use wasmtime::Caller;
 use wasmtime::Engine;
@@ -281,7 +281,10 @@ impl InitializedWasmPluginInstanceV4 {
         self.send_bytes(file_bytes)?;
         self.wasm_functions.format_range(config.id, range.clone())?
       }
-      // only a plugin with the multi range format capability has `set_format_ranges`
+      // a plugin from before `set_format_ranges` existed is given one range at a time
+      Some(ranges) if !self.wasm_functions.has_set_format_ranges()? => {
+        return self.format_ranges_one_at_a_time(file_path, file_bytes, ranges, config, override_config);
+      }
       Some(ranges) => {
         let mut bytes = Vec::with_capacity(ranges.len() * 8);
         for range in ranges {
@@ -295,6 +298,28 @@ impl InitializedWasmPluginInstanceV4 {
       }
     };
     self.inner_handle_response(response_code)
+  }
+
+  /// Formats the ranges from the last to the first, which keeps the earlier
+  /// ranges where they are in the text that formatting a range changed.
+  fn format_ranges_one_at_a_time(
+    &mut self,
+    file_path: &Path,
+    file_bytes: &[u8],
+    ranges: &[std::ops::Range<usize>],
+    config: &FormatConfig,
+    override_config: Option<&str>,
+  ) -> Result<FormatResult> {
+    let mut formatted_bytes: Option<Vec<u8>> = None;
+    for range in ranges.iter().rev() {
+      let current_bytes = formatted_bytes.as_deref().unwrap_or(file_bytes);
+      match self.inner_format_text(file_path, current_bytes, Some(vec![range.clone()]), config, override_config)? {
+        Ok(Some(new_bytes)) => formatted_bytes = Some(new_bytes),
+        Ok(None) => {}
+        Err(err) => return Ok(Err(err)),
+      }
+    }
+    Ok(Ok(formatted_bytes))
   }
 
   fn inner_handle_response(&mut self, response_code: WasmFormatResult) -> Result<FormatResult> {
@@ -359,7 +384,7 @@ impl InitializedWasmPluginInstanceV4 {
 }
 
 impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
-  fn plugin_info(&mut self) -> Result<PluginInfoMessage> {
+  fn plugin_info(&mut self) -> Result<PluginInfo> {
     let len = self.wasm_functions.get_plugin_info()?;
     let json_bytes = self.receive_bytes(len)?;
     Ok(serde_json::from_slice(&json_bytes)?)
@@ -496,6 +521,11 @@ impl WasmFunctions {
   pub fn set_file_path(&mut self) -> Result<()> {
     let func = self.get_export::<(), ()>("set_file_path")?;
     Ok(func.call(&mut self.store, ())?)
+  }
+
+  #[inline]
+  pub fn has_set_format_ranges(&mut self) -> Result<bool> {
+    Ok(self.get_maybe_export::<(), ()>("set_format_ranges")?.is_some())
   }
 
   #[inline]

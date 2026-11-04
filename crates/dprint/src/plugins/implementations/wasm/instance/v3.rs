@@ -20,7 +20,6 @@ use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::plugins::PluginInfoMessage;
 use serde::Serialize;
 use wasmtime::Caller;
 use wasmtime::Engine;
@@ -369,11 +368,8 @@ impl InitializedWasmPluginInstanceV3 {
 }
 
 impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
-  fn plugin_info(&mut self) -> Result<PluginInfoMessage> {
-    self.sync_plugin_info().map(|i| PluginInfoMessage {
-      info: i.info,
-      capabilities: Default::default(),
-    })
+  fn plugin_info(&mut self) -> Result<PluginInfo> {
+    self.sync_plugin_info().map(|i| i.info)
   }
 
   fn license_text(&mut self) -> Result<String> {

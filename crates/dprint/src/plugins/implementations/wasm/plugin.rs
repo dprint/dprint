@@ -21,7 +21,6 @@ use std::time::Instant;
 
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use dprint_core::plugins::PluginCapabilities;
 use dprint_core::plugins::PluginInfo;
 
 use super::WasmHostFormatSender;
@@ -42,11 +41,10 @@ pub struct WasmPlugin<TEnvironment: Environment> {
   module: WasmModule,
   environment: TEnvironment,
   plugin_info: PluginInfo,
-  capabilities: PluginCapabilities,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(module: WasmModule, plugin_info: PluginInfo, capabilities: PluginCapabilities, environment: TEnvironment) -> Result<Self> {
+  pub fn new(module: WasmModule, plugin_info: PluginInfo, environment: TEnvironment) -> Result<Self> {
     let initializes_on_start = plugin_initializes_on_start(&plugin_info);
     if initializes_on_start {
       log_warn!(
@@ -61,7 +59,6 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
       module,
       environment,
       plugin_info,
-      capabilities,
     })
   }
 }
@@ -70,10 +67,6 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
 impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
   fn info(&self) -> &PluginInfo {
     &self.plugin_info
-  }
-
-  fn capabilities(&self) -> &PluginCapabilities {
-    &self.capabilities
   }
 
   fn is_process_plugin(&self) -> bool {
