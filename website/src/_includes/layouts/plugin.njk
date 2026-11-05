@@ -15,6 +15,9 @@ layout: layouts/base.njk
       {% if pluginPage.hasConfig %}
         <a href="/plugins/{{ pluginPage.slug }}/config/" {% if pluginPage.tab == "config" %}class="active" aria-current="page"{% endif %}>Configuration</a>
       {% endif %}
+      {% if pluginPage.playground %}
+        <a class="plugin-playground" href="/playground#plugin/{{ pluginPage.slug }}">Try it in the playground</a>
+      {% endif %}
     </nav>
   </header>
   <div class="plugin-body">

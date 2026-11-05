@@ -45,8 +45,6 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/bun/config)
-
 The options are the ones that `bun format` reads in a configuration file, with the same names and values: [Prettier's options](https://prettier.io/docs/options), or with `"flavor": "oxfmt"` the ones of an `.oxfmtrc.json`.
 
 Note that the plugin does not read a `.prettierrc`, an `.oxfmtrc.json`, an `.editorconfig`, a `tsconfig.json`, or a `bunfig.toml` because it runs sandboxed in a Wasm runtime and has no access to the file system.
@@ -127,10 +125,6 @@ This plugin formats many kinds of files, so it may match the same files as anoth
 ```
 
 For more fine grained control, see [associations](/config/#associations) or see [disabling languages](#disabling-languages).
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/bun)
 
 ## Source
 

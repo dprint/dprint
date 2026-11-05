@@ -33,14 +33,6 @@ This will update your config file to have an entry for the plugin. Then optional
 }
 ```
 
-## Configuration
-
-See [Configuration](/plugins/typescript/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/typescript)
-
 ## Ignoring Files
 
 Add an ignore file comment as the **first** comment in the file:

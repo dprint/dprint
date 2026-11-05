@@ -1020,11 +1020,6 @@ a {
   --cfg-number: #f5ab35;
   --cfg-type: #00e0e0;
 }
-.plugin-config-table .cfg-version {
-  margin: 0 0 4px;
-  color: var(--cfg-text);
-  font-size: 14px;
-}
 .plugin-config-table .cfg-source {
   margin-top: 0;
   color: var(--cfg-muted);
@@ -1229,29 +1224,31 @@ a {
   filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.12));
 }
 .plugin-description {
-  margin: 0 0 12px;
+  margin: 0 0 22px;
   font-size: 16px;
   line-height: 1.6;
   color: #c2c8d0;
 }
-.plugin-stats {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 22px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 24px;
-  font-size: 13.5px;
-  color: #8b93a1;
-}
-.plugin-stat-value {
-  color: #e8e8ea;
-  font-weight: 600;
-}
 .plugin-tabs {
   display: flex;
+  align-items: center;
   gap: 4px;
   margin-bottom: -1px;
+}
+/* the button to try the plugin, which is at the end of the tabs */
+.plugin-tabs a.plugin-playground {
+  margin: 0 0 8px auto;
+  padding: 7px 14px;
+  border: 1px solid #383d47;
+  border-radius: 8px;
+  background: #282c34;
+  color: #dfe3ea;
+  font-size: 13px;
+}
+.plugin-tabs a.plugin-playground:hover {
+  border-color: #4d5564;
+  background: #2d323b;
+  color: #fff;
 }
 .plugin-tabs a {
   padding: 10px 14px 12px;
@@ -1293,17 +1290,19 @@ a {
   text-transform: uppercase;
   color: #8b93a1;
 }
-.plugin-install {
+/* the copyable command, which is styled like the home page's (.cmd-line) */
+.plugin-aside .plugin-install {
   margin: 0 0 6px;
-  padding: 12px 14px;
-  background: #181a1e;
-  border: 1px solid #33373f;
-  border-radius: 10px;
-  overflow-x: auto;
+  padding: 10px 10px 10px 14px;
 }
-.plugin-install code {
+.plugin-aside .plugin-install code {
   font-size: 13.5px;
-  color: #dfe3ea;
+}
+.plugin-version-link {
+  display: block;
+  width: fit-content;
+  margin-top: 3px;
+  font-size: 12.5px;
 }
 .plugin-details {
   margin: 0;

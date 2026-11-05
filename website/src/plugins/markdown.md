@@ -39,14 +39,6 @@ Code blocks are formatted based on the other provided plugins. For example, if y
 }
 ```
 
-## Configuration
-
-See [Configuration](/plugins/markdown/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/markdown)
-
 ## Ignore Comments
 
 Use an ignore comment:

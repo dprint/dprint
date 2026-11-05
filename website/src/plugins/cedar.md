@@ -29,14 +29,6 @@ This will update your config file to have an entry for the plugin. Then optional
 }
 ```
 
-## Configuration
-
-See [Configuration](/plugins/cedar/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/cedar)
-
 ## Source
 
 See https://github.com/dprint/dprint-plugin-cedar

@@ -26,11 +26,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/dockerfile/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/dockerfile)

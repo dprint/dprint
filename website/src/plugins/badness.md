@@ -31,7 +31,5 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/badness/config).
-
 Unlike the Badness CLI, the Wasm plugin cannot read command signatures from neighboring .sty and .cls files. See the
 [plugin documentation](https://github.com/jolars/dprint-plugin-badness#differences-from-the-badness-cli) for details.

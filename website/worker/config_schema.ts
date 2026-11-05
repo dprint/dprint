@@ -353,12 +353,6 @@ export function renderConfigErrorHtml(message: string, link: { href: string; tex
   return `<p>${escapeHtml(message)} <a href="${escapeHtml(link.href)}">${escapeHtml(link.text)}</a></p>`;
 }
 
-/** Renders the version of the plugin a page's configuration is for. */
-export function renderConfigVersionHtml(tag: string, link: { href: string; text: string }) {
-  return `<p class="cfg-version">Version <code>${escapeHtml(tag)}</code> · `
-    + `<a href="${escapeHtml(link.href)}">${escapeHtml(link.text)}</a></p>`;
-}
-
 // takes any value because third party schemas may not use strings where they should
 export function escapeHtml(text: unknown) {
   return countRenderedText(
