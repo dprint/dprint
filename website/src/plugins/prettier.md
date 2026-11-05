@@ -1,10 +1,8 @@
 ---
 title: Prettier Plugin
 description: Documentation on the Prettier code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Prettier Plugin
 
 Wrapper plugin that formats [many languages](https://prettier.io/docs/en/index.html) via [Prettier](https://prettier.io).
 

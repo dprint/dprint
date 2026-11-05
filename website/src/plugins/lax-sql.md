@@ -1,10 +1,8 @@
 ---
 title: Lax SQL Plugin
 description: Documentation on the Lax SQL code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Lax SQL Plugin
 
 Formats SQL files via [lax-sql](https://github.com/bartlomieju/lax/tree/main/crates/lax-sql), a dialect-agnostic formatter that splits statements into clauses and never rewrites a token.
 

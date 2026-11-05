@@ -14,6 +14,7 @@ import {
   parseConfigRoute,
 } from "./config_routes.ts";
 import { ConfigTooLargeError, escapeHtml, getConfigSections, renderConfigErrorHtml, renderConfigHtml, renderConfigVersionHtml } from "./config_schema.ts";
+import { renderPluginDetailsHtml, renderPluginSummaryHtml } from "./plugin_page.ts";
 import {
   getPlaceholderReplacement,
   type LatestPluginRelease,
@@ -108,7 +109,12 @@ async function handleConfigPage(request: Request, url: URL, route: ConfigRoute, 
     results.set(table, await getVersionConfigHtml(table, route, env, ctx));
   }
   const status = Math.max(...[...results.values()].map((r) => r.status));
-  return rewriteConfigPage(page, (table) => results.get(table)!.html, { status, noIndex: route.kind === "version" });
+  return rewriteConfigPage(page, (table) => results.get(table)!.html, {
+    status,
+    noIndex: route.kind === "version",
+    info: await getPluginInfo(env),
+    version: route.kind === "version" ? route.tag : undefined,
+  });
 }
 
 // gets the configuration with the version it's for, which isn't cached with
@@ -137,8 +143,9 @@ function redirect(status: number, location: string) {
 }
 
 /**
- * Serves a static file, replacing the plugin version placeholders in a page
- * (ex. `"npm:@dprint/typescript@x.x.x"`) with the latest versions.
+ * Serves a static file. A page has its plugin version placeholders (ex.
+ * `"npm:@dprint/typescript@x.x.x"`) replaced with the latest versions, and a
+ * plugin's page has its info filled in.
  */
 async function servePage(request: Request, url: URL, env: Env) {
   const isPage = request.method === "GET" && isPagePath(url.pathname);
@@ -154,7 +161,7 @@ async function servePage(request: Request, url: URL, env: Env) {
   if (response.status !== 200 || !response.headers.get("content-type")?.startsWith("text/html")) {
     return response;
   }
-  return replaceVersionPlaceholders(response, await getPluginInfo(env), env);
+  return rewritePage(response, await getPluginInfo(env), env);
 }
 
 // a page's path ends with a slash or doesn't have an extension (ex. `/plugins/typescript/`)
@@ -162,14 +169,14 @@ function isPagePath(pathname: string) {
   return pathname.endsWith("/") || !pathname.slice(pathname.lastIndexOf("/") + 1).includes(".");
 }
 
-function replaceVersionPlaceholders(response: Response, info: PluginInfo | undefined, env: Env) {
+function rewritePage(response: Response, info: PluginInfo | undefined, env: Env) {
   const headers = new Headers(response.headers);
   // the content no longer matches the static page these describe
   headers.delete("content-length");
   headers.delete("etag");
   headers.delete("last-modified");
   let text = "";
-  return new HTMLRewriter()
+  return addPluginInfoHandlers(new HTMLRewriter(), info)
     // the strings in the highlighted code blocks
     .on("span.hljs-string", {
       async text(chunk) {
@@ -189,6 +196,36 @@ function replaceVersionPlaceholders(response: Response, info: PluginInfo | undef
       },
     })
     .transform(new Response(response.body, { status: response.status, headers }));
+}
+
+/**
+ * Fills in the summary and details of a plugin's page from its info, which
+ * are left empty when it doesn't have any. A page for a version other than the
+ * latest shows that version.
+ */
+function addPluginInfoHandlers(rewriter: HTMLRewriter, info: PluginInfo | undefined, version?: string) {
+  return rewriter
+    .on("[data-plugin-summary]", {
+      element(element) {
+        const plugin = getPluginDetails(element, "data-plugin-summary", info);
+        if (plugin != null) {
+          element.setInnerContent(renderPluginSummaryHtml(plugin, version ?? plugin.version), { html: true });
+        }
+      },
+    })
+    .on("[data-plugin-details]", {
+      element(element) {
+        const plugin = getPluginDetails(element, "data-plugin-details", info);
+        if (plugin != null) {
+          element.setInnerContent(renderPluginDetailsHtml(plugin), { html: true });
+        }
+      },
+    });
+}
+
+function getPluginDetails(element: RewriterElement, attribute: string, info: PluginInfo | undefined) {
+  const name = element.getAttribute(attribute);
+  return name == null ? undefined : info?.plugins.get(name);
 }
 
 // decodes the characters escaped in the text of the static pages
@@ -246,7 +283,7 @@ async function readConfigTables(html: string) {
 function rewriteConfigPage(
   page: ConfigPage,
   getHtml: (table: ConfigTable) => string,
-  options: { status: number; noIndex?: boolean },
+  options: { status: number; noIndex?: boolean; info: PluginInfo | undefined; version: string | undefined },
 ) {
   const headers = new Headers(page.headers);
   // the content no longer matches the static page these describe
@@ -256,7 +293,7 @@ function rewriteConfigPage(
     headers.set("x-robots-tag", "noindex");
   }
   let tableIndex = 0;
-  return new HTMLRewriter()
+  return addPluginInfoHandlers(new HTMLRewriter(), options.info, options.version)
     .on(".plugin-config-table", {
       element(element) {
         if (getConfigTable(element) != null) {

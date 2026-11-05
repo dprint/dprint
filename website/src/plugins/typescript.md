@@ -1,10 +1,8 @@
 ---
 title: TypeScript / JavaScript Plugin
 description: Documentation on the TypeScript / JavaScript code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# TypeScript / JavaScript Code Formatter
 
 Supports:
 

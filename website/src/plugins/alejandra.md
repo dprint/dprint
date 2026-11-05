@@ -1,10 +1,8 @@
 ---
 title: Alejandra Plugin
 description: Documentation on the Alejandra (Nix) code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Alejandra Plugin
 
 Wrapper plugin that formats Nix code via [Alejandra](https://github.com/kamadorueda/alejandra). It runs Alejandra's own code compiled to Wasm, so it formats like the Alejandra CLI.
 

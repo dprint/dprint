@@ -1,10 +1,8 @@
 ---
 title: YAML Plugin
 description: Documentation on the YAML code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Pretty YAML Plugin
 
 Plugin that formats YAML files via [Pretty YAML](https://github.com/g-plane/pretty_yaml).
 

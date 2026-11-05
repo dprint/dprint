@@ -1,10 +1,8 @@
 ---
 title: Badness Plugin
 description: Documentation on the Badness code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Badness Plugin
 
 Wrapper plugin that formats LaTeX and BibTeX files via [Badness](https://badness.dev).
 

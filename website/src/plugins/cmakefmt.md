@@ -1,10 +1,8 @@
 ---
 title: cmakefmt Plugin
 description: Documentation on the cmakefmt code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# cmakefmt Plugin
 
 Plugin that formats CMake files via [cmakefmt](https://github.com/cmakefmt/cmakefmt).
 

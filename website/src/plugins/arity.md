@@ -1,10 +1,8 @@
 ---
 title: Arity Plugin
 description: Documentation on the Arity code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Arity Plugin
 
 Wrapper plugin that formats R code via [Arity](https://arity.cc).
 

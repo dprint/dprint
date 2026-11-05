@@ -1,10 +1,8 @@
 ---
 title: Zig Plugin
 description: Documentation on the Zig code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Zig Plugin
 
 Wrapper plugin that formats Zig code via `zig fmt`. It runs the formatter from Zig's standard library compiled to Wasm, so it formats exactly like `zig fmt`.
 

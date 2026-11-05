@@ -1,10 +1,8 @@
 ---
 title: buildifier Plugin
 description: Documentation on the buildifier (Bazel/Starlark) code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# buildifier Plugin
 
 Wrapper plugin that formats Bazel and Starlark files via [buildifier](https://github.com/bazel-contrib/buildtools/tree/main/buildifier). It runs buildifier's own code compiled to Wasm, so it formats like the buildifier CLI.
 

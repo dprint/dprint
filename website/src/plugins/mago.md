@@ -1,10 +1,8 @@
 ---
 title: Mago Plugin
 description: Documentation on the Mago code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Mago Plugin
 
 Wrapper plugin that formats PHP code via [Mago](https://github.com/carthage-software/mago).
 

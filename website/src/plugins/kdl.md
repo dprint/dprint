@@ -1,10 +1,8 @@
 ---
 title: KDL Plugin
 description: Documentation on the KDL code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# KDL Plugin
 
 Formats [KDL](https://kdl.dev) documents.
 

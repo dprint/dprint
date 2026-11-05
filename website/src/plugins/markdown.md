@@ -1,10 +1,8 @@
 ---
 title: Markdown Plugin
 description: Documentation on the Markdown code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Markdown Code Formatter
 
 ## Install and Setup
 

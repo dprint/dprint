@@ -1,10 +1,8 @@
 ---
 title: Nix Plugin
 description: Documentation on the Nix code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Nix Plugin
 
 Wrapper plugin that formats Nix code via [nixfmt-rs](https://github.com/Mic92/nixfmt-rs), a Rust port of [nixfmt](https://github.com/NixOS/nixfmt).
 

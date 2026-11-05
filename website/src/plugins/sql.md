@@ -1,10 +1,8 @@
 ---
 title: SQL Plugin
 description: Documentation on the SQL code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# SQL Code Formatter
 
 Formats .sql files written for PostgreSQL, MySQL and MariaDB, SQL Server (T-SQL), SQLite, Oracle (PL/SQL), BigQuery and Snowflake, including stored procedures, functions, triggers and the other procedural code in them.
 
