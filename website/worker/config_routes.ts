@@ -1,10 +1,14 @@
 // urls of the plugin configuration pages
 
-/** A request for a plugin's configuration page. */
+/**
+ * A request for a plugin's configuration page, where `pagePath` is the path of
+ * the static page the configuration is rendered into.
+ */
 export type ConfigRoute =
-  // `/plugins/<name>/config/`, which redirects to the latest version
-  | { kind: "latest"; pagePath: string }
-  // `/plugins/<name>/config/<tag>/`
+  // `/plugins/<name>/config/`, which shows the latest version and is the one
+  // search engines index
+  | { kind: "latest"; pagePath: string; hasTrailingSlash: boolean }
+  // `/plugins/<name>/<tag>/config/`
   | { kind: "version"; pagePath: string; tag: string; hasTrailingSlash: boolean };
 
 /** A plugin configuration table declared in a page. */
@@ -17,7 +21,7 @@ export interface ConfigTable {
 
 // same as the tags plugins.dprint.dev accepts, which can't contain a dash
 const tagPattern = "[A-Za-z0-9._]+";
-const configPagePattern = new RegExp(`^(/plugins/[A-Za-z0-9_.-]+/config)(?:/(${tagPattern}))?(/?)$`);
+const configPagePattern = new RegExp(`^/plugins/([A-Za-z0-9_.-]+)/(?:(${tagPattern})/)?config(/?)$`);
 const pluginPattern = /^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/;
 // the tag at the end of the url in a latest.json (ex. `typescript-0.97.0.wasm`)
 const latestUrlTagPattern = new RegExp(`-(${tagPattern})\\.(?:wasm|json)$`);
@@ -27,20 +31,22 @@ export function parseConfigRoute(pathname: string): ConfigRoute | undefined {
   if (match == null) {
     return undefined;
   }
-  const pagePath = match[1]! + "/";
+  const pagePath = `/plugins/${match[1]}/config/`;
   const tag = match[2];
-  if (tag?.endsWith(".html")) {
-    // a file (ex. `/plugins/typescript/config/index.html`), which isn't a version
-    return undefined;
-  }
-  if (tag == null || tag === "latest") {
-    return { kind: "latest", pagePath };
-  }
-  return { kind: "version", pagePath, tag, hasTrailingSlash: match[3] === "/" };
+  const hasTrailingSlash = match[3] === "/";
+  return tag == null
+    ? { kind: "latest", pagePath, hasTrailingSlash }
+    : { kind: "version", pagePath, tag, hasTrailingSlash };
 }
 
+/** Gets the path of a route, with a trailing slash like the rest of the site. */
+export function getRoutePath(route: ConfigRoute) {
+  return route.kind === "latest" ? route.pagePath : getVersionPath(route.pagePath, route.tag);
+}
+
+/** Gets the path of a version's configuration page (ex. `/plugins/typescript/0.97.1/config/`). */
 export function getVersionPath(pagePath: string, tag: string) {
-  return `${pagePath}${tag}/`;
+  return pagePath.replace(/config\/$/, `${tag}/config/`);
 }
 
 /** Gets the schema url of a plugin release. */

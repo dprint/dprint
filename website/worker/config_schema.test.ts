@@ -353,7 +353,7 @@ Deno.test("renders properties", () => {
 
   strictEqual(
     html,
-    "<p>This information was auto generated from <a href=\"https://plugins.dprint.dev/dprint/dprint-plugin-test/0.1.0/schema.json\">https://plugins.dprint.dev/dprint/dprint-plugin-test/0.1.0/schema.json</a>.</p>"
+    "<p class=\"cfg-source\">This information was auto generated from <a href=\"https://plugins.dprint.dev/dprint/dprint-plugin-test/0.1.0/schema.json\">https://plugins.dprint.dev/dprint/dprint-plugin-test/0.1.0/schema.json</a>.</p>"
       + "<div class=\"cfg-property\"><h2 id=\"lineWidth\" tabindex=\"-1\"><a class=\"header-anchor\" href=\"#lineWidth\">lineWidth</a></h2>"
       + "<p>Uses &lt;width&gt; &amp; stuff.</p>"
       + "<ul class=\"cfg-meta\"><li><span class=\"cfg-label\">Type</span><code class=\"cfg-value cfg-value-type\">number</code></li>"

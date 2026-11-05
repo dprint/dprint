@@ -5,13 +5,14 @@ import {
   type ConfigRoute,
   type ConfigTable,
   getLatestInfoUrl,
+  getRoutePath,
   getSchemaUrl,
   getTagFromLatestInfo,
   getVersionPath,
   isValidPlugin,
   parseConfigRoute,
 } from "./config_routes.ts";
-import { ConfigTooLargeError, getConfigSections, renderConfigErrorHtml, renderConfigHtml } from "./config_schema.ts";
+import { ConfigTooLargeError, getConfigSections, renderConfigErrorHtml, renderConfigHtml, renderConfigVersionHtml } from "./config_schema.ts";
 import { readJsonWithSizeLimit, ResponseTooLargeError } from "./read_json.ts";
 
 interface Env {
@@ -23,7 +24,7 @@ interface Env {
 }
 
 // bump this to stop using any configuration html that was cached by a previous deploy
-const RENDER_VERSION = 1;
+const RENDER_VERSION = 2;
 const LATEST_TAG_CACHE_MS = 5 * 60 * 1_000;
 const MAX_MEMORY_CACHE_ENTRIES = 100;
 // the most html kept in memory, which is several of the largest pages
@@ -53,87 +54,70 @@ export default {
     if (route == null || (request.method !== "GET" && request.method !== "HEAD")) {
       return env.ASSETS.fetch(request);
     }
-    if (route.kind === "latest") {
-      return await handleLatestConfigPage(request, url, route, env);
-    } else {
-      return await handleVersionConfigPage(request, url, route, env, ctx);
+    if (!route.hasTrailingSlash) {
+      // the rest of the site uses trailing slashes
+      return redirect(301, getRoutePath(route) + url.search);
     }
+    if (route.kind === "version" && route.tag === "latest") {
+      // the latest version is at the url without a version
+      return redirect(301, route.pagePath + url.search);
+    }
+    return await handleConfigPage(request, url, route, env, ctx);
   },
 };
 
-/** Redirects to the configuration page of the plugin's latest version. */
-async function handleLatestConfigPage(
-  request: Request,
-  url: URL,
-  route: ConfigRoute & { kind: "latest" },
-  env: Env,
-) {
-  const page = await fetchConfigPage(url, route.pagePath, env);
-  if (!isConfigPage(page)) {
-    return env.ASSETS.fetch(request);
-  }
-
-  const plugin = page.tables[0]!.plugin;
-  const tag = await getLatestTag(plugin, env);
-  if (tag == null) {
-    const errorHtml = renderConfigErrorHtml("Failed to get the latest version of this plugin.", {
-      href: `https://plugins.dprint.dev/${plugin}/latest/schema.json`,
-      text: "View the configuration schema.",
-    });
-    return rewriteConfigPage(page, () => errorHtml, { status: 503 });
-  }
-
-  return new Response(null, {
-    status: 302,
-    headers: {
-      "location": getVersionPath(route.pagePath, tag) + url.search,
-      // the latest version is cached for this long anyway
-      "cache-control": `public, max-age=${LATEST_TAG_CACHE_MS / 1_000}`,
-    },
-  });
-}
-
-async function handleVersionConfigPage(
-  request: Request,
-  url: URL,
-  route: ConfigRoute & { kind: "version" },
-  env: Env,
-  ctx: ExecutionContext,
-) {
-  if (!route.hasTrailingSlash) {
-    // the rest of the site uses trailing slashes
-    return new Response(null, {
-      status: 301,
-      headers: { "location": getVersionPath(route.pagePath, route.tag) + url.search },
-    });
-  }
-
+/**
+ * Renders a plugin's configuration page. The page without a version shows the
+ * latest version and is the only one search engines index, so its url doesn't
+ * change with each release.
+ */
+async function handleConfigPage(request: Request, url: URL, route: ConfigRoute, env: Env, ctx: ExecutionContext) {
   const page = await fetchConfigPage(url, route.pagePath, env);
   if (page instanceof Response) {
     // the page moved (ex. `/plugins/sh/config/` to `/plugins/shuck/config/`),
     // so go to the same version of where it moved to
     const location = page.headers.get("location")!;
     const movedRoute = parseConfigRoute(new URL(location, url).pathname);
-    return new Response(null, {
-      status: page.status,
-      headers: {
-        "location": movedRoute == null ? location : getVersionPath(movedRoute.pagePath, route.tag) + url.search,
-      },
-    });
+    const movedPath = movedRoute == null
+      ? location
+      : getRoutePath(route.kind === "latest" ? movedRoute : { ...route, pagePath: movedRoute.pagePath });
+    return redirect(page.status, movedPath + url.search);
   } else if (page == null) {
-    // serves the 404 page
+    // serves the static page, or the 404 page when there isn't one
     return env.ASSETS.fetch(request);
   }
 
   const results = new Map<ConfigTable, ConfigHtmlResult>();
   for (const table of page.tables) {
-    results.set(table, await getConfigHtml(table, route.tag, route.pagePath, env, ctx));
+    results.set(table, await getVersionConfigHtml(table, route, env, ctx));
   }
   const status = Math.max(...[...results.values()].map((r) => r.status));
-  // only the latest version should show up in search results
-  const latestTag = await getLatestTag(page.tables[0]!.plugin, env);
-  const noIndex = latestTag != null && latestTag !== route.tag;
-  return rewriteConfigPage(page, (table) => results.get(table)!.html, { status, noIndex });
+  return rewriteConfigPage(page, (table) => results.get(table)!.html, { status, noIndex: route.kind === "version" });
+}
+
+// gets the configuration with the version it's for, which isn't cached with
+// it because the same version is shown with and without a version in the url
+async function getVersionConfigHtml(table: ConfigTable, route: ConfigRoute, env: Env, ctx: ExecutionContext) {
+  const tag = route.kind === "version" ? route.tag : await getLatestTag(table.plugin, env);
+  if (tag == null) {
+    return {
+      html: renderConfigErrorHtml("Failed to get the latest version of this plugin.", {
+        href: `https://plugins.dprint.dev/${table.plugin}/latest/schema.json`,
+        text: "View the configuration schema.",
+      }),
+      status: 503,
+      isCacheable: false,
+    };
+  }
+  const result = await getConfigHtml(table, tag, route.pagePath, env, ctx);
+  const versionHtml = route.kind === "latest"
+    ? renderConfigVersionHtml(tag, { href: getVersionPath(route.pagePath, tag), text: "Link to this version" })
+    : renderConfigVersionHtml(tag, { href: route.pagePath, text: "View the latest version" });
+  return { ...result, html: versionHtml + result.html };
+}
+
+function redirect(status: number, location: string) {
+  return new Response(null, { status, headers: { location } });
 }
 
 interface ConfigPage {
@@ -160,10 +144,6 @@ async function fetchConfigPage(url: URL, pagePath: string, env: Env): Promise<Co
   const html = await response.text();
   const tables = await readConfigTables(html);
   return tables.length === 0 ? undefined : { html, headers: response.headers, tables };
-}
-
-function isConfigPage(page: ConfigPage | Response | undefined): page is ConfigPage {
-  return page != null && !(page instanceof Response);
 }
 
 async function readConfigTables(html: string) {

@@ -1,26 +1,24 @@
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
-import { getTagFromLatestInfo, isValidPlugin, parseConfigRoute } from "./config_routes.ts";
+import { getRoutePath, getTagFromLatestInfo, getVersionPath, isValidPlugin, parseConfigRoute } from "./config_routes.ts";
 
 Deno.test("parses configuration page routes", () => {
   deepStrictEqual(parseConfigRoute("/plugins/typescript/config/"), {
     kind: "latest",
     pagePath: "/plugins/typescript/config/",
+    hasTrailingSlash: true,
   });
   deepStrictEqual(parseConfigRoute("/plugins/typescript/config"), {
     kind: "latest",
     pagePath: "/plugins/typescript/config/",
+    hasTrailingSlash: false,
   });
-  deepStrictEqual(parseConfigRoute("/plugins/typescript/config/latest/"), {
-    kind: "latest",
-    pagePath: "/plugins/typescript/config/",
-  });
-  deepStrictEqual(parseConfigRoute("/plugins/pretty_yaml/config/0.97.0/"), {
+  deepStrictEqual(parseConfigRoute("/plugins/pretty_yaml/0.97.0/config/"), {
     kind: "version",
     pagePath: "/plugins/pretty_yaml/config/",
     tag: "0.97.0",
     hasTrailingSlash: true,
   });
-  deepStrictEqual(parseConfigRoute("/plugins/badness/config/v1.4.0"), {
+  deepStrictEqual(parseConfigRoute("/plugins/badness/v1.4.0/config"), {
     kind: "version",
     pagePath: "/plugins/badness/config/",
     tag: "v1.4.0",
@@ -30,10 +28,17 @@ Deno.test("parses configuration page routes", () => {
 
 Deno.test("ignores other routes", () => {
   strictEqual(parseConfigRoute("/plugins/typescript/"), undefined);
-  strictEqual(parseConfigRoute("/plugins/typescript/config/0.97.0/other/"), undefined);
-  strictEqual(parseConfigRoute("/plugins/typescript/config/0.97.0-beta/"), undefined);
+  strictEqual(parseConfigRoute("/plugins/typescript/0.97.0/config/other/"), undefined);
+  strictEqual(parseConfigRoute("/plugins/typescript/0.97.0-beta/config/"), undefined);
+  strictEqual(parseConfigRoute("/plugins/typescript/a/b/config/"), undefined);
   strictEqual(parseConfigRoute("/config/"), undefined);
   strictEqual(parseConfigRoute("/plugins/typescript/config/index.html"), undefined);
+});
+
+Deno.test("gets the paths of routes", () => {
+  strictEqual(getVersionPath("/plugins/typescript/config/", "0.97.1"), "/plugins/typescript/0.97.1/config/");
+  strictEqual(getRoutePath(parseConfigRoute("/plugins/typescript/config")!), "/plugins/typescript/config/");
+  strictEqual(getRoutePath(parseConfigRoute("/plugins/typescript/0.97.1/config")!), "/plugins/typescript/0.97.1/config/");
 });
 
 Deno.test("gets the tag from a plugin's latest.json", () => {

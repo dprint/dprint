@@ -324,7 +324,8 @@ export function renderConfigHtml(options: RenderConfigOptions) {
 
 function renderConfigHtmlWithinLimit(options: RenderConfigOptions) {
   const { schemaUrl, sections } = options;
-  let html = `<p>This information was auto generated from <a href="${escapeHtml(schemaUrl)}">${escapeHtml(schemaUrl)}</a>.</p>`;
+  let html = `<p class="cfg-source">This information was auto generated from `
+    + `<a href="${escapeHtml(schemaUrl)}">${escapeHtml(schemaUrl)}</a>.</p>`;
   const hasTitles = sections.some((section) => section.title != null);
   if (!hasTitles) {
     return html + sections.map((section) => renderProperties(section.properties, 2)).join("");
@@ -348,6 +349,12 @@ function renderConfigHtmlWithinLimit(options: RenderConfigOptions) {
 /** Renders the HTML shown when the configuration couldn't be rendered. */
 export function renderConfigErrorHtml(message: string, link: { href: string; text: string }) {
   return `<p>${escapeHtml(message)} <a href="${escapeHtml(link.href)}">${escapeHtml(link.text)}</a></p>`;
+}
+
+/** Renders the version of the plugin a page's configuration is for. */
+export function renderConfigVersionHtml(tag: string, link: { href: string; text: string }) {
+  return `<p class="cfg-version">Version <code>${escapeHtml(tag)}</code> · `
+    + `<a href="${escapeHtml(link.href)}">${escapeHtml(link.text)}</a></p>`;
 }
 
 // takes any value because third party schemas may not use strings where they should
