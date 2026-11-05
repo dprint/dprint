@@ -1,7 +1,7 @@
 ---
 title: YAPF Plugin
 description: Documentation on the YAPF code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugins_page.njk
 ---
 
 # YAPF Plugin

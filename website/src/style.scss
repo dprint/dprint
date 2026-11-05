@@ -1375,6 +1375,18 @@ a {
   }
 }
 
+/* ===================== pages about plugins in general ===================== */
+
+.plugins-page {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 48px 28px 90px;
+}
+/* the plugin grids use the full width, but text stays readable */
+.plugins-page > :not(.plugin-grid) {
+  max-width: 820px;
+}
+
 /* ===================== full-page (blog/contact) ===================== */
 
 .page-narrow {

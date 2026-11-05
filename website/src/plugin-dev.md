@@ -1,7 +1,7 @@
 ---
 title: Creating a Plugin
 description: Documentation on creating your own dprint formatting plugin.
-layout: layouts/documentation.njk
+layout: layouts/plugins_page.njk
 ---
 
 # Creating a Plugin
