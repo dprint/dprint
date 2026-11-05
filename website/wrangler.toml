@@ -14,9 +14,10 @@ binding = "ASSETS"
 html_handling = "auto-trailing-slash"
 # serves 404.html for missing files, without invoking the worker
 not_found_handling = "404-page"
-# the worker renders the plugin configuration pages and passes everything else
-# under /plugins to the static files
-run_worker_first = ["/plugins/*"]
+# the worker renders the plugin configuration pages and replaces the plugin
+# version placeholders in the pages that have them (the plugin pages and
+# /config/), and passes everything else to the static files
+run_worker_first = ["/plugins/*", "/config/"]
 
 # when running `deno task worker:dev`, this connects to a local dprint-plugins
 # worker started with `npm run dev` in https://github.com/dprint/dprint-plugins
