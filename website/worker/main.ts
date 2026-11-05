@@ -1,6 +1,7 @@
 // The Cloudflare Worker for dprint.dev. It serves the static site built by
 // Lume, except for the plugin configuration pages, which it renders from the
-// plugin's schema.json on plugins.dprint.dev.
+// plugin's schema.json on plugins.dprint.dev, and it replaces the plugin
+// version placeholders in the pages it runs for with the latest versions.
 import {
   type ConfigRoute,
   type ConfigTable,
@@ -12,7 +13,15 @@ import {
   isValidPlugin,
   parseConfigRoute,
 } from "./config_routes.ts";
-import { ConfigTooLargeError, getConfigSections, renderConfigErrorHtml, renderConfigHtml, renderConfigVersionHtml } from "./config_schema.ts";
+import { ConfigTooLargeError, escapeHtml, getConfigSections, renderConfigErrorHtml, renderConfigHtml, renderConfigVersionHtml } from "./config_schema.ts";
+import {
+  getPlaceholderReplacement,
+  type LatestPluginRelease,
+  parseVersionPlaceholder,
+  type PluginInfo,
+  readLatestPluginRelease,
+  readPluginInfo,
+} from "./plugin_versions.ts";
 import { readJsonWithSizeLimit, ResponseTooLargeError } from "./read_json.ts";
 
 interface Env {
@@ -25,7 +34,8 @@ interface Env {
 
 // bump this to stop using any configuration html that was cached by a previous deploy
 const RENDER_VERSION = 3;
-const LATEST_TAG_CACHE_MS = 5 * 60 * 1_000;
+// how long the latest versions of plugins are used for
+const LATEST_RELEASE_CACHE_MS = 5 * 60 * 1_000;
 const MAX_MEMORY_CACHE_ENTRIES = 100;
 // the most html kept in memory, which is several of the largest pages
 const MAX_MEMORY_CACHE_HTML_LENGTH = 10_000_000;
@@ -43,16 +53,22 @@ const STATUS_HEADER = "x-config-status";
 // of the largest schema (dprint-plugin-typescript's with its code examples)
 const MAX_SCHEMA_BYTES = 1_000_000;
 const MAX_LATEST_INFO_BYTES = 100_000;
+const MAX_PLUGIN_INFO_BYTES = 1_000_000;
+const PLUGIN_INFO_URL = "https://plugins.dprint.dev/info.json";
 
 const configHtmlMemoryCache = new Map<string, ConfigHtmlResult & { expiresAt: number }>();
-const latestTagMemoryCache = new Map<string, { tag: string; expiresAt: number }>();
+const latestReleaseMemoryCache = new Map<string, { release: LatestPluginRelease; expiresAt: number }>();
+let pluginInfoMemoryCache: { info: PluginInfo; expiresAt: number } | undefined;
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const route = parseConfigRoute(url.pathname);
-    if (route == null || (request.method !== "GET" && request.method !== "HEAD")) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
       return env.ASSETS.fetch(request);
+    }
+    const route = parseConfigRoute(url.pathname);
+    if (route == null) {
+      return await servePage(request, url, env);
     }
     if (!route.hasTrailingSlash) {
       // the rest of the site uses trailing slashes
@@ -118,6 +134,71 @@ async function getVersionConfigHtml(table: ConfigTable, route: ConfigRoute, env:
 
 function redirect(status: number, location: string) {
   return new Response(null, { status, headers: { location } });
+}
+
+/**
+ * Serves a static file, replacing the plugin version placeholders in a page
+ * (ex. `"npm:@dprint/typescript@x.x.x"`) with the latest versions.
+ */
+async function servePage(request: Request, url: URL, env: Env) {
+  const isPage = request.method === "GET" && isPagePath(url.pathname);
+  if (!isPage) {
+    return env.ASSETS.fetch(request);
+  }
+  // a page's versions change without the static page changing, so the
+  // browser's cached page isn't revalidated against the static page
+  const headers = new Headers(request.headers);
+  headers.delete("if-none-match");
+  headers.delete("if-modified-since");
+  const response = await env.ASSETS.fetch(new Request(request, { headers }));
+  if (response.status !== 200 || !response.headers.get("content-type")?.startsWith("text/html")) {
+    return response;
+  }
+  return replaceVersionPlaceholders(response, await getPluginInfo(env), env);
+}
+
+// a page's path ends with a slash or doesn't have an extension (ex. `/plugins/typescript/`)
+function isPagePath(pathname: string) {
+  return pathname.endsWith("/") || !pathname.slice(pathname.lastIndexOf("/") + 1).includes(".");
+}
+
+function replaceVersionPlaceholders(response: Response, info: PluginInfo | undefined, env: Env) {
+  const headers = new Headers(response.headers);
+  // the content no longer matches the static page these describe
+  headers.delete("content-length");
+  headers.delete("etag");
+  headers.delete("last-modified");
+  let text = "";
+  return new HTMLRewriter()
+    // the strings in the highlighted code blocks
+    .on("span.hljs-string", {
+      async text(chunk) {
+        // a string's text may be in several chunks, which are replaced by the last one
+        text += chunk.text;
+        if (!chunk.lastInTextNode) {
+          chunk.remove();
+          return;
+        }
+        const originalHtml = text;
+        text = "";
+        const placeholder = parseVersionPlaceholder(decodeHtmlText(originalHtml));
+        const replacement = placeholder == null
+          ? undefined
+          : await getPlaceholderReplacement(placeholder, info, (plugin) => getLatestPluginRelease(plugin, env));
+        chunk.replace(replacement == null ? originalHtml : escapeHtml(replacement), { html: true });
+      },
+    })
+    .transform(new Response(response.body, { status: response.status, headers }));
+}
+
+// decodes the characters escaped in the text of the static pages
+function decodeHtmlText(html: string) {
+  return html
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&");
 }
 
 interface ConfigPage {
@@ -324,9 +405,22 @@ function getConfigHtmlCacheSeconds(result: ConfigHtmlResult) {
 }
 
 async function getLatestTag(plugin: string, env: Env) {
-  const cached = latestTagMemoryCache.get(plugin);
+  const release = await getLatestPluginRelease(plugin, env);
+  const tag = release == null ? undefined : getTagFromLatestInfo(release);
+  if (release != null && tag == null) {
+    console.error(`Failed getting the tag from the latest url of ${plugin}: ${release.url}`);
+  }
+  return tag;
+}
+
+/** Gets a plugin's latest release from its latest.json, or undefined when that fails. */
+async function getLatestPluginRelease(plugin: string, env: Env) {
+  if (!isValidPlugin(plugin)) {
+    return undefined;
+  }
+  const cached = latestReleaseMemoryCache.get(plugin);
   if (cached != null && cached.expiresAt > Date.now()) {
-    return cached.tag;
+    return cached.release;
   }
   try {
     const response = await fetchFromPluginsSite(getLatestInfoUrl(plugin), env);
@@ -334,12 +428,32 @@ async function getLatestTag(plugin: string, env: Env) {
       await response.body?.cancel();
       throw new Error(`Failed fetching the latest info for ${plugin}: ${response.status}`);
     }
-    const tag = getTagFromLatestInfo(await readJsonWithSizeLimit(response, MAX_LATEST_INFO_BYTES));
-    if (tag == null) {
-      throw new Error(`Failed getting the tag from the latest info for ${plugin}.`);
+    const release = readLatestPluginRelease(await readJsonWithSizeLimit(response, MAX_LATEST_INFO_BYTES));
+    if (release == null) {
+      throw new Error(`Failed reading the latest info for ${plugin}.`);
     }
-    setMemoryCacheEntry(latestTagMemoryCache, plugin, { tag, expiresAt: Date.now() + LATEST_TAG_CACHE_MS });
-    return tag;
+    setMemoryCacheEntry(latestReleaseMemoryCache, plugin, { release, expiresAt: Date.now() + LATEST_RELEASE_CACHE_MS });
+    return release;
+  } catch (err) {
+    console.error(err);
+    return undefined;
+  }
+}
+
+/** Gets the latest versions of the plugins from info.json, or undefined when that fails. */
+async function getPluginInfo(env: Env) {
+  if (pluginInfoMemoryCache != null && pluginInfoMemoryCache.expiresAt > Date.now()) {
+    return pluginInfoMemoryCache.info;
+  }
+  try {
+    const response = await fetchFromPluginsSite(PLUGIN_INFO_URL, env);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Failed fetching ${PLUGIN_INFO_URL}: ${response.status}`);
+    }
+    const info = readPluginInfo(await readJsonWithSizeLimit(response, MAX_PLUGIN_INFO_BYTES));
+    pluginInfoMemoryCache = { info, expiresAt: Date.now() + LATEST_RELEASE_CACHE_MS };
+    return info;
   } catch (err) {
     console.error(err);
     return undefined;
@@ -392,7 +506,20 @@ interface RewriterElement {
   setInnerContent(content: string, options?: { html: boolean }): RewriterElement;
 }
 
+interface RewriterText {
+  readonly text: string;
+  readonly lastInTextNode: boolean;
+  replace(content: string, options?: { html: boolean }): RewriterText;
+  remove(): RewriterText;
+}
+
 declare class HTMLRewriter {
-  on(selector: string, handlers: { element?(element: RewriterElement): void | Promise<void> }): HTMLRewriter;
+  on(
+    selector: string,
+    handlers: {
+      element?(element: RewriterElement): void | Promise<void>;
+      text?(text: RewriterText): void | Promise<void>;
+    },
+  ): HTMLRewriter;
   transform(response: Response): Response;
 }
