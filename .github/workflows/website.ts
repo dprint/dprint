@@ -25,9 +25,10 @@ const buildJob = job("build", {
     {
       name: "Prepare deployment",
       if: isDeploy,
-      run: "mkdir deployment && cp -r website/_site website/dist deployment/",
+      // a directory that isn't in the repo (deployment/ is the cli's)
+      run: "mkdir website-deployment && cp -r website/_site website/dist website-deployment/",
     },
-    deployment.upload({ path: "deployment" }).if(isDeploy),
+    deployment.upload({ path: "website-deployment" }).if(isDeploy),
   ),
 });
 
