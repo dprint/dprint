@@ -6,6 +6,6 @@ layout: layouts/documentation.njk
 
 # Gofumpt - Configuration
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/jakebailey/dprint-plugin-gofumpt/latest/schema.json">
-  Loading...
+<div class="plugin-config-table" data-plugin="jakebailey/dprint-plugin-gofumpt">
+  <a href="https://plugins.dprint.dev/jakebailey/dprint-plugin-gofumpt/latest/schema.json">View the configuration schema.</a>
 </div>

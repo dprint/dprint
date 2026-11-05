@@ -6,6 +6,6 @@ layout: layouts/documentation.njk
 
 # Panache - Configuration
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/jolars/panache/latest/schema.json">
-  Loading...
+<div class="plugin-config-table" data-plugin="jolars/panache">
+  <a href="https://plugins.dprint.dev/jolars/panache/latest/schema.json">View the configuration schema.</a>
 </div>

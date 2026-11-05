@@ -6,8 +6,6 @@ layout: layouts/documentation.njk
 
 # Cedar - Configuration
 
-The `indentWidth` and `newLineKind` properties use the global configuration when not specified. `lineWidth` does too, but defaults to cedar-policy-formatter's 80 rather than dprint's 120 when neither is specified.
-
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-cedar/latest/schema.json">
-  Loading...
+<div class="plugin-config-table" data-plugin="dprint/dprint-plugin-cedar">
+  <a href="https://plugins.dprint.dev/dprint/dprint-plugin-cedar/latest/schema.json">View the configuration schema.</a>
 </div>

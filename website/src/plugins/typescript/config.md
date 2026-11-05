@@ -6,6 +6,6 @@ layout: layouts/documentation.njk
 
 # TypeScript / JavaScript - Configuration
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-typescript/latest/schema.json">
-  Loading...
+<div class="plugin-config-table" data-plugin="dprint/dprint-plugin-typescript">
+  <a href="https://plugins.dprint.dev/dprint/dprint-plugin-typescript/latest/schema.json">View the configuration schema.</a>
 </div>

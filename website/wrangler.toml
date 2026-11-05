@@ -1,0 +1,28 @@
+# the Cloudflare Worker that serves https://dprint.dev, which is attached as a
+# custom domain in the Cloudflare dashboard
+name = "dprint-website"
+main = "worker/main.ts"
+compatibility_date = "2026-10-01"
+# served on workers.dev until dprint.dev is moved to the worker, so it can be
+# tested there first. set this to false after
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "./_site"
+binding = "ASSETS"
+html_handling = "auto-trailing-slash"
+# serves 404.html for missing files, without invoking the worker
+not_found_handling = "404-page"
+# the worker renders the plugin configuration pages and passes everything else
+# under /plugins to the static files
+run_worker_first = ["/plugins/*"]
+
+# when running `deno task worker:dev`, this connects to a local dprint-plugins
+# worker started with `npm run dev` in https://github.com/dprint/dprint-plugins
+[[services]]
+binding = "PLUGINS"
+service = "dprint-plugins"
+
+[observability.logs]
+enabled = true

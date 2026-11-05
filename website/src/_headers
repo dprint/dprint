@@ -1,0 +1,11 @@
+# headers Cloudflare sends with the static files (https://developers.cloudflare.com/workers/static-assets/headers/)
+
+# GitHub Pages, which used to host the site, allowed any origin
+/*
+  Access-Control-Allow-Origin: *
+
+# keep the content types GitHub Pages served the install scripts with
+/install.sh
+  Content-Type: application/x-sh
+/install.ps1
+  Content-Type: application/octet-stream
