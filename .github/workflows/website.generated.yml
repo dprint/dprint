@@ -64,13 +64,13 @@ jobs:
         run: "(cd website && deno task worker:bundle)"
       - name: Prepare deployment
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
-        run: mkdir deployment && cp -r website/_site website/dist deployment/
+        run: mkdir website-deployment && cp -r website/_site website/dist website-deployment/
       - name: Upload artifact website-deployment
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         with:
           name: website-deployment
-          path: deployment
+          path: website-deployment
           retention-days: 1
   deploy:
     needs:
