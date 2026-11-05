@@ -738,14 +738,6 @@ a {
 .doc-sidebar::-webkit-scrollbar {
   display: none;
 } /* chrome / safari */
-.doc-menu-label {
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #8b93a1;
-  padding: 0 12px;
-  margin-bottom: 10px;
-}
 .doc-menu {
   list-style: none;
   margin: 0 0 28px;
@@ -772,6 +764,12 @@ a {
 .doc-menu a.active {
   color: var(--accent);
   background: #23262d;
+}
+/* a link out of the guide, like to the plugins */
+.doc-menu-other {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #2a2e35;
 }
 
 .doc-main {
