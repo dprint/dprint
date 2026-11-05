@@ -6,8 +6,6 @@ layout: layouts/documentation.njk
 
 # KDL - Configuration
 
-See the [plugin documentation](https://github.com/dprint/dprint-plugin-kdl#configuration) for more details.
-
 <div class="plugin-config-table" data-plugin="dprint/dprint-plugin-kdl">
   <a href="https://plugins.dprint.dev/dprint/dprint-plugin-kdl/latest/schema.json">View the configuration schema.</a>
 </div>

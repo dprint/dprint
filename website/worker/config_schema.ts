@@ -9,6 +9,7 @@ export interface SchemaDefinition {
   default?: unknown;
   const?: unknown;
   oneOf?: SchemaDefinition[];
+  anyOf?: SchemaDefinition[];
   enum?: unknown[];
   /** The properties of an object value. */
   properties?: Record<string, SchemaDefinition>;
@@ -187,11 +188,10 @@ export function getConfigProperties(rootSchema: unknown, configKey?: string): Co
     }
     const resolve = (definition: SchemaDefinition) => resolveOptions(resolveRef(definition), depth + 1);
     const resolved = { ...definition };
-    if (definition.oneOf != null) {
-      resolved.oneOf = definition.oneOf.flatMap((option) => {
-        const resolvedOption = resolve(option);
-        return resolvedOption.const === undefined && resolvedOption.oneOf != null ? resolvedOption.oneOf : [resolvedOption];
-      });
+    // schema generators often use anyOf for an optional value (ex. a mode or null)
+    const options = definition.oneOf ?? definition.anyOf;
+    if (options != null) {
+      resolved.oneOf = options.flatMap((option) => getOptionValues(resolve(option)));
     }
     if (definition.properties != null) {
       resolved.properties = Object.fromEntries(
@@ -202,6 +202,23 @@ export function getConfigProperties(rootSchema: unknown, configKey?: string): Co
       resolved.items = resolve(definition.items);
     }
     return resolved;
+  }
+
+  // an option is shown as its values when it has a list of them
+  function getOptionValues(option: SchemaDefinition): SchemaDefinition[] {
+    if (option.const !== undefined) {
+      return [option];
+    } else if (option.oneOf != null) {
+      return option.oneOf;
+    } else if (option.enum != null) {
+      return option.enum.map((value) => ({ const: value }));
+    } else if (option.type === "null") {
+      return [{ const: null, description: option.description }];
+    } else if (option.type === "boolean") {
+      return [{ const: true, description: option.description }, { const: false, description: option.description }];
+    } else {
+      return [option];
+    }
   }
 
   function resolveRef(definition: SchemaDefinition): SchemaDefinition {
@@ -381,8 +398,10 @@ function renderInfo(definition: SchemaDefinition) {
     }
     html += "</ul>";
   } else {
-    html += `<ul class="cfg-meta"><li><span class="cfg-label">Type</span>`
-      + `<code class="cfg-value cfg-value-type">${escapeHtml(String(definition.type))}</code></li>`;
+    html += `<ul class="cfg-meta">`;
+    if (definition.type != null) {
+      html += `<li><span class="cfg-label">Type</span>${renderType(definition)}</li>`;
+    }
     if (definition.default !== undefined) {
       html += `<li><span class="cfg-label">Default</span>${renderValue(definition.default)}</li>`;
     }
@@ -404,9 +423,7 @@ function renderOptions(definition: SchemaDefinition) {
     // an option that isn't a single value is described by its type (ex. an object)
     const isValue = option.const !== undefined;
     html += "<li>";
-    html += isValue
-      ? renderValue(option.const)
-      : `<code class="cfg-value cfg-value-type">${escapeHtml(String(option.type))}</code>`;
+    html += isValue ? renderValue(option.const) : renderType(option);
     if (isValue && option.const === definition.default) {
       html += renderDefaultBadge();
     }
@@ -487,6 +504,22 @@ function renderValue(value: unknown) {
   return `<code class="cfg-value cfg-value-${kind}">${escapeHtml(valueToText(value))}</code>`;
 }
 
+function renderType(definition: SchemaDefinition) {
+  return `<code class="cfg-value cfg-value-type">${escapeHtml(getTypeText(definition))}</code>`;
+}
+
+// includes the type of an array's items (ex. `string[]`)
+function getTypeText(definition: SchemaDefinition): string {
+  if (definition.type === "array" && definition.items != null) {
+    const itemType = getTypeText(definition.items);
+    return itemType.includes(" ") ? `(${itemType})[]` : `${itemType}[]`;
+  }
+  if (Array.isArray(definition.type)) {
+    return definition.type.join(" | ");
+  }
+  return definition.type ?? (definition.properties != null ? "object" : "any");
+}
+
 function renderDefaultBadge() {
   return ` <span class="cfg-default">Default</span>`;
 }
@@ -504,7 +537,10 @@ function valueToText(value: unknown) {
   if (typeof value === "string") {
     return `"${value}"`;
   }
-  if (value == null) {
+  if (value === null) {
+    return "null";
+  }
+  if (value === undefined) {
     return "<not specified>";
   }
   if (typeof value === "object") {
