@@ -1020,7 +1020,13 @@ a {
   --cfg-number: #f5ab35;
   --cfg-type: #00e0e0;
 }
-.plugin-config-table > p:first-child {
+.plugin-config-table .cfg-version {
+  margin: 0 0 4px;
+  color: var(--cfg-text);
+  font-size: 14px;
+}
+.plugin-config-table .cfg-source {
+  margin-top: 0;
   color: var(--cfg-muted);
   font-size: 13px;
 }
