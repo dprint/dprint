@@ -1,5 +1,5 @@
 import { strictEqual } from "node:assert/strict";
-import { getAddSpecifier, renderPluginDetailsHtml, renderPluginSummaryHtml } from "./plugin_page.ts";
+import { getAddSpecifier, getPluginSearchText, renderPluginDetailsHtml, renderPluginSummaryHtml } from "./plugin_page.ts";
 import { readPluginInfo } from "./plugin_versions.ts";
 
 const typescript = readPluginInfo({
@@ -23,6 +23,13 @@ Deno.test("gets the specifier of a plugin for dprint add", () => {
   strictEqual(getAddSpecifier("https://plugins.dprint.dev/jolars/panache-v1.4.1.wasm"), "jolars/panache");
   strictEqual(getAddSpecifier("https://plugins.dprint.dev/prettier-0.67.0.json"), "prettier");
   strictEqual(getAddSpecifier("https://example.com/plugin-0.1.0.wasm"), undefined);
+});
+
+Deno.test("gets the text to search a plugin by", () => {
+  strictEqual(
+    getPluginSearchText(typescript),
+    "dprint-plugin-typescript typescript/javascript code formatter. typescript @dprint/typescript javascript typescript ts tsx",
+  );
 });
 
 Deno.test("renders a plugin's summary", () => {
