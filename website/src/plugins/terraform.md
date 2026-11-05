@@ -29,7 +29,3 @@ This will update your config file to have an entry for the plugin.
 ## Configuration
 
 There's nothing to configure, since `tofu fmt` and `terraform fmt` have no style options. Like them, the plugin keeps each file's newlines as they are.
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-terraform
