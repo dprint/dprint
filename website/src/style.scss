@@ -75,6 +75,20 @@ a {
   color: var(--accent);
   margin-bottom: 14px;
 }
+/* an eyebrow that goes back to its section, like a breadcrumb */
+.doc-content .eyebrow-link,
+.eyebrow-link {
+  display: block;
+  width: fit-content;
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: none;
+}
+.doc-content .eyebrow-link:hover,
+.eyebrow-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
 
 /* shared buttons */
 .btn-primary {
