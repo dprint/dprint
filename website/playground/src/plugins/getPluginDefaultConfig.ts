@@ -8,21 +8,18 @@ export async function getPluginDefaultConfig(configSchemaUrl: string, signal: Ab
       signal,
     });
     const json = await response.json();
-    let text = "{";
-    let wroteProperty = false;
 
-    for (const propertyName of Object.keys(json.properties)) {
-      if (propertyName === "$schema" || propertyName === "deno" || propertyName === "locked") {
-        continue;
+    const text = JSON.stringify(json.properties, (key, value) => {
+      if (key === "$schema" || key === "deno" || key === "locked") {
+        return;
       }
-      const property = json.properties[propertyName];
-      const derivedPropName = property["$ref"]?.replace("#/definitions/", "");
+      const derivedPropName = value["$ref"]?.replace("#/definitions/", "");
 
-      const lastSegment = propertyName.split(".").pop()!;
-      const astSpecific = (derivedPropName !== propertyName && derivedPropName in json.properties)
-        || (lastSegment !== propertyName && lastSegment in json.properties);
+      const lastSegment = key.split(".").pop()!;
+      const astSpecific = (derivedPropName !== key && Object.hasOwn(json.properties, derivedPropName))
+        || (lastSegment !== key && Object.hasOwn(json.properties, lastSegment));
       if (astSpecific) {
-        continue;
+        return;
       }
 
       let defaultValue: string | boolean | number | undefined;
@@ -32,35 +29,16 @@ export async function getPluginDefaultConfig(configSchemaUrl: string, signal: Ab
         if (definition != null) {
           defaultValue = definition?.default;
         }
+      } else if (Object.hasOwn(json.properties, key)) {
+        defaultValue = value.default;
       } else {
-        defaultValue = property.default;
+        defaultValue = value;
       }
 
-      if (defaultValue != null) {
-        if (wroteProperty) {
-          text += ",\n";
-        } else {
-          text += "\n";
-        }
+      return key === "lineWidth" ? 80 : defaultValue;
+    }, 2);
 
-        text += `  "${propertyName}": `;
-        if (typeof defaultValue === "string") {
-          text += `"${defaultValue}"`;
-        } else {
-          if (propertyName === "lineWidth") {
-            text += "80";
-          } else {
-            text += `${defaultValue?.toString() ?? "null"}`;
-          }
-        }
-
-        wroteProperty = true;
-      }
-    }
-
-    text += "\n}\n";
-
-    return text;
+    return text + "\n";
   } catch (err: any) {
     if (signal.aborted) {
       throw err;
