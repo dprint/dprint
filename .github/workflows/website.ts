@@ -17,30 +17,33 @@ const buildJob = job("build", {
     { name: "Install dependencies", run: "(cd website && deno install)" },
     { name: "Build playground", run: "(cd website/playground && deno task build)" },
     { name: "Test playground", run: "(cd website/playground && deno task test)" },
+    { name: "Test worker", run: "(cd website && deno task test)" },
     { name: "Build website", run: "(cd website && deno task build:ci)" },
     site.upload({ path: "website/_site" }).if(isDeploy),
   ),
 });
 
-// Deploying is the only step that needs to write to the repo, so it runs in
-// its own job and the build job (which runs for every PR) stays read-only.
+// Deploying is the only step that needs the Cloudflare secrets, so it runs in
+// its own job and the build job (which runs for every PR) never has them.
 const deployJob = job("deploy", {
   runsOn: "ubuntu-latest",
   needs: [buildJob],
   if: isDeploy,
-  permissions: { contents: "write" },
+  permissions: { contents: "read" },
   steps: step(
-    // the deploy action needs the repo checked out to push to gh-pages
+    // wrangler deploys the worker in website/worker along with the built site
     { name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
+    // only used to run the deploy task, so this doesn't need canary like the build
+    { uses: "denoland/setup-deno@v2", with: { "deno-version": "v2.x" } },
+    // wrangler bundles the worker's npm dependencies (ex. highlight.js) from node_modules
+    { name: "Install dependencies", run: "(cd website && deno install)" },
     site.download({ dirPath: "website/_site" }),
     {
       name: "Deploy",
-      uses: "JamesIves/github-pages-deploy-action@releases/v3",
-      with: {
-        GITHUB_TOKEN: expr("secrets.GITHUB_TOKEN"),
-        BRANCH: "gh-pages",
-        FOLDER: "website/_site",
-        "single-commit": true,
+      run: "(cd website && deno task deploy)",
+      env: {
+        CLOUDFLARE_API_TOKEN: expr("secrets.CLOUDFLARE_API_TOKEN"),
+        CLOUDFLARE_ACCOUNT_ID: expr("secrets.CLOUDFLARE_ACCOUNT_ID"),
       },
     },
   ),
@@ -64,7 +67,7 @@ workflow({
     workflow_dispatch: {
       inputs: {
         deploy: {
-          description: "Deploy to GitHub Pages",
+          description: "Deploy to Cloudflare",
           type: "boolean",
           default: false,
         },

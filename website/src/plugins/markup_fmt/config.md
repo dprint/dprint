@@ -6,6 +6,6 @@ layout: layouts/documentation.njk
 
 # Markup_fmt - Configuration
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/g-plane/markup_fmt/latest/schema.json">
-  Loading...
+<div class="plugin-config-table" data-plugin="g-plane/markup_fmt">
+  <a href="https://plugins.dprint.dev/g-plane/markup_fmt/latest/schema.json">View the configuration schema.</a>
 </div>

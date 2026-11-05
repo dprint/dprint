@@ -8,6 +8,6 @@ layout: layouts/documentation.njk
 
 See the [plugin documentation](https://github.com/dprint/dprint-plugin-wat#configuration) for more details.
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-wat/latest/schema.json">
-  Loading...
+<div class="plugin-config-table" data-plugin="dprint/dprint-plugin-wat">
+  <a href="https://plugins.dprint.dev/dprint/dprint-plugin-wat/latest/schema.json">View the configuration schema.</a>
 </div>

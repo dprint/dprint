@@ -1009,16 +1009,196 @@ a {
   margin: 0;
 }
 
-/* plugin config table (generated client-side) */
-.plugin-config-table h2 {
+/* plugin config table (rendered by the worker in worker/) */
+/* the colors of values are the colors of the code theme (css/a11y-dark.scss) */
+.plugin-config-table {
+  --cfg-card: #1b1d21;
+  --cfg-border: #2a2e35;
+  --cfg-muted: #6e7681;
+  --cfg-text: #b4bac4;
+  --cfg-string: #abe338;
+  --cfg-number: #f5ab35;
+  --cfg-type: #00e0e0;
+}
+.plugin-config-table > p:first-child {
+  color: var(--cfg-muted);
+  font-size: 13px;
+}
+
+/* table of contents */
+.plugin-config-table .cfg-toc {
+  list-style: none;
+  padding: 0;
+  margin: 20px 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.plugin-config-table .cfg-toc li {
+  margin: 0;
+}
+.plugin-config-table .cfg-toc a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid #33373f;
+  border-radius: 999px;
+  background: var(--cfg-card);
+  color: #dfe3ea;
+  font-size: 13.5px;
+}
+.plugin-config-table .cfg-toc a:hover {
+  border-color: #5b626d;
+  color: #fff;
+}
+.plugin-config-table .cfg-count {
+  color: var(--cfg-muted);
+  font-size: 12px;
+}
+
+/* a property */
+.plugin-config-table .cfg-property {
+  background: var(--cfg-card);
+  border: 1px solid var(--cfg-border);
+  border-radius: 14px;
+  padding: 2px 24px 18px;
+  margin: 16px 0;
+}
+.plugin-config-table .cfg-property > h2,
+.plugin-config-table .cfg-property > h3 {
   font-size: 19px;
   border-bottom: none;
   padding-bottom: 0;
-  margin: 32px 0 6px;
+  margin: 18px 0 8px;
 }
-.plugin-config-table > p:first-child {
-  color: #6e7681;
+.plugin-config-table .cfg-prefix {
+  color: var(--cfg-muted);
+  font-weight: 500;
+}
+.plugin-config-table .cfg-overrides {
+  margin: -2px 0 10px;
+  color: var(--cfg-muted);
   font-size: 13px;
+}
+
+/* values */
+.plugin-config-table .cfg-values,
+.plugin-config-table .cfg-meta,
+.plugin-config-table .cfg-object-properties {
+  list-style: none;
+  padding-left: 0;
+}
+.plugin-config-table .cfg-values > li,
+.plugin-config-table .cfg-object-properties > li {
+  margin: 12px 0;
+}
+.plugin-config-table .cfg-object-properties {
+  padding-left: 16px;
+  border-left: 1px solid var(--cfg-border);
+}
+.plugin-config-table .cfg-object-properties .cfg-values {
+  margin: 8px 0;
+  padding-left: 16px;
+}
+.plugin-config-table .cfg-object-properties .cfg-values > li {
+  margin: 6px 0;
+}
+.plugin-config-table .cfg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+.plugin-config-table .cfg-meta li {
+  margin: 0;
+}
+.plugin-config-table .cfg-value {
+  font-weight: 600;
+}
+.plugin-config-table .cfg-value-string {
+  color: var(--cfg-string);
+  background: rgba(171, 227, 56, 0.08);
+}
+.plugin-config-table .cfg-value-number,
+.plugin-config-table .cfg-value-boolean {
+  color: var(--cfg-number);
+  background: rgba(245, 171, 53, 0.08);
+}
+.plugin-config-table .cfg-value-type {
+  color: var(--cfg-type);
+  background: rgba(0, 224, 224, 0.07);
+}
+.plugin-config-table .cfg-object-property {
+  color: #dfe3ea;
+  font-weight: 600;
+}
+.plugin-config-table .cfg-value-description {
+  color: var(--cfg-text);
+}
+.plugin-config-table .cfg-label {
+  margin-right: 8px;
+  color: var(--cfg-muted);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.plugin-config-table .cfg-default {
+  margin-left: 4px;
+  padding: 1px 7px;
+  border: 1px solid #4d5564;
+  border-radius: 999px;
+  color: #c9ced6;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
+}
+
+/* code examples */
+.plugin-config-table .cfg-example-label {
+  margin: 16px 0 8px;
+  color: var(--cfg-muted);
+  font-size: 13px;
+}
+.plugin-config-table .cfg-values pre {
+  margin: 10px 0 0;
+}
+.plugin-config-table pre {
+  background: #15171a;
+}
+
+/* AST node specific properties */
+.plugin-config-table .cfg-node-overrides {
+  margin-top: 14px;
+}
+.plugin-config-table .cfg-node-overrides summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13.5px;
+}
+.plugin-config-table .cfg-node-overrides summary:hover {
+  color: #fff;
+}
+.plugin-config-table .cfg-chips {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.plugin-config-table .cfg-chips li {
+  margin: 0;
+}
+.plugin-config-table .cfg-chips code {
+  font-size: 12.5px;
+}
+.plugin-config-table .cfg-chips a {
+  border-bottom: none;
+}
+.plugin-config-table .cfg-node-override {
+  margin: 14px 0 0;
+  padding-left: 16px;
+  border-left: 1px solid var(--cfg-border);
 }
 
 /* ===================== full-page (blog/contact) ===================== */

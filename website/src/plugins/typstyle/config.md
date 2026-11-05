@@ -11,6 +11,6 @@ Specify configuration under the `"typst"` key in your dprint configuration file.
 
 See the [plugin documentation](https://github.com/dprint/dprint-plugin-typstyle#configuration) for more details.
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-typstyle/latest/schema.json">
-  Loading...
+<div class="plugin-config-table" data-plugin="dprint/dprint-plugin-typstyle">
+  <a href="https://plugins.dprint.dev/dprint/dprint-plugin-typstyle/latest/schema.json">View the configuration schema.</a>
 </div>

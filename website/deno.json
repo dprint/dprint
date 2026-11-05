@@ -7,12 +7,21 @@
     "lume": "echo \"import 'lume/cli.ts'\" | deno run --unstable -A -",
     "build:ci": "deno task build && cp -r playground/dist _site/playground",
     "build": "deno task lume",
-    "serve": "deno task lume -s"
+    "serve": "deno task lume -s",
+    // checks main.ts too, which the tests don't import
+    "test": "deno check worker/ && deno test worker/",
+    // serves the built site with the worker that renders the plugin configuration pages
+    "worker:dev": "deno task wrangler dev",
+    "deploy": "deno task wrangler deploy",
+    "wrangler": "npx -y wrangler@4.151.1"
   },
   "imports": {
     "compress": "https://deno.land/x/compress@v0.4.1/mod.ts",
     "lume/": "https://deno.land/x/lume@v3.1.2/",
-    "markdown-it-anchor": "npm:markdown-it-anchor@8.6.7"
+    "markdown-it-anchor": "npm:markdown-it-anchor@8.6.7",
+    // used by the worker, at the version lume uses
+    "highlight.js": "npm:highlight.js@11.11.1",
+    "highlight.js/": "npm:/highlight.js@11.11.1/"
   },
   "allowScripts": [
     "npm:fsevents",

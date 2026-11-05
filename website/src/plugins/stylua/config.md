@@ -10,6 +10,6 @@ The options are StyLua's, with the same defaults. `lineWidth`, `useTabs`, `inden
 
 See the [plugin documentation](https://github.com/dprint/dprint-plugin-stylua#configuration) for more details.
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-stylua/latest/schema.json">
-  Loading...
+<div class="plugin-config-table" data-plugin="dprint/dprint-plugin-stylua">
+  <a href="https://plugins.dprint.dev/dprint/dprint-plugin-stylua/latest/schema.json">View the configuration schema.</a>
 </div>

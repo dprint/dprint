@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: Deploy to GitHub Pages
+        description: Deploy to Cloudflare
         type: boolean
         default: false
   release:
@@ -56,6 +56,8 @@ jobs:
         run: (cd website/playground && deno task build)
       - name: Test playground
         run: (cd website/playground && deno task test)
+      - name: Test worker
+        run: (cd website && deno task test)
       - name: Build website
         run: "(cd website && deno task build:ci)"
       - name: Upload artifact website
@@ -71,21 +73,24 @@ jobs:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: v2.x
+      - name: Install dependencies
+        run: (cd website && deno install)
       - name: Download artifact website
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: website
           path: website/_site
       - name: Deploy
-        uses: JamesIves/github-pages-deploy-action@132898c54c57c7cc6b80eb3a89968de8fc283505 # releases/v3
-        with:
-          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-          BRANCH: gh-pages
-          FOLDER: website/_site
-          single-commit: true
+        env:
+          CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}"
+          CLOUDFLARE_ACCOUNT_ID: "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+        run: (cd website && deno task deploy)

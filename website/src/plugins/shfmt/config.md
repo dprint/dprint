@@ -10,6 +10,6 @@ The options are shfmt's formatting flags. `indentWidth` and `useTabs` use the gl
 
 See the [plugin documentation](https://github.com/dprint/dprint-plugin-shfmt#configuration) for more details.
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-shfmt/latest/schema.json">
-  Loading...
+<div class="plugin-config-table" data-plugin="dprint/dprint-plugin-shfmt">
+  <a href="https://plugins.dprint.dev/dprint/dprint-plugin-shfmt/latest/schema.json">View the configuration schema.</a>
 </div>
