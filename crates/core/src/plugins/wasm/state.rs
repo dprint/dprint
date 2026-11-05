@@ -8,13 +8,13 @@ use crate::plugins::CancellationToken;
 use crate::plugins::CheckConfigUpdatesMessage;
 use crate::plugins::FormatConfigId;
 use crate::plugins::FormatError;
-use crate::plugins::FormatRange;
 use crate::plugins::FormatResult;
 use crate::plugins::PluginResolveConfigurationResult;
 use crate::plugins::RawFormatConfig;
 use crate::plugins::SyncFormatRequest;
 use crate::plugins::SyncHostFormatRequest;
 use crate::plugins::SyncPluginHandler;
+use crate::plugins::single_format_range;
 
 use super::JsonResponse;
 
@@ -30,6 +30,7 @@ pub struct WasmPluginState<TPlugin, TConfiguration: Clone + serde::Serialize> {
   shared_bytes: RefCell<Vec<u8>>,
   override_config: RefCell<Option<ConfigKeyMap>>,
   file_path: RefCell<Option<PathBuf>>,
+  format_ranges: RefCell<Option<Vec<std::ops::Range<usize>>>>,
   formatted_text: RefCell<Option<Vec<u8>>>,
   error_text: RefCell<Option<String>>,
   unresolved_configs: RefCell<ConfigIdMap<RawFormatConfig>>,
@@ -50,6 +51,7 @@ impl<TPlugin, TConfiguration: Clone + serde::Serialize> WasmPluginState<TPlugin,
       shared_bytes: RefCell::new(Vec::new()),
       override_config: RefCell::new(None),
       file_path: RefCell::new(None),
+      format_ranges: RefCell::new(None),
       formatted_text: RefCell::new(None),
       error_text: RefCell::new(None),
       unresolved_configs: RefCell::new(ConfigIdMap::new()),
@@ -75,8 +77,30 @@ impl<TPlugin: SyncPluginHandler<TConfiguration>, TConfiguration: Clone + serde::
     *self.file_path.borrow_mut() = Some(PathBuf::from(text));
   }
 
-  pub fn format(&self, config_id: u32, range: FormatRange) -> u8 {
+  /// Stores the ranges to format from the shared bytes, which are pairs of
+  /// little-endian u32 start and end byte indexes.
+  pub fn set_format_ranges(&self) {
+    let bytes = self.take_shared_bytes();
+    let ranges = bytes
+      .chunks_exact(8)
+      .map(|chunk| {
+        let start = u32::from_le_bytes(chunk[0..4].try_into().unwrap()) as usize;
+        let end = u32::from_le_bytes(chunk[4..8].try_into().unwrap()) as usize;
+        start..end
+      })
+      .collect();
+    *self.format_ranges.borrow_mut() = Some(ranges);
+  }
+
+  pub fn format_range(&self, config_id: u32, range_start: u32, range_end: u32) -> u8 {
+    *self.format_ranges.borrow_mut() = Some(vec![range_start as usize..range_end as usize]);
+    self.format(config_id)
+  }
+
+  /// Formats the ranges set with `set_format_ranges` or the whole text when none were.
+  pub fn format(&self, config_id: u32) -> u8 {
     let config_id = FormatConfigId::from_raw(config_id);
+    let ranges = self.format_ranges.borrow_mut().take();
     self.ensure_initialized(config_id);
     let override_config = self.override_config.borrow_mut().take();
     let resolved_configs = self.resolved_configs.borrow();
@@ -92,7 +116,7 @@ impl<TPlugin: SyncPluginHandler<TConfiguration>, TConfiguration: Clone + serde::
       file_bytes,
       config: &config,
       config_id,
-      range,
+      ranges,
       token: &HostCancellationToken,
       #[cfg(feature = "formatting")]
       arena_pool: self.arena_pool.get_or_init(Default::default),
@@ -198,7 +222,8 @@ impl<TPlugin: SyncPluginHandler<TConfiguration>, TConfiguration: Clone + serde::
     } else {
       Cow::Borrowed("")
     };
-    let range = request.range.unwrap_or(0..request.file_bytes.len());
+    // the host import has a single range
+    let range = single_format_range(request.ranges)?.unwrap_or(0..request.file_bytes.len());
 
     // SAFETY: the pointers and lengths are valid for the duration of the call
     let result = unsafe {

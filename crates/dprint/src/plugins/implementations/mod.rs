@@ -86,7 +86,7 @@ mod test {
             // Wasm plugin which will then try to format with the process plugin
             // and finally it will wait for cancellation to occur
             file_bytes: "plugin: plugin: wait_cancellation".to_string().into_bytes(),
-            range: None,
+            ranges: None,
             override_config: Default::default(),
             token: token.clone(),
           })
@@ -147,7 +147,7 @@ mod test {
               // Wasm plugin which will then try to format with the process plugin
               // and then will hang forever
               file_bytes: "plugin: plugin: wait_cancellation".to_string().into_bytes(),
-              range: None,
+              ranges: None,
               override_config: Default::default(),
               token,
             })

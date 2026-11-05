@@ -109,7 +109,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
      fn format(&mut self, request: SyncFormatRequest<Configuration>, mut format_with_host: impl FnMut(SyncHostFormatRequest) -> FormatResult) -> FormatResult {
        // format here
        //
-       // - make sure to check the range of the request!! If you can't handle
+       // - make sure to check the ranges of the request!! If you can't handle
        //   range formatting, then return `Ok(None)` to signify no change.
        // - return `Ok(Some(formatted_bytes))` when changed or `Ok(None)` when not
        Ok(None)
@@ -164,7 +164,7 @@ To format code using a different plugin, call the `format_with_host` closure pro
 let result = format_with_host(SyncHostFormatRequest {
   file_path: &PathBuf::from("code_block.ts"),
   file_bytes: code.as_bytes(),
-  range: None,
+  ranges: None,
   override_config: &ConfigKeyMap::new(),
 });
 ```
@@ -209,7 +209,7 @@ Formatting functions:
 
 - `set_override_config()` - Possibly called by the CLI for the plugin to take from its local byte array and store that data as the format specific configuration.
 - `set_file_path()` - Called by the CLI for the plugin to take from its local byte array and store that data as the file path.
-- `format(config_id: u32) -> u32` - Called after the CLI has written the file text to the shared bytes.
+- `format(config_id: u32) -> u32` - Called after the CLI has written the file text to the shared bytes. Formats the ranges set with `set_format_ranges` or the whole text when none were.
   - Return `0` when there's no change.
   - `1` when there's a change.
   - `2` when there's an error.
@@ -221,8 +221,9 @@ Optional functions:
 - `check_config_updates() -> u32` - Set the shared bytes with the input. Returns the length of the output which can be read from the shared bytes. Called by `dprint config update` after upgrading the plugin.
   - Input: `{ "oldVersion": "0.1.0", "config": { ...plugin configuration } }` (`oldVersion` is not set by dprint < 0.47)
   - Output: `{ "kind": "ok", "data": [...changes] }` or `{ "kind": "err", "data": "error message" }`, where a change is `{ "path": ["propName", 0], "kind": "Set" | "Add" | "Remove", "value": ... }` (no `value` for `"Remove"`)
-- `format_range(config_id: u32, range_start: u32, range_end: u32) -> u32`
+- `format_range(config_id: u32, range_start: u32, range_end: u32) -> u32` - Called like `format` to format a single range of the file text.
   - Response is same as `format`
+- `set_format_ranges()` - Called by the CLI before writing the file text for the plugin to take from its local byte array and store that data as the ranges to format with `format`. The data is a start and end byte index for each range as little-endian u32s. The ranges are in order and don't overlap or touch, and the plugin formats each of them in the text and returns the text formatted once. The CLI checks for this export and gives a plugin without it one range at a time with `format_range`.
 
 ### Wasm Imports
 

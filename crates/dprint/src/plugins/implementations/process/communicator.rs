@@ -130,7 +130,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
       .format_text(ProcessPluginCommunicatorFormatRequest {
         file_path: request.file_path,
         file_bytes: request.file_text,
-        range: request.range,
+        ranges: request.ranges,
         config_id: request.config.id,
         override_config: request.override_config,
         on_host_format: request.on_host_format,
@@ -224,7 +224,7 @@ mod test {
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
               file_text: Arc::new("testing".to_string().into_bytes()),
-              range: None,
+              ranges: None,
               config: format_config.clone(),
               override_config: Default::default(),
               on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
@@ -246,7 +246,7 @@ mod test {
                 file_path: PathBuf::from("test.txt"),
                 // special text that makes it wait for cancellation
                 file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
-                range: None,
+                ranges: None,
                 config: format_config,
                 override_config: Default::default(),
                 on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
@@ -278,7 +278,7 @@ mod test {
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
               file_text: Arc::new("testing".to_string().into_bytes()),
-              range: None,
+              ranges: None,
               config: format_config.clone(),
               override_config: Default::default(),
               on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
@@ -316,7 +316,7 @@ mod test {
           // special text that makes it wait for cancellation
           file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
           config: format_config.clone(),
-          range: None,
+          ranges: None,
           override_config: Default::default(),
           on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
           token: token.clone(),
@@ -366,7 +366,7 @@ mod test {
                   file_path: PathBuf::from("test.txt"),
                   // special text that makes it wait for cancellation
                   file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
-                  range: None,
+                  ranges: None,
                   config: format_config,
                   override_config: Default::default(),
                   on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
@@ -418,7 +418,7 @@ mod test {
               file_path: PathBuf::from("test.txt"),
               // special text that makes the plugin spawn a subprocess that holds its stdio pipes open
               file_text: Arc::new("spawn_pipe_holder".to_string().into_bytes()),
-              range: None,
+              ranges: None,
               config: format_config.clone(),
               override_config: Default::default(),
               on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),

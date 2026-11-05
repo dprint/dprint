@@ -2,7 +2,7 @@ use anyhow::Result;
 use anyhow::bail;
 use dprint_core::async_runtime::future;
 use dprint_core::plugins::CancellationToken as FormatCancellationToken;
-use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatRanges;
 use dprint_core::plugins::NullCancellationToken;
 use dprint_core::plugins::process::HostFormatCallback;
 use std::borrow::Cow;
@@ -353,24 +353,19 @@ where
     line_ranges: &[LineRange],
   ) -> Result<(Instant, Arc<Vec<u8>>)> {
     let start_instant = Instant::now();
-    let mut file_text = file_text.clone();
-    // go from the last range to the first so that formatting a range
-    // doesn't shift the lines of the ranges that are still to be formatted
-    for line_range in merge_line_ranges(line_ranges).into_iter().rev() {
-      let Some(range) = get_line_range_byte_range(&file_text, line_range) else {
-        continue; // past the end of the text
-      };
-      let (_, formatted_text) = run_single_pass_for_file_path(context, file_paths, &file_text, Some(range)).await?;
-      file_text = formatted_text;
+    let ranges = get_line_ranges_byte_ranges(file_text, &merge_line_ranges(line_ranges));
+    if ranges.is_empty() {
+      return Ok((start_instant, file_text.clone())); // past the end of the text
     }
-    Ok((start_instant, file_text))
+    let (_, formatted_text) = run_single_pass_for_file_path(context, file_paths, file_text, Some(ranges)).await?;
+    Ok((start_instant, formatted_text))
   }
 
   async fn run_single_pass_for_file_path<TEnvironment: Environment>(
     context: &FormatContext<TEnvironment>,
     file_paths: &FormatFilePaths,
     original_text: &Arc<Vec<u8>>,
-    range: FormatRange,
+    ranges: FormatRanges,
   ) -> Result<(Instant, Arc<Vec<u8>>)> {
     let start_instant = Instant::now();
     let mut file_text = original_text.clone();
@@ -382,7 +377,7 @@ where
         .format_text(InitializedPluginWithConfigFormatRequest {
           file_path: file_paths.plugin().to_path_buf(),
           file_bytes: file_text.clone(),
-          range: range.clone(),
+          ranges: ranges.clone(),
           override_config: plugin.get_config_file_overrides_for_path(file_path),
           on_host_format: context.on_host_format.clone(),
           token: context.token.clone(),
@@ -439,6 +434,15 @@ pub fn merge_line_ranges(line_ranges: &[LineRange]) -> Vec<LineRange> {
     }
   }
   result
+}
+
+/// Gets the byte ranges of merged line ranges (see `merge_line_ranges`), which
+/// are in order and don't touch, and leaves out the ones past the end of the text.
+pub fn get_line_ranges_byte_ranges(text: &[u8], merged_line_ranges: &[LineRange]) -> Vec<std::ops::Range<usize>> {
+  merged_line_ranges
+    .iter()
+    .filter_map(|line_range| get_line_range_byte_range(text, *line_range))
+    .collect()
 }
 
 /// Gets the byte range from the start of the first line to the end of the
