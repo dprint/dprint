@@ -125,7 +125,3 @@ This plugin formats many kinds of files, so it may match the same files as anoth
 ```
 
 For more fine grained control, see [associations](/config/#associations) or see [disabling languages](#disabling-languages).
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-bun

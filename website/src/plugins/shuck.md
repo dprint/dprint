@@ -31,7 +31,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-shuck

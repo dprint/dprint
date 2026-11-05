@@ -49,7 +49,3 @@ A statement after a `-- dprint-ignore` comment is left as it is, and a file star
 SELECT   a,   b
 FROM     t;
 ```
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-sql

@@ -32,7 +32,3 @@ This will update your config file to have an entry for the plugin. Then optional
 ## Configuration
 
 buildifier has no style options, so the only option is `newLineKind`.
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-buildifier
