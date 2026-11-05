@@ -67,6 +67,23 @@ export function renderPluginDetailsHtml(plugin: PluginDetails, pageVersion?: Pag
 }
 
 /**
+ * Gets the text the plugins page's search matches a plugin against, in
+ * addition to what the page has, like the keywords and file extensions that
+ * the plugin registry's search matches against.
+ */
+export function getPluginSearchText(plugin: PluginDetails) {
+  return [
+    plugin.name,
+    plugin.description,
+    plugin.configKey,
+    plugin.npmName,
+    ...plugin.keywords,
+    ...plugin.fileExtensions,
+    ...plugin.fileNames,
+  ].filter((part) => part != null && part !== "").join(" ").toLowerCase();
+}
+
+/**
  * Gets what `dprint add` takes for a plugin, which is its url on
  * plugins.dprint.dev without the version (ex. `typescript` or `jolars/panache`).
  */

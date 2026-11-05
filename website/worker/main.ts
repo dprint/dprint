@@ -14,7 +14,7 @@ import {
   parseConfigRoute,
 } from "./config_routes.ts";
 import { ConfigTooLargeError, escapeHtml, getConfigSections, renderConfigErrorHtml, renderConfigHtml } from "./config_schema.ts";
-import { type PageVersion, renderPluginDetailsHtml, renderPluginSummaryHtml } from "./plugin_page.ts";
+import { getPluginSearchText, type PageVersion, renderPluginDetailsHtml, renderPluginSummaryHtml } from "./plugin_page.ts";
 import {
   getPlaceholderReplacement,
   type LatestPluginRelease,
@@ -224,6 +224,16 @@ function addPluginInfoHandlers(rewriter: HTMLRewriter, info: PluginInfo | undefi
         const plugin = getPluginDetails(element, "data-plugin-details", info);
         if (plugin != null) {
           element.setInnerContent(renderPluginDetailsHtml(plugin, pageVersion), { html: true });
+        }
+      },
+    })
+    // the plugins on the plugins page, which its search matches against
+    .on("#plugin-groups [data-plugin-search]", {
+      element(element) {
+        const plugin = getPluginDetails(element, "data-plugin-search", info);
+        if (plugin != null) {
+          const text = element.getAttribute("data-search") ?? "";
+          element.setAttribute("data-search", `${text} ${getPluginSearchText(plugin)}`);
         }
       },
     });
@@ -546,6 +556,7 @@ interface ExecutionContext {
 
 interface RewriterElement {
   getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): RewriterElement;
   setInnerContent(content: string, options?: { html: boolean }): RewriterElement;
 }
 
