@@ -1401,9 +1401,51 @@ a {
   margin: 0 auto;
   padding: 48px 28px 90px;
 }
-/* the plugin grids use the full width, but text stays readable */
-.plugins-page > :not(.plugin-grid) {
+/* the plugins use the full width, but text stays readable */
+.plugins-page > :not(.plugin-groups) {
   max-width: 820px;
+}
+
+/* the plugins page's search, where the sections become one list of the
+   matching plugins (scripts/plugin-search.js) */
+.plugin-search {
+  display: block;
+  width: 100%;
+  margin: 32px 0 8px;
+  font-family: inherit;
+  font-size: 14px;
+  color: #e8e8ea;
+  background: #181a1e;
+  border: 1px solid #33373f;
+  border-radius: 8px;
+  padding: 9px 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.plugin-search::placeholder {
+  color: #6e7681;
+}
+.plugin-search:focus {
+  border-color: #4d5564;
+}
+.plugin-groups.searching {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+  margin: 24px 0 40px;
+}
+.plugin-groups.searching > h2 {
+  display: none;
+}
+.plugin-groups.searching .plugin-grid {
+  display: contents;
+}
+.plugin-groups[hidden],
+.plugin-card[hidden] {
+  display: none;
+}
+.plugin-search-empty {
+  color: #8b93a1;
 }
 
 /* ===================== full-page (blog/contact) ===================== */

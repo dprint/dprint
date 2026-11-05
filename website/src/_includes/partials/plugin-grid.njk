@@ -1,7 +1,12 @@
 {% macro pluginGrid(group) %}
   <div class="plugin-grid">
     {% for plugin in group.plugins %}
-      <a class="plugin-card{% if group.kind %} {{ group.kind }}{% endif %}" href="/plugins/{{ plugin.slug }}">
+      {# data-search is the text the plugins page's search matches against #}
+      <a
+        class="plugin-card{% if group.kind %} {{ group.kind }}{% endif %}"
+        href="/plugins/{{ plugin.slug }}"
+        data-search='{{ [plugin.name, plugin.ext, plugin.slug, plugin.info] | join(" ") | lower }}'
+      >
         <span class="swatch"></span>
         <span class="meta"><span class="name">{{ plugin.name }}</span><span class="ext">{{ plugin.ext }}</span></span>
         {% if plugin.process %}

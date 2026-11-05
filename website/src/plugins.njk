@@ -27,10 +27,25 @@ layout: layouts/plugins_page.njk
 
 <p>For the latest version and copy-paste URL of every plugin, see <a href="https://plugins.dprint.dev">plugins.dprint.dev</a>.</p>
 
-{% for group in pluginGroups %}
-  <h2 id="{{ group.id }}" tabindex="-1"><a class="header-anchor" href="#{{ group.id }}">{{ group.heading }}</a></h2>
-  {{ pluginGrid(group) }}
-{% endfor %}
+<input
+  type="search"
+  id="plugin-search"
+  class="plugin-search"
+  placeholder="Search plugins…"
+  aria-label="Search plugins"
+  aria-controls="plugin-groups"
+  autocomplete="off"
+  spellcheck="false"
+/>
+
+{# the sections become one list of the matching plugins while searching (scripts/plugin-search.js) #}
+<div id="plugin-groups" class="plugin-groups">
+  {% for group in pluginGroups %}
+    <h2 id="{{ group.id }}" tabindex="-1"><a class="header-anchor" href="#{{ group.id }}">{{ group.heading }}</a></h2>
+    {{ pluginGrid(group) }}
+  {% endfor %}
+</div>
+<p id="plugin-search-empty" class="plugin-search-empty" hidden>No plugins match your search.</p>
 
 <h2 id="using-wasm-plugins-in-the-browser%2C-deno%2C-or-node.js" tabindex="-1">
   <a class="header-anchor" href="#using-wasm-plugins-in-the-browser%2C-deno%2C-or-node.js">Using Wasm Plugins in the Browser, Deno, or Node.js</a>
