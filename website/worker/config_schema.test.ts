@@ -185,7 +185,7 @@ Deno.test("renders options that refer to other definitions or are objects", () =
   );
   strictEqual(
     html.includes(
-      "<li><span class=\"cfg-label\">Default</span><code class=\"cfg-value cfg-value-other\">{&quot;css&quot;:&quot;less&quot;}</code></li>",
+      "<li><span class=\"cfg-label\">Default</span><code class=\"cfg-value cfg-value-other\">{ &quot;css&quot;: &quot;less&quot; }</code></li>",
     ),
     true,
   );
@@ -413,4 +413,28 @@ Deno.test("renders names that are on the object prototype", () => {
 
   strictEqual(html.includes("<pre><code>b</code></pre>"), true);
   strictEqual(html.includes("node.constructor"), true);
+});
+
+Deno.test("shows a long object default as formatted json", () => {
+  const html = renderConfigHtml({
+    schemaUrl: "https://plugins.dprint.dev/someone/plugin/0.1.0/schema.json",
+    sections: getConfigSections({
+      properties: {
+        languages: {
+          type: "object",
+          default: { css: "less", gql: "graphql", graphql: "graphql", html: "html", sql: "sql", svg: "svg" },
+        },
+      },
+    }),
+  });
+
+  strictEqual(
+    html.includes(
+      "<ul class=\"cfg-meta\"><li><span class=\"cfg-label\">Type</span>"
+        + "<code class=\"cfg-value cfg-value-type\">object</code></li></ul>"
+        + "<p class=\"cfg-example-label\">Default</p><pre><code class=\"hljs language-json\">",
+    ),
+    true,
+  );
+  strictEqual(html.includes("&quot;css&quot;</span><span class=\"hljs-punctuation\">:</span>"), true);
 });

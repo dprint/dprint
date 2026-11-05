@@ -33,7 +33,7 @@ interface Env {
 }
 
 // bump this to stop using any configuration html that was cached by a previous deploy
-const RENDER_VERSION = 2;
+const RENDER_VERSION = 3;
 // how long the latest versions of plugins are used for
 const LATEST_RELEASE_CACHE_MS = 5 * 60 * 1_000;
 const MAX_MEMORY_CACHE_ENTRIES = 100;
