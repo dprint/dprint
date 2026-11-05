@@ -3,6 +3,9 @@
 name = "dprint-website"
 main = "worker/main.ts"
 compatibility_date = "2026-10-01"
+# only served on the custom domain, not also on workers.dev or preview urls
+workers_dev = false
+preview_urls = false
 
 [assets]
 directory = "./_site"

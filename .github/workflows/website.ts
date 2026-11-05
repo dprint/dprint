@@ -2,8 +2,7 @@
 import { artifact, expr, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 const isDeploy = "github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)";
-// the built site, bundled worker, wrangler config, and the locked version of
-// wrangler (website/wrangler), which is all the deploy uses
+// the built site and bundled worker, which the deploy uploads
 const deployment = artifact("website-deployment", { retentionDays: 1 });
 
 const buildJob = job("build", {
@@ -26,11 +25,7 @@ const buildJob = job("build", {
     {
       name: "Prepare deployment",
       if: isDeploy,
-      run: [
-        "mkdir -p deployment/wrangler",
-        "cp -r website/_site website/dist website/wrangler.toml deployment/",
-        "cp website/wrangler/deno.json website/wrangler/deno.lock deployment/wrangler/",
-      ],
+      run: "mkdir deployment && cp -r website/_site website/dist deployment/",
     },
     deployment.upload({ path: "deployment" }).if(isDeploy),
   ),
@@ -38,35 +33,46 @@ const buildJob = job("build", {
 
 // Deploying is the only step that needs the Cloudflare secrets, so it runs in
 // its own job and the build job (which runs for every PR) never has them. The
-// job doesn't check out the repo or build anything. It only uploads what the
-// build job built.
+// job doesn't build anything. It uploads the site and worker the build job
+// built, with the wrangler config and lockfile from the commit.
 const deployJob = job("deploy", {
   runsOn: "ubuntu-latest",
   needs: [buildJob],
   if: isDeploy,
-  permissions: {},
+  permissions: { contents: "read" },
   // has the cloudflare secrets
   environment: { name: "website", url: "https://dprint.dev" },
   steps: step(
-    { uses: "denoland/setup-deno@v2", with: { "deno-version": "v2.x" } },
-    deployment.download({ dirPath: "deployment" }),
+    {
+      name: "Checkout wrangler config",
+      uses: "actions/checkout@v7",
+      with: {
+        "persist-credentials": false,
+        "sparse-checkout": "website/wrangler.toml\nwebsite/wrangler/",
+        "sparse-checkout-cone-mode": false,
+      },
+    },
+    { uses: "denoland/setup-deno@v2", with: { "deno-version": "v2.9.6" } },
+    deployment.download({ dirPath: "website" }),
     // installs only wrangler's dependencies, from the frozen lockfile
-    { name: "Install wrangler", run: "(cd deployment/wrangler && deno install)" },
+    { name: "Install wrangler", run: "(cd website/wrangler && deno install)" },
     {
       name: "Deploy",
       // uploads the worker bundled by the build job as is. wrangler is run
       // directly instead of with its bin script, which starts another process
-      // that isn't limited by these permissions, and it only needs to run
-      // esbuild, which it starts when it's loaded
+      // that isn't limited by these permissions. it only needs to run esbuild,
+      // which it starts when it's loaded, so it runs a copy of esbuild outside
+      // the directories it can write to
       run: [
-        "cd deployment",
+        "cd website",
         "esbuild=(\"$PWD\"/wrangler/node_modules/.deno/@esbuild+linux-x64@*/node_modules/@esbuild/linux-x64/bin/esbuild)",
         "if [ ${#esbuild[@]} -ne 1 ] || [ ! -f \"$esbuild\" ]; then echo \"Expected one esbuild binary: ${esbuild[*]}\"; exit 1; fi",
-        "export ESBUILD_BINARY_PATH=\"$esbuild\" XDG_CONFIG_HOME=\"$PWD/.config\" WRANGLER_SEND_METRICS=false",
+        "install -m 555 \"$esbuild\" \"$RUNNER_TEMP/esbuild\"",
+        "export ESBUILD_BINARY_PATH=\"$RUNNER_TEMP/esbuild\" XDG_CONFIG_HOME=\"$PWD/.config\" WRANGLER_SEND_METRICS=false",
         [
           "deno run --config wrangler/deno.json",
-          "--allow-read=.,\"$HOME/.wrangler\" --allow-write=. --allow-env --allow-sys",
-          "--allow-net=api.cloudflare.com --allow-run=\"$esbuild\"",
+          "--allow-read=.,\"$HOME/.wrangler\",\"$RUNNER_TEMP/esbuild\" --allow-write=.config,.wrangler",
+          "--allow-env --allow-sys --allow-net=api.cloudflare.com --allow-run=\"$RUNNER_TEMP/esbuild\"",
           "wrangler/node_modules/wrangler/wrangler-dist/cli.js deploy dist/main.js --no-bundle",
         ].join(" "),
       ],
