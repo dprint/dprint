@@ -1311,6 +1311,11 @@ a {
 }
 .plugin-aside .plugin-install code {
   font-size: 13.5px;
+  /* wraps a long command instead of scrolling it, breaking within a word only
+     when the word is too long for a line */
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
 }
 .plugin-version-link {
   display: block;
