@@ -30,6 +30,8 @@ const deployJob = job("deploy", {
   needs: [buildJob],
   if: isDeploy,
   permissions: { contents: "read" },
+  // has the cloudflare secrets
+  environment: { name: "website", url: "https://dprint.dev" },
   steps: step(
     // wrangler deploys the worker in website/worker along with the built site
     { name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
