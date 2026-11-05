@@ -1,0 +1,13 @@
+---
+layout: layouts/base.njk
+---
+
+{# the pages about plugins in general, which are wide and have no sidebar like the plugin pages #}
+<div class="plugins-page doc-content">
+  {% if url == "/plugins/" %}
+    <div class="eyebrow">// plugins</div>
+  {% else %}
+    <a class="eyebrow eyebrow-link" href="/plugins/">// plugins</a>
+  {% endif %}
+  {{ content | safe }}
+</div>

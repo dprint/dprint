@@ -7,7 +7,7 @@ layout: layouts/base.njk
 {# the summary and details are filled in by the worker (worker/plugin_page.ts) from plugins.dprint.dev's info.json #}
 <div class="plugin-page">
   <header class="plugin-header">
-    <div class="eyebrow">// plugins</div>
+    <a class="eyebrow eyebrow-link" href="/plugins/">// plugins</a>
     <h1>{{ pluginPage.name }}</h1>
     <div class="plugin-summary" data-plugin-summary="{{ pluginPage.info }}"></div>
     <nav class="plugin-tabs" aria-label="{{ pluginPage.name }}">
