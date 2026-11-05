@@ -86,6 +86,21 @@ export interface RenderConfigOptions {
 
 // properties every plugin schema may have that aren't plugin configuration
 const IGNORED_PROPERTY_NAMES = new Set(["$schema", "deno", "locked"]);
+// the most values shown for a property, since a small schema can describe many
+// (ex. options that refer to definitions with options)
+const MAX_OPTIONS = 200;
+// the most text a page's configuration has, which is about ten times
+// dprint-plugin-typescript's with its code examples. a small schema can describe
+// a lot of text (ex. the same code example for many values)
+const MAX_RENDERED_LENGTH = 1_500_000;
+// longer code isn't highlighted, which takes too long
+const MAX_HIGHLIGHTED_LENGTH = 20_000;
+
+/** Thrown when a schema's configuration is too large to render. */
+export class ConfigTooLargeError extends Error {}
+
+// the text left before the page is too large, which is only set while rendering
+let remainingRenderedLength: number | undefined;
 
 /**
  * Gets the configuration properties from a plugin's schema.json grouped into
@@ -142,6 +157,11 @@ export function getConfigProperties(rootSchema: unknown, configKey?: string): Co
   // guessed from the property names
   const usesOverrides = Object.values(schema.properties).some((property) => property["x-overrides"] != null);
   const listedPropertyNames = new Set(schema["x-sections"]?.flatMap((section) => section.properties) ?? []);
+  const resolvedDefinitions = new Map<string, SchemaDefinition>();
+  const resolvingDefinitionNames = new Set<string>();
+  // the names come from the schema, so they're looked up without the prototype
+  // (ex. `constructor`)
+  const isProperty = (name: string) => Object.hasOwn(schema.properties, name);
 
   for (const [propertyName, property] of Object.entries(schema.properties)) {
     if (IGNORED_PROPERTY_NAMES.has(propertyName)) {
@@ -153,7 +173,7 @@ export function getConfigProperties(rootSchema: unknown, configKey?: string): Co
     const parentPropertyName = usesOverrides
       ? property["x-overrides"]
       : getGuessedParentPropertyName(propertyName, property);
-    if (parentPropertyName == null || schema.properties[parentPropertyName] == null) {
+    if (parentPropertyName == null || !isProperty(parentPropertyName)) {
       declareProperty(propertyName, definition);
       continue;
     }
@@ -181,27 +201,53 @@ export function getConfigProperties(rootSchema: unknown, configKey?: string): Co
   // resolves the references in a definition's options and object properties, and
   // replaces an option that refers to a definition with options with those options
   // (ex. a kind of sorting or an object with the kind and its options)
-  function resolveOptions(definition: SchemaDefinition, depth = 0): SchemaDefinition {
-    // stops at a depth no configuration needs, in case a schema refers to itself
-    if (depth > 5) {
-      return definition;
-    }
-    const resolve = (definition: SchemaDefinition) => resolveOptions(resolveRef(definition), depth + 1);
+  function resolveOptions(definition: SchemaDefinition): SchemaDefinition {
     const resolved = { ...definition };
     // schema generators often use anyOf for an optional value (ex. a mode or null)
     const options = definition.oneOf ?? definition.anyOf;
     if (options != null) {
-      resolved.oneOf = options.flatMap((option) => getOptionValues(resolve(option)));
+      resolved.oneOf = [];
+      addOptions: for (const option of options) {
+        for (const value of getOptionValues(resolveDefinition(option))) {
+          // a schema can describe more options than a configuration has
+          if (resolved.oneOf.length >= MAX_OPTIONS) {
+            break addOptions;
+          }
+          resolved.oneOf.push(value);
+        }
+      }
     }
     if (definition.properties != null) {
       resolved.properties = Object.fromEntries(
-        Object.entries(definition.properties).map(([name, property]) => [name, resolve(property)]),
+        Object.entries(definition.properties).map(([name, property]) => [name, resolveDefinition(property)]),
       );
     }
     if (definition.items != null) {
-      resolved.items = resolve(definition.items);
+      resolved.items = resolveDefinition(definition.items);
     }
     return resolved;
+  }
+
+  // resolves each referenced definition once, because a schema can refer to one
+  // many times, and doesn't expand a definition within itself
+  function resolveDefinition(definition: SchemaDefinition): SchemaDefinition {
+    if (definition.$ref == null) {
+      return resolveOptions(definition);
+    }
+    const { $ref, ...rest } = definition;
+    const name = getDefinitionName($ref);
+    let referenced = resolvedDefinitions.get(name);
+    if (referenced == null) {
+      const unresolved = Object.hasOwn(definitions, name) ? definitions[name]! : {};
+      if (resolvingDefinitionNames.has(name)) {
+        return { ...unresolved, ...rest };
+      }
+      resolvingDefinitionNames.add(name);
+      referenced = resolveOptions(unresolved);
+      resolvingDefinitionNames.delete(name);
+      resolvedDefinitions.set(name, referenced);
+    }
+    return { ...referenced, ...rest };
   }
 
   // an option is shown as its values when it has a list of them
@@ -226,7 +272,12 @@ export function getConfigProperties(rootSchema: unknown, configKey?: string): Co
       return definition;
     }
     const { $ref, ...rest } = definition;
-    return { ...definitions[$ref.replace(/^#\/(definitions|\$defs)\//, "")], ...rest };
+    const name = getDefinitionName($ref);
+    return { ...(Object.hasOwn(definitions, name) ? definitions[name] : undefined), ...rest };
+  }
+
+  function getDefinitionName($ref: string) {
+    return $ref.replace(/^#\/(definitions|\$defs)\//, "");
   }
 
   function getOrder(property: ConfigProperty) {
@@ -242,9 +293,9 @@ export function getConfigProperties(rootSchema: unknown, configKey?: string): Co
     }
     const derivedPropName = property.$ref.replace(/^#\/(definitions|\$defs)\//, "");
     const lastSegment = propertyName.split(".").pop()!;
-    if (derivedPropName !== propertyName && derivedPropName in schema.properties) {
+    if (derivedPropName !== propertyName && isProperty(derivedPropName)) {
       return derivedPropName;
-    } else if (lastSegment !== propertyName && lastSegment in schema.properties) {
+    } else if (lastSegment !== propertyName && isProperty(lastSegment)) {
       return lastSegment;
     } else {
       return undefined;
@@ -263,6 +314,15 @@ export function getConfigProperties(rootSchema: unknown, configKey?: string): Co
 
 /** Renders the HTML that goes inside a page's `.plugin-config-table` element. */
 export function renderConfigHtml(options: RenderConfigOptions) {
+  remainingRenderedLength = MAX_RENDERED_LENGTH;
+  try {
+    return renderConfigHtmlWithinLimit(options);
+  } finally {
+    remainingRenderedLength = undefined;
+  }
+}
+
+function renderConfigHtmlWithinLimit(options: RenderConfigOptions) {
   const { schemaUrl, sections } = options;
   let html = `<p>This information was auto generated from <a href="${escapeHtml(schemaUrl)}">${escapeHtml(schemaUrl)}</a>.</p>`;
   const hasTitles = sections.some((section) => section.title != null);
@@ -292,12 +352,26 @@ export function renderConfigErrorHtml(message: string, link: { href: string; tex
 
 // takes any value because third party schemas may not use strings where they should
 export function escapeHtml(text: unknown) {
-  return String(text)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
+  return countRenderedText(
+    String(text)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll("\"", "&quot;")
+      .replaceAll("'", "&#39;"),
+  );
+}
+
+// all the text from a schema is escaped or highlighted, so counting it there
+// limits the size of the page
+function countRenderedText(text: string) {
+  if (remainingRenderedLength != null) {
+    remainingRenderedLength -= text.length;
+    if (remainingRenderedLength < 0) {
+      throw new ConfigTooLargeError(`The configuration is over ${MAX_RENDERED_LENGTH} characters.`);
+    }
+  }
+  return text;
 }
 
 // some schemas nest the plugin config under its config key
@@ -456,17 +530,22 @@ function renderExampleInput(definition: SchemaDefinition) {
 
 function renderExampleOutput(definition: SchemaDefinition, value: unknown) {
   const example = definition["x-example"];
-  const output = example?.outputs?.[typeof value === "string" ? value : JSON.stringify(value)];
-  return output == null ? "" : renderCode(output.trimEnd(), example?.extension);
+  const key = typeof value === "string" ? value : JSON.stringify(value);
+  // the key comes from the schema, so it's looked up without the prototype (ex. `constructor`)
+  const output = example?.outputs != null && Object.hasOwn(example.outputs, key) ? example.outputs[key] : undefined;
+  return typeof output === "string" ? renderCode(output.trimEnd(), example?.extension) : "";
 }
 
 // highlights the code when the extension is of a known language
 function renderCode(code: string, extension: string | undefined) {
-  const highlighted = highlightCode(code, extension);
+  // counted before highlighting, so a page that's too large doesn't highlight
+  // the code that makes it too large
+  countRenderedText(code);
+  const highlighted = code.length > MAX_HIGHLIGHTED_LENGTH ? undefined : highlightCode(code, extension);
   if (highlighted == null) {
     return `<pre><code>${escapeHtml(code)}</code></pre>`;
   }
-  return `<pre><code class="hljs language-${highlighted.language}">${highlighted.html}</code></pre>`;
+  return `<pre><code class="hljs language-${highlighted.language}">${countRenderedText(highlighted.html)}</code></pre>`;
 }
 
 function renderObjectProperties(properties: Record<string, SchemaDefinition>) {

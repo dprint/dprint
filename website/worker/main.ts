@@ -11,7 +11,7 @@ import {
   isValidPlugin,
   parseConfigRoute,
 } from "./config_routes.ts";
-import { getConfigSections, renderConfigErrorHtml, renderConfigHtml } from "./config_schema.ts";
+import { ConfigTooLargeError, getConfigSections, renderConfigErrorHtml, renderConfigHtml } from "./config_schema.ts";
 import { readJsonWithSizeLimit, ResponseTooLargeError } from "./read_json.ts";
 
 interface Env {
@@ -26,12 +26,15 @@ interface Env {
 const RENDER_VERSION = 1;
 const LATEST_TAG_CACHE_MS = 5 * 60 * 1_000;
 const MAX_MEMORY_CACHE_ENTRIES = 100;
+// the most html kept in memory, which is several of the largest pages
+const MAX_MEMORY_CACHE_HTML_LENGTH = 10_000_000;
 
 // a release's schema doesn't change, so neither does the html rendered from it.
 // this is only shorter than forever so forgetting to bump RENDER_VERSION
 // doesn't last long
 const RENDERED_CACHE_SECONDS = 7 * 24 * 60 * 60;
-// for versions without a schema, so requests for them don't each fetch it
+// for versions without a schema or with one that's too large, so requests for
+// them don't each fetch and render it
 const MISSING_CACHE_SECONDS = 5 * 60;
 // stores the status of a cached response in the cache api
 const STATUS_HEADER = "x-config-status";
@@ -215,6 +218,8 @@ function getConfigTable(element: RewriterElement): ConfigTable | undefined {
 interface ConfigHtmlResult {
   html: string;
   status: number;
+  /** Set when the html can be cached, which is when it's not a temporary failure. */
+  isCacheable: boolean;
 }
 
 async function getConfigHtml(
@@ -237,14 +242,14 @@ async function getConfigHtml(
     const result = {
       html: await cachedResponse.text(),
       status: Number(cachedResponse.headers.get(STATUS_HEADER) ?? 200),
+      isCacheable: true,
     };
     setConfigHtmlMemoryCacheEntry(cacheKey, result);
     return result;
   }
 
   const result = await fetchAndRenderConfigHtml(table, tag, pagePath, env);
-  // don't cache failures, which are probably temporary
-  if (result.status === 200 || result.status === 404) {
+  if (result.isCacheable) {
     setConfigHtmlMemoryCacheEntry(cacheKey, result);
     ctx.waitUntil(
       getDefaultCache().put(
@@ -278,6 +283,7 @@ async function fetchAndRenderConfigHtml(
           text: "View the configuration of the latest version.",
         }),
         status: 404,
+        isCacheable: true,
       };
     }
     if (!response.ok) {
@@ -288,25 +294,28 @@ async function fetchAndRenderConfigHtml(
       schemaUrl,
       sections: getConfigSections(await readJsonWithSizeLimit(response, MAX_SCHEMA_BYTES), table.configKey),
     });
-    return { html, status: 200 };
+    return { html, status: 200, isCacheable: true };
   } catch (err) {
     console.error(err);
-    if (err instanceof ResponseTooLargeError) {
-      // not cached, but the read stops at the limit
+    if (err instanceof ResponseTooLargeError || err instanceof ConfigTooLargeError) {
+      // cached like a missing schema, because a release's schema doesn't change
       return {
         html: renderConfigErrorHtml("This plugin's configuration schema is too large to display.", {
           href: schemaUrl,
           text: "View the configuration schema.",
         }),
         status: 502,
+        isCacheable: true,
       };
     }
+    // not cached, because it's probably temporary
     return {
       html: renderConfigErrorHtml("Failed to load the configuration.", {
         href: schemaUrl,
         text: "View the configuration schema.",
       }),
       status: 502,
+      isCacheable: false,
     };
   }
 }
@@ -316,6 +325,18 @@ function setConfigHtmlMemoryCacheEntry(cacheKey: string, result: ConfigHtmlResul
     ...result,
     expiresAt: Date.now() + getConfigHtmlCacheSeconds(result) * 1_000,
   });
+  // also limits the cache by the size of its html, removing the oldest entries
+  let htmlLength = 0;
+  for (const entry of configHtmlMemoryCache.values()) {
+    htmlLength += entry.html.length;
+  }
+  for (const [key, entry] of configHtmlMemoryCache) {
+    if (htmlLength <= MAX_MEMORY_CACHE_HTML_LENGTH || key === cacheKey) {
+      break;
+    }
+    configHtmlMemoryCache.delete(key);
+    htmlLength -= entry.html.length;
+  }
 }
 
 function getConfigHtmlCacheSeconds(result: ConfigHtmlResult) {

@@ -76,8 +76,11 @@ export interface HighlightedCode {
  * Highlights code in the language of a file extension, or returns undefined
  * when the extension isn't one of a known language.
  */
-export function highlightCode(code: string, extension: string | undefined): HighlightedCode | undefined {
-  const language = extension == null ? undefined : languageByExtension[extension.toLowerCase()];
+export function highlightCode(code: string, extension: unknown): HighlightedCode | undefined {
+  // the extension comes from a schema, so it's looked up without the prototype
+  // (ex. `constructor`) and may not be a string
+  const key = typeof extension === "string" ? extension.toLowerCase() : undefined;
+  const language = key != null && Object.hasOwn(languageByExtension, key) ? languageByExtension[key] : undefined;
   if (language == null) {
     return undefined;
   }

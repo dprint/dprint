@@ -1,5 +1,5 @@
-import { deepStrictEqual, strictEqual } from "node:assert/strict";
-import { getConfigProperties, getConfigSections, renderConfigHtml } from "./config_schema.ts";
+import { deepStrictEqual, strictEqual, throws } from "node:assert/strict";
+import { ConfigTooLargeError, getConfigProperties, getConfigSections, renderConfigHtml } from "./config_schema.ts";
 
 const memberSpacing = {
   description: "The spacing between members.",
@@ -370,4 +370,47 @@ Deno.test("renders properties", () => {
       + "<ul class=\"cfg-values\"><li><code class=\"cfg-value cfg-value-boolean\">true</code></li>"
       + "<li><code class=\"cfg-value cfg-value-boolean\">false</code> <span class=\"cfg-default\">Default</span></li></ul></div>",
   );
+});
+
+Deno.test("expands a definition that refers to itself once", () => {
+  const sections = getConfigSections({
+    definitions: { mode: { oneOf: Array.from({ length: 50 }, () => ({ $ref: "#/definitions/mode" })) } },
+    properties: { mode: { $ref: "#/definitions/mode" } },
+  });
+  const html = renderConfigHtml({ schemaUrl: "https://plugins.dprint.dev/someone/plugin/0.1.0/schema.json", sections });
+
+  strictEqual(sections[0]!.properties[0]!.oneOf!.length <= 200, true);
+  strictEqual(html.length < 50_000, true);
+});
+
+Deno.test("stops rendering a configuration that's too large", () => {
+  const output = "const a = 1;\n".repeat(2_000);
+  const sections = getConfigSections({
+    properties: {
+      mode: { enum: Array(200).fill("a"), "x-example": { extension: "ts", input: ["a"], outputs: { a: output } } },
+    },
+  });
+
+  throws(
+    () => renderConfigHtml({ schemaUrl: "https://plugins.dprint.dev/someone/plugin/0.1.0/schema.json", sections }),
+    ConfigTooLargeError,
+  );
+});
+
+Deno.test("renders names that are on the object prototype", () => {
+  const html = renderConfigHtml({
+    schemaUrl: "https://plugins.dprint.dev/someone/plugin/0.1.0/schema.json",
+    sections: getConfigSections({
+      properties: {
+        "node.constructor": { $ref: "#/definitions/constructor" },
+        mode: {
+          enum: ["toString", "__proto__"],
+          "x-example": { extension: "constructor", input: ["a"], outputs: { toString: "b" } },
+        },
+      },
+    }),
+  });
+
+  strictEqual(html.includes("<pre><code>b</code></pre>"), true);
+  strictEqual(html.includes("node.constructor"), true);
 });
