@@ -29,8 +29,4 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/markup_fmt/config) or read [full documentation site](https://markup-fmt.netlify.app/) with code examples.
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/markup_fmt)
+Read the [full documentation site](https://markup-fmt.netlify.app/) with code examples.

@@ -50,10 +50,6 @@ SELECT   a,   b
 FROM     t;
 ```
 
-## Configuration
-
-See [Configuration](/plugins/sql/config)
-
 ## Source
 
 See https://github.com/dprint/dprint-plugin-sql

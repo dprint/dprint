@@ -29,8 +29,4 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/pretty_yaml/config) or read [full documentation site](https://pretty-yaml.netlify.app/) with code examples.
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/pretty_yaml)
+Read the [full documentation site](https://pretty-yaml.netlify.app/) with code examples.

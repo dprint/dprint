@@ -6,40 +6,37 @@ import { getPluginUrlKey, type PluginDetails } from "./plugin_versions.ts";
 
 const numberFormat = new Intl.NumberFormat("en-US");
 
-/**
- * Renders the summary below a plugin's name, which is its description, version,
- * and downloads. A page for a version other than the latest shows that version.
- */
-export function renderPluginSummaryHtml(plugin: PluginDetails, version = plugin.version) {
-  let html = "";
-  if (plugin.description != null) {
-    html += `<p class="plugin-description">${escapeHtml(plugin.description)}</p>`;
-  }
-  const stats: string[] = [];
-  if (version != null) {
-    stats.push(`<li><span class="plugin-stat-value">${escapeHtml(version)}</span> version</li>`);
-  }
-  if (plugin.monthlyDownloads != null) {
-    stats.push(
-      `<li><span class="plugin-stat-value">${numberFormat.format(plugin.monthlyDownloads)}</span> downloads in the last 30 days</li>`,
-    );
-  }
-  if (stats.length > 0) {
-    html += `<ul class="plugin-stats">${stats.join("")}</ul>`;
-  }
-  return html;
+/** The version of a plugin a page is for, which may not be the latest. */
+export interface PageVersion {
+  version: string;
+  /** A link to the page of another version (ex. the latest). */
+  link?: { href: string; text: string };
 }
 
-/** Renders the details beside a plugin's page, like the command to install it and its links. */
-export function renderPluginDetailsHtml(plugin: PluginDetails) {
+/** Renders the summary below a plugin's name, which is its description. */
+export function renderPluginSummaryHtml(plugin: PluginDetails) {
+  return plugin.description == null ? "" : `<p class="plugin-description">${escapeHtml(plugin.description)}</p>`;
+}
+
+/**
+ * Renders the details beside a plugin's page, like the command to install it
+ * and its links. The version is the latest unless the page is for another one.
+ */
+export function renderPluginDetailsHtml(plugin: PluginDetails, pageVersion?: PageVersion) {
   let html = "";
   const specifier = plugin.url == null ? undefined : getAddSpecifier(plugin.url);
   if (specifier != null) {
-    html += `<h2>Install</h2><pre class="plugin-install"><code>dprint add ${escapeHtml(specifier)}</code></pre>`;
+    const command = escapeHtml(`dprint add ${specifier}`);
+    html += `<h2>Install</h2><div class="cmd-line plugin-install"><code>${command}</code>`
+      + `<button type="button" class="copy-btn" data-copy="${command}">copy</button></div>`;
   }
   const details: [string, string][] = [];
-  if (plugin.version != null) {
-    details.push(["Version", escapeHtml(plugin.version)]);
+  const version = pageVersion?.version ?? plugin.version;
+  if (version != null) {
+    const link = pageVersion?.link == null
+      ? ""
+      : `<a class="plugin-version-link" href="${escapeHtml(pageVersion.link.href)}">${escapeHtml(pageVersion.link.text)}</a>`;
+    details.push(["Version", escapeHtml(version) + link]);
   }
   if (plugin.monthlyDownloads != null) {
     details.push(["Downloads (30 days)", numberFormat.format(plugin.monthlyDownloads)]);
@@ -53,7 +50,9 @@ export function renderPluginDetailsHtml(plugin: PluginDetails) {
   }
   const repoUrl = plugin.repoUrl == null ? undefined : getHttpsUrl(plugin.repoUrl);
   if (repoUrl != null) {
-    details.push(["Repository", renderLink(repoUrl.href, repoUrl.host + repoUrl.pathname.replace(/\/$/, ""))]);
+    // a github repository is shown as its `<owner>/<name>`
+    const path = repoUrl.pathname.replace(/^\/|\/$/g, "");
+    details.push(["Repository", renderLink(repoUrl.href, repoUrl.host === "github.com" ? path : `${repoUrl.host}/${path}`)]);
   }
   if (plugin.npmName != null) {
     details.push(["npm", renderLink(`https://www.npmjs.com/package/${plugin.npmName}`, plugin.npmName)]);

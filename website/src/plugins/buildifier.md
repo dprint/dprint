@@ -31,7 +31,7 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-buildifier has no style options, so the only option is `newLineKind`. See [Configuration](/plugins/buildifier/config).
+buildifier has no style options, so the only option is `newLineKind`.
 
 ## Source
 

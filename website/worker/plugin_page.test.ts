@@ -26,29 +26,48 @@ Deno.test("gets the specifier of a plugin for dprint add", () => {
 });
 
 Deno.test("renders a plugin's summary", () => {
-  strictEqual(
-    renderPluginSummaryHtml(typescript),
-    "<p class=\"plugin-description\">TypeScript/JavaScript code formatter.</p>"
-      + "<ul class=\"plugin-stats\"><li><span class=\"plugin-stat-value\">0.97.1</span> version</li>"
-      + "<li><span class=\"plugin-stat-value\">979,657</span> downloads in the last 30 days</li></ul>",
-  );
-  // a page for another version
-  strictEqual(renderPluginSummaryHtml(typescript, "0.96.0").includes(">0.96.0</span> version"), true);
+  strictEqual(renderPluginSummaryHtml(typescript), "<p class=\"plugin-description\">TypeScript/JavaScript code formatter.</p>");
 });
 
 Deno.test("renders a plugin's details", () => {
   const html = renderPluginDetailsHtml(typescript);
 
-  strictEqual(html.startsWith("<h2>Install</h2><pre class=\"plugin-install\"><code>dprint add typescript</code></pre>"), true);
+  strictEqual(
+    html.startsWith(
+      "<h2>Install</h2><div class=\"cmd-line plugin-install\"><code>dprint add typescript</code>"
+        + "<button type=\"button\" class=\"copy-btn\" data-copy=\"dprint add typescript\">copy</button></div>",
+    ),
+    true,
+  );
+  strictEqual(html.includes("<dt>Version</dt><dd>0.97.1</dd>"), true);
   strictEqual(html.includes("<dt>Downloads (30 days)</dt><dd>979,657</dd>"), true);
   strictEqual(html.includes("<dt>Files</dt><dd><ul class=\"plugin-chips\"><li><code>.ts</code></li><li><code>.tsx</code></li></ul></dd>"), true);
+  // a github repository is shown without the host
   strictEqual(
     html.includes(
-      "<dt>Repository</dt><dd><a href=\"https://github.com/dprint/dprint-plugin-typescript\" rel=\"noopener noreferrer\">github.com/dprint/dprint-plugin-typescript</a></dd>",
+      "<dt>Repository</dt><dd><a href=\"https://github.com/dprint/dprint-plugin-typescript\" rel=\"noopener noreferrer\">dprint/dprint-plugin-typescript</a></dd>",
     ),
     true,
   );
   strictEqual(html.includes("<a href=\"https://www.npmjs.com/package/@dprint/typescript\""), true);
+  strictEqual(
+    renderPluginDetailsHtml({ ...typescript, repoUrl: "https://gitlab.com/someone/plugin/" }).includes(">gitlab.com/someone/plugin</a>"),
+    true,
+  );
+});
+
+Deno.test("renders the version a page is for", () => {
+  const html = renderPluginDetailsHtml(typescript, {
+    version: "0.96.0",
+    link: { href: "/plugins/typescript/config/", text: "View the latest version" },
+  });
+
+  strictEqual(
+    html.includes(
+      "<dt>Version</dt><dd>0.96.0<a class=\"plugin-version-link\" href=\"/plugins/typescript/config/\">View the latest version</a></dd>",
+    ),
+    true,
+  );
 });
 
 Deno.test("leaves out what a plugin's info doesn't have or isn't safe to link to", () => {

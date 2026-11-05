@@ -13,8 +13,8 @@ import {
   isValidPlugin,
   parseConfigRoute,
 } from "./config_routes.ts";
-import { ConfigTooLargeError, escapeHtml, getConfigSections, renderConfigErrorHtml, renderConfigHtml, renderConfigVersionHtml } from "./config_schema.ts";
-import { renderPluginDetailsHtml, renderPluginSummaryHtml } from "./plugin_page.ts";
+import { ConfigTooLargeError, escapeHtml, getConfigSections, renderConfigErrorHtml, renderConfigHtml } from "./config_schema.ts";
+import { type PageVersion, renderPluginDetailsHtml, renderPluginSummaryHtml } from "./plugin_page.ts";
 import {
   getPlaceholderReplacement,
   type LatestPluginRelease,
@@ -106,20 +106,18 @@ async function handleConfigPage(request: Request, url: URL, route: ConfigRoute, 
 
   const results = new Map<ConfigTable, ConfigHtmlResult>();
   for (const table of page.tables) {
-    results.set(table, await getVersionConfigHtml(table, route, env, ctx));
+    results.set(table, await getTableConfigHtml(table, route, env, ctx));
   }
   const status = Math.max(...[...results.values()].map((r) => r.status));
   return rewriteConfigPage(page, (table) => results.get(table)!.html, {
     status,
     noIndex: route.kind === "version",
     info: await getPluginInfo(env),
-    version: route.kind === "version" ? route.tag : undefined,
+    pageVersion: await getPageVersion(page.tables[0]!, route, env),
   });
 }
 
-// gets the configuration with the version it's for, which isn't cached with
-// it because the same version is shown with and without a version in the url
-async function getVersionConfigHtml(table: ConfigTable, route: ConfigRoute, env: Env, ctx: ExecutionContext) {
+async function getTableConfigHtml(table: ConfigTable, route: ConfigRoute, env: Env, ctx: ExecutionContext) {
   const tag = route.kind === "version" ? route.tag : await getLatestTag(table.plugin, env);
   if (tag == null) {
     return {
@@ -131,11 +129,19 @@ async function getVersionConfigHtml(table: ConfigTable, route: ConfigRoute, env:
       isCacheable: false,
     };
   }
-  const result = await getConfigHtml(table, tag, route.pagePath, env, ctx);
-  const versionHtml = route.kind === "latest"
-    ? renderConfigVersionHtml(tag, { href: getVersionPath(route.pagePath, tag), text: "Link to this version" })
-    : renderConfigVersionHtml(tag, { href: route.pagePath, text: "View the latest version" });
-  return { ...result, html: versionHtml + result.html };
+  return await getConfigHtml(table, tag, route.pagePath, env, ctx);
+}
+
+// gets the version a configuration page is for, which the sidebar shows with
+// a link to the page of the latest version or to the page of this version
+async function getPageVersion(table: ConfigTable, route: ConfigRoute, env: Env): Promise<PageVersion | undefined> {
+  if (route.kind === "version") {
+    return { version: route.tag, link: { href: route.pagePath, text: "View the latest version" } };
+  }
+  const tag = await getLatestTag(table.plugin, env);
+  return tag == null
+    ? undefined
+    : { version: tag, link: { href: getVersionPath(route.pagePath, tag), text: "Link to this version" } };
 }
 
 function redirect(status: number, location: string) {
@@ -203,13 +209,13 @@ function rewritePage(response: Response, info: PluginInfo | undefined, env: Env)
  * are left empty when it doesn't have any. A page for a version other than the
  * latest shows that version.
  */
-function addPluginInfoHandlers(rewriter: HTMLRewriter, info: PluginInfo | undefined, version?: string) {
+function addPluginInfoHandlers(rewriter: HTMLRewriter, info: PluginInfo | undefined, pageVersion?: PageVersion) {
   return rewriter
     .on("[data-plugin-summary]", {
       element(element) {
         const plugin = getPluginDetails(element, "data-plugin-summary", info);
         if (plugin != null) {
-          element.setInnerContent(renderPluginSummaryHtml(plugin, version ?? plugin.version), { html: true });
+          element.setInnerContent(renderPluginSummaryHtml(plugin), { html: true });
         }
       },
     })
@@ -217,7 +223,7 @@ function addPluginInfoHandlers(rewriter: HTMLRewriter, info: PluginInfo | undefi
       element(element) {
         const plugin = getPluginDetails(element, "data-plugin-details", info);
         if (plugin != null) {
-          element.setInnerContent(renderPluginDetailsHtml(plugin), { html: true });
+          element.setInnerContent(renderPluginDetailsHtml(plugin, pageVersion), { html: true });
         }
       },
     });
@@ -283,7 +289,7 @@ async function readConfigTables(html: string) {
 function rewriteConfigPage(
   page: ConfigPage,
   getHtml: (table: ConfigTable) => string,
-  options: { status: number; noIndex?: boolean; info: PluginInfo | undefined; version: string | undefined },
+  options: { status: number; noIndex?: boolean; info: PluginInfo | undefined; pageVersion: PageVersion | undefined },
 ) {
   const headers = new Headers(page.headers);
   // the content no longer matches the static page these describe
@@ -293,7 +299,7 @@ function rewriteConfigPage(
     headers.set("x-robots-tag", "noindex");
   }
   let tableIndex = 0;
-  return addPluginInfoHandlers(new HTMLRewriter(), options.info, options.version)
+  return addPluginInfoHandlers(new HTMLRewriter(), options.info, options.pageVersion)
     .on(".plugin-config-table", {
       element(element) {
         if (getConfigTable(element) != null) {

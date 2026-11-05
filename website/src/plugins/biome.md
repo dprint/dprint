@@ -27,14 +27,6 @@ This will update your config file to have an entry for the plugin. Then optional
 }
 ```
 
-## Configuration
-
-See [Configuration](/plugins/biome/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/biome)
-
 ## Source
 
 See https://github.com/dprint/dprint-plugin-biome

@@ -1,4 +1,5 @@
 import { restoreAnchorScroll } from "./scripts/anchor-scroll.js";
+import { setupCopyButtons } from "./scripts/copy-buttons.js";
 import { setupDocMenu } from "./scripts/doc-menu-toggle.js";
 import { addInstallTabsEvent } from "./scripts/install-tabs.js";
 import { setupNavHeight } from "./scripts/nav-height.js";
@@ -16,4 +17,5 @@ function onLoad() {
   restoreAnchorScroll();
   addInstallTabsEvent();
   setupDocMenu();
+  setupCopyButtons();
 }
