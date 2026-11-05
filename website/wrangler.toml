@@ -3,9 +3,8 @@
 name = "dprint-website"
 main = "worker/main.ts"
 compatibility_date = "2026-10-01"
-# served on workers.dev until dprint.dev is moved to the worker, so it can be
-# tested there first. set this to false after
-workers_dev = true
+# only served at dprint.dev
+workers_dev = false
 preview_urls = false
 
 [assets]
