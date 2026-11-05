@@ -1120,6 +1120,8 @@ a {
 }
 .plugin-config-table .cfg-value {
   font-weight: 600;
+  /* a long value without spaces wraps instead of going off the page */
+  overflow-wrap: anywhere;
 }
 .plugin-config-table .cfg-value-string {
   color: var(--cfg-string);
