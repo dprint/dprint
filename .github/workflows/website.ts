@@ -2,12 +2,9 @@
 import { artifact, expr, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 const isDeploy = "github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)";
-// the built site, bundled worker and wrangler config, which is all the deploy uses
+// the built site, bundled worker, wrangler config, and the locked version of
+// wrangler (website/wrangler), which is all the deploy uses
 const deployment = artifact("website-deployment", { retentionDays: 1 });
-// the version the website's `deno task wrangler` uses
-const wranglerVersion = /npx -y wrangler@([0-9.]+)/.exec(
-  Deno.readTextFileSync(new URL("../../website/deno.json", import.meta.url)),
-)![1];
 
 const buildJob = job("build", {
   runsOn: "ubuntu-latest",
@@ -19,7 +16,7 @@ const buildJob = job("build", {
     // isn't installed (CI checks them).
     { uses: "dprint/check@v2", with: { cache: true, args: "--excludes '**/*.rs'" } },
     { uses: "denoland/setup-deno@v2", with: { cache: true, "deno-version": "canary" } },
-    { name: "Install dependencies", run: "(cd website && deno install)" },
+    { name: "Install dependencies", run: "(cd website && deno install && cd wrangler && deno install)" },
     { name: "Build playground", run: "(cd website/playground && deno task build)" },
     { name: "Test playground", run: "(cd website/playground && deno task test)" },
     { name: "Test worker", run: "(cd website && deno task test)" },
@@ -29,7 +26,11 @@ const buildJob = job("build", {
     {
       name: "Prepare deployment",
       if: isDeploy,
-      run: "mkdir deployment && cp -r website/_site website/dist website/wrangler.toml deployment/",
+      run: [
+        "mkdir -p deployment/wrangler",
+        "cp -r website/_site website/dist website/wrangler.toml deployment/",
+        "cp website/wrangler/deno.json website/wrangler/deno.lock deployment/wrangler/",
+      ],
     },
     deployment.upload({ path: "deployment" }).if(isDeploy),
   ),
@@ -47,11 +48,28 @@ const deployJob = job("deploy", {
   // has the cloudflare secrets
   environment: { name: "website", url: "https://dprint.dev" },
   steps: step(
+    { uses: "denoland/setup-deno@v2", with: { "deno-version": "v2.x" } },
     deployment.download({ dirPath: "deployment" }),
+    // installs only wrangler's dependencies, from the frozen lockfile
+    { name: "Install wrangler", run: "(cd deployment/wrangler && deno install)" },
     {
       name: "Deploy",
-      // uploads the worker bundled by the build job as is
-      run: `(cd deployment && npx -y wrangler@${wranglerVersion} deploy dist/main.js --no-bundle)`,
+      // uploads the worker bundled by the build job as is. wrangler is run
+      // directly instead of with its bin script, which starts another process
+      // that isn't limited by these permissions, and it only needs to run
+      // esbuild, which it starts when it's loaded
+      run: [
+        "cd deployment",
+        "esbuild=(\"$PWD\"/wrangler/node_modules/.deno/@esbuild+linux-x64@*/node_modules/@esbuild/linux-x64/bin/esbuild)",
+        "if [ ${#esbuild[@]} -ne 1 ] || [ ! -f \"$esbuild\" ]; then echo \"Expected one esbuild binary: ${esbuild[*]}\"; exit 1; fi",
+        "export ESBUILD_BINARY_PATH=\"$esbuild\" XDG_CONFIG_HOME=\"$PWD/.config\" WRANGLER_SEND_METRICS=false",
+        [
+          "deno run --config wrangler/deno.json",
+          "--allow-read=.,\"$HOME/.wrangler\" --allow-write=. --allow-env --allow-sys",
+          "--allow-net=api.cloudflare.com --allow-run=\"$esbuild\"",
+          "wrangler/node_modules/wrangler/wrangler-dist/cli.js deploy dist/main.js --no-bundle",
+        ].join(" "),
+      ],
       env: {
         CLOUDFLARE_API_TOKEN: expr("secrets.CLOUDFLARE_API_TOKEN"),
         CLOUDFLARE_ACCOUNT_ID: expr("secrets.CLOUDFLARE_ACCOUNT_ID"),

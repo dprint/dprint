@@ -51,7 +51,7 @@ jobs:
           cache: true
           deno-version: canary
       - name: Install dependencies
-        run: (cd website && deno install)
+        run: (cd website && deno install && cd wrangler && deno install)
       - name: Build playground
         run: (cd website/playground && deno task build)
       - name: Test playground
@@ -64,7 +64,10 @@ jobs:
         run: "(cd website && deno task worker:bundle)"
       - name: Prepare deployment
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
-        run: mkdir deployment && cp -r website/_site website/dist website/wrangler.toml deployment/
+        run: |-
+          mkdir -p deployment/wrangler
+          cp -r website/_site website/dist website/wrangler.toml deployment/
+          cp website/wrangler/deno.json website/wrangler/deno.lock deployment/wrangler/
       - name: Upload artifact website-deployment
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
@@ -82,13 +85,23 @@ jobs:
       name: website
       url: "https://dprint.dev"
     steps:
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: v2.x
       - name: Download artifact website-deployment
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: website-deployment
           path: deployment
+      - name: Install wrangler
+        run: (cd deployment/wrangler && deno install)
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}"
           CLOUDFLARE_ACCOUNT_ID: "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
-        run: (cd deployment && npx -y wrangler@4.151.1 deploy dist/main.js --no-bundle)
+        run: |-
+          cd deployment
+          esbuild=("$PWD"/wrangler/node_modules/.deno/@esbuild+linux-x64@*/node_modules/@esbuild/linux-x64/bin/esbuild)
+          if [ ${#esbuild[@]} -ne 1 ] || [ ! -f "$esbuild" ]; then echo "Expected one esbuild binary: ${esbuild[*]}"; exit 1; fi
+          export ESBUILD_BINARY_PATH="$esbuild" XDG_CONFIG_HOME="$PWD/.config" WRANGLER_SEND_METRICS=false
+          deno run --config wrangler/deno.json --allow-read=.,"$HOME/.wrangler" --allow-write=. --allow-env --allow-sys --allow-net=api.cloudflare.com --allow-run="$esbuild" wrangler/node_modules/wrangler/wrangler-dist/cli.js deploy dist/main.js --no-bundle
