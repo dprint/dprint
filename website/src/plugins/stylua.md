@@ -1,10 +1,8 @@
 ---
 title: StyLua Plugin
 description: Documentation on the StyLua (Lua and Luau) code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# StyLua Plugin
 
 Wrapper plugin that formats Lua and Luau code via [StyLua](https://github.com/JohnnyMorganz/StyLua). It runs StyLua's own code compiled to Wasm, so it formats exactly like the StyLua CLI.
 

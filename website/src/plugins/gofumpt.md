@@ -1,10 +1,8 @@
 ---
 title: Gofumpt Plugin
 description: Documentation on the gofumpt code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Gofumpt Plugin
 
 Wrapper plugin that formats Go code via [gofumpt](https://github.com/mvdan/gofumpt).
 

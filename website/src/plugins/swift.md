@@ -1,10 +1,8 @@
 ---
 title: Swift Plugin
 description: Documentation on the Swift code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Swift Plugin
 
 Wrapper plugin that formats Swift code via bundled [SwiftFormat](https://github.com/nicklockwood/SwiftFormat).
 

@@ -1,10 +1,8 @@
 ---
 title: Oxc Plugin
 description: Documentation on the Oxc code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Oxc Plugin
 
 Wrapper plugin that formats files via [Oxc](https://oxc.rs). It formats the languages that Oxc's formatter formats natively in Rust:
 

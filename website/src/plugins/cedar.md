@@ -1,10 +1,8 @@
 ---
 title: Cedar Plugin
 description: Documentation on the Cedar code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Cedar Plugin
 
 Wrapper plugin that formats [Cedar](https://www.cedarpolicy.com) policy files via [cedar-policy-formatter](https://github.com/cedar-policy/cedar).
 

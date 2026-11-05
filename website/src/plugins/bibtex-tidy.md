@@ -1,10 +1,8 @@
 ---
 title: bibtex-tidy Plugin
 description: Documentation on the bibtex-tidy code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# bibtex-tidy Plugin
 
 Wrapper plugin that formats BibTeX files via [bibtex-tidy](https://github.com/FlamingTempura/bibtex-tidy).
 

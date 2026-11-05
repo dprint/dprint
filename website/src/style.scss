@@ -1209,6 +1209,173 @@ a {
   border-left: 1px solid var(--cfg-border);
 }
 
+/* ===================== plugin pages ===================== */
+
+.plugin-page {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 48px 28px 90px;
+}
+.plugin-header {
+  border-bottom: 1px solid #2a2e35;
+  margin-bottom: 36px;
+}
+.plugin-header h1 {
+  margin: 0 0 12px;
+  font-size: clamp(32px, 5vw, 46px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #fff;
+  filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.12));
+}
+.plugin-description {
+  margin: 0 0 12px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #c2c8d0;
+}
+.plugin-stats {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  font-size: 13.5px;
+  color: #8b93a1;
+}
+.plugin-stat-value {
+  color: #e8e8ea;
+  font-weight: 600;
+}
+.plugin-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: -1px;
+}
+.plugin-tabs a {
+  padding: 10px 14px 12px;
+  font-size: 14px;
+  color: #8b93a1;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.plugin-tabs a:hover {
+  color: #fff;
+}
+.plugin-tabs a.active {
+  color: #e8e8ea;
+  border-bottom-color: var(--accent);
+}
+.plugin-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 52px;
+  align-items: start;
+}
+/* without the plugin's info, the content takes the whole width */
+.plugin-body:has(.plugin-aside:empty) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.plugin-aside:empty {
+  display: none;
+}
+.plugin-aside {
+  position: sticky;
+  top: calc(var(--nav-h) + 24px);
+  font-size: 14px;
+}
+.plugin-aside h2 {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8b93a1;
+}
+.plugin-install {
+  margin: 0 0 6px;
+  padding: 12px 14px;
+  background: #181a1e;
+  border: 1px solid #33373f;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+.plugin-install code {
+  font-size: 13.5px;
+  color: #dfe3ea;
+}
+.plugin-details {
+  margin: 0;
+}
+.plugin-details dt {
+  margin-top: 18px;
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6e7681;
+}
+.plugin-details dd {
+  margin: 5px 0 0;
+  color: #dfe3ea;
+  overflow-wrap: anywhere;
+}
+.plugin-details a {
+  color: var(--accent);
+  border-bottom: 1px solid rgba(139, 147, 161, 0.35);
+  transition: color 0.15s, border-color 0.15s;
+}
+.plugin-details a:hover {
+  color: #fff;
+  border-bottom-color: #fff;
+}
+.plugin-details code {
+  font-size: 12.5px;
+  background: #23262d;
+  color: #dfe3ea;
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+.plugin-chips {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.plugin-others {
+  margin-top: 80px;
+  padding-top: 36px;
+  border-top: 1px solid #2a2e35;
+}
+.plugin-others h2 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #f0f1f3;
+}
+.plugin-others h3 {
+  margin: 28px 0 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8b93a1;
+}
+@media (max-width: 900px) {
+  .plugin-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+  /* the install command and details come before the content */
+  .plugin-aside {
+    position: static;
+    order: -1;
+  }
+}
+
 /* ===================== full-page (blog/contact) ===================== */
 
 .page-narrow {

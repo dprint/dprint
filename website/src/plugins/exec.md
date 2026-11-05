@@ -1,10 +1,8 @@
 ---
 title: Exec Plugin
 description: Documentation on the Exec code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Exec Plugin
 
 Plugin that formats code via mostly any formatting CLI found on the host machine.
 

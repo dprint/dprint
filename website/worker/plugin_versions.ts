@@ -22,6 +22,24 @@ export interface PluginInfo {
   urls: Map<string, string>;
   /** The latest version of each npm package. */
   npmVersions: Map<string, string>;
+  /** The details of each plugin, by its name in the info.json. */
+  plugins: Map<string, PluginDetails>;
+}
+
+/** What info.json says about a plugin, which its page shows. */
+export interface PluginDetails {
+  name: string;
+  description: string | undefined;
+  version: string | undefined;
+  url: string | undefined;
+  repoUrl: string | undefined;
+  npmName: string | undefined;
+  configKey: string | undefined;
+  fileExtensions: string[];
+  fileNames: string[];
+  keywords: string[];
+  /** The downloads over the last 30 days, which info.json calls `allVersions`. */
+  monthlyDownloads: number | undefined;
 }
 
 /** The latest release of a plugin, from its latest.json on plugins.dprint.dev. */
@@ -72,15 +90,33 @@ export function readPluginInfo(json: unknown): PluginInfo {
   }
   const urls = new Map<string, string>();
   const npmVersions = new Map<string, string>();
-  for (const plugin of info.latest as { url?: unknown; npm?: { name?: unknown; version?: unknown } }[]) {
+  const plugins = new Map<string, PluginDetails>();
+  for (const plugin of info.latest as Record<string, unknown>[]) {
+    const npm = plugin.npm as { name?: unknown; version?: unknown } | undefined;
     if (typeof plugin.url === "string") {
       urls.set(getPluginUrlKey(plugin.url), plugin.url);
     }
-    if (typeof plugin.npm?.name === "string" && typeof plugin.npm.version === "string") {
-      npmVersions.set(plugin.npm.name, plugin.npm.version);
+    if (typeof npm?.name === "string" && typeof npm.version === "string") {
+      npmVersions.set(npm.name, npm.version);
+    }
+    if (typeof plugin.name === "string") {
+      const downloads = (plugin.downloadCount as { allVersions?: unknown } | undefined)?.allVersions;
+      plugins.set(plugin.name, {
+        name: plugin.name,
+        description: getString(plugin.description),
+        version: getString(plugin.version),
+        url: getString(plugin.url),
+        repoUrl: getString(plugin.repoUrl),
+        npmName: getString(npm?.name),
+        configKey: getString(plugin.configKey),
+        fileExtensions: getStrings(plugin.fileExtensions),
+        fileNames: getStrings(plugin.fileNames),
+        keywords: getStrings(plugin.keywords),
+        monthlyDownloads: typeof downloads === "number" ? downloads : undefined,
+      });
     }
   }
-  return { urls, npmVersions };
+  return { urls, npmVersions, plugins };
 }
 
 /** Reads a plugin's latest.json on plugins.dprint.dev. */
@@ -121,4 +157,12 @@ export async function getPlaceholderReplacement(
     return latest.checksum == null ? undefined : `"${latest.url}@${latest.checksum}"`;
   }
   return `"${latest.url}"`;
+}
+
+function getString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
+function getStrings(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }

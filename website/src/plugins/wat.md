@@ -1,10 +1,8 @@
 ---
 title: WebAssembly Text Plugin
 description: Documentation on the WebAssembly Text Format (WAT) code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# WebAssembly Text Plugin
 
 Wrapper plugin that formats WebAssembly Text Format code via [wat_formatter](https://github.com/g-plane/wasm-language-tools), the formatter of wasm-language-tools. It runs wat_formatter's own code compiled to Wasm, so it formats exactly like the wasm-language-tools language server.
 

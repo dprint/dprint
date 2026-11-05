@@ -1,10 +1,8 @@
 ---
 title: Malva Plugin
 description: Documentation on the Malva code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Malva Plugin
 
 Plugin that formats CSS, SCSS, Sass (indented syntax), and Less files via [Malva](https://github.com/g-plane/malva).
 

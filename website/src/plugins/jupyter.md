@@ -1,10 +1,8 @@
 ---
 title: Jupyter Plugin
 description: Documentation on the Jupyter Notebook code block formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Jupyter Plugin
 
 Formats code blocks in Jupyter Notebooks.
 

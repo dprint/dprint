@@ -1,10 +1,8 @@
 ---
 title: Bun Plugin
 description: Documentation on the Bun code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Bun Plugin
 
 Wrapper plugin that formats files via the formatter of [Bun](https://bun.com) (`bun format`). `bun format` prints what [Prettier](https://prettier.io) prints.
 

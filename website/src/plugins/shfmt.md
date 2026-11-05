@@ -1,10 +1,8 @@
 ---
 title: shfmt Plugin
 description: Documentation on the shfmt (shell script) code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# shfmt Plugin
 
 Wrapper plugin that formats shell scripts via [shfmt](https://github.com/mvdan/sh). It runs shfmt's own code compiled to Wasm, so it formats exactly like the shfmt CLI.
 

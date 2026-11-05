@@ -1,10 +1,8 @@
 ---
 title: Ruff Plugin
 description: Documentation on the Ruff code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Ruff Plugin
 
 Wrapper plugin that formats Python code via [Ruff](https://docs.astral.sh/ruff/).
 

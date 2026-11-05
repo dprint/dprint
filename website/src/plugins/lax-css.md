@@ -1,10 +1,8 @@
 ---
 title: Lax CSS Plugin
 description: Documentation on the Lax CSS code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Lax CSS Plugin
 
 Formats CSS, SCSS, and Less files via [lax-css](https://github.com/bartlomieju/lax/tree/main/crates/lax-css), a formatter that only adjusts whitespace, indentation, and line breaks and never rewrites your styles.
 

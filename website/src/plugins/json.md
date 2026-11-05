@@ -1,10 +1,8 @@
 ---
 title: JSON Plugin
 description: Documentation on the JSON code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# JSON/JSONC Code Formatter
 
 Supports:
 

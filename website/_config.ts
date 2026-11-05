@@ -47,6 +47,29 @@ site
   // response headers for Cloudflare to send with the static files
   .copy("_headers");
 
+// gives the overview and configuration pages of each plugin in
+// _data/pluginGroups.json the plugin's details, which layouts/plugin.njk shows
+site.preprocess([".html"], (pages) => {
+  const pageUrls = new Set(pages.map((page) => page.data.url));
+  for (const page of pages) {
+    if (page.data.layout !== "layouts/plugin.njk") {
+      continue;
+    }
+    const slug = /^\/plugins\/([^/]+)\/(?:config\/)?$/.exec(page.data.url)?.[1];
+    const plugin = (page.data.pluginGroups as { plugins: { slug: string }[] }[])
+      .flatMap((group) => group.plugins)
+      .find((plugin) => plugin.slug === slug);
+    if (plugin == null) {
+      throw new Error(`${page.data.url} uses the plugin layout, but isn't a plugin in _data/pluginGroups.json.`);
+    }
+    page.data.pluginPage = {
+      ...plugin,
+      tab: page.data.url.endsWith("/config/") ? "config" : "overview",
+      hasConfig: pageUrls.has(`/plugins/${slug}/config/`),
+    };
+  }
+});
+
 // cache busting: give the built CSS/JS content-hashed filenames (like Vite)
 // so each deploy invalidates stale browser caches, then rewrite the references
 // in the generated HTML to point at the hashed names.
