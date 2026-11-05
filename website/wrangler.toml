@@ -3,8 +3,9 @@
 name = "dprint-website"
 main = "worker/main.ts"
 compatibility_date = "2026-10-01"
-# only served on the custom domain, not also on workers.dev or preview urls
-workers_dev = false
+# served on workers.dev until dprint.dev is moved to the worker, so it can be
+# tested there first. set this to false after
+workers_dev = true
 preview_urls = false
 
 [assets]
