@@ -11,9 +11,9 @@
   ]
 %}
 
-<div class="doc-menu-label">Guide</div>
 <ul class="doc-menu">
   {% for item in guide %}
     <li><a href="{{ item[1] }}" {% if url == item[1] + "/" %}class="active"{% endif %}>{{ item[0] }}</a></li>
   {% endfor %}
+  <li class="doc-menu-other"><a href="/plugins/">Plugins <span aria-hidden="true">→</span></a></li>
 </ul>
