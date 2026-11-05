@@ -2,7 +2,12 @@
 import { artifact, expr, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 const isDeploy = "github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)";
-const site = artifact("website", { retentionDays: 1 });
+// the built site, bundled worker and wrangler config, which is all the deploy uses
+const deployment = artifact("website-deployment", { retentionDays: 1 });
+// the version the website's `deno task wrangler` uses
+const wranglerVersion = /npx -y wrangler@([0-9.]+)/.exec(
+  Deno.readTextFileSync(new URL("../../website/deno.json", import.meta.url)),
+)![1];
 
 const buildJob = job("build", {
   runsOn: "ubuntu-latest",
@@ -19,30 +24,34 @@ const buildJob = job("build", {
     { name: "Test playground", run: "(cd website/playground && deno task test)" },
     { name: "Test worker", run: "(cd website && deno task test)" },
     { name: "Build website", run: "(cd website && deno task build:ci)" },
-    site.upload({ path: "website/_site" }).if(isDeploy),
+    // bundled for every PR, so a worker that doesn't bundle fails before a deploy
+    { name: "Bundle worker", run: "(cd website && deno task worker:bundle)" },
+    {
+      name: "Prepare deployment",
+      if: isDeploy,
+      run: "mkdir deployment && cp -r website/_site website/dist website/wrangler.toml deployment/",
+    },
+    deployment.upload({ path: "deployment" }).if(isDeploy),
   ),
 });
 
 // Deploying is the only step that needs the Cloudflare secrets, so it runs in
-// its own job and the build job (which runs for every PR) never has them.
+// its own job and the build job (which runs for every PR) never has them. The
+// job doesn't check out the repo or build anything. It only uploads what the
+// build job built.
 const deployJob = job("deploy", {
   runsOn: "ubuntu-latest",
   needs: [buildJob],
   if: isDeploy,
-  permissions: { contents: "read" },
+  permissions: {},
   // has the cloudflare secrets
   environment: { name: "website", url: "https://dprint.dev" },
   steps: step(
-    // wrangler deploys the worker in website/worker along with the built site
-    { name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
-    // only used to run the deploy task, so this doesn't need canary like the build
-    { uses: "denoland/setup-deno@v2", with: { "deno-version": "v2.x" } },
-    // wrangler bundles the worker's npm dependencies (ex. highlight.js) from node_modules
-    { name: "Install dependencies", run: "(cd website && deno install)" },
-    site.download({ dirPath: "website/_site" }),
+    deployment.download({ dirPath: "deployment" }),
     {
       name: "Deploy",
-      run: "(cd website && deno task deploy)",
+      // uploads the worker bundled by the build job as is
+      run: `(cd deployment && npx -y wrangler@${wranglerVersion} deploy dist/main.js --no-bundle)`,
       env: {
         CLOUDFLARE_API_TOKEN: expr("secrets.CLOUDFLARE_API_TOKEN"),
         CLOUDFLARE_ACCOUNT_ID: expr("secrets.CLOUDFLARE_ACCOUNT_ID"),

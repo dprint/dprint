@@ -60,40 +60,35 @@ jobs:
         run: (cd website && deno task test)
       - name: Build website
         run: "(cd website && deno task build:ci)"
-      - name: Upload artifact website
+      - name: Bundle worker
+        run: "(cd website && deno task worker:bundle)"
+      - name: Prepare deployment
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
+        run: mkdir deployment && cp -r website/_site website/dist website/wrangler.toml deployment/
+      - name: Upload artifact website-deployment
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         with:
-          name: website
-          path: website/_site
+          name: website-deployment
+          path: deployment
           retention-days: 1
   deploy:
     needs:
       - build
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    permissions: {}
     environment:
       name: website
       url: "https://dprint.dev"
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
-        with:
-          deno-version: v2.x
-      - name: Install dependencies
-        run: (cd website && deno install)
-      - name: Download artifact website
+      - name: Download artifact website-deployment
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
-          name: website
-          path: website/_site
+          name: website-deployment
+          path: deployment
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}"
           CLOUDFLARE_ACCOUNT_ID: "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
-        run: (cd website && deno task deploy)
+        run: (cd deployment && npx -y wrangler@4.151.1 deploy dist/main.js --no-bundle)

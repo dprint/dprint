@@ -6,3 +6,6 @@ src/assets/schemas/v0.json
 
 # local state of `wrangler dev`
 .wrangler
+
+# the bundled worker from `deno task worker:bundle`
+dist
