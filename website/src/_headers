@@ -4,8 +4,11 @@
 /*
   Access-Control-Allow-Origin: *
 
-# keep the content types GitHub Pages served the install scripts with
+# shown in the browser instead of downloaded, which doesn't change
+# `curl -fsSL https://dprint.dev/install.sh | sh`
 /install.sh
-  Content-Type: application/x-sh
+  Content-Type: text/plain; charset=utf-8
+# keeps the content type GitHub Pages served it with, which
+# `irm https://dprint.dev/install.ps1 | iex` handles
 /install.ps1
   Content-Type: application/octet-stream

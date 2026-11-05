@@ -95,6 +95,8 @@ const MAX_OPTIONS = 200;
 const MAX_RENDERED_LENGTH = 1_500_000;
 // longer code isn't highlighted, which takes too long
 const MAX_HIGHLIGHTED_LENGTH = 20_000;
+// a longer object or array default is shown as formatted json instead of inline
+const MAX_INLINE_VALUE_LENGTH = 60;
 
 /** Thrown when a schema's configuration is too large to render. */
 export class ConfigTooLargeError extends Error {}
@@ -479,14 +481,21 @@ function renderInfo(definition: SchemaDefinition) {
     }
     html += "</ul>";
   } else {
+    // a long object or array is shown as formatted json below the type
+    const isLongDefault = typeof definition.default === "object" && definition.default != null
+      && valueToText(definition.default).length > MAX_INLINE_VALUE_LENGTH;
     html += `<ul class="cfg-meta">`;
     if (definition.type != null) {
       html += `<li><span class="cfg-label">Type</span>${renderType(definition)}</li>`;
     }
-    if (definition.default !== undefined) {
+    if (definition.default !== undefined && !isLongDefault) {
       html += `<li><span class="cfg-label">Default</span>${renderValue(definition.default)}</li>`;
     }
     html += "</ul>";
+    if (isLongDefault) {
+      html += `<p class="cfg-example-label">Default</p>`
+        + renderCode(JSON.stringify(definition.default, undefined, 2), "json");
+    }
   }
   if (definition.items?.properties != null) {
     html += "<p>Each item is an object with these properties:</p>";
@@ -630,7 +639,9 @@ function valueToText(value: unknown) {
     return "<not specified>";
   }
   if (typeof value === "object") {
-    return JSON.stringify(value);
+    // with spaces between the entries, so it can wrap (ex. `{ "css": "less" }`).
+    // json escapes the newlines in strings, so these are only between entries
+    return JSON.stringify(value, undefined, 1).replace(/\n\s*/g, " ");
   }
   return String(value);
 }

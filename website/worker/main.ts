@@ -24,7 +24,7 @@ interface Env {
 }
 
 // bump this to stop using any configuration html that was cached by a previous deploy
-const RENDER_VERSION = 2;
+const RENDER_VERSION = 3;
 const LATEST_TAG_CACHE_MS = 5 * 60 * 1_000;
 const MAX_MEMORY_CACHE_ENTRIES = 100;
 // the most html kept in memory, which is several of the largest pages
