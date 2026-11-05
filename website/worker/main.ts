@@ -339,7 +339,7 @@ async function getConfigHtml(
     return memoryResult;
   }
   // the cache api is per data center, so this saves the other isolates there
-  // from fetching and rendering the schema (it's a no-op on workers.dev)
+  // from fetching and rendering the schema
   const cacheRequest = new Request(`https://dprint.dev/__worker-cache/config-html/${cacheKey}`);
   const cachedResponse = await getDefaultCache().match(cacheRequest);
   if (cachedResponse != null) {
