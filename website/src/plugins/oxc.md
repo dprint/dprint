@@ -1,10 +1,8 @@
 ---
 title: Oxc Plugin
 description: Documentation on the Oxc code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Oxc Plugin
 
 Wrapper plugin that formats files via [Oxc](https://oxc.rs). It formats the languages that Oxc's formatter formats natively in Rust:
 
@@ -41,8 +39,6 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/oxc/config)
-
 The configuration is shared between the languages. For example, `quoteStyle` applies to JavaScript, CSS, YAML, and so on.
 
 ## Using with other plugins
@@ -60,11 +56,3 @@ This plugin formats many kinds of files, so it may match the same files as anoth
 ```
 
 For more fine grained control, see [associations](/config/#associations).
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/oxc)
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-oxc

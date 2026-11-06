@@ -1,10 +1,8 @@
 ---
 title: Bun Plugin
 description: Documentation on the Bun code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Bun Plugin
 
 Wrapper plugin that formats files via the formatter of [Bun](https://bun.com) (`bun format`). `bun format` prints what [Prettier](https://prettier.io) prints.
 
@@ -46,8 +44,6 @@ This will update your config file to have an entry for the plugin. Then optional
 ```
 
 ## Configuration
-
-See [Configuration](/plugins/bun/config)
 
 The options are the ones that `bun format` reads in a configuration file, with the same names and values: [Prettier's options](https://prettier.io/docs/options), or with `"flavor": "oxfmt"` the ones of an `.oxfmtrc.json`.
 
@@ -129,11 +125,3 @@ This plugin formats many kinds of files, so it may match the same files as anoth
 ```
 
 For more fine grained control, see [associations](/config/#associations) or see [disabling languages](#disabling-languages).
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/bun)
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-bun

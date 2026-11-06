@@ -33,6 +33,19 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "csharpier":
     case "clang-format":
     case "cedar":
+    case "sql":
+    case "typstyle":
+    case "nix":
+    case "alejandra":
+    case "kdl":
+    case "shuck":
+    case "shfmt":
+    case "stylua":
+    case "zig":
+    case "terraform":
+    case "buildifier":
+    case "wat":
+    case "jupyter":
     case "malva":
     case "markup_fmt":
     case "pretty_yaml":
@@ -78,6 +91,27 @@ export function getLanguageFromPluginUrl(url: string) {
       return "cpp";
     case "cedar":
       return "plaintext";
+    case "sql":
+      return "sql";
+    case "shuck":
+    case "shfmt":
+      return "shell";
+    case "stylua":
+      return "lua";
+    case "terraform":
+      return "hcl";
+    case "buildifier":
+      // starlark is a dialect of python
+      return "python";
+    case "typstyle":
+    case "nix":
+    case "alejandra":
+    case "kdl":
+    case "zig":
+    case "wat":
+      return "plaintext";
+    case "jupyter":
+      return "json";
     case "malva":
     case "lax-css":
       return "css";
@@ -89,4 +123,18 @@ export function getLanguageFromPluginUrl(url: string) {
     default:
       return undefined;
   }
+}
+
+// the plugins that format the code a plugin embeds, since a plugin like jupyter
+// only formats its code with other plugins
+const hostPluginNames: Record<string, string[]> = {
+  jupyter: ["markdown", "ruff", "typescript"],
+};
+
+/** Gets the urls of the plugins that format the code the plugin at the url embeds. */
+export function getHostPluginUrls(pluginUrl: string, pluginUrls: string[]) {
+  const names = hostPluginNames[getPluginShortNameFromPluginUrl(pluginUrl) ?? ""] ?? [];
+  return names
+    .map(name => pluginUrls.find(url => getPluginShortNameFromPluginUrl(url) === name))
+    .filter((url): url is string => url != null);
 }

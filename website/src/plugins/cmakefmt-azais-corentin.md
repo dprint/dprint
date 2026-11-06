@@ -1,10 +1,8 @@
 ---
 title: cmakefmt (azais-corentin) Plugin
 description: Documentation on the cmakefmt (azais-corentin) code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# cmakefmt (azais-corentin) Plugin
 
 Plugin that formats CMake files via [azais-corentin/cmakefmt](https://github.com/azais-corentin/cmakefmt).
 

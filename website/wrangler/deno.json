@@ -1,0 +1,9 @@
+{
+  // the version of wrangler the website uses, which is locked in deno.lock and
+  // installed on its own so deploying doesn't install the website's dependencies
+  "nodeModulesDir": "manual",
+  "lock": { "frozen": true },
+  "imports": {
+    "wrangler": "npm:wrangler@4.151.1"
+  }
+}

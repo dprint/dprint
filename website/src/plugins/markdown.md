@@ -1,10 +1,8 @@
 ---
 title: Markdown Plugin
 description: Documentation on the Markdown code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Markdown Code Formatter
 
 ## Install and Setup
 
@@ -40,14 +38,6 @@ Code blocks are formatted based on the other provided plugins. For example, if y
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/markdown/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/markdown)
 
 ## Ignore Comments
 

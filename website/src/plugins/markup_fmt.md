@@ -1,10 +1,8 @@
 ---
 title: markup_fmt Plugin
 description: Documentation on the markup_fmt code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Markup_fmt Plugin
 
 Plugin that formats HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, Vento, Mustache, and XML files via [markup_fmt](https://github.com/g-plane/markup_fmt).
 
@@ -31,8 +29,4 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/markup_fmt/config) or read [full documentation site](https://markup-fmt.netlify.app/) with code examples.
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/markup_fmt)
+Read the [full documentation site](https://markup-fmt.netlify.app/) with code examples.

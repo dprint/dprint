@@ -1,10 +1,8 @@
 ---
 title: Pretty GraphQL Plugin
 description: Documentation on the GraphQL code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Pretty GraphQL Plugin
 
 Plugin that formats GraphQL files via [Pretty GraphQL](https://github.com/g-plane/pretty_graphql).
 
@@ -31,8 +29,4 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/pretty_graphql/config) or read [full documentation site](https://pretty-graphql.netlify.app/) with code examples.
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/pretty_graphql)
+Read the [full documentation site](https://pretty-graphql.netlify.app/) with code examples.

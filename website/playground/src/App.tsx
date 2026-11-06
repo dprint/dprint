@@ -1,9 +1,9 @@
 import type { FileMatchingInfo, PluginInfo } from "@dprint/formatter";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Spinner } from "./components";
 import * as formatterWorker from "./FormatterWorker";
 import { Playground } from "./Playground";
-import { getPluginDefaultConfig, getPluginShortNameFromPluginUrl, getPluginUrls } from "./plugins";
+import { getHostPluginUrls, getPluginSchemaDefaults, getPluginShortNameFromPluginUrl, getPluginUrls, type PlaygroundSample } from "./plugins";
 import { UrlSaver } from "./utils";
 
 const urlSaver = new UrlSaver();
@@ -21,6 +21,11 @@ export default function App() {
   const [defaultConfigText, setDefaultConfigText] = useState("");
   const [formattedText, setFormattedText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  // the selected plugin's sample code, which is replaced when another plugin is
+  // selected as long as it wasn't changed
+  const sampleRef = useRef<PlaygroundSample | undefined>(undefined);
+  const textRef = useRef(text);
+  textRef.current = text;
 
   // initialization
   useEffect(() => {
@@ -81,13 +86,16 @@ export default function App() {
     const isBuiltInLanguage = !!shortName;
 
     urlSaver.updateUrl({
-      text,
+      // the sample isn't in the url, so it's only shared once it's changed
+      text: text === sampleRef.current?.text ? "" : text,
       configText: configText === defaultConfigText ? undefined : configText,
       plugin: isBuiltInLanguage ? shortName : pluginUrl,
       ext: fileMatchingInfo?.fileExtensions.indexOf(fileExtension) === 0 ? undefined : fileExtension,
     });
   }, [text, configText, pluginUrl, defaultConfigText, fileExtension, fileMatchingInfo]);
 
+  // the plugins that format the code the selected plugin embeds
+  const hostPluginUrls = pluginUrl == null ? "" : getHostPluginUrls(pluginUrl, pluginUrls).join(" ");
   useEffect(() => {
     setIsLoading(true);
 
@@ -95,8 +103,8 @@ export default function App() {
       return;
     }
 
-    formatterWorker.loadUrl(pluginUrl);
-  }, [pluginUrl]);
+    formatterWorker.loadUrl(pluginUrl, hostPluginUrls === "" ? [] : hostPluginUrls.split(" "));
+  }, [pluginUrl, hostPluginUrls]);
 
   useEffect(() => {
     if (pluginUrl == null || pluginInfo == null) {
@@ -104,7 +112,7 @@ export default function App() {
     }
 
     const abortController = new AbortController();
-    getPluginDefaultConfig(pluginInfo.configSchemaUrl, abortController.signal).then(defaultConfigText => {
+    getPluginSchemaDefaults(pluginInfo.configSchemaUrl, abortController.signal).then(({ configText: defaultConfigText, sample }) => {
       if (isFirstLoad && initialUrl.configText != null) {
         setConfigText(initialUrl.configText);
         isFirstLoad = false;
@@ -112,6 +120,16 @@ export default function App() {
         setConfigText(defaultConfigText);
       }
       setDefaultConfigText(defaultConfigText);
+      // starts with the plugin's sample when there's no code or the code is the
+      // previous plugin's sample, which wasn't changed
+      const previousSample = sampleRef.current;
+      sampleRef.current = sample;
+      if (textRef.current === "" || textRef.current === previousSample?.text) {
+        setText(sample?.text ?? "");
+        if (sample?.extension != null) {
+          setFileExtension(sample.extension);
+        }
+      }
       setIsLoading(false);
     }).catch(err => {
       if (abortController.signal.aborted) {

@@ -1,10 +1,8 @@
 ---
 title: Lax Markup Plugin
 description: Documentation on the Lax Markup code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Lax Markup Plugin
 
 Formats HTML, XML, SVG, Vue, Svelte, and Astro files via [lax-markup](https://github.com/bartlomieju/lax/tree/main/crates/lax-markup), a formatter that only restructures markup where doing so cannot change how it renders.
 

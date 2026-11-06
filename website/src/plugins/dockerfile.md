@@ -1,10 +1,8 @@
 ---
 title: Dockerfile Plugin
 description: Documentation on the Dockerfile code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Dockerfile Code Formatter
 
 Formats [Dockerfiles](https://docs.docker.com/engine/reference/builder).
 
@@ -28,11 +26,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/dockerfile/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/dockerfile)

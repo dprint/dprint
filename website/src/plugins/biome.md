@@ -1,10 +1,8 @@
 ---
 title: Biome Plugin
 description: Documentation on the Biome code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Biome Plugin
 
 Wrapper plugin that formats JavaScript, TypeScript, and JSON files via [Biome](https://biomejs.dev).
 
@@ -28,15 +26,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/biome/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/biome)
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-biome

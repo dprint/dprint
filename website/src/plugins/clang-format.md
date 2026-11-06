@@ -1,10 +1,8 @@
 ---
 title: clang-format Plugin (C/C++/Objective-C)
 description: Documentation on the clang-format code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# clang-format Plugin
 
 Wrapper plugin that formats C, C++, and Objective-C code via a Wasm build of [clang-format](https://clang.llvm.org/docs/ClangFormat.html).
 
@@ -30,15 +28,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/clang-format/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/clang-format)
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-clang-format

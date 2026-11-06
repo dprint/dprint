@@ -1,10 +1,8 @@
 ---
 title: Badness Plugin
 description: Documentation on the Badness code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Badness Plugin
 
 Wrapper plugin that formats LaTeX and BibTeX files via [Badness](https://badness.dev).
 
@@ -32,8 +30,6 @@ This will update your config file to have an entry for the plugin. Then optional
 ```
 
 ## Configuration
-
-See [Configuration](/plugins/badness/config).
 
 Unlike the Badness CLI, the Wasm plugin cannot read command signatures from neighboring .sty and .cls files. See the
 [plugin documentation](https://github.com/jolars/dprint-plugin-badness#differences-from-the-badness-cli) for details.

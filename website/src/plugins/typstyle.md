@@ -1,11 +1,9 @@
 ---
 title: Typstyle Plugin
 description: Documentation on the Typstyle code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 oldUrl: /plugins/typstyle-kachick/
 ---
-
-# Typstyle Plugin
 
 Wrapper plugin that formats [Typst](https://typst.app) files via [Typstyle](https://github.com/typstyle-rs/typstyle).
 
@@ -31,11 +29,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/typstyle/config).
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-typstyle

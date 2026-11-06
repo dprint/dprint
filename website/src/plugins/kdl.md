@@ -1,10 +1,8 @@
 ---
 title: KDL Plugin
 description: Documentation on the KDL code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# KDL Plugin
 
 Formats [KDL](https://kdl.dev) documents.
 
@@ -30,11 +28,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/kdl/config).
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-kdl

@@ -1,10 +1,8 @@
 ---
 title: JSON Plugin
 description: Documentation on the JSON code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# JSON/JSONC Code Formatter
 
 Supports:
 
@@ -31,11 +29,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/json/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/json)

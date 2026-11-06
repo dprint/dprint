@@ -1,10 +1,8 @@
 ---
 title: Terraform Plugin
 description: Documentation on the Terraform, OpenTofu, and HCL code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Terraform Plugin
 
 Wrapper plugin that formats Terraform, OpenTofu, and HCL files. It runs [HCL](https://github.com/hashicorp/hcl)'s own code compiled to Wasm, along with the formatting logic of `tofu fmt` from [OpenTofu](https://github.com/opentofu/opentofu).
 
@@ -31,7 +29,3 @@ This will update your config file to have an entry for the plugin.
 ## Configuration
 
 There's nothing to configure, since `tofu fmt` and `terraform fmt` have no style options. Like them, the plugin keeps each file's newlines as they are.
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-terraform

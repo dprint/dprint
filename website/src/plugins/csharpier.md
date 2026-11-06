@@ -1,10 +1,8 @@
 ---
 title: CSharpier Plugin (C#/XML)
 description: Documentation on the CSharpier code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# CSharpier Plugin
 
 Wrapper plugin that formats C# and XML code via [CSharpier](https://github.com/belav/csharpier).
 
@@ -30,15 +28,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/csharpier/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/csharpier)
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-csharpier

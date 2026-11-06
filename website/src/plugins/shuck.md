@@ -1,11 +1,9 @@
 ---
 title: Shuck Plugin
 description: Documentation on the Shuck (shell script) code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 oldUrl: /plugins/sh/
 ---
-
-# Shuck Plugin
 
 Wrapper plugin that formats shell scripts via [shuck-formatter](https://github.com/ewhauser/shuck).
 
@@ -33,11 +31,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/shuck/config).
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-shuck

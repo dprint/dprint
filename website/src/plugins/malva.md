@@ -1,10 +1,8 @@
 ---
 title: Malva Plugin
 description: Documentation on the Malva code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Malva Plugin
 
 Plugin that formats CSS, SCSS, Sass (indented syntax), and Less files via [Malva](https://github.com/g-plane/malva).
 
@@ -31,8 +29,4 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/malva/config) or read [full documentation site](https://malva.netlify.app/) with code examples.
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/malva)
+Read the [full documentation site](https://malva.netlify.app/) with code examples.

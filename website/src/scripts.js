@@ -1,9 +1,10 @@
 import { restoreAnchorScroll } from "./scripts/anchor-scroll.js";
+import { setupCopyButtons } from "./scripts/copy-buttons.js";
 import { setupDocMenu } from "./scripts/doc-menu-toggle.js";
 import { addInstallTabsEvent } from "./scripts/install-tabs.js";
 import { setupNavHeight } from "./scripts/nav-height.js";
-import { replaceConfigTable } from "./scripts/plugin-config-table-replacer.js";
-import { replacePluginUrls } from "./scripts/plugin-url-replacer.js";
+import { openHashDetails } from "./scripts/open-hash-details.js";
+import { setupPluginSearch } from "./scripts/plugin-search.js";
 
 if (document.readyState === "complete" || document.readyState === "interactive") {
   setTimeout(onLoad, 0);
@@ -13,9 +14,10 @@ if (document.readyState === "complete" || document.readyState === "interactive")
 
 function onLoad() {
   setupNavHeight();
+  openHashDetails();
   restoreAnchorScroll();
-  replacePluginUrls();
-  replaceConfigTable();
   addInstallTabsEvent();
   setupDocMenu();
+  setupCopyButtons();
+  setupPluginSearch();
 }

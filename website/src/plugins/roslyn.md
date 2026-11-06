@@ -1,10 +1,8 @@
 ---
 title: Roslyn Plugin (C#/VB)
 description: Documentation on the Roslyn code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Roslyn Plugin
 
 Wrapper plugin that formats C# and Visual Basic code via [Roslyn](https://github.com/dotnet/roslyn).
 
@@ -30,15 +28,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/roslyn/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/roslyn)
-
-## Source
-
-See https://github.com/dprint/dprint-plugin-roslyn

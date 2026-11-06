@@ -1,10 +1,8 @@
 ---
 title: Fatou Plugin
 description: Documentation on the Fatou code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Fatou Plugin
 
 Wrapper plugin that formats Julia code via [Fatou](https://fatou.dev).
 
@@ -30,7 +28,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/fatou/config).

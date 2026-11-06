@@ -1,0 +1,14 @@
+# headers Cloudflare sends with the static files (https://developers.cloudflare.com/workers/static-assets/headers/)
+
+# GitHub Pages, which used to host the site, allowed any origin
+/*
+  Access-Control-Allow-Origin: *
+
+# shown in the browser instead of downloaded, which doesn't change
+# `curl -fsSL https://dprint.dev/install.sh | sh`
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+# keeps the content type GitHub Pages served it with, which
+# `irm https://dprint.dev/install.ps1 | iex` handles
+/install.ps1
+  Content-Type: application/octet-stream

@@ -1,10 +1,8 @@
 ---
 title: TOML Plugin
 description: Documentation on the TOML code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# TOML Code Formatter
 
 Formats [TOML](https://toml.io) files.
 
@@ -28,11 +26,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/toml/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/toml)

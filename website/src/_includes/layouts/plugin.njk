@@ -1,0 +1,36 @@
+---
+layout: layouts/base.njk
+---
+
+{% from "partials/plugin-grid.njk" import pluginGrid %}
+
+{# the summary and details are filled in by the worker (worker/plugin_page.ts) from plugins.dprint.dev's info.json #}
+<div class="plugin-page">
+  <header class="plugin-header">
+    <a class="eyebrow eyebrow-link" href="/plugins/">// plugins</a>
+    <h1>{{ pluginPage.name }}</h1>
+    <div class="plugin-summary" data-plugin-summary="{{ pluginPage.info }}"></div>
+    <nav class="plugin-tabs" aria-label="{{ pluginPage.name }}">
+      <a href="/plugins/{{ pluginPage.slug }}/" {% if pluginPage.tab == "overview" %}class="active" aria-current="page"{% endif %}>Overview</a>
+      {% if pluginPage.hasConfig %}
+        <a href="/plugins/{{ pluginPage.slug }}/config/" {% if pluginPage.tab == "config" %}class="active" aria-current="page"{% endif %}>Configuration</a>
+      {% endif %}
+      {% if pluginPage.playground %}
+        <a class="plugin-playground" href="/playground#plugin/{{ pluginPage.slug }}">Try it in the playground</a>
+      {% endif %}
+    </nav>
+  </header>
+  <div class="plugin-body">
+    <div class="plugin-main doc-content">
+      {{ content | safe }}
+    </div>
+    <aside class="plugin-aside" data-plugin-details="{{ pluginPage.info }}"></aside>
+  </div>
+  <section class="plugin-others">
+    <h2>All plugins</h2>
+    {% for group in pluginGroups %}
+      <h3>{{ group.heading }}</h3>
+      {{ pluginGrid(group) }}
+    {% endfor %}
+  </section>
+</div>

@@ -1,10 +1,8 @@
 ---
 title: Panache Plugin
 description: Documentation on the Panache code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# Panache Plugin
 
 Wrapper plugin that formats Quarto, Pandoc, R Markdown, and Markdown files via [Panache](https://panache.bz).
 
@@ -30,7 +28,3 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/panache/config).

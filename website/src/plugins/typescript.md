@@ -1,10 +1,8 @@
 ---
 title: TypeScript / JavaScript Plugin
 description: Documentation on the TypeScript / JavaScript code formatting plugin for dprint.
-layout: layouts/documentation.njk
+layout: layouts/plugin.njk
 ---
-
-# TypeScript / JavaScript Code Formatter
 
 Supports:
 
@@ -34,14 +32,6 @@ This will update your config file to have an entry for the plugin. Then optional
   ]
 }
 ```
-
-## Configuration
-
-See [Configuration](/plugins/typescript/config)
-
-## Playground
-
-See [Playground](https://dprint.dev/playground#plugin/typescript)
 
 ## Ignoring Files
 
