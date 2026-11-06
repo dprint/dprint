@@ -63,7 +63,7 @@
       { "slug": "zig", "info": "dprint-plugin-zig", "playground": true, "name": "Zig", "ext": "Zig · ZON" },
       { "slug": "terraform", "info": "dprint-plugin-terraform", "playground": true, "name": "Terraform", "ext": "Terraform · OpenTofu · HCL" },
       { "slug": "buildifier", "info": "dprint-plugin-buildifier", "playground": true, "name": "buildifier", "ext": "Bazel · Starlark" },
-      { "slug": "wat", "info": "dprint-plugin-wat", "name": "WebAssembly Text", "ext": ".wat" },
+      { "slug": "wat", "info": "dprint-plugin-wat", "playground": true, "name": "WebAssembly Text", "ext": ".wat" },
       { "slug": "gofumpt", "info": "dprint-plugin-gofumpt", "name": "Gofumpt", "ext": "Go" },
       { "slug": "swift", "info": "dprint-plugin-swift", "name": "Swift", "ext": ".swift", "process": true },
       { "slug": "panache", "info": "dprint-plugin-panache", "name": "Panache", "ext": "Quarto · Pandoc · R Markdown · Markdown" },
