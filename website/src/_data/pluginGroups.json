@@ -11,7 +11,7 @@
       { "slug": "toml", "info": "dprint-plugin-toml", "playground": true, "name": "TOML", "ext": ".toml" },
       { "slug": "dockerfile", "info": "dprint-plugin-dockerfile", "playground": true, "name": "Dockerfile", "ext": "Dockerfile" },
       { "slug": "sql", "info": "dprint-plugin-sql", "playground": true, "name": "SQL", "ext": ".sql" },
-      { "slug": "jupyter", "info": "dprint-plugin-jupyter", "name": "Jupyter", "ext": ".ipynb" }
+      { "slug": "jupyter", "info": "dprint-plugin-jupyter", "playground": true, "name": "Jupyter", "ext": ".ipynb" }
     ]
   },
   {

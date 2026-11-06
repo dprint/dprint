@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Spinner } from "./components";
 import * as formatterWorker from "./FormatterWorker";
 import { Playground } from "./Playground";
-import { getPluginSchemaDefaults, getPluginShortNameFromPluginUrl, getPluginUrls, type PlaygroundSample } from "./plugins";
+import { getHostPluginUrls, getPluginSchemaDefaults, getPluginShortNameFromPluginUrl, getPluginUrls, type PlaygroundSample } from "./plugins";
 import { UrlSaver } from "./utils";
 
 const urlSaver = new UrlSaver();
@@ -94,6 +94,8 @@ export default function App() {
     });
   }, [text, configText, pluginUrl, defaultConfigText, fileExtension, fileMatchingInfo]);
 
+  // the plugins that format the code the selected plugin embeds
+  const hostPluginUrls = pluginUrl == null ? "" : getHostPluginUrls(pluginUrl, pluginUrls).join(" ");
   useEffect(() => {
     setIsLoading(true);
 
@@ -101,8 +103,8 @@ export default function App() {
       return;
     }
 
-    formatterWorker.loadUrl(pluginUrl);
-  }, [pluginUrl]);
+    formatterWorker.loadUrl(pluginUrl, hostPluginUrls === "" ? [] : hostPluginUrls.split(" "));
+  }, [pluginUrl, hostPluginUrls]);
 
   useEffect(() => {
     if (pluginUrl == null || pluginInfo == null) {

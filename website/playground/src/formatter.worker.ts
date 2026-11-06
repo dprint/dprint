@@ -10,7 +10,7 @@ let abortController = new AbortController();
 onmessage = function(e) {
   switch (e.data.type) {
     case "LoadUrl": {
-      loadUrl(e.data.url);
+      loadUrl(e.data.url, e.data.hostUrls ?? []);
       break;
     }
     case "SetConfig": {
@@ -24,14 +24,15 @@ onmessage = function(e) {
   }
 };
 
-function loadUrl(url: string) {
+function loadUrl(url: string, hostUrls: string[]) {
   abortController.abort();
   abortController = new AbortController();
   const signal = abortController.signal;
-  formatter = fetch(url, { signal })
-    .then(response => response.arrayBuffer())
-    .then(wasmModuleBuffer => {
+  const fetchBuffer = (url: string) => fetch(url, { signal }).then(response => response.arrayBuffer());
+  formatter = Promise.all([fetchBuffer(url), ...hostUrls.map(fetchBuffer)])
+    .then(([wasmModuleBuffer, ...hostBuffers]) => {
       const newFormatter = createFromBuffer(wasmModuleBuffer);
+      setHostFormatters(newFormatter, hostBuffers.map(buffer => createFromBuffer(buffer)));
 
       postPluginInfo(newFormatter);
 
@@ -47,6 +48,35 @@ function loadUrl(url: string) {
   formatter.catch((err: any) => {
     if (!signal.aborted) {
       postError(err);
+    }
+  });
+}
+
+// formats the code a plugin embeds (ex. the cells of a notebook) with the
+// plugin that handles its file extension, or leaves it as it is when none does
+function setHostFormatters(f: Formatter, hostFormatters: Formatter[]) {
+  if (hostFormatters.length === 0) {
+    return;
+  }
+  const hosts = hostFormatters.map(hostFormatter => {
+    hostFormatter.setConfig({}, {});
+    return { formatter: hostFormatter, fileMatching: hostFormatter.getFileMatchingInfo() };
+  });
+  f.setHostFormatter(request => {
+    const fileName = request.filePath.split(/[\/]/).pop() ?? "";
+    const extension = fileName.includes(".") ? fileName.slice(fileName.lastIndexOf(".") + 1).toLowerCase() : undefined;
+    const host = hosts.find(host =>
+      (extension != null && host.fileMatching.fileExtensions.some(ext => ext.toLowerCase() === extension))
+      || host.fileMatching.fileNames.includes(fileName)
+    );
+    if (host == null) {
+      return request.fileText;
+    }
+    try {
+      return host.formatter.formatText({ filePath: request.filePath, fileText: request.fileText });
+    } catch {
+      // like the CLI, code that doesn't parse is left as it is
+      return request.fileText;
     }
   });
 }

@@ -26,6 +26,7 @@ export const knownPlugins = new Set([
   "zig",
   "terraform",
   "buildifier",
+  "jupyter",
   // third party plugins, but user name is removed because there can't be `/` in the url
   "malva",
   "markup_fmt",
