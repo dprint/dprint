@@ -34,10 +34,12 @@ formatterWorker.addEventListener("message", ev => {
   }
 });
 
-export function loadUrl(url: string) {
+/** Loads the plugin at the url, which formats the code it embeds with the plugins at the host urls. */
+export function loadUrl(url: string, hostUrls: string[] = []) {
   formatterWorker.postMessage({
     type: "LoadUrl",
     url,
+    hostUrls,
   });
 }
 
