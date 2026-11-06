@@ -124,7 +124,7 @@ export function Playground({
         <div className="navInner">
           <a className="brand" href="/">dprint</a>
           <div className="navLinks">
-            <a href="/overview">Guide</a>
+            <a href="/overview">Docs</a>
             <a href="/plugins">Plugins</a>
             <a className="active" href="/playground">Playground</a>
             <a href="/sponsor">Sponsor</a>
