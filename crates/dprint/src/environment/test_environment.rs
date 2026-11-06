@@ -220,6 +220,9 @@ pub struct TestEnvironment {
   /// `kill_processes_using_dir`. The restart count models an editor such as the
   /// VSCode extension respawning its process plugins.
   running_processes: Arc<Mutex<Vec<(PathBuf, usize)>>>,
+  /// How many `dprint lsp` processes are pretending to be running (see
+  /// `Environment::kill_dprint_lsp_processes`).
+  running_lsp_processes: Arc<Mutex<usize>>,
   /// Number of times `remove_dir_all` should fail with a transient error before
   /// succeeding, independent of any running process. Models a flaky deletion
   /// (e.g. a file briefly locked) that succeeds on retry.
@@ -287,6 +290,7 @@ impl TestEnvironment {
       is_terminal_interactive: Arc::new(Mutex::new(true)),
       run_command_results: Default::default(),
       running_processes: Default::default(),
+      running_lsp_processes: Default::default(),
       remove_dir_all_failures: Default::default(),
       file_watchers: Default::default(),
       locked_files: Default::default(),
@@ -578,6 +582,15 @@ impl TestEnvironment {
   /// editor respawning its process plugins between delete attempts.
   pub fn add_running_process_with_restarts(&self, exe_path: impl AsRef<Path>, restarts: usize) {
     self.running_processes.lock().push((self.clean_path(exe_path), restarts));
+  }
+
+  /// Simulates a running `dprint lsp` process.
+  pub fn add_running_lsp_process(&self) {
+    *self.running_lsp_processes.lock() += 1;
+  }
+
+  pub fn running_lsp_process_count(&self) -> usize {
+    *self.running_lsp_processes.lock()
   }
 
   pub fn is_process_running(&self, exe_path: impl AsRef<Path>) -> bool {
@@ -938,6 +951,10 @@ impl Environment for TestEnvironment {
     killed
   }
 
+  fn kill_dprint_lsp_processes(&self) -> usize {
+    std::mem::take(&mut *self.running_lsp_processes.lock())
+  }
+
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
     if let Some(err) = self.dir_info_error.lock().take() {
       return Err(err);
@@ -975,26 +992,6 @@ impl Environment for TestEnvironment {
       file_path,
       locked_files: self.locked_files.clone(),
     })))
-  }
-
-  fn remove_empty_dir(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
-    let dir_path = self.clean_path(dir_path);
-    if !self.dir_entry_paths(&dir_path)?.is_empty() {
-      return Err(io::Error::new(
-        io::ErrorKind::DirectoryNotEmpty,
-        format!("Directory not empty: {}", dir_path.display()),
-      ));
-    }
-    self.sys.fs_remove_dir_all(&dir_path)
-  }
-
-  fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
-    let dir_path = self.clean_path(dir_path);
-    let mut paths = Vec::new();
-    for entry in self.sys.fs_read_dir(&dir_path)? {
-      paths.push(self.clean_path(entry?.path()));
-    }
-    Ok(paths)
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {

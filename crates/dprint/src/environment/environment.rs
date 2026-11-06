@@ -352,8 +352,6 @@ pub trait Environment:
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
-  /// Removes a directory that's empty, which fails when it isn't.
-  fn remove_empty_dir(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
   /// Removes a directory and all of its contents as best-effort cleanup,
   /// logging any failure at debug level rather than returning it. Use this
   /// for cleanup that shouldn't abort the surrounding operation, while still
@@ -364,10 +362,6 @@ pub trait Environment:
     }
   }
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
-  /// Gets the paths of every entry of the directory without following them,
-  /// which includes the symlinks and the other entries that `dir_info` leaves
-  /// out.
-  fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>>;
   /// Tries to take an exclusive lock of the file, which is created when it
   /// doesn't exist. The lock is held until it's dropped or the process exits,
   /// and it's `None` when the file is locked already, including by another
@@ -384,6 +378,12 @@ pub trait Environment:
   /// (e.g. on Windows a running executable can't be removed). This is best-effort
   /// and never fails.
   fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize;
+  /// Kills every running `dprint lsp` process other than this one and returns
+  /// how many were killed. Used when clearing the cache, which the language
+  /// servers use (ex. their plugins and session files), so that an editor
+  /// starts them again with nothing from before. This is best-effort and never
+  /// fails.
+  fn kill_dprint_lsp_processes(&self) -> usize;
   /// Gets whether anything exists at the path (follows symlinks, so a broken
   /// symlink does not count as existing).
   fn path_exists(&self, path: impl AsRef<Path>) -> bool;

@@ -249,10 +249,8 @@ impl std::error::Error for SessionFileWriteError {}
 ///   once the session's `<id>.json` is gone), apart from what a server deletes
 ///   of its own session. It never creates a lock to delete a file whose
 ///   session has none, and it doesn't look in the directory when it's a
-///   symlink. `dprint clear-cache` deletes the files of every session whose
-///   lock it can take whatever their age, but older versions of it delete
-///   the whole directory, so a lock may be deleted under a server that's
-///   running.
+///   symlink. `dprint clear-cache` stops the servers that are running and then
+///   deletes the whole directory with the rest of the cache.
 ///
 /// So never raise the refresh interval or the check interval to near the
 /// stale age, never lower the stale age, and never use another lock or
@@ -525,18 +523,6 @@ pub fn remove_stale_session_files(environment: &impl Environment) {
   remove_session_files(environment, |path| is_stale(environment, path, now));
 }
 
-/// Deletes the session files whatever their age (ex. `dprint clear-cache`),
-/// apart from the ones of the sessions that a server that's running uses (see
-/// `SessionFile`), and the directory when nothing's left in it.
-pub fn remove_unused_session_files(environment: &impl Environment) {
-  remove_session_files(environment, |_| true);
-  let dir_path = get_sessions_dir(environment);
-  // not recursively, because a server may create its session's lock in it meanwhile
-  if environment.path_kind(&dir_path) == Some(PathKind::Dir) {
-    let _ignore = environment.remove_empty_dir(&dir_path);
-  }
-}
-
 /// Gets the directory in the cache directory with the session files.
 pub fn get_sessions_dir(environment: &impl Environment) -> PathBuf {
   environment.get_cache_dir().join(SESSIONS_DIR_NAME)
@@ -791,26 +777,6 @@ mod test {
     // until the session ends
     file.delete(&environment);
     assert!(!environment.path_exists(&file.file_path));
-  }
-
-  #[test]
-  fn should_remove_the_session_files_no_server_uses_whatever_their_age() {
-    let environment = TestEnvironment::new();
-    let running = open_locked(&environment, "running-0123456789");
-    running.write(&environment, &SessionState::default(), false).unwrap();
-    let exited = open_locked(&environment, "exited-0123456789");
-    exited.write(&environment, &SessionState::default(), false).unwrap();
-    let (exited_file_path, exited_lock_path) = (exited.file_path.clone(), exited.lock_path.clone());
-    drop(exited);
-    remove_unused_session_files(&environment);
-    assert!(!environment.path_exists(&exited_file_path));
-    assert!(!environment.path_exists(&exited_lock_path));
-    assert!(environment.path_exists(&running.file_path));
-    assert!(environment.path_exists(&running.lock_path));
-    // and the directory once nothing's left
-    running.delete(&environment);
-    remove_unused_session_files(&environment);
-    assert!(!environment.path_exists(get_sessions_dir(&environment)));
   }
 
   #[test]

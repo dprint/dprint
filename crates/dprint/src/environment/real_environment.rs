@@ -404,38 +404,28 @@ impl Environment for RealEnvironment {
 
   fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize {
     let dir_path = dir_path.as_ref();
-    let mut system = self.system.lock();
-    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let mut killed_pids = Vec::new();
-    for process in system.processes().values() {
+    kill_processes(self, |process| {
       let Some(exe) = process.exe() else {
-        continue;
+        return false;
       };
       if exe.starts_with(dir_path) {
         log_debug!(self, "Killing process {} using executable: {}", process.pid(), exe.display());
-        if process.kill() {
-          killed_pids.push(process.pid());
-        }
+        true
+      } else {
+        false
       }
-    }
+    })
+  }
 
-    // wait for the killed processes to actually exit so their executables are no
-    // longer locked before the caller tries to delete them again. poll with a
-    // timeout rather than `Process::wait`, which blocks indefinitely (e.g. on a
-    // process we couldn't kill, or a zombie its real parent hasn't reaped yet).
-    if !killed_pids.is_empty() {
-      let mut remaining_polls = 100; // ~2s at 20ms per poll
-      while remaining_polls > 0 {
-        system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&killed_pids), true);
-        if killed_pids.iter().all(|pid| system.process(*pid).is_none()) {
-          break;
-        }
-        remaining_polls -= 1;
-        std::thread::sleep(std::time::Duration::from_millis(20));
+  fn kill_dprint_lsp_processes(&self) -> usize {
+    let current_pid = sysinfo::Pid::from_u32(std::process::id());
+    kill_processes(self, |process| {
+      if process.pid() == current_pid || !is_dprint_lsp_process(process) {
+        return false;
       }
-    }
-
-    killed_pids.len()
+      log_debug!(self, "Killing the dprint language server process {}", process.pid());
+      true
+    })
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
@@ -484,19 +474,6 @@ impl Environment for RealEnvironment {
       Err(err) if err.raw_os_error().is_some() && err.raw_os_error() == fs3::lock_contended_error().raw_os_error() => Ok(None),
       Err(err) => Err(with_context(err)),
     }
-  }
-
-  fn remove_empty_dir(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
-    log_debug!(self, "Deleting directory when empty: {}", dir_path.as_ref().display());
-    #[allow(clippy::disallowed_methods)]
-    fs::remove_dir(&dir_path).map_err(|err| io::Error::new(err.kind(), format!("Error deleting directory '{}': {:#}", dir_path.as_ref().display(), err)))
-  }
-
-  fn dir_entry_paths(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
-    log_debug!(self, "Reading directory entries: {}", dir_path.as_ref().display());
-    #[allow(clippy::disallowed_methods)]
-    let entries = std::fs::read_dir(&dir_path)?;
-    entries.map(|entry| entry.map(|entry| entry.path())).collect()
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
@@ -1043,6 +1020,54 @@ fn is_same_file_at_path(file: &fs::File, file_path: &Path) -> io::Result<bool> {
     Err(err) if cfg!(windows) && err.kind() == io::ErrorKind::PermissionDenied => Ok(false),
     Err(err) => Err(err),
   }
+}
+
+/// Kills the running processes it says to and waits for them to exit, then
+/// returns how many were killed.
+fn kill_processes(environment: &RealEnvironment, should_kill: impl Fn(&sysinfo::Process) -> bool) -> usize {
+  let mut system = environment.system.lock();
+  system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+  let killed_pids = system
+    .processes()
+    .values()
+    .filter(|process| should_kill(process) && process.kill())
+    .map(|process| process.pid())
+    .collect::<Vec<_>>();
+
+  // wait for the killed processes to actually exit so their files are no longer
+  // locked before the caller deletes them. poll with a timeout rather than
+  // `Process::wait`, which blocks indefinitely (e.g. on a process we couldn't
+  // kill, or a zombie its real parent hasn't reaped yet).
+  if !killed_pids.is_empty() {
+    let mut remaining_polls = 100; // ~2s at 20ms per poll
+    while remaining_polls > 0 {
+      system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&killed_pids), true);
+      if killed_pids.iter().all(|pid| system.process(*pid).is_none()) {
+        break;
+      }
+      remaining_polls -= 1;
+      std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+  }
+
+  killed_pids.len()
+}
+
+/// Gets whether the process is a dprint language server (`dprint lsp`), which
+/// is a `dprint` executable whose subcommand, the first argument that isn't a
+/// flag, is `lsp`.
+fn is_dprint_lsp_process(process: &sysinfo::Process) -> bool {
+  let is_dprint = process
+    .exe()
+    .and_then(|exe| exe.file_stem())
+    .is_some_and(|stem| stem.eq_ignore_ascii_case("dprint"));
+  is_dprint
+    && process
+      .cmd()
+      .iter()
+      .skip(1)
+      .find(|arg| !arg.to_string_lossy().starts_with('-'))
+      .is_some_and(|arg| arg == "lsp")
 }
 
 #[cfg(test)]

@@ -167,9 +167,7 @@ use self::session_file::SessionFile;
 use self::session_file::SessionFileWriteError;
 use self::session_file::SessionLockError;
 use self::session_file::SessionState;
-pub(crate) use self::session_file::get_sessions_dir;
 use self::session_file::remove_stale_session_files;
-pub(crate) use self::session_file::remove_unused_session_files;
 
 /// What the user is told when they denied downloads that were each allowed
 /// exactly since (ex. for another config file, or for the same config file
