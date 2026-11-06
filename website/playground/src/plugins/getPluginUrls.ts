@@ -33,6 +33,17 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "csharpier":
     case "clang-format":
     case "cedar":
+    case "sql":
+    case "typstyle":
+    case "nix":
+    case "alejandra":
+    case "kdl":
+    case "shuck":
+    case "shfmt":
+    case "stylua":
+    case "zig":
+    case "terraform":
+    case "buildifier":
     case "malva":
     case "markup_fmt":
     case "pretty_yaml":
@@ -77,6 +88,24 @@ export function getLanguageFromPluginUrl(url: string) {
     case "clang-format":
       return "cpp";
     case "cedar":
+      return "plaintext";
+    case "sql":
+      return "sql";
+    case "shuck":
+    case "shfmt":
+      return "shell";
+    case "stylua":
+      return "lua";
+    case "terraform":
+      return "hcl";
+    case "buildifier":
+      // starlark is a dialect of python
+      return "python";
+    case "typstyle":
+    case "nix":
+    case "alejandra":
+    case "kdl":
+    case "zig":
       return "plaintext";
     case "malva":
     case "lax-css":
