@@ -44,6 +44,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "zig":
     case "terraform":
     case "buildifier":
+    case "wat":
     case "jupyter":
     case "malva":
     case "markup_fmt":
@@ -107,6 +108,7 @@ export function getLanguageFromPluginUrl(url: string) {
     case "alejandra":
     case "kdl":
     case "zig":
+    case "wat":
       return "plaintext";
     case "jupyter":
       return "json";
