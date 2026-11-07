@@ -1231,6 +1231,22 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     .await
     .with_context(|| "Failed running plugin config updates.".to_string())?;
 
+  // updating ran the process plugins of each config file, which is the same as choosing to run
+  // them, so the editors run them too with the configuration they were updated to
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &file_pattern_args,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions {
+      skip_traversal: config_discovery.is_global(),
+    },
+  )
+  .await?;
+  for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
+    allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
+  }
+
   Ok(())
 }
 
@@ -4423,6 +4439,52 @@ text",
     let commands = environment.take_run_commands();
     let (args, _) = &commands[0];
     assert_eq!(args[args.len() - 1], "/custom.config.json");
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_updating() {
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: true,
+    });
+    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+    environment.take_stderr_messages();
+    let approvals = crate::configuration::read_editor_approvals(&environment)
+      .unwrap()
+      .process_plugin_decisions
+      .into_iter()
+      .filter(|decision| decision.allowed)
+      .map(|decision| decision.approval)
+      .collect::<Vec<_>>();
+    // the plugin it was updated to is allowed
+    assert_eq!(approvals.len(), 1, "{:?}", approvals);
+    assert_eq!(approvals[0].config_file, "/dprint.json");
+    assert!(
+      approvals[0].plugin.starts_with("https://plugins.dprint.dev/test-plugin-3.json@"),
+      "{}",
+      approvals[0].plugin
+    );
+  }
+
+  #[test]
+  fn should_not_allow_process_plugins_in_editors_on_a_dry_run_update() {
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: true,
+    });
+    run_test_cli(vec!["config", "update", "--dry-run"], &environment).unwrap();
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    assert_eq!(
+      crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions,
+      Vec::new()
+    );
   }
 
   #[test]

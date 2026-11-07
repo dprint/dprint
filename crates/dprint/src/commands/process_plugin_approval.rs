@@ -195,8 +195,8 @@ const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 
 /// Allows the editors to run the process plugins of the config file with its
 /// configuration, which is for when the user ran dprint with it (`dprint fmt`,
-/// `dprint check`, or `dprint config install`) because that's the same as
-/// choosing to run them. The plugins need to be set up.
+/// `dprint check`, `dprint config install`, or `dprint config update`) because
+/// that's the same as choosing to run them. The plugins need to be set up.
 ///
 /// Nothing is stored when the approvals file can't be read (ex. it's from a
 /// newer version of dprint that this version can't use, which this version
