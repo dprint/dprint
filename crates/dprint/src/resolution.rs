@@ -1516,7 +1516,7 @@ pub fn get_cant_ask_message(environment: &impl Environment, config_file: &str) -
   format!(
     concat!(
       "The editor can't ask whether to allow them, so dprint only formats with it once you allow them by running ",
-      "{} or when \"editor.allowProcessPlugins\" isn't false in {}."
+      "{} or when \"editor.allowProcessPlugins\" is true in {}."
     ),
     match is_remote {
       true => "`dprint config install --config` with the configuration file's url",
