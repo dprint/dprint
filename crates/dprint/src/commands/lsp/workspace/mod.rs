@@ -2264,7 +2264,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       return Vec::new();
     };
     let permissions = self.session_permissions.read(&self.environment);
-    let config_file_line = get_config_file_line(&config_file);
+    let config_file_text = get_config_file_text(&config_file);
     let stored = subjects
       .into_iter()
       .map(|(subject, items)| {
@@ -2280,11 +2280,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             };
             let mut message = get_download_approval_message(
               &self.with_editor_npmrc_paths(urls),
-              &config_file_line,
+              &config_file_text,
               read_ignored_settings_message(&self.environment).as_deref(),
             );
             if !is_allowable {
-              message.push_str(&format!("\n\n{}", NOT_ALLOWABLE_PATH_MESSAGE));
+              message.push_str(&format!(" {}", NOT_ALLOWABLE_PATH_MESSAGE));
             }
             PendingApproval {
               denied,
@@ -2323,7 +2323,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               true => Some(ApprovalDecision::Deny),
               false => None,
             },
-            message: unapproved.approval_message(&permissions, &config_file_line),
+            message: unapproved.approval_message(&permissions, &config_file_text),
           },
         };
         StoredApproval {
@@ -2379,7 +2379,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             .map(|unapproved| get_cant_ask_message(&self.environment, &unapproved.config_file))
             .unwrap_or_default(),
         };
-        self.client.show_message(MessageType::WARNING, format!("{}\n\n{}", approval.message, guidance));
+        self.client.show_message(MessageType::WARNING, format!("{} {}", approval.message, guidance));
       }
       return;
     }
@@ -4391,13 +4391,13 @@ fn get_language_client_approval_message(approval: &PendingApproval) -> String {
     .collect::<serde_json::Map<_, _>>();
   if !configuration.is_empty() {
     message.push_str(&format!(
-      "\n\nThey run with this configuration: {}",
+      " They run with this configuration: {}",
       get_escaped_json(&serde_json::Value::Object(configuration))
     ));
   }
   if let Some(trusted_configuration) = &approval.trusted_configuration {
     message.push_str(&format!(
-      "\n\nThe plugins that weren't set up before run with this configuration: {}",
+      " The plugins that weren't set up before run with this configuration: {}",
       get_escaped_json(trusted_configuration)
     ));
   }
@@ -4626,16 +4626,15 @@ fn get_download_groups(downloads: &[String]) -> Vec<Vec<String>> {
   groups
 }
 
-/// Gets the line of an approval's message that has its config file (ex.
-/// ``Config file: `/project/dprint.json` ``), which says when it's outside the
-/// workspace.
-fn get_config_file_line(config_file: &ConfigFileInfo) -> String {
+/// Gets the config file as an approval's message has it (ex.
+/// `` `/project/dprint.json` ``), which says when it's outside the workspace.
+fn get_config_file_text(config_file: &ConfigFileInfo) -> String {
   let path = uri_to_file_path(&config_file.uri)
     .map(|path| path.display().to_string())
     .unwrap_or_else(|| config_file.uri.as_str().to_string());
   match config_file.in_workspace {
-    true => format!("Config file: {}", quote_text(&path)),
-    false => format!("Config file (outside the workspace): {}", quote_text(&path)),
+    true => quote_text(&path),
+    false => format!("{} (outside the workspace)", quote_text(&path)),
   }
 }
 
@@ -5074,7 +5073,7 @@ mod test {
     };
     assert_eq!(
       get_language_client_approval_message(&approval),
-      concat!("Allow them?\n\n", r#"They run with this configuration: {"exec":{"commands":[]}}"#)
+      concat!("Allow them? ", r#"They run with this configuration: {"exec":{"commands":[]}}"#)
     );
     approval.items[0].plugin = None;
     approval.items[0].configuration = None;
@@ -5082,7 +5081,7 @@ mod test {
     assert_eq!(
       get_language_client_approval_message(&approval),
       concat!(
-        "Allow them?\n\n",
+        "Allow them? ",
         r#"The plugins that weren't set up before run with this configuration: {"exec":{"commands":[]}}"#
       )
     );
@@ -5094,7 +5093,7 @@ mod test {
       message,
       format!(
         concat!(
-          "Allow them?\n\n",
+          "Allow them? ",
           r#"The plugins that weren't set up before run with this configuration: {{"exec":{{"a{}b":"c{}d{}e","f":"{}g`"}}}}"#
         ),
         u("202e"),

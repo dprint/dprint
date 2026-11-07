@@ -1283,19 +1283,23 @@ impl UnapprovedProcessPlugins {
   }
 
   /// Gets the message that asks the user to allow the process plugins, which
-  /// asks first and then has a line with the config file (see
-  /// `config_file_line`) and a line with the plugins.
-  pub fn approval_message(&self, permissions: &Permissions, config_file_line: &str) -> String {
-    let question = match self.was_allowed_with_other_config(permissions) {
-      true => "The configuration of these process plugins changed since you allowed them. Allow them again?",
-      false => "Formatting runs process plugins that aren't sandboxed. Allow them?",
+  /// is one sentence with the config file (see `config_file_text`) and the
+  /// plugins that asks at the end, because an editor may not show line breaks
+  /// (ex. a VS Code notification).
+  pub fn approval_message(&self, permissions: &Permissions, config_file_text: &str) -> String {
+    let message = match self.was_allowed_with_other_config(permissions) {
+      true => format!(
+        "The configuration of the process plugins of {} ({}) changed since you allowed them. Allow them again?",
+        config_file_text,
+        self.display_plugins()
+      ),
+      false => format!(
+        "Formatting {} runs process plugins that aren't sandboxed ({}). Allow them?",
+        config_file_text,
+        self.display_plugins()
+      ),
     };
-    let mut message = format!("{}\n\n{}\nPlugins: {}", question, config_file_line, self.display_plugins());
-    if let Some(ignored_settings_message) = &permissions.ignored_settings_message {
-      message.push_str("\n\n");
-      message.push_str(ignored_settings_message);
-    }
-    message
+    with_ignored_settings_message(message, permissions)
   }
 
   fn display_plugins(&self) -> String {

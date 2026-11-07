@@ -592,9 +592,9 @@ pub struct PendingApproval {
   pub previous_decision: Option<ApprovalDecision>,
   /// The message to show the user when asking, which names everything that's
   /// approved apart from what the process plugins run with, and quotes the text
-  /// it has from the project (see `quote_text`). It asks first, then has a
-  /// line with the config file and a line with what's approved, then any
-  /// notes, with a blank line between them (see `get_config_file_line`).
+  /// it has from the project (see `quote_text`). It's one sentence with the
+  /// config file and what's approved that asks at the end, followed by any
+  /// notes, because an editor may not show line breaks.
   pub message: String,
   /// The trusted configuration of the config file that the process plugins
   /// that aren't set up run with once they're allowed, which is what the user
