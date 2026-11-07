@@ -3486,7 +3486,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert!(
           approval
             .message
-            .contains("dprint.json` downloads from domains that aren't trusted (`https://example.com/test-plugin.wasm`). Allow them?"),
+            .contains("dprint.json` needs to download from domains that aren't trusted (`https://example.com/test-plugin.wasm`)."),
           "{}",
           approval.message
         );
@@ -3651,7 +3651,7 @@ fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
         assert!(
           approval
             .message
-            .contains(&format!("downloads through a proxy (`{}`) that `{}` sets", PROXY_SETTING, npmrc_path)),
+            .contains(&format!("needs to download through a proxy (`{}`) that `{}` sets", PROXY_SETTING, npmrc_path)),
           "{}",
           approval.message
         );
@@ -3736,7 +3736,7 @@ fn should_approve_the_proxy_of_a_project_npmrc_on_its_own() {
         assert!(
           proxy_approval
             .message
-            .contains(&format!("downloads through a proxy (`{}`) that `{}` sets", PROXY_SETTING, npmrc_path)),
+            .contains(&format!("needs to download through a proxy (`{}`) that `{}` sets", PROXY_SETTING, npmrc_path)),
           "{}",
           proxy_approval.message
         );
@@ -3826,7 +3826,7 @@ fn should_approve_reading_a_config_file_on_another_machine() {
         }]
       );
       assert!(
-        approval.message.contains(&format!(" reads from another machine (`{}`), ", specifier)),
+        approval.message.contains(&format!(" needs to read from another machine (`{}`), ", specifier)),
         "{}",
         approval.message
       );
@@ -4054,7 +4054,7 @@ fn should_approve_running_process_plugins() {
         assert!(
           approval
             .message
-            .ends_with("dprint.json` runs process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`). Allow them?"),
+            .ends_with("dprint.json` needs to run process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`)."),
           "{}",
           approval.message
         );
@@ -4269,7 +4269,7 @@ fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one
   assert!(
     approval
       .message
-      .ends_with("(`npm:@dprint/exec@0.5.0/plugin.json` from `https://raw.githubusercontent.com/other/registry/main`). Allow them?"),
+      .ends_with("(`npm:@dprint/exec@0.5.0/plugin.json` from `https://raw.githubusercontent.com/other/registry/main`)."),
     "{}",
     approval.message
   );
@@ -4280,7 +4280,7 @@ fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one
   let default_registry = get_approval(None);
   assert_eq!(default_registry.items[0].registry, None);
   assert!(
-    default_registry.message.ends_with("(`npm:@dprint/exec@0.5.0/plugin.json`). Allow them?"),
+    default_registry.message.ends_with("(`npm:@dprint/exec@0.5.0/plugin.json`)."),
     "{}",
     default_registry.message
   );

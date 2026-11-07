@@ -593,7 +593,7 @@ pub struct PendingApproval {
   /// The message to show the user when asking, which names everything that's
   /// approved apart from what the process plugins run with, and quotes the text
   /// it has from the project (see `quote_text`). It's one sentence with the
-  /// config file and what's approved that asks at the end, followed by any
+  /// config file and what's approved, followed by any
   /// notes, because an editor may not show line breaks.
   pub message: String,
   /// The trusted configuration of the config file that the process plugins

@@ -1959,8 +1959,8 @@ mod test {
             assert_eq!(shown.len(), 1, "{shown:?}");
             assert!(
               shown[0].1.starts_with(concat!(
-                "Formatting `/dprint.json` (outside the workspace) downloads from domains that aren't trusted ",
-                "(`https://example.com/test-plugin.wasm`). Allow them?"
+                "Formatting `/dprint.json` (outside the workspace) needs to download from domains that aren't trusted ",
+                "(`https://example.com/test-plugin.wasm`)."
               )),
               "{shown:?}"
             );
@@ -3611,14 +3611,14 @@ mod test {
       assert!(!was_set_up);
       assert_asked(
         shown,
-        "runs process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`). Allow them?",
+        "needs to run process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`).",
       );
 
       // always denying doesn't ask in the next session
       let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Deny"), [false, false]).await;
       assert_asked(
         shown,
-        "runs process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`). Allow them?",
+        "needs to run process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`).",
       );
       assert_eq!(
         run_session(&environment, message_actions_capabilities(), None, [false, false]).await,
@@ -3630,7 +3630,7 @@ mod test {
       let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Allow"), [false, true]).await;
       assert_asked(
         shown,
-        "runs process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`). Allow them?",
+        "needs to run process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`).",
       );
       assert_eq!(
         run_session(&environment, message_actions_capabilities(), None, [true, true]).await,
@@ -3648,7 +3648,7 @@ mod test {
         )
         .unwrap();
       let (shown, _) = run_session(&environment, message_actions_capabilities(), None, [false, false]).await;
-      assert_asked(shown, "changed since you allowed them. Allow them again?");
+      assert_asked(shown, "changed since you allowed them.");
     });
   }
 

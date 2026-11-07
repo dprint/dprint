@@ -307,10 +307,10 @@ interface PendingApproval {
    * The message to show the user when asking, which says what's approved and why. It names everything that's approved,
    * including where each item is from (ex. the registry of an npm plugin or the `.npmrc` file of a proxy), apart from what the
    * process plugins run with (`configuration` and `trustedConfiguration`). It's one sentence with the configuration file (and
-   * whether it's outside the workspace) and what's approved that asks at the end, followed by any notes, because an editor may
-   * not show line breaks (ex. "Formatting `/project/dprint.json` runs process plugins that aren't sandboxed
-   * (`npm:@dprint/exec@0.7.4`). Allow them?"). A client that can't show the items shows it, and an item property that isn't known doesn't need to be shown. The text it has from the project (ex. a
-   * url, a path, or the
+   * whether it's outside the workspace) and what's approved, followed by any notes, because an editor may not show line breaks
+   * (ex. "Formatting `/project/dprint.json` needs to run process plugins that aren't sandboxed (`npm:@dprint/exec@0.7.4`)."). It
+   * doesn't ask a question, because the decisions do. A client that can't show the items shows it, and an item property that
+   * isn't known doesn't need to be shown. The text it has from the project (ex. a url, a path, or the
    * setting of an `.npmrc` file) is in backticks (ex. `` `https://example.com/plugin.wasm` ``), so it's clear where it starts and
    * ends when the message is shown as plain text. It's escaped like an item's `specifier`, and a backtick and a character that
    * looks like one are escaped too (ex. `\u{60}`), so the text can't end the quotes or change how the rest of the message reads.

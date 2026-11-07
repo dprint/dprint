@@ -1284,17 +1284,17 @@ impl UnapprovedProcessPlugins {
 
   /// Gets the message that asks the user to allow the process plugins, which
   /// is one sentence with the config file (see `config_file_text`) and the
-  /// plugins that asks at the end, because an editor may not show line breaks
-  /// (ex. a VS Code notification).
+  /// plugins, because an editor may not show line breaks (ex. a VS Code
+  /// notification). It doesn't ask a question because the editor's actions do.
   pub fn approval_message(&self, permissions: &Permissions, config_file_text: &str) -> String {
     let message = match self.was_allowed_with_other_config(permissions) {
       true => format!(
-        "The configuration of the process plugins of {} ({}) changed since you allowed them. Allow them again?",
+        "The configuration of the process plugins of {} ({}) changed since you allowed them.",
         config_file_text,
         self.display_plugins()
       ),
       false => format!(
-        "Formatting {} runs process plugins that aren't sandboxed ({}). Allow them?",
+        "Formatting {} needs to run process plugins that aren't sandboxed ({}).",
         config_file_text,
         self.display_plugins()
       ),

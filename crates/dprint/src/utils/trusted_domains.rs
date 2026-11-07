@@ -716,8 +716,9 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
 /// Gets the message that asks the user to allow downloading what's untrusted,
 /// which is one group of downloads (a proxy, paths on another machine, or
 /// urls). It's one sentence with the config file (see `config_file_text`) and
-/// what's downloaded that asks at the end, followed by any notes, because an
-/// editor may not show line breaks (ex. a VS Code notification).
+/// what's downloaded, followed by any notes, because an editor may not show
+/// line breaks (ex. a VS Code notification). It doesn't ask a question because
+/// the editor's actions do, and a client that can't show them says so after it.
 pub fn get_download_approval_message(downloads: &[String], config_file_text: &str, ignored_settings_message: Option<&str>) -> String {
   let join = |downloads: &[&String]| downloads.iter().map(|download| quote_download(download)).collect::<Vec<_>>().join(", ");
   let proxies = downloads.iter().filter_map(|download| NpmrcProxy::from_download(download)).collect::<Vec<_>>();
@@ -729,8 +730,8 @@ pub fn get_download_approval_message(downloads: &[String], config_file_text: &st
   for proxy in &proxies {
     sentences.push(format!(
       concat!(
-        "Formatting {} downloads through a proxy ({}) that {} sets, which isn't your own .npmrc file. ",
-        "The proxy receives every download and the credentials in the setting. Allow it?"
+        "Formatting {} needs to download through a proxy ({}) that {} sets, which isn't your own .npmrc file. ",
+        "The proxy receives every download and the credentials in the setting."
       ),
       config_file_text,
       quote_text(&proxy.setting),
@@ -740,8 +741,8 @@ pub fn get_download_approval_message(downloads: &[String], config_file_text: &st
   if !paths.is_empty() {
     sentences.push(format!(
       concat!(
-        "Formatting {} reads from another machine ({}), which connects to it and can send it information ",
-        "(ex. your credentials for it). Allow it?"
+        "Formatting {} needs to read from another machine ({}), which connects to it and can send it information ",
+        "(ex. your credentials for it)."
       ),
       config_file_text,
       join(&paths),
@@ -752,7 +753,7 @@ pub fn get_download_approval_message(downloads: &[String], config_file_text: &st
   }
   if !urls.is_empty() {
     sentences.push(format!(
-      "Formatting {} downloads from domains that aren't trusted ({}). Allow them?",
+      "Formatting {} needs to download from domains that aren't trusted ({}).",
       config_file_text,
       join(&urls),
     ));
@@ -2976,15 +2977,15 @@ mod test {
     assert_eq!(
       get_download_approval_message(&["https://example.com/plugin.wasm".to_string()], config_file_text, None),
       concat!(
-        "Formatting `/project/dprint.json` downloads from domains that aren't trusted (`https://example.com/plugin.wasm`). ",
-        "Allow them? Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."
+        "Formatting `/project/dprint.json` needs to download from domains that aren't trusted ",
+        "(`https://example.com/plugin.wasm`). Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."
       )
     );
     assert_eq!(
       get_download_approval_message(&["/net/host/plugin.wasm".to_string()], config_file_text, None),
       concat!(
-        "Formatting `/project/dprint.json` reads from another machine (`/net/host/plugin.wasm`), which connects to it ",
-        "and can send it information (ex. your credentials for it). Allow it?"
+        "Formatting `/project/dprint.json` needs to read from another machine (`/net/host/plugin.wasm`), which connects ",
+        "to it and can send it information (ex. your credentials for it)."
       )
     );
     let proxy = NpmrcProxy {
@@ -2994,9 +2995,9 @@ mod test {
     assert_eq!(
       get_download_approval_message(&[proxy.to_download()], config_file_text, None),
       concat!(
-        "Formatting `/project/dprint.json` downloads through a proxy (`https://proxy.example`) that `/project/.npmrc` ",
-        "sets, which isn't your own .npmrc file. The proxy receives every download and the credentials in the setting. ",
-        "Allow it?"
+        "Formatting `/project/dprint.json` needs to download through a proxy (`https://proxy.example`) that ",
+        "`/project/.npmrc` sets, which isn't your own .npmrc file. The proxy receives every download and the credentials ",
+        "in the setting."
       )
     );
   }
