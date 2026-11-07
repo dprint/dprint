@@ -70,7 +70,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
          config_schema_url: format!("https://plugins.dprint.dev/{repo_name}/{}/schema.json", env!("CARGO_PKG_VERSION")),
          update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
          // whether `format` formats the request's range (see `PluginInfo::supports_range_formatting`)
-         supports_range_formatting: Some(false),
+         supports_range_formatting: false,
        }
      }
 

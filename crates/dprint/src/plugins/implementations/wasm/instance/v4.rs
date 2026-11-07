@@ -22,7 +22,6 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::wasm::JsonResponse;
 use wasmtime::Caller;
 use wasmtime::Engine;
@@ -33,6 +32,7 @@ use wasmtime::WasmResults;
 
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
+use crate::plugins::ReceivedPluginInfo;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
 use crate::utils::LogLevel;
@@ -350,7 +350,7 @@ impl InitializedWasmPluginInstanceV4 {
 }
 
 impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
-  fn plugin_info(&mut self) -> Result<PluginInfo> {
+  fn plugin_info(&mut self) -> Result<ReceivedPluginInfo> {
     let len = self.wasm_functions.get_plugin_info()?;
     let json_bytes = self.receive_bytes(len)?;
     Ok(serde_json::from_slice(&json_bytes)?)

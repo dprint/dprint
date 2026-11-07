@@ -12,13 +12,13 @@ use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
-use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
 use wasmtime::Engine;
 use wasmtime::Memory;
 
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
+use crate::plugins::ReceivedPluginInfo;
 
 use super::WasmInstance;
 
@@ -75,7 +75,7 @@ pub enum PluginSchemaVersion {
 }
 
 pub trait InitializedWasmPluginInstance {
-  fn plugin_info(&mut self) -> Result<PluginInfo>;
+  fn plugin_info(&mut self) -> Result<ReceivedPluginInfo>;
   fn license_text(&mut self) -> Result<String>;
   fn resolved_config(&mut self, config: &FormatConfig) -> Result<String>;
   fn config_diagnostics(&mut self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>>;

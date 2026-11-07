@@ -244,7 +244,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 
   /// Gets the information of a plugin that was set up before, which doesn't
   /// set it up (ex. a process plugin is run to get its information).
-  pub fn get_set_up_plugin_info(&self, plugin: &crate::plugins::PluginSourceReference) -> Option<dprint_core::plugins::PluginInfo> {
+  pub fn get_set_up_plugin_info(&self, plugin: &crate::plugins::PluginSourceReference) -> Option<crate::plugins::ReceivedPluginInfo> {
     self.plugin_resolver.get_set_up_plugin_info(plugin)
   }
 

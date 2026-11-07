@@ -5,7 +5,6 @@ use dprint_core::async_runtime::future;
 use dprint_core::communication::IdGenerator;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
-use dprint_core::plugins::PluginInfo;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -18,6 +17,7 @@ use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::ReceivedPluginInfo;
 use crate::utils::AsyncCell;
 use crate::utils::PathSource;
 
@@ -42,7 +42,7 @@ impl PluginWrapper {
     self.was_set_up
   }
 
-  pub fn info(&self) -> &PluginInfo {
+  pub fn info(&self) -> &ReceivedPluginInfo {
     self.plugin.info()
   }
 
@@ -176,7 +176,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
 
   /// Gets the information of the plugin when it's set up without setting it
   /// up (which runs a process plugin to get its information).
-  pub fn get_set_up_plugin_info(&self, plugin_reference: &PluginSourceReference) -> Option<PluginInfo> {
+  pub fn get_set_up_plugin_info(&self, plugin_reference: &PluginSourceReference) -> Option<ReceivedPluginInfo> {
     self
       .get_resolved_plugin_info(plugin_reference)
       .or_else(|| self.plugin_cache.get_set_up_plugin_info(plugin_reference))
@@ -194,7 +194,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     self.plugin_cache.store_file_matching_info(plugin_reference, config, file_matching).await
   }
 
-  fn get_resolved_plugin_info(&self, plugin_reference: &PluginSourceReference) -> Option<PluginInfo> {
+  fn get_resolved_plugin_info(&self, plugin_reference: &PluginSourceReference) -> Option<ReceivedPluginInfo> {
     let memory_cache = self.memory_cache.borrow();
     let plugin = memory_cache.get(plugin_reference)?.get()?;
     Some(plugin.info().clone())

@@ -1,9 +1,9 @@
 use std::fmt;
 
 use anyhow::Result;
-use dprint_core::plugins::PluginInfo;
 
 use crate::environment::Environment;
+use crate::plugins::ReceivedPluginInfo;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::parse_checksum_path_or_url;
@@ -14,7 +14,7 @@ use crate::utils::validate_plugin_extension;
 #[derive(Clone)]
 pub struct CompilationResult {
   pub bytes: Vec<u8>,
-  pub plugin_info: PluginInfo,
+  pub plugin_info: ReceivedPluginInfo,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

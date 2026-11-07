@@ -4226,7 +4226,7 @@ async fn get_plugin_infos<TEnvironment: Environment>(scope: &PluginsScope<TEnvir
   Ok(plugins)
 }
 
-fn get_plugin_info(info: dprint_core::plugins::PluginInfo, file_matching: FileMatchingInfo) -> PluginInfo {
+fn get_plugin_info(info: crate::plugins::ReceivedPluginInfo, file_matching: FileMatchingInfo) -> PluginInfo {
   PluginInfo {
     name: info.name,
     version: info.version,
@@ -4244,7 +4244,7 @@ fn get_plugin_info(info: dprint_core::plugins::PluginInfo, file_matching: FileMa
   }
 }
 
-fn get_file_plugin(info: &dprint_core::plugins::PluginInfo) -> FilePlugin {
+fn get_file_plugin(info: &crate::plugins::ReceivedPluginInfo) -> FilePlugin {
   FilePlugin {
     name: info.name.clone(),
     version: info.version.clone(),

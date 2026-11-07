@@ -1,4 +1,11 @@
-export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
+export interface PluginUrls {
+  /** The urls of the Wasm plugins, which are what the plugins are loaded from. */
+  urls: string[];
+  /** The text to show for a plugin url, which is the plugin's npm specifier when it has one. */
+  displayTexts: Map<string, string>;
+}
+
+export async function getPluginUrls(signal: AbortSignal): Promise<PluginUrls> {
   const response = await fetch("https://plugins.dprint.dev/info.json", { signal });
   const json = await response.json();
   const expectedSchemaVersion = 4;
@@ -8,9 +15,17 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   }
 
   // every Wasm plugin, since process plugins can't run in the browser
-  return json.latest
-    .map((p: any) => p.url as string)
-    .filter((url: string) => url.endsWith(".wasm"));
+  const plugins = json.latest.filter((p: any) => (p.url as string).endsWith(".wasm"));
+  const displayTexts = new Map<string, string>();
+  for (const plugin of plugins) {
+    if (plugin.npm != null) {
+      displayTexts.set(plugin.url, `npm:${plugin.npm.name}@${plugin.npm.version}`);
+    }
+  }
+  return {
+    urls: plugins.map((p: any) => p.url as string),
+    displayTexts,
+  };
 }
 
 const RE_PLUGIN_URL = /https:\/\/plugins\.dprint\.dev\/(?:[a-z_-]+\/)?([a-z_-]+)-v?[0-9]+\.[0-9]+\.[0-9]+\.wasm$/;

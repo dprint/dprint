@@ -19,7 +19,6 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use dprint_core::plugins::PluginInfo;
 use serde::Serialize;
 use wasmtime::Caller;
 use wasmtime::Engine;
@@ -29,6 +28,7 @@ use wasmtime::WasmParams;
 use wasmtime::WasmResults;
 
 use crate::plugins::FormatConfig;
+use crate::plugins::ReceivedPluginInfo;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
 
@@ -46,7 +46,7 @@ enum WasmFormatResult {
 #[derive(Clone, Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 struct SyncPluginInfo {
   #[serde(flatten)]
-  pub info: PluginInfo,
+  pub info: ReceivedPluginInfo,
   #[serde(flatten)]
   pub file_matching: FileMatchingInfo,
 }
@@ -368,7 +368,7 @@ impl InitializedWasmPluginInstanceV3 {
 }
 
 impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
-  fn plugin_info(&mut self) -> Result<PluginInfo> {
+  fn plugin_info(&mut self) -> Result<ReceivedPluginInfo> {
     self.sync_plugin_info().map(|i| i.info)
   }
 

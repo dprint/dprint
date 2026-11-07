@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use dprint_core::plugins::FileMatchingInfo;
-use dprint_core::plugins::PluginInfo;
 use sys_traits::FsMetadata;
 use sys_traits::FsMetadataValue;
 
@@ -42,6 +41,7 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::ReceivedPluginInfo;
 use crate::utils::NpmSpecifier;
 use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
@@ -53,7 +53,7 @@ use crate::utils::verify_sha256_checksum;
 
 pub struct PluginCacheItem {
   pub file_path: PathBuf,
-  pub info: PluginInfo,
+  pub info: ReceivedPluginInfo,
   pub plugin_kind: PluginKind,
   /// Whether this process set the plugin up (downloaded, compiled, or
   /// extracted it) instead of it already being in the cache.
@@ -252,7 +252,7 @@ where
 
   /// Gets the information of the plugin when it's set up in the cache without
   /// setting it up (which runs a process plugin to get its information).
-  pub fn get_set_up_plugin_info(&self, source_reference: &PluginSourceReference) -> Option<PluginInfo> {
+  pub fn get_set_up_plugin_info(&self, source_reference: &PluginSourceReference) -> Option<ReceivedPluginInfo> {
     self.set_up_meta(source_reference).map(|meta| meta.info)
   }
 
@@ -1030,7 +1030,7 @@ mod test {
       signature: current_signature(environment),
       plugin_kind: PluginKind::Wasm,
       created_time: 0,
-      info: PluginInfo {
+      info: ReceivedPluginInfo {
         name: name.to_string(),
         version: version.to_string(),
         config_key: "test".to_string(),
@@ -1038,6 +1038,7 @@ mod test {
         config_schema_url: "schema".to_string(),
         update_url: None,
         supports_range_formatting: None,
+        allow_plugin_override_config: None,
       },
       executable_sub_path: None,
       npm_executable_sub_path: None,

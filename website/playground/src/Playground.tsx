@@ -23,6 +23,8 @@ export interface PlaygroundProps {
   fileMatchingInfo: FileMatchingInfo;
   selectedPluginUrl: string;
   pluginUrls: string[];
+  /** The text to show for a plugin url, which falls back to the url. */
+  pluginDisplayTexts: Map<string, string>;
   onSelectPluginUrl: (pluginUrl: string) => void;
   isLoading: boolean;
 }
@@ -39,6 +41,7 @@ export function Playground({
   selectedPluginUrl,
   selectedPluginInfo,
   pluginUrls,
+  pluginDisplayTexts,
   onSelectPluginUrl,
   isLoading,
 }: PlaygroundProps) {
@@ -142,7 +145,7 @@ export function Playground({
             <select className="control" value={selectedPluginUrl} onChange={onSelectPlugin}>
               {pluginUrls.map((pluginUrl, i) => (
                 <option key={i} value={pluginUrl}>
-                  {pluginUrl}
+                  {pluginDisplayTexts.get(pluginUrl) ?? pluginUrl}
                 </option>
               ))}
               <option key="custom">Custom…</option>

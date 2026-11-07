@@ -974,7 +974,7 @@ mod test {
 
   #[test]
   fn should_format_plugin_explicitly_specified_files() {
-    // this file name is mentioned in test-process-plugin's PluginInfo
+    // this file name is mentioned in test-process-plugin's ProcessPluginInfo
     let file_path1 = "/test-process-plugin-exact-file";
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
       .write_file(&file_path1, "text")
