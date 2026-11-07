@@ -12,6 +12,7 @@ let isFirstLoad = true;
 
 export default function App() {
   const [pluginUrls, setPluginUrls] = useState<string[]>([]);
+  const [pluginDisplayTexts, setPluginDisplayTexts] = useState(() => new Map<string, string>());
   const [pluginUrl, setPluginUrl] = useState(initialUrl.pluginUrl);
   const [pluginInfo, setPluginInfo] = useState<PluginInfo | undefined>();
   const [fileMatchingInfo, setFileMatchingInfo] = useState<FileMatchingInfo | undefined>();
@@ -30,8 +31,9 @@ export default function App() {
   // initialization
   useEffect(() => {
     const abortController = new AbortController();
-    getPluginUrls(abortController.signal).then(pluginUrls => {
+    getPluginUrls(abortController.signal).then(({ urls: pluginUrls, displayTexts }) => {
       setPluginUrls(pluginUrls.concat(initialUrl.pluginUrl ?? []));
+      setPluginDisplayTexts(displayTexts);
       if (initialUrl.pluginUrl == null) {
         setPluginUrl(pluginUrls.find(url => getPluginShortNameFromPluginUrl(url) === (initialUrl.pluginName ?? "typescript"))!);
       }
@@ -159,6 +161,7 @@ export default function App() {
       onFileExtensionChanged={setFileExtension}
       formattedText={formattedText}
       pluginUrls={pluginUrls}
+      pluginDisplayTexts={pluginDisplayTexts}
       selectedPluginUrl={pluginUrl}
       selectedPluginInfo={pluginInfo}
       fileMatchingInfo={fileMatchingInfo}
