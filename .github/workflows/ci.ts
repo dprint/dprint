@@ -736,18 +736,18 @@ gh attestation verify dprint-x86_64-unknown-linux-gnu.zip --repo dprint/dprint
 |Artifact|SHA-256 Checksum|
 |:--|:--|
 ${
-          profiles.map(profile => {
-            const output: [string, string][] = [
-              [profile.zipFileName, `${buildJob.outputs[profile.zipChecksumEnvVarName]}`],
-            ];
-            if (profile.target === "x86_64-pc-windows-msvc") {
-              output.push(
-                [profile.installerFileName, `${buildJob.outputs[profile.installerChecksumEnvVarName]}`],
-              );
-            }
-            return output.map(([name, checksum]) => `|${name}|${checksum}|`);
-          }).flat().join("\n")
-        }
+  profiles.map(profile => {
+    const output: [string, string][] = [
+      [profile.zipFileName, `${buildJob.outputs[profile.zipChecksumEnvVarName]}`],
+    ];
+    if (profile.target === "x86_64-pc-windows-msvc") {
+      output.push(
+        [profile.installerFileName, `${buildJob.outputs[profile.installerChecksumEnvVarName]}`],
+      );
+    }
+    return output.map(([name, checksum]) => `|${name}|${checksum}|`);
+  }).flat().join("\n")
+}
 `,
         draft: true,
       },
