@@ -12,6 +12,12 @@ pub struct LspSettings {
   /// Whether to notify the first time in a session that a file isn't
   /// formatted because no config file was found for it.
   pub show_no_config_notification: bool,
+  /// Whether to format again to ensure a stable format, which is what the
+  /// `DPRINT_EDITOR_STABLE_FORMAT` environment variable says when `None`.
+  pub ensure_stable_format: Option<bool>,
+  /// Whether to log debug messages, which is the log level dprint was started
+  /// with when `None`.
+  pub verbose: Option<bool>,
 }
 
 impl LspSettings {
@@ -20,19 +26,29 @@ impl LspSettings {
     Self {
       use_global_config: use_global_config_env_var(environment),
       show_no_config_notification: true,
+      ensure_stable_format: None,
+      verbose: None,
     }
   }
 
   /// Updates the settings with the ones in the provided value, which may have
   /// them at the top level or within a `dprint` property. The settings that
-  /// aren't in the value are left as-is.
-  pub fn update(&mut self, value: &Value) {
+  /// aren't in the value are left as-is and a `null` one is set back to its
+  /// default.
+  pub fn update(&mut self, value: &Value, environment: &impl Environment) {
     let value = value.get("dprint").filter(|value| value.is_object()).unwrap_or(value);
-    if let Some(use_global_config) = value.get("useGlobalConfig").and_then(|value| value.as_bool()) {
-      self.use_global_config = use_global_config;
+    let defaults = Self::from_environment(environment);
+    if let Some(use_global_config) = get_bool_setting(value, "useGlobalConfig") {
+      self.use_global_config = use_global_config.unwrap_or(defaults.use_global_config);
     }
-    if let Some(show_no_config_notification) = value.get("showNoConfigNotification").and_then(|value| value.as_bool()) {
-      self.show_no_config_notification = show_no_config_notification;
+    if let Some(show_no_config_notification) = get_bool_setting(value, "showNoConfigNotification") {
+      self.show_no_config_notification = show_no_config_notification.unwrap_or(defaults.show_no_config_notification);
+    }
+    if let Some(ensure_stable_format) = get_bool_setting(value, "ensureStableFormat") {
+      self.ensure_stable_format = ensure_stable_format.or(defaults.ensure_stable_format);
+    }
+    if let Some(verbose) = get_bool_setting(value, "verbose") {
+      self.verbose = verbose.or(defaults.verbose);
     }
   }
 }
@@ -46,6 +62,17 @@ fn use_global_config_env_var(environment: &impl Environment) -> bool {
     let value = value.trim();
     value == "1" || value.eq_ignore_ascii_case("true")
   })
+}
+
+/// Gets the boolean setting at the key, which is `Some(None)` when it's
+/// `null` (set back to its default) and `None` when it's missing or not a
+/// boolean (left as-is).
+fn get_bool_setting(value: &Value, key: &str) -> Option<Option<bool>> {
+  match value.get(key) {
+    Some(Value::Bool(value)) => Some(Some(*value)),
+    Some(Value::Null) => Some(None),
+    _ => None,
+  }
 }
 
 #[cfg(test)]
@@ -75,41 +102,65 @@ mod test {
 
   #[test]
   fn updates_settings() {
+    let environment = TestEnvironment::new();
     let mut settings = LspSettings {
       use_global_config: false,
       show_no_config_notification: true,
+      ensure_stable_format: None,
+      verbose: None,
     };
 
     // top level
-    settings.update(&json!({ "useGlobalConfig": true }));
+    settings.update(&json!({ "useGlobalConfig": true }), &environment);
     assert_eq!(
       settings,
       LspSettings {
         use_global_config: true,
         show_no_config_notification: true,
+        ensure_stable_format: None,
+        verbose: None,
       }
     );
 
     // within a `dprint` property
-    settings.update(&json!({ "dprint": { "useGlobalConfig": false, "showNoConfigNotification": false } }));
+    settings.update(
+      &json!({ "dprint": { "useGlobalConfig": false, "showNoConfigNotification": false } }),
+      &environment,
+    );
     assert_eq!(
       settings,
       LspSettings {
         use_global_config: false,
         show_no_config_notification: false,
+        ensure_stable_format: None,
+        verbose: None,
       }
     );
 
     // ignores what's missing or not a boolean
     for value in [json!(null), json!({}), json!({ "dprint": null }), json!({ "useGlobalConfig": "true" })] {
-      settings.update(&value);
+      settings.update(&value, &environment);
       assert_eq!(
         settings,
         LspSettings {
           use_global_config: false,
           show_no_config_notification: false,
+          ensure_stable_format: None,
+          verbose: None,
         }
       );
     }
+  }
+
+  #[test]
+  fn resets_settings_to_their_defaults_with_null() {
+    let environment = TestEnvironment::new();
+    environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some("1"));
+    let mut settings = LspSettings::from_environment(&environment);
+    settings.update(&json!({ "useGlobalConfig": false, "ensureStableFormat": true, "verbose": true }), &environment);
+    assert!(!settings.use_global_config);
+    settings.update(&json!({ "useGlobalConfig": null, "ensureStableFormat": null, "verbose": null }), &environment);
+    assert_eq!(settings, LspSettings::from_environment(&environment));
+    assert!(settings.use_global_config);
   }
 }

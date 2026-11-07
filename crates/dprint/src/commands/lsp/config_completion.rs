@@ -10,16 +10,17 @@ use deno_tower_lsp::lsp_types as lsp;
 use deno_tower_lsp::lsp_types::Uri;
 use jsonc_parser::Scanner;
 use jsonc_parser::tokens::Token;
+use serde_json::Map;
 use serde_json::Value;
 use text_size::TextSize;
 use tokio::sync::Notify;
 use url::Url;
 
+use crate::commands::scope_container::PluginsScopeContainer;
 use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 
-use super::config::LspPluginsScopeContainer;
 use super::text::LineIndex;
 
 /// The dprint configuration file JSON schema, embedded at compile time so that
@@ -36,9 +37,17 @@ const DPRINT_CONFIG_SCHEMA: &str = include_str!("config_schema.json");
 /// answered without waiting on it.
 const SCHEMA_DOWNLOAD_WAIT: Duration = Duration::from_secs(2);
 
+/// How long a request for the JSON schema of config files waits on the
+/// downloads of plugin config schemas. This is longer than for a completion
+/// because an editor validates a config file with it in the background.
+const CONFIG_JSON_SCHEMA_DOWNLOAD_WAIT: Duration = Duration::from_secs(30);
+
 /// How long after a plugin config schema failed to download or parse until
 /// it's downloaded again.
 const SCHEMA_RETRY_INTERVAL: Duration = Duration::from_secs(60);
+/// How long to wait for a schema that's being downloaded before giving up on
+/// telling the editor that it was.
+const SCHEMA_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// Provides completions and hover information for dprint configuration files.
 ///
@@ -50,7 +59,7 @@ const SCHEMA_RETRY_INTERVAL: Duration = Duration::from_secs(60);
 /// on text + a composite schema, which keeps it easy to test without a running
 /// environment.
 pub struct ConfigCompletions<TEnvironment: Environment> {
-  scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>,
+  scope_container: Rc<PluginsScopeContainer<TEnvironment>>,
   base_schema: Rc<Value>,
   plugin_schemas: PluginSchemas<TEnvironment>,
 }
@@ -143,7 +152,7 @@ pub fn get_config_file_capabilities(capabilities: &lsp::ClientCapabilities) -> C
 }
 
 impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
-  pub fn new(environment: TEnvironment, scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>) -> Self {
+  pub fn new(environment: TEnvironment, scope_container: Rc<PluginsScopeContainer<TEnvironment>>) -> Self {
     let base_schema = serde_json::from_str(DPRINT_CONFIG_SCHEMA).expect("dprint config schema should be valid json");
     Self {
       scope_container,
@@ -199,6 +208,184 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
   }
 }
 
+/// Builds the JSON schema of config files with the config schemas of their
+/// plugins, which an editor validates config files with (ex. for
+/// `dprint/configSchema`).
+pub struct ConfigJsonSchemaBuilder<TEnvironment: Environment> {
+  base_schema: Value,
+  plugin_schemas: PluginSchemas<TEnvironment>,
+}
+
+impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
+  pub fn new(environment: TEnvironment) -> Self {
+    Self {
+      base_schema: serde_json::from_str(DPRINT_CONFIG_SCHEMA).expect("dprint config schema should be valid json"),
+      plugin_schemas: PluginSchemas::new(environment, CONFIG_JSON_SCHEMA_DOWNLOAD_WAIT),
+    }
+  }
+
+  /// Gets the schema with a property for each plugin's config key, which is
+  /// for the first plugin with that config key. A plugin's property is left
+  /// out when its schema couldn't be downloaded.
+  ///
+  /// The schemas of the plugins are put in the schema instead of being
+  /// referenced by url because an editor may only download schemas from the
+  /// domains the user trusts.
+  pub async fn build(&self, plugins: &[PluginSchemaUrl]) -> BuiltConfigSchema {
+    let urls = plugins.iter().map(|plugin| plugin.url.as_str()).collect::<Vec<_>>();
+    let plugin_schemas = self.plugin_schemas.get_all(&urls).await;
+    // a plugin without a schema url doesn't have a schema to leave out
+    let is_complete = urls.iter().zip(&plugin_schemas).all(|(url, schema)| url.trim().is_empty() || schema.is_some());
+    BuiltConfigSchema {
+      schema: self.build_schema(plugins, plugin_schemas),
+      is_complete,
+      is_downloading: self.plugin_schemas.is_any_downloading(&urls),
+    }
+  }
+
+  /// Waits for the schemas at the urls that are being downloaded, which is
+  /// for at most the time it takes a download to time out.
+  pub async fn wait_for_downloads(&self, urls: &[&str]) {
+    let deadline = tokio::time::Instant::now() + SCHEMA_DOWNLOAD_TIMEOUT;
+    while self.plugin_schemas.is_any_downloading(urls) && tokio::time::Instant::now() < deadline {
+      tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+  }
+
+  /// Gets whether the schema at any of the urls was downloaded.
+  pub fn is_any_downloaded(&self, urls: &[&str]) -> bool {
+    self.plugin_schemas.is_any_ready(urls)
+  }
+
+  fn build_schema(&self, plugins: &[PluginSchemaUrl], plugin_schemas: Vec<Option<Rc<Value>>>) -> Value {
+    let mut schema = self.base_schema.clone();
+    let plugin_config_schema = self.base_schema.get("additionalProperties");
+    let Value::Object(root) = &mut schema else {
+      return schema;
+    };
+    let mut properties = match root.remove("properties") {
+      Some(Value::Object(properties)) => properties,
+      _ => Map::new(),
+    };
+    let mut definitions = match root.remove("definitions") {
+      Some(Value::Object(definitions)) => definitions,
+      _ => Map::new(),
+    };
+    for (plugin, plugin_schema) in plugins.iter().zip(plugin_schemas) {
+      let Some(plugin_schema) = plugin_schema else {
+        continue;
+      };
+      if properties.contains_key(&plugin.config_key) {
+        continue;
+      }
+      let definition_name = format!("plugin-{}", plugin.config_key);
+      let pointer = format!("#/definitions/{}", escape_json_pointer_token(&definition_name));
+      let mut plugin_schema = embed_schema(&plugin_schema, &pointer);
+      let reference = serde_json::json!({ "$ref": pointer });
+      // add the properties the cli handles for every plugin (ex. "associations")
+      let property = match plugin_config_schema {
+        Some(plugin_config_schema) if !add_plugin_config_properties(&mut plugin_schema, plugin_config_schema) => {
+          serde_json::json!({ "allOf": [reference, plugin_config_schema] })
+        }
+        _ => reference,
+      };
+      definitions.insert(definition_name, plugin_schema);
+      properties.insert(plugin.config_key.clone(), property);
+    }
+    root.insert("properties".to_string(), Value::Object(properties));
+    root.insert("definitions".to_string(), Value::Object(definitions));
+    schema
+  }
+}
+
+/// The schema of a config file.
+pub struct BuiltConfigSchema {
+  pub schema: Value,
+  /// Whether it has the schema of each plugin that has one.
+  pub is_complete: bool,
+  /// Whether the schema of a plugin is still being downloaded.
+  pub is_downloading: bool,
+}
+
+/// The url of a plugin's config schema, which is empty when it doesn't have one.
+pub struct PluginSchemaUrl {
+  pub config_key: String,
+  pub url: String,
+}
+
+/// Adds the properties of the base schema's plugin section to the plugin's
+/// schema, which returns `false` when they can't be added.
+///
+/// These are added to the plugin's schema rather than combining the two
+/// schemas with `allOf` because a plugin's schema with `"additionalProperties":
+/// false` would otherwise disallow them.
+fn add_plugin_config_properties(plugin_schema: &mut Value, plugin_config_schema: &Value) -> bool {
+  let (Value::Object(plugin_schema), Some(Value::Object(config_properties))) = (plugin_schema, plugin_config_schema.get("properties")) else {
+    return false;
+  };
+  // the keywords next to a reference are ignored in draft 7
+  if plugin_schema.contains_key("$ref") {
+    return false;
+  }
+  let Value::Object(properties) = plugin_schema.entry("properties").or_insert_with(|| Value::Object(Map::new())) else {
+    return false;
+  };
+  for (key, value) in config_properties {
+    if !properties.contains_key(key) {
+      properties.insert(key.clone(), value.clone());
+    }
+  }
+  true
+}
+
+/// Gets the schema to put in the definitions of another schema at the JSON
+/// pointer, which changes the references within the schema to point there.
+fn embed_schema(schema: &Value, pointer: &str) -> Value {
+  fn update_references(value: &mut Value, id: Option<&str>, pointer: &str) {
+    match value {
+      Value::Object(object) => {
+        if let Some(Value::String(reference)) = object.get_mut("$ref") {
+          // a reference within the schema is either only a fragment or starts with the schema's id
+          let rest = match id {
+            Some(id) if reference == id => Some(""),
+            Some(id) => reference.strip_prefix(id).and_then(|rest| rest.strip_prefix('#')),
+            None => None,
+          };
+          if let Some(rest) = rest.or_else(|| reference.strip_prefix('#')) {
+            *reference = format!("{}{}", pointer, rest);
+          }
+        }
+        for value in object.values_mut() {
+          update_references(value, id, pointer);
+        }
+      }
+      Value::Array(items) => {
+        for item in items {
+          update_references(item, id, pointer);
+        }
+      }
+      _ => {}
+    }
+  }
+
+  let mut schema = schema.clone();
+  let mut id = None;
+  if let Value::Object(object) = &mut schema {
+    // these only apply to a schema that's its own document
+    object.remove("$schema");
+    id = match object.remove("$id") {
+      Some(Value::String(id)) => Some(id.trim_end_matches('#').to_string()),
+      _ => None,
+    };
+  }
+  update_references(&mut schema, id.as_deref().filter(|id| !id.is_empty()), pointer);
+  schema
+}
+
+fn escape_json_pointer_token(token: &str) -> String {
+  token.replace('~', "~0").replace('/', "~1")
+}
+
 /// Downloads the plugins' config schemas and caches them by url.
 ///
 /// A url is only downloaded by one task at a time, which the requests that
@@ -252,6 +439,12 @@ impl<TEnvironment: Environment> PluginSchemas<TEnvironment> {
       schemas.push(self.wait_for(url.trim(), deadline).await);
     }
     schemas
+  }
+
+  /// Gets whether the schema at any of the provided urls was downloaded.
+  fn is_any_ready(&self, urls: &[&str]) -> bool {
+    let entries = self.entries.borrow();
+    urls.iter().any(|url| matches!(entries.get(url.trim()), Some(SchemaEntry::Ready(_))))
   }
 
   /// Gets whether the schema at any of the provided urls is being downloaded.

@@ -2,13 +2,16 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use deno_terminal::colors;
+use std::path::Path;
 use url::Url;
 
 use super::PathSource;
 use crate::cache::HttpCache;
 use crate::cache::HttpCacheSys;
 use crate::cache::RemoteCacheMode;
+use crate::cache::SerializedCachedUrlMetadata;
 use crate::environment::CacheValidators;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::utils::RemotePathSource;
@@ -77,11 +80,17 @@ pub async fn resolve_url_or_file_path_to_file_with_cache<TEnvironment: Environme
   }
 }
 
-/// Resolves the url using the cached response while it's fresh (see
-/// `SerializedCachedUrlMetadata::is_fresh_at`). Once it's stale or when
-/// reloading, the server is asked for a newer response, which it can answer
-/// with 304 Not Modified when the cached one is still current. A stale
-/// cached response is used when the server can't be reached.
+/// Gets whether a response for the url is cached, even when it's stale.
+pub fn is_url_cached(url: &Url, environment: &impl Environment) -> bool {
+  let cache = HttpCache::new(environment.clone(), environment.get_cache_dir().join("remote"));
+  matches!(read_cached_chain(&cache, url, |_| true), Ok(Some(_)))
+}
+
+/// Resolves the url using the cached response while the cache mode uses it
+/// (see `RemoteCacheMode::uses_cached_at`). Otherwise, the server is asked
+/// for a newer response, which it can answer with 304 Not Modified when the
+/// cached one is still current. A cached response that isn't used is used
+/// when the server can't be reached.
 async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(
   url: &Url,
   cache_mode: RemoteCacheMode,
@@ -89,16 +98,14 @@ async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(
 ) -> Result<ResolvedFilePathWithBytes> {
   let cache = HttpCache::new(environment.clone(), environment.get_cache_dir().join("remote"));
 
-  if cache_mode == RemoteCacheMode::Use
-    && let Some(cached) = read_cached_chain(&cache, url, /* allow stale */ false)?
-  {
+  if let Some(cached) = read_cached_chain(&cache, url, |metadata| cache.uses_cached(metadata, cache_mode))? {
     return Ok(cached);
   }
 
   match download_through_cache(&cache, url, cache_mode, environment).await {
     Ok(Some(result)) => Ok(result),
     Ok(None) => bail!("Error downloading {} - 404 Not Found", url),
-    Err(err) => match read_cached_chain(&cache, url, /* allow stale */ true) {
+    Err(err) => match read_cached_chain(&cache, url, |_| true) {
       Ok(Some(cached)) => {
         log_warn!(
           environment,
@@ -117,20 +124,23 @@ async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(
 }
 
 /// Reads the cached response of the url, following cached redirects. Returns
-/// `None` when any response in the chain isn't cached or, unless stale ones
-/// are allowed, is stale.
+/// `None` when any response in the chain isn't cached or isn't one to use.
 ///
 /// The whole chain is checked because a redirect target might only be valid
 /// for a short time (ex. a signed url), so it should be requested again via
 /// the original url rather than directly.
-fn read_cached_chain<Sys: HttpCacheSys>(cache: &HttpCache<Sys>, url: &Url, allow_stale: bool) -> Result<Option<ResolvedFilePathWithBytes>> {
+fn read_cached_chain<Sys: HttpCacheSys>(
+  cache: &HttpCache<Sys>,
+  url: &Url,
+  is_usable: impl Fn(&SerializedCachedUrlMetadata) -> bool,
+) -> Result<Option<ResolvedFilePathWithBytes>> {
   let mut current_url = url.clone();
   for _ in 0..=MAX_REDIRECTS {
     let key = cache.cache_item_key(&current_url)?;
     let Some(entry) = cache.get(&key)? else {
       return Ok(None);
     };
-    if !allow_stale && !cache.is_fresh(&entry.metadata) {
+    if !is_usable(&entry.metadata) {
       return Ok(None);
     }
     if let Some(location) = entry.metadata.headers.get("location") {
@@ -158,7 +168,7 @@ fn defer_next_check<Sys: HttpCacheSys>(cache: &HttpCache<Sys>, url: &Url) {
     let Ok(Some(entry)) = cache.get(&key) else {
       return;
     };
-    if !cache.is_fresh(&entry.metadata) {
+    if !cache.uses_cached(&entry.metadata, RemoteCacheMode::Use) {
       // ignore errors
       _ = cache.set(&current_url, entry.metadata.headers.clone(), &entry.content);
     }
@@ -184,10 +194,9 @@ async fn download_through_cache<TEnvironment: Environment>(
 ) -> Result<Option<ResolvedFilePathWithBytes>> {
   let mut current_url = url.clone();
   for i in 0..=MAX_REDIRECTS {
-    // a redirect may lead back to a fresh part of the chain
+    // a redirect may lead back to a part of the chain that the cache mode uses
     if i > 0
-      && cache_mode == RemoteCacheMode::Use
-      && let Some(cached) = read_cached_chain(cache, &current_url, /* allow stale */ false)?
+      && let Some(cached) = read_cached_chain(cache, &current_url, |metadata| cache.uses_cached(metadata, cache_mode))?
     {
       return Ok(Some(cached));
     }
@@ -277,7 +286,7 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       // handle file urls (ex. file:///C:/some/folder/file.json)
       if url.scheme() == "file" {
         match url.to_file_path() {
-          Ok(file_path) => return Ok(PathSource::new_local(environment.canonicalize(file_path)?)),
+          Ok(file_path) => return Ok(PathSource::new_local(canonicalize_allowed_path(&file_path, base, environment)?)),
           Err(()) => bail!("Problem converting file url `{}` to file path.", url_or_file_path),
         }
       }
@@ -290,7 +299,8 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
         let path = if rest.is_empty() {
           home_dir
         } else {
-          environment.canonicalize(home_dir.join(rest))?
+          // a path that's absolute (ex. a UNC path) replaces the home directory
+          canonicalize_allowed_path(&home_dir.join(rest), base, environment)?
         };
         return Ok(PathSource::new_local(path));
       }
@@ -303,9 +313,21 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       let url = remote_base.url.join(url_or_file_path)?;
       PathSource::new_remote(url)
     }
-    PathSource::Local(local_base) => PathSource::new_local(environment.canonicalize(local_base.path.join(url_or_file_path))?),
+    PathSource::Local(local_base) => PathSource::new_local(canonicalize_allowed_path(&local_base.path.join(url_or_file_path), base, environment)?),
     PathSource::Npm(_) => bail!("Cannot resolve a relative path against an npm specifier"),
   })
+}
+
+/// Canonicalizes a local path that's resolved against the base, which errors
+/// when it's on another machine that the download policy doesn't allow reading
+/// without asking the user.
+///
+/// IMPORTANT: It's checked before it's canonicalized because that reads it.
+fn canonicalize_allowed_path(path: &Path, base: &PathSource, environment: &impl Environment) -> Result<CanonicalizedPathBuf> {
+  environment
+    .download_policy()
+    .ensure_allows_path(environment, path, base.maybe_local_path().map(|path| path.as_ref()))?;
+  Ok(environment.canonicalize(path)?)
 }
 
 fn try_parse_url(url_or_file_path: &str) -> Option<Url> {
@@ -780,6 +802,31 @@ mod tests {
   }
 
   #[test]
+  fn should_only_download_once_since_the_time_when_reloading_since_it() {
+    // ex. `dprint lsp --reload`, which downloads each remote file once until it's reset
+    let environment = TestEnvironment::new();
+    let url = "https://dprint.dev/config.json";
+    environment.set_fs_time(1_000);
+    environment.add_remote_file_with_headers(url, b"v1", &[("cache-control", "max-age=300")]);
+    environment.clone().run_in_runtime(async move {
+      let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
+      resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      environment.set_fs_time(1_001);
+      let mode = RemoteCacheMode::ReceivedSince {
+        since_secs: 1_001,
+        reload: true,
+      };
+      // fresh, but received before the time
+      for _ in 0..2 {
+        resolve_url_or_file_path_to_file_with_cache(url, &base, mode, &environment).await.unwrap();
+        assert_eq!(environment.remote_file_request_count(url), 2);
+      }
+    });
+  }
+
+  #[test]
   fn should_check_server_when_reloading() {
     let environment = TestEnvironment::new();
     let url = "https://dprint.dev/config.json";
@@ -940,5 +987,26 @@ mod tests {
         assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing(expected));
       }
     });
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_not_read_from_another_machine_without_it_being_allowed() {
+    let environment = TestEnvironment::new();
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/project"));
+    for specifier in [
+      r"\\server\share\plugin.wasm",
+      r"\\.\UNC\server\share\plugin.wasm",
+      r"\\?\GLOBALROOT\Device\Mup\server\share\plugin.wasm",
+      "file://server/share/plugin.wasm",
+      // an absolute path replaces the home directory
+      r"~/\\server\share\plugin.wasm",
+    ] {
+      let Err(err) = resolve_url_or_file_path_to_path_source(specifier, &base, &environment) else {
+        panic!("expected an error for {}", specifier);
+      };
+      assert!(crate::utils::UntrustedDownloadError::find(&err).is_some(), "{}: {:#}", specifier, err);
+    }
   }
 }

@@ -88,6 +88,10 @@ pub async fn output_license<TEnvironment: Environment>(
 
 pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   let cache_dir = environment.get_cache_dir();
+  // the language servers use the cache (ex. their plugins and session files),
+  // so they're stopped and an editor starts them again with nothing from before
+  let killed_count = environment.kill_dprint_lsp_processes();
+  log_debug!(environment, "Killed {} dprint language server processes.", killed_count);
   remove_cache_dir_killing_processes(environment, &cache_dir)?;
   log_stdout_info!(environment, "Deleted {}", cache_dir.display());
   Ok(())
@@ -810,6 +814,21 @@ mod test {
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.path_exists("/cache"), false);
+  }
+
+  #[test]
+  fn should_clear_cache_directory_killing_the_language_servers() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/cache/plugins").unwrap();
+    environment.write_file("/cache/plugins/plugin.wasm", "").unwrap();
+    environment.mk_dir_all("/cache/editor-sessions").unwrap();
+    environment.write_file("/cache/editor-sessions/running-0123456789.json", "{}").unwrap();
+    environment.add_running_lsp_process();
+    environment.add_running_lsp_process();
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.running_lsp_process_count(), 0);
+    assert!(!environment.path_exists("/cache"));
   }
 
   #[test]

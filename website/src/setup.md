@@ -43,7 +43,7 @@ This opens a prompt that only changes your preferences, without creating a confi
 
 Press enter to save or escape to cancel. In the `dprint init` prompt, preferred plugins are marked with ★ and avoided ones with ✗.
 
-The preferences are saved to an _init.json_ file in the [global configuration directory](/global-config) and are used by `dprint init` from then on, including with `--yes`.
+The preferences are saved to the `init` property of the [settings file](/global-config#settings-file) and are used by `dprint init` from then on, including with `--yes`.
 
 ### Non-interactive init
 
@@ -87,6 +87,24 @@ See [global configuration](/global-config)
 ## Custom Cache Directory
 
 By default, dprint stores information in the current system user's cache directory (`~/.cache/dprint` on Linux, `~/Library/Caches/dprint` on Mac, and `%LOCALAPPDATA%/dprint` on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a `DPRINT_CACHE_DIR` environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.
+
+## Trusted Domains
+
+Opening a project in an editor isn't the same as choosing to download what its configuration file says, and a download can send information to the domain it's from (ex. that the project was opened and from where). To limit that, editors only download plugins and the configuration files that a configuration file extends from these domains and their subdomains without asking you first: `registry.npmjs.org`, `plugins.dprint.dev`, `github.com`, and `githubusercontent.com`. This includes each redirect, and reading a file on another machine (ex. a UNC path on Windows) is asked about like a download. Editors also ask before downloading through a proxy that an `.npmrc` file other than your own `~/.npmrc` sets (ex. the project's). The CLI downloads from any domain because you ran it.
+
+These domains are where anyone can publish, so a download from them can still say that a project was opened (ex. a download count), but they're where most plugins are.
+
+To trust other domains (ex. a private npm registry), add them to `editor.trustedDomains` in the [settings file](/global-config#settings-file):
+
+```json
+{
+  "editor": {
+    "trustedDomains": ["npm.example.com"]
+  }
+}
+```
+
+A running editor uses the change without needing to restart it.
 
 ## Proxy
 

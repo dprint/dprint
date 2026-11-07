@@ -109,7 +109,7 @@ Select the plugins to prefer whenever running dprint init:
 
 # stdout
 
-Saved the plugin preferences to /config/dprint/init.json
+Saved the plugin preferences to /config/dprint/settings.json
 
 # stderr
 Compiling https://plugins.dprint.dev/test-plugin.wasm
@@ -117,14 +117,16 @@ Compiling https://plugins.dprint.dev/test-plugin.wasm
 # /dprint.json
 (does not exist)
 
-# /config/dprint/init.json
+# /config/dprint/settings.json
 {
-  "preferredPlugins": [
-    {
-      "name": "test-plugin",
-      "config": {
-        "ending": "formatted!"
+  "init": {
+    "preferredPlugins": [
+      {
+        "name": "test-plugin",
+        "config": {
+          "ending": "formatted!"
+        }
       }
-    }
-  ]
+    ]
+  }
 }

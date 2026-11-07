@@ -96,5 +96,5 @@ If you are working in a commercial environment please consider sponsoring dprint
   ]
 }
 
-# /config/dprint/init.json
+# /config/dprint/settings.json
 (does not exist)

@@ -10,6 +10,7 @@ use std::str;
 
 use crate::environment::Environment;
 use crate::plugins::implementations::SetupPluginResult;
+use crate::utils::LogLevel;
 use crate::utils::PathSource;
 use crate::utils::extract_zip;
 use crate::utils::fetch_file_or_url_bytes;
@@ -117,7 +118,7 @@ async fn start_communicator_and_collect_info<TEnvironment: Environment>(
     move |error_message| {
       // consider messages from process plugins as warnings
       if environment.log_level().is_warn() {
-        environment.log_stderr_with_context(&error_message, &plugin_name);
+        environment.log_stderr_with_context(LogLevel::Warn, &error_message, &plugin_name);
       }
     }
   })

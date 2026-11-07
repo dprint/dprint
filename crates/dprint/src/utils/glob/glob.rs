@@ -16,6 +16,7 @@ use crate::configuration::DOT_CONFIG_FILE_NAMES;
 use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
 use crate::configuration::get_dot_config_file_paths;
 use crate::configuration::is_dot_config_dir;
+use crate::configuration::is_dot_config_dir_name;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
@@ -820,7 +821,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     for entry in entries {
       match entry {
         DirEntry::Directory(path) => {
-          has_dot_config_dir |= path.file_name().is_some_and(|name| name == DOT_CONFIG_DIR_NAME);
+          has_dot_config_dir |= is_dot_config_dir_name(&self.environment, path);
         }
         DirEntry::File { path } => {
           let is_config_file = path
