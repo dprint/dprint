@@ -2,14 +2,14 @@ use serde::Deserialize;
 use serde::Serialize;
 
 /// Information about a plugin, as the CLI receives it from a Wasm plugin
-/// ([`dprint_core::plugins::WasmPluginInfo`]) or a process plugin
+/// ([`dprint_core::plugins::PluginInfo`]) or a process plugin
 /// ([`dprint_core::plugins::ProcessPluginInfo`]).
 ///
 /// Plugins made with an older version of dprint-core might not provide some of
 /// the properties, so those are optional here.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct PluginInfo {
+pub struct ReceivedPluginInfo {
   pub name: String,
   pub version: String,
   pub config_key: String,

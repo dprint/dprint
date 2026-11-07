@@ -16,7 +16,7 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
-use crate::plugins::PluginInfo;
+use crate::plugins::ReceivedPluginInfo;
 
 use super::InitializedProcessPluginCommunicator;
 
@@ -65,11 +65,11 @@ pub fn get_test_safe_executable_path(version: &str, executable_file_path: PathBu
 pub struct ProcessPlugin<TEnvironment: Environment> {
   environment: TEnvironment,
   executable_file_path: PathBuf,
-  plugin_info: PluginInfo,
+  plugin_info: ReceivedPluginInfo,
 }
 
 impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
-  pub fn new(environment: TEnvironment, executable_file_path: PathBuf, plugin_info: PluginInfo) -> Self {
+  pub fn new(environment: TEnvironment, executable_file_path: PathBuf, plugin_info: ReceivedPluginInfo) -> Self {
     ProcessPlugin {
       environment,
       executable_file_path,
@@ -80,7 +80,7 @@ impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
 
 #[async_trait(?Send)]
 impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
-  fn info(&self) -> &PluginInfo {
+  fn info(&self) -> &ReceivedPluginInfo {
     &self.plugin_info
   }
 

@@ -18,7 +18,7 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::process::HostFormatCallback;
 
-use crate::plugins::PluginInfo;
+use crate::plugins::ReceivedPluginInfo;
 
 /// Looks for a [`CriticalFormatError`] in an `anyhow::Error`, whether it was
 /// stored directly or wrapped in a [`FormatError`].
@@ -44,7 +44,7 @@ pub fn anyhow_to_format_error(err: anyhow::Error) -> FormatError {
 
 #[async_trait(?Send)]
 pub trait Plugin: Send + Sync {
-  fn info(&self) -> &PluginInfo;
+  fn info(&self) -> &ReceivedPluginInfo;
 
   /// Initializes the plugin.
   async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>>;
@@ -89,7 +89,7 @@ pub trait InitializedPlugin {
 
 #[cfg(test)]
 pub struct TestPlugin {
-  info: PluginInfo,
+  info: ReceivedPluginInfo,
   is_process_plugin: bool,
   initialized_test_plugin: InitializedTestPlugin,
 }
@@ -106,7 +106,7 @@ impl TestPlugin {
 
   pub fn new(name: &str, config_key: &str, file_extensions: Vec<&str>, file_names: Vec<&str>) -> TestPlugin {
     TestPlugin {
-      info: PluginInfo {
+      info: ReceivedPluginInfo {
         name: name.to_string(),
         version: "1.0.0".to_string(),
         config_key: config_key.to_string(),
@@ -129,7 +129,7 @@ impl TestPlugin {
 #[cfg(test)]
 #[async_trait(?Send)]
 impl Plugin for TestPlugin {
-  fn info(&self) -> &PluginInfo {
+  fn info(&self) -> &ReceivedPluginInfo {
     &self.info
   }
 

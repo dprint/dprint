@@ -15,8 +15,8 @@ use super::implementations::create_plugin;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
-use crate::plugins::PluginInfo;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::ReceivedPluginInfo;
 use crate::utils::AsyncCell;
 use crate::utils::PathSource;
 
@@ -41,7 +41,7 @@ impl PluginWrapper {
     self.was_set_up
   }
 
-  pub fn info(&self) -> &PluginInfo {
+  pub fn info(&self) -> &ReceivedPluginInfo {
     self.plugin.info()
   }
 

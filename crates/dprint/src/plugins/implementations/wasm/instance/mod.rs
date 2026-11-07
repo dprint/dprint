@@ -18,7 +18,7 @@ use wasmtime::Memory;
 
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
-use crate::plugins::PluginInfo;
+use crate::plugins::ReceivedPluginInfo;
 
 use super::WasmInstance;
 
@@ -75,7 +75,7 @@ pub enum PluginSchemaVersion {
 }
 
 pub trait InitializedWasmPluginInstance {
-  fn plugin_info(&mut self) -> Result<PluginInfo>;
+  fn plugin_info(&mut self) -> Result<ReceivedPluginInfo>;
   fn license_text(&mut self) -> Result<String>;
   fn resolved_config(&mut self, config: &FormatConfig) -> Result<String>;
   fn config_diagnostics(&mut self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>>;

@@ -36,8 +36,8 @@ use super::npm_resolution;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
-use crate::plugins::PluginInfo;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::ReceivedPluginInfo;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -47,7 +47,7 @@ use crate::utils::verify_sha256_checksum;
 
 pub struct PluginCacheItem {
   pub file_path: PathBuf,
-  pub info: PluginInfo,
+  pub info: ReceivedPluginInfo,
   pub plugin_kind: PluginKind,
   /// Whether this process set the plugin up (downloaded, compiled, or
   /// extracted it) instead of it already being in the cache.
@@ -848,7 +848,7 @@ mod test {
       signature: current_signature(environment),
       plugin_kind: PluginKind::Wasm,
       created_time: 0,
-      info: PluginInfo {
+      info: ReceivedPluginInfo {
         name: name.to_string(),
         version: version.to_string(),
         config_key: "test".to_string(),

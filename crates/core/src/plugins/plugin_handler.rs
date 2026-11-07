@@ -10,10 +10,10 @@ use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigKeyValue;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
+#[cfg(feature = "wasm")]
+use crate::plugins::PluginInfo;
 #[cfg(feature = "process")]
 use crate::plugins::ProcessPluginInfo;
-#[cfg(feature = "wasm")]
-use crate::plugins::WasmPluginInfo;
 
 use super::FileMatchingInfo;
 
@@ -327,7 +327,7 @@ pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   /// Resolves configuration based on the provided config map and global configuration.
   fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> PluginResolveConfigurationResult<TConfiguration>;
   /// Gets the plugin's plugin info.
-  fn plugin_info(&mut self) -> WasmPluginInfo;
+  fn plugin_info(&mut self) -> PluginInfo;
   /// Gets the plugin's license text.
   fn license_text(&mut self) -> String;
   /// Updates the config key map. This will be called after the CLI has upgraded the

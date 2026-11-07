@@ -34,17 +34,17 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
-use crate::plugins::PluginInfo;
+use crate::plugins::ReceivedPluginInfo;
 use crate::plugins::implementations::wasm::create_wasm_plugin_instance;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
   module: WasmModule,
   environment: TEnvironment,
-  plugin_info: PluginInfo,
+  plugin_info: ReceivedPluginInfo,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(module: WasmModule, plugin_info: PluginInfo, environment: TEnvironment) -> Result<Self> {
+  pub fn new(module: WasmModule, plugin_info: ReceivedPluginInfo, environment: TEnvironment) -> Result<Self> {
     let initializes_on_start = plugin_initializes_on_start(&plugin_info);
     if initializes_on_start {
       log_warn!(
@@ -65,7 +65,7 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
 
 #[async_trait(?Send)]
 impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
-  fn info(&self) -> &PluginInfo {
+  fn info(&self) -> &ReceivedPluginInfo {
     &self.plugin_info
   }
 

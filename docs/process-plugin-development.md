@@ -45,6 +45,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use dprint_core::plugins::FormatRequest;
    use dprint_core::plugins::FormatResult;
    use dprint_core::plugins::HostFormatRequest;
+   use dprint_core::plugins::PluginInfo;
    use dprint_core::plugins::PluginResolveConfigurationResult;
    use dprint_core::plugins::ProcessPluginInfo;
 
@@ -60,15 +61,17 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        // for config_schema_url and update_url, see schema.json and latest.json helpers at https://github.com/dprint/plugins
        let repo_name = "your-org/your-repo";
        ProcessPluginInfo {
-         name: env!("CARGO_PKG_NAME").to_string(),
-         version: env!("CARGO_PKG_VERSION").to_string(),
-         config_key: "keyGoesHere".to_string(),
-         help_url: "".to_string(), // ex. https://dprint.dev/plugins/prettier
-         // the schema url for your config file or "".to_string() if no config
-         config_schema_url: format!("https://plugins.dprint.dev/{repo_name}/{}/schema.json", env!("CARGO_PKG_VERSION")),
-         update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
-         // whether `format` formats the request's range (see `ProcessPluginInfo::supports_range_formatting`)
-         supports_range_formatting: false,
+         info: PluginInfo {
+           name: env!("CARGO_PKG_NAME").to_string(),
+           version: env!("CARGO_PKG_VERSION").to_string(),
+           config_key: "keyGoesHere".to_string(),
+           help_url: "".to_string(), // ex. https://dprint.dev/plugins/prettier
+           // the schema url for your config file or "".to_string() if no config
+           config_schema_url: format!("https://plugins.dprint.dev/{repo_name}/{}/schema.json", env!("CARGO_PKG_VERSION")),
+           update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
+           // whether `format` formats the request's range (see `PluginInfo::supports_range_formatting`)
+           supports_range_formatting: false,
+         },
          // whether another plugin may change your non-global config when formatting
          // with your plugin (see `ProcessPluginInfo::allow_plugin_override_config`)
          allow_plugin_override_config: false,

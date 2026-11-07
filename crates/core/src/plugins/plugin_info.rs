@@ -1,10 +1,10 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-/// Information about a Wasm plugin.
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+/// Information about a plugin.
+#[derive(Clone, Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct WasmPluginInfo {
+pub struct PluginInfo {
   /// The name of the plugin.
   pub name: String,
   /// The version of the plugin.
@@ -33,34 +33,12 @@ pub struct WasmPluginInfo {
 }
 
 /// Information about a process plugin.
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessPluginInfo {
-  /// The name of the plugin.
-  pub name: String,
-  /// The version of the plugin.
-  pub version: String,
-  /// Gets the key that can be used in the configuration JSON.
-  pub config_key: String,
-  /// A url the user can go to in order to get help information about the plugin.
-  pub help_url: String,
-  /// Schema url for the plugin configuration.
-  ///
-  /// Generally in the format: https://plugins.dprint.dev/<org-or-user>/<repo>/<tag-name>/schema.json
-  /// For example: https://plugins.dprint.dev/dprint/dprint-plugin-typescript/0.60.0/schema.json
-  pub config_schema_url: String,
-  /// Plugin update url.
-  ///
-  /// Generally in the format: https://plugins.dprint.dev/<org-or-user>/<repo>/latest.json
-  /// For example: https://plugins.dprint.dev/dprint/dprint-plugin-typescript/latest.json
-  pub update_url: Option<String>,
-  /// Whether the plugin formats the range of a format request.
-  ///
-  /// - `true` - Editors give the plugin the range as it is and use what it
-  ///   formats, so it decides what to format around the range (ex. the nodes
-  ///   it overlaps).
-  /// - `false` - Editors don't format a range with the plugin.
-  pub supports_range_formatting: bool,
+  /// The information that every plugin provides.
+  #[serde(flatten)]
+  pub info: PluginInfo,
   /// Whether another plugin may change this plugin's non-global configuration
   /// when it asks dprint to format text with this plugin (ex. a Wasm plugin
   /// formatting a code block). Another plugin can always change the global

@@ -32,7 +32,7 @@ use wasmtime::WasmResults;
 
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
-use crate::plugins::PluginInfo;
+use crate::plugins::ReceivedPluginInfo;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
 
@@ -349,7 +349,7 @@ impl InitializedWasmPluginInstanceV4 {
 }
 
 impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
-  fn plugin_info(&mut self) -> Result<PluginInfo> {
+  fn plugin_info(&mut self) -> Result<ReceivedPluginInfo> {
     let len = self.wasm_functions.get_plugin_info()?;
     let json_bytes = self.receive_bytes(len)?;
     Ok(serde_json::from_slice(&json_bytes)?)

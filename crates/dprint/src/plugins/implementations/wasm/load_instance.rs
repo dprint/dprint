@@ -9,7 +9,7 @@ use wasmtime::Func;
 use wasmtime::Memory;
 use wasmtime::Module;
 
-use crate::plugins::PluginInfo;
+use crate::plugins::ReceivedPluginInfo;
 
 use super::PluginSchemaVersion;
 use super::instance::Linker;
@@ -85,7 +85,7 @@ pub fn load_instance(store: &mut Store, module: &WasmModule, mut linker: Linker)
 ///
 /// This is hardcoded for old versions of dprint-plugin-gofumpt, which trap when
 /// initialized a second time (https://github.com/dprint/dprint/issues/1306).
-pub fn plugin_initializes_on_start(plugin_info: &PluginInfo) -> bool {
+pub fn plugin_initializes_on_start(plugin_info: &ReceivedPluginInfo) -> bool {
   plugin_info.name == "dprint-plugin-gofumpt"
     && Version::parse_from_npm(&plugin_info.version).is_ok_and(|version| version < Version::parse_from_npm("0.0.19").unwrap())
 }
@@ -303,7 +303,7 @@ mod tests {
   #[test]
   fn gofumpt_initializes_on_start() {
     let run = |name: &str, version: &str| {
-      plugin_initializes_on_start(&PluginInfo {
+      plugin_initializes_on_start(&ReceivedPluginInfo {
         name: name.to_string(),
         version: version.to_string(),
         config_key: String::new(),

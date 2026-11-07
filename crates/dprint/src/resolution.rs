@@ -60,10 +60,10 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::OutputPluginConfigDiagnosticsError;
-use crate::plugins::PluginInfo;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
+use crate::plugins::ReceivedPluginInfo;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
 use crate::utils::GlobOutput;
@@ -212,7 +212,7 @@ impl PluginWithConfig {
     &self.info().name
   }
 
-  pub fn info(&self) -> &PluginInfo {
+  pub fn info(&self) -> &ReceivedPluginInfo {
     self.plugin.info()
   }
 
@@ -273,7 +273,7 @@ pub struct InitializedPluginWithConfig {
 }
 
 impl InitializedPluginWithConfig {
-  pub fn info(&self) -> &PluginInfo {
+  pub fn info(&self) -> &ReceivedPluginInfo {
     self.plugin.info()
   }
 
@@ -419,7 +419,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   /// Gets whether the plugins that format the file format the range of a
-  /// format request (see `PluginInfo::supports_range_formatting`).
+  /// format request (see `ReceivedPluginInfo::supports_range_formatting`).
   pub fn range_formatting_support(&self, file_path: &Path, file_bytes: &[u8]) -> RangeFormattingSupport {
     let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path_and_bytes(file_path, file_bytes);
     RangeFormattingSupport::from_plugins(

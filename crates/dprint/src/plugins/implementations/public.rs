@@ -8,14 +8,14 @@ use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginCacheItem;
-use crate::plugins::PluginInfo;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::ReceivedPluginInfo;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 
 pub struct SetupPluginResult {
   pub file_path: PathBuf,
-  pub plugin_info: PluginInfo,
+  pub plugin_info: ReceivedPluginInfo,
   /// For process plugins, the executable's path relative to its extract dir.
   /// Stored in the cache meta so the file path can be re-derived on a hit
   /// without re-extracting. `None` for wasm plugins and for process plugins
