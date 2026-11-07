@@ -8,6 +8,7 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::arg_parser::create_cli_parser;
+use crate::commands::process_plugin_approval::allow_process_plugins_of_scopes_in_editors;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
@@ -137,6 +138,8 @@ pub async fn output_file_paths<TEnvironment: Environment>(
     ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
   )
   .await?;
+  // getting what the plugins format runs them
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
   let file_paths = scopes.iter().flat_map(|x| x.file_paths_by_plugins.all_file_paths());
   for file_path in file_paths {
     log_stdout_info!(environment, "{}", file_path.display())
@@ -189,6 +192,7 @@ pub async fn incremental_state<TEnvironment: Environment>(
     ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
   )
   .await?;
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
 
   let cwd = environment.cwd();
   let mut configs = Vec::new();

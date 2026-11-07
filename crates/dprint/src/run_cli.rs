@@ -135,7 +135,12 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
             minimum_dependency_age: minimum_dependency_age.clone(),
           },
         )
-        .await
+        .await?;
+        // the user chose the plugins, which is the same as choosing to run them
+        if !*global {
+          commands::set_up_and_allow_process_plugins_in_editors_or_warn(args, environment, plugin_resolver).await;
+        }
+        Ok(())
       }
       ConfigSubCommand::Add {
         names,
@@ -158,8 +163,10 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
           plugin_resolver,
         )
         .await?;
-        if let Some(cmd) = install {
-          commands::install_plugins(cmd, args, environment, plugin_resolver).await?;
+        match install {
+          Some(cmd) => commands::install_plugins(cmd, args, environment, plugin_resolver).await?,
+          // the user chose the plugin, which is the same as choosing to run it
+          None => commands::set_up_and_allow_process_plugins_in_editors_or_warn(args, environment, plugin_resolver).await,
         }
         Ok(())
       }

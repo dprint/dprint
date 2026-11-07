@@ -1803,8 +1803,12 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = Rc::new(resolve_config_from_args(args, environment).await?);
-  let plugins_scope = resolve_plugins_scope(config, environment, plugin_resolver).await?;
+  let plugins_scope = resolve_plugins_scope(config.clone(), environment, plugin_resolver).await?;
   plugins_scope.ensure_no_global_config_diagnostics()?;
+  // resolving the configuration of the plugins runs them, and the plugins provided as arguments aren't the config file's
+  if args.plugins.is_empty() {
+    allow_process_plugins_in_editors_or_warn(environment, &config, plugin_resolver).await;
+  }
 
   // when a file path is provided, limit the output to only the plugins that
   // would format that file (resolving associations, file names, and extensions
@@ -4439,6 +4443,74 @@ text",
     let commands = environment.take_run_commands();
     let (args, _) = &commands[0];
     assert_eq!(args[args.len() - 1], "/custom.config.json");
+  }
+
+  /// Gets the process plugins the editors are allowed to run.
+  fn get_allowed_process_plugins(environment: &TestEnvironment) -> Vec<String> {
+    crate::configuration::read_editor_approvals(environment)
+      .unwrap()
+      .process_plugin_decisions
+      .into_iter()
+      .filter(|decision| decision.allowed)
+      .map(|decision| decision.approval.plugin)
+      .collect()
+  }
+
+  /// Gets the environment of `get_setup_env` where the process plugin that's
+  /// added isn't in the config file yet but can be set up.
+  fn get_process_plugin_to_add_env(config_has_wasm: bool) -> TestEnvironment {
+    get_setup_builder(SetupEnvOptions {
+      config_has_wasm,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: true,
+    })
+    .add_remote_process_plugin_at_url("https://plugins.dprint.dev/test-plugin-3.json", &*NEW_PROCESS_PLUGIN_FILE)
+    .initialize()
+    .build()
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_adding() {
+    let environment = get_process_plugin_to_add_env(false);
+    run_test_cli(vec!["config", "add", "test-process-plugin"], &environment).unwrap();
+    environment.take_stderr_messages();
+    let plugins = get_allowed_process_plugins(&environment);
+    assert_eq!(plugins.len(), 1, "{:?}", plugins);
+    assert!(plugins[0].starts_with("https://plugins.dprint.dev/test-plugin-3.json@"), "{}", plugins[0]);
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_initializing() {
+    let environment = get_process_plugin_to_add_env(true);
+    // the plugin the config file already has isn't selectable
+    environment.set_prompt_keys(&["space", "enter"], None).unwrap();
+    run_test_cli(vec!["init"], &environment).unwrap();
+    environment.take_prompt_screens();
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    let plugins = get_allowed_process_plugins(&environment);
+    assert_eq!(plugins.len(), 1, "{:?}", plugins);
+    assert!(plugins[0].starts_with("https://plugins.dprint.dev/test-plugin-3.json@"), "{}", plugins[0]);
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_outputting_what_runs_them() {
+    for args in [
+      vec!["output-resolved-config"],
+      vec!["output-file-paths"],
+      vec!["incremental-state"],
+      vec!["output-format-times"],
+    ] {
+      let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+        .write_file("/file.txt_ps", "text")
+        .build();
+      run_test_cli(args.clone(), &environment).unwrap();
+      environment.take_stdout_messages();
+      environment.take_stderr_messages();
+      assert_eq!(get_allowed_process_plugins(&environment).len(), 1, "{:?}", args);
+    }
   }
 
   #[test]

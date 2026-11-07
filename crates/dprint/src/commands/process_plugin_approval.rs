@@ -1,5 +1,8 @@
+use std::rc::Rc;
+
 use anyhow::Result;
 
+use crate::arg_parser::CliArgs;
 use crate::commands::lsp::workspace::messages::ApprovalDecision;
 use crate::configuration::NewerApprovalsFileError;
 use crate::configuration::ProcessPluginApproval;
@@ -9,14 +12,17 @@ use crate::configuration::ResolvedConfig;
 use crate::configuration::SessionPermissions;
 use crate::configuration::read_editor_approvals;
 use crate::configuration::read_ignored_settings_message;
+use crate::configuration::resolve_config_from_args;
 use crate::configuration::store_process_plugin_decision;
 use crate::configuration::update_editor_approvals;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
+use crate::resolution::PluginsScopeAndPathsCollection;
 use crate::resolution::UnapprovedProcessPlugins;
 use crate::resolution::get_process_plugin_approvals;
 use crate::resolution::get_trusted_config_hash;
 use crate::resolution::get_unpinned_plugin_file_checksum;
+use crate::utils::PluginKind;
 
 /// The actions of the message that asks the user whether to allow running the
 /// process plugins of a config file, in the order they're shown.
@@ -163,6 +169,66 @@ pub async fn allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>
   }
 }
 
+/// Allows the editors to run the process plugins of the config files of the
+/// scopes that the user ran dprint with (ex. `dprint fmt`), like
+/// `allow_process_plugins_in_editors_or_warn`.
+pub async fn allow_process_plugins_of_scopes_in_editors<TEnvironment: Environment>(
+  args: &CliArgs,
+  scopes: &PluginsScopeAndPathsCollection<TEnvironment>,
+  environment: &TEnvironment,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+) {
+  // the plugins provided as arguments aren't the config file's
+  if !args.plugins.is_empty() {
+    return;
+  }
+  for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
+    allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
+  }
+}
+
+/// Sets up the process plugins of the config file of the args, which runs
+/// them, and allows the editors to run them like
+/// `allow_process_plugins_in_editors_or_warn`. It's for when the user chose
+/// the config file's plugins without running dprint with it (ex. `dprint config
+/// add`), because what's allowed is each plugin with its configuration, which
+/// isn't known until it's set up. Failing to set them up (ex. without a
+/// network connection) is only logged in debug mode, because the command did
+/// what the user asked and formatting says why it fails.
+pub async fn set_up_and_allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>(
+  args: &CliArgs,
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+) {
+  // the plugins provided as arguments aren't the config file's
+  if !args.plugins.is_empty() {
+    return;
+  }
+  let config = match resolve_config_from_args(args, environment).await {
+    // the global config file's process plugins run in editors without being allowed
+    Ok(config) if config.is_global => return,
+    Ok(config) => config,
+    Err(err) => {
+      log_debug!(environment, "Not allowing the process plugins in editors. {:#}", err);
+      return;
+    }
+  };
+  let process_plugins = config
+    .plugins
+    .iter()
+    .filter(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm))
+    .cloned()
+    .collect::<Vec<_>>();
+  if process_plugins.is_empty() {
+    return;
+  }
+  if let Err(err) = plugin_resolver.resolve_plugins(process_plugins).await {
+    log_debug!(environment, "Not allowing the process plugins of {} in editors. {:#}", config.display(), err);
+    return;
+  }
+  allow_process_plugins_in_editors_or_warn(environment, &config, plugin_resolver).await;
+}
+
 /// Gets the message for the user about a failure to store a decision for
 /// process plugins that they chose to always use, which is then only used for
 /// the session. The approvals file being from a newer version of dprint that
@@ -194,9 +260,9 @@ const DENY_ACTION_TITLE: &str = "Deny";
 const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 
 /// Allows the editors to run the process plugins of the config file with its
-/// configuration, which is for when the user ran dprint with it (`dprint fmt`,
-/// `dprint check`, `dprint config install`, or `dprint config update`) because
-/// that's the same as choosing to run them. The plugins need to be set up.
+/// configuration, which is for when the user ran dprint with it (ex. `dprint
+/// fmt` or `dprint config update`) because that's the same as choosing to run
+/// them. The plugins need to be set up.
 ///
 /// Nothing is stored when the approvals file can't be read (ex. it's from a
 /// newer version of dprint that this version can't use, which this version

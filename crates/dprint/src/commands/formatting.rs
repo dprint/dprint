@@ -22,7 +22,7 @@ use crate::arg_parser::FmtSubCommand;
 use crate::arg_parser::LineRange;
 use crate::arg_parser::OutputFormatTimesSubCommand;
 use crate::arg_parser::StdInFmtSubCommand;
-use crate::commands::process_plugin_approval::allow_process_plugins_in_editors_or_warn;
+use crate::commands::process_plugin_approval::allow_process_plugins_of_scopes_in_editors;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -154,6 +154,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
   )
   .await?;
   scopes.ensure_valid_for_cli_args(args)?;
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
   for scope_and_paths in scopes.into_iter() {
@@ -617,21 +618,6 @@ async fn format_line_ranges<TEnvironment: Environment>(
 
 /// Allows the editors to run the process plugins of the config files because
 /// running dprint with a config file is the same as choosing to run them.
-async fn allow_process_plugins_of_scopes_in_editors<TEnvironment: Environment>(
-  args: &CliArgs,
-  scopes: &PluginsScopeAndPathsCollection<TEnvironment>,
-  environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-) {
-  // the plugins provided as arguments aren't the config file's
-  if !args.plugins.is_empty() {
-    return;
-  }
-  for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
-    allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
-  }
-}
-
 #[cfg(test)]
 mod test {
   use deno_terminal::colors;
