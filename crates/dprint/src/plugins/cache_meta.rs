@@ -5,10 +5,9 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
-use dprint_core::plugins::PluginInfo;
-
 use super::implementations::WASM_CACHE_VERSION;
 use crate::environment::Environment;
+use crate::plugins::ReceivedPluginInfo;
 use crate::utils::FastInsecureHasher;
 use crate::utils::PluginKind;
 use std::hash::Hasher;
@@ -51,7 +50,7 @@ pub struct PluginCacheMeta {
   /// sidecar only — nothing reads it today (kept in case a future cleanup pass
   /// wants an age signal).
   pub created_time: u64,
-  pub info: PluginInfo,
+  pub info: ReceivedPluginInfo,
   /// Executable path relative to the plugin's extract dir. Process plugins only.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub executable_sub_path: Option<String>,
@@ -184,7 +183,7 @@ mod test {
       signature: signature.to_string(),
       plugin_kind: PluginKind::Wasm,
       created_time: 123,
-      info: PluginInfo {
+      info: ReceivedPluginInfo {
         name: "test-plugin".to_string(),
         version: "0.1.0".to_string(),
         config_key: "test".to_string(),
@@ -192,6 +191,7 @@ mod test {
         config_schema_url: "schema".to_string(),
         update_url: None,
         supports_range_formatting: None,
+        allow_plugin_override_config: None,
       },
       executable_sub_path: None,
       npm_executable_sub_path: None,

@@ -10,7 +10,10 @@ use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigKeyValue;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
+#[cfg(feature = "wasm")]
 use crate::plugins::PluginInfo;
+#[cfg(feature = "process")]
+use crate::plugins::ProcessPluginInfo;
 
 use super::FileMatchingInfo;
 
@@ -300,7 +303,7 @@ pub trait AsyncPluginHandler: 'static {
   type Configuration: Serialize + Clone + Send + Sync;
 
   /// Gets the plugin's plugin info.
-  fn plugin_info(&self) -> PluginInfo;
+  fn plugin_info(&self) -> ProcessPluginInfo;
   /// Gets the plugin's license text.
   fn license_text(&self) -> String;
   /// Resolves configuration based on the provided config map and global configuration.
