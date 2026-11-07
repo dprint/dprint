@@ -82,6 +82,8 @@ use crate::utils::PluginKind;
 use crate::utils::escape_glob_text_for_cli;
 use crate::utils::get_sha256_checksum;
 use crate::utils::is_negated_glob;
+use crate::utils::parse_checksum_path_or_url;
+use crate::utils::parse_npm_specifier;
 use crate::utils::quote_text;
 
 pub enum GetPluginResult {
@@ -1242,8 +1244,8 @@ impl UnapprovedProcessPlugin {
   /// They're quoted because they're from the project (see `quote_text`).
   pub fn display(&self) -> String {
     match &self.registry {
-      Some(registry) => format!("{} from {}", quote_text(&self.plugin), quote_text(registry)),
-      None => quote_text(&self.plugin),
+      Some(registry) => format!("{} from {}", quote_text(&get_plugin_display_text(&self.plugin)), quote_text(registry)),
+      None => quote_text(&get_plugin_display_text(&self.plugin)),
     }
   }
 }
@@ -1264,18 +1266,12 @@ impl UnapprovedProcessPlugins {
   /// Gets the message that says dprint isn't formatting with the config file
   /// because its process plugins weren't allowed.
   pub fn message(&self, permissions: &Permissions) -> String {
-    let plugins = self.plugins.iter().map(|plugin| plugin.display()).collect::<Vec<_>>().join(", ");
-    let was_allowed_with_other_config = self
-      .plugins
-      .iter()
-      .filter_map(|plugin| plugin.approval.as_ref())
-      .any(|approval| permissions.was_allowed_with_other_config(approval));
-    let reason = if was_allowed_with_other_config {
-      format!("the configuration of its process plugins ({}) changed since they were allowed", plugins)
-    } else {
-      format!("its process plugins ({}) weren't allowed to run", plugins)
+    let plugins = self.display_plugins();
+    let reason = match self.was_allowed_with_other_config(permissions) {
+      true => format!("the configuration of its process plugins ({}) changed since they were allowed", plugins),
+      false => format!("its process plugins ({}) weren't allowed to run", plugins),
     };
-    let mut message = format!(
+    let message = format!(
       concat!(
         "dprint isn't formatting files with {} because {}. ",
         "Process plugins aren't sandboxed, so only allow them when you trust this configuration file."
@@ -1283,12 +1279,36 @@ impl UnapprovedProcessPlugins {
       quote_text(&self.config_file),
       reason,
     );
-    // it may be why the user is asked (ex. they allowed every process plugin in it)
-    if let Some(ignored_settings_message) = &permissions.ignored_settings_message {
-      message.push(' ');
-      message.push_str(ignored_settings_message);
-    }
-    message
+    with_ignored_settings_message(message, permissions)
+  }
+
+  /// Gets the message that asks the user to allow the process plugins, which
+  /// doesn't have the config file because the editor shows it with the message.
+  pub fn approval_message(&self, permissions: &Permissions) -> String {
+    let plugins = self.display_plugins();
+    let message = match self.was_allowed_with_other_config(permissions) {
+      true => format!(
+        "The configuration of its process plugins ({}) changed since you allowed them. They aren't sandboxed, so only allow them when you trust this configuration file.",
+        plugins
+      ),
+      false => format!(
+        "It runs process plugins ({}), which aren't sandboxed, so only allow them when you trust this configuration file.",
+        plugins
+      ),
+    };
+    with_ignored_settings_message(message, permissions)
+  }
+
+  fn display_plugins(&self) -> String {
+    self.plugins.iter().map(|plugin| plugin.display()).collect::<Vec<_>>().join(", ")
+  }
+
+  fn was_allowed_with_other_config(&self, permissions: &Permissions) -> bool {
+    self
+      .plugins
+      .iter()
+      .filter_map(|plugin| plugin.approval.as_ref())
+      .any(|approval| permissions.was_allowed_with_other_config(approval))
   }
 
   /// Gets whether the predicate is true for what allowing each of the process
@@ -1714,6 +1734,27 @@ fn get_warn_remote_process_plugin_config_message(config_key: &str) -> String {
   )
 }
 
+/// Gets the plugin as a config file specifies it without its checksum, which
+/// is how it's shown.
+pub fn get_plugin_display_text(plugin: &str) -> String {
+  match plugin.starts_with("npm:") {
+    true => parse_npm_specifier(plugin)
+      .map(|parsed| parsed.specifier.display())
+      .unwrap_or_else(|_| plugin.to_string()),
+    false => parse_checksum_path_or_url(plugin).path_or_url,
+  }
+}
+
+/// Adds why the settings file isn't used when it isn't, which may be why the
+/// user is asked (ex. it allows every process plugin).
+fn with_ignored_settings_message(mut message: String, permissions: &Permissions) -> String {
+  if let Some(ignored_settings_message) = &permissions.ignored_settings_message {
+    message.push(' ');
+    message.push_str(ignored_settings_message);
+  }
+  message
+}
+
 #[cfg(test)]
 mod test {
   use dprint_core::configuration::ConfigKeyValue;
@@ -1722,6 +1763,20 @@ mod test {
   use crate::plugins::TestPlugin;
 
   use super::*;
+
+  #[test]
+  fn should_get_the_plugin_display_text_without_its_checksum() {
+    assert_eq!(
+      get_plugin_display_text("npm:@dprint/exec@0.7.4/plugin.json@abc123"),
+      "npm:@dprint/exec@0.7.4/plugin.json"
+    );
+    assert_eq!(get_plugin_display_text("npm:@dprint/exec@0.7.4"), "npm:@dprint/exec@0.7.4");
+    assert_eq!(
+      get_plugin_display_text("https://plugins.dprint.dev/exec-0.5.0.json@abc123"),
+      "https://plugins.dprint.dev/exec-0.5.0.json"
+    );
+    assert_eq!(get_plugin_display_text("/plugins/exec.json"), "/plugins/exec.json");
+  }
 
   // a plugin can derive values at resolution time that aren't present in the
   // raw config map (ex. the exec plugin folds the contents of `cacheKeyFiles`

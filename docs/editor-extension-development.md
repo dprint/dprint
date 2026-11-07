@@ -306,7 +306,8 @@ interface PendingApproval {
   /**
    * The message to show the user when asking, which says what's approved and why. It names everything that's approved,
    * including where each item is from (ex. the registry of an npm plugin or the `.npmrc` file of a proxy), apart from what the
-   * process plugins run with (`configuration` and `trustedConfiguration`). A client that can't show the items shows it, and an
+   * process plugins run with (`configuration` and `trustedConfiguration`). It doesn't name the configuration file, so show the
+   * `configFile` with it. A client that can't show the items shows it, and an
    * item property that isn't known doesn't need to be shown. The text it has from the project (ex. a url, a path, or the
    * setting of an `.npmrc` file) is in backticks (ex. `` `https://example.com/plugin.wasm` ``), so it's clear where it starts and
    * ends when the message is shown as plain text. It's escaped like an item's `specifier`, and a backtick and a character that
@@ -322,7 +323,7 @@ interface PendingApproval {
 
 interface ApprovalItem {
   /**
-   * The url, path, or npm specifier (ex. of a plugin with its checksum). A path that reaches another machine through a symlink is followed
+   * The url, path, or npm specifier (ex. of a plugin, without its checksum). A path that reaches another machine through a symlink is followed
    * by ` -> ` and the path on that machine (see "Approving"), and an `->` in a path is shown as `-\u{3e}` so the one between them
    * is the only one. For an `npmrcProxy`, it's the text of the setting before its environment variables are replaced (ex.
    * `https://${GITHUB_TOKEN}@proxy.example`), which shows what would be sent to the proxy.

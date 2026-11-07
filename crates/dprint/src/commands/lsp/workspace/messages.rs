@@ -592,7 +592,8 @@ pub struct PendingApproval {
   pub previous_decision: Option<ApprovalDecision>,
   /// The message to show the user when asking, which names everything that's
   /// approved apart from what the process plugins run with, and quotes the text
-  /// it has from the project (see `quote_text`).
+  /// it has from the project (see `quote_text`). It doesn't name the config
+  /// file, which the editor shows with it.
   pub message: String,
   /// The trusted configuration of the config file that the process plugins
   /// that aren't set up run with once they're allowed, which is what the user
@@ -610,7 +611,7 @@ pub struct PendingApproval {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalItem {
-  /// The url, path, or npm specifier (ex. of a plugin with its checksum), or
+  /// The url, path, or npm specifier (ex. of a plugin, without its checksum), or
   /// the text of the setting of an `npmrcProxy`. A path that reaches another
   /// machine through a symlink is followed by ` -> ` and the path on that
   /// machine, and an `->` in a path is escaped so the one between them is the

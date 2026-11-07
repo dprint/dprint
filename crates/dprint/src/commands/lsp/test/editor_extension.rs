@@ -4038,11 +4038,18 @@ fn should_approve_running_process_plugins() {
         assert_eq!(approval.config_file, local_config("/a/dprint.json"));
         assert_eq!(approval.decisions.len(), 4);
         assert_eq!(approval.items.len(), 1);
-        assert!(approval.items[0].specifier.starts_with("https://plugins.dprint.dev/test-process.json@"));
+        // it's shown without its checksum
+        assert_eq!(approval.items[0].specifier, "https://plugins.dprint.dev/test-process.json");
         // what it is and its configuration isn't known until it's set up
         assert_eq!(approval.items[0].plugin, None);
         assert_eq!(approval.items[0].configuration, None);
-        assert!(approval.message.contains(") weren't allowed to run."), "{}", approval.message);
+        assert!(
+          approval
+            .message
+            .starts_with("It runs process plugins (`https://plugins.dprint.dev/test-process.json`), "),
+          "{}",
+          approval.message
+        );
         // none of the plugins are set up until then
         assert_eq!(client.config_info("/a/dprint.json").await.plugins, None);
 
@@ -4080,7 +4087,7 @@ fn should_approve_running_process_plugins() {
           )
           .unwrap();
         let approval = client.format("/a/file.txt_ps", "text").await.approvals()[0].clone();
-        assert!(approval.message.contains("changed since they were allowed."), "{}", approval.message);
+        assert!(approval.message.contains("changed since you allowed them."), "{}", approval.message);
         // it's set up, so what it is and what it runs with is known
         let item = &approval.items[0];
         let plugin = item.plugin.as_ref().unwrap();
@@ -4161,7 +4168,7 @@ fn should_use_an_always_allow_for_a_process_plugin_that_is_not_set_up() {
       assert_eq!(status.reason(), Some(NotFormattedReason::ApprovalRequired));
       let approval = status.approvals()[0].clone();
       assert_eq!(approval.items[0].configuration, Some(json!({ "ending": "second" })));
-      assert!(approval.message.contains("changed since they were allowed."), "{}", approval.message);
+      assert!(approval.message.contains("changed since you allowed them."), "{}", approval.message);
     }
     .boxed_local()
   });
@@ -4246,7 +4253,7 @@ fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one
   // a trusted domain doesn't need a download approval, so this is what the user sees of where it's from
   let approval = get_approval(Some("@dprint:registry=https://raw.githubusercontent.com/other/registry/main/"));
   assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
-  assert_eq!(approval.items[0].specifier, PLUGIN);
+  assert_eq!(approval.items[0].specifier, "npm:@dprint/exec@0.5.0/plugin.json");
   assert_eq!(
     approval.items[0].registry.as_deref(),
     Some("https://raw.githubusercontent.com/other/registry/main")
@@ -4254,7 +4261,7 @@ fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one
   assert!(
     approval
       .message
-      .contains(&format!("(`{}` from `https://raw.githubusercontent.com/other/registry/main`)", PLUGIN)),
+      .contains("(`npm:@dprint/exec@0.5.0/plugin.json` from `https://raw.githubusercontent.com/other/registry/main`)"),
     "{}",
     approval.message
   );
@@ -4264,7 +4271,11 @@ fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one
   // the default registry isn't shown
   let default_registry = get_approval(None);
   assert_eq!(default_registry.items[0].registry, None);
-  assert!(default_registry.message.contains(&format!("(`{}`)", PLUGIN)), "{}", default_registry.message);
+  assert!(
+    default_registry.message.contains("(`npm:@dprint/exec@0.5.0/plugin.json`)"),
+    "{}",
+    default_registry.message
+  );
   assert_ne!(default_registry.id, approval.id);
   assert_eq!(get_approval(Some("registry=https://registry.npmjs.org/")).id, default_registry.id);
 }
@@ -4426,7 +4437,7 @@ fn should_provide_the_most_recent_decision_of_a_process_plugin() {
           &environment,
           crate::configuration::ProcessPluginApproval {
             config_file: "/a/dprint.json".to_string(),
-            plugin: approval.items[0].specifier.clone(),
+            plugin: remote_process_plugin(&environment),
             config_hash: Some("1:hash".to_string()),
             config_key: None,
           },
@@ -4638,7 +4649,7 @@ fn should_not_use_a_process_plugin_that_was_denied_while_it_was_set_up() {
       async move {
         environment.set_fs_time(1);
         let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
-        let plugin = approval.items[0].specifier.clone();
+        let plugin = remote_process_plugin(&environment);
         // setting it up takes a while
         environment.add_unresponsive_remote_file(ZIP_URL);
         let deny = async {
@@ -6154,6 +6165,13 @@ fn test_plugin() -> FilePlugin {
     version: "0.2.0".to_string(),
     config_key: "test-plugin".to_string(),
   }
+}
+
+/// Gets the test process plugin as the config file has it, with its checksum.
+fn remote_process_plugin(environment: &TestEnvironment) -> String {
+  let url = "https://plugins.dprint.dev/test-process.json";
+  let file_text = environment.get_remote_file(url).unwrap().unwrap();
+  format!("{}@{}", url, crate::utils::get_sha256_checksum(&file_text))
 }
 
 fn local_config(path: &str) -> ConfigFileInfo {

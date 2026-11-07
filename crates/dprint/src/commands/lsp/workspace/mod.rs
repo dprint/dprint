@@ -96,6 +96,7 @@ use crate::resolution::RangeFormattingSupport;
 use crate::resolution::UnapprovedProcessPlugin;
 use crate::resolution::UnapprovedProcessPlugins;
 use crate::resolution::get_cant_ask_message;
+use crate::resolution::get_plugin_display_text;
 use crate::utils::CANCEL_DOWNLOAD_ACTION_TITLE;
 use crate::utils::DOWNLOAD_ACTION_TITLE;
 use crate::utils::LogLevel;
@@ -1929,7 +1930,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         kind: ApprovalKind::ProcessPlugins,
         config_file: self.get_listed_config_file(config_file, global_config_path),
         // like the specifier of its item
-        specifiers: vec![escape_text(plugin)],
+        specifiers: vec![escape_text(&get_plugin_display_text(plugin))],
         items: None,
         allows,
         always,
@@ -2221,7 +2222,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .and_then(|info| config.trusted_config_map.get(&info.config_key))
       .map(config_map_value_to_json);
     ApprovalItem {
-      specifier: escape_text(&unapproved_plugin.plugin),
+      specifier: escape_text(&get_plugin_display_text(&unapproved_plugin.plugin)),
       kind: ApprovalItemKind::Plugin,
       registry: unapproved_plugin.registry.as_deref().map(escape_text),
       npmrc_uri: None,
@@ -2315,7 +2316,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               true => Some(ApprovalDecision::Deny),
               false => None,
             },
-            message: unapproved.message(&permissions),
+            message: unapproved.approval_message(&permissions),
           },
         };
         StoredApproval {
@@ -2367,19 +2368,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             "The client can't ask whether to download them, so run `dprint config install` in the directory of the configuration file to do so.".to_string()
           }
           ApprovalKind::ProcessPlugins => self
-            .approvals
-            .borrow()
-            .values()
-            .flatten()
-            .find_map(|stored| match &stored.subject {
-              ApprovalSubject::ProcessPlugins(unapproved) if stored.approval.id == approval.id => {
-                Some(get_cant_ask_message(&self.environment, &unapproved.config_file))
-              }
-              _ => None,
-            })
+            .get_unapproved_process_plugins(&approval.id)
+            .map(|unapproved| get_cant_ask_message(&self.environment, &unapproved.config_file))
             .unwrap_or_default(),
         };
-        self.client.show_message(MessageType::WARNING, format!("{} {}", approval.message, guidance));
+        let message = self.get_language_client_message(&approval);
+        self.client.show_message(MessageType::WARNING, format!("{} {}", message, guidance));
       }
       return;
     }
@@ -2397,7 +2391,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           ApprovalKind::Downloads => &[DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
           ApprovalKind::ProcessPlugins => &PROCESS_PLUGIN_ACTION_TITLES,
         };
-        let message = get_language_client_approval_message(&approval);
+        let message = get_language_client_approval_message(&approval, workspace.get_language_client_message(&approval));
         let Some(title) = workspace.show_message_request(MessageType::WARNING, message, titles).await else {
           // not choosing an action leaves it undecided
           return;
@@ -2446,6 +2440,24 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       })
       .cloned()
       .collect()
+  }
+
+  /// Gets the message of the approval for a language client, which has the
+  /// config file of process plugins because it isn't shown with the message
+  /// like an editor extension shows it.
+  fn get_language_client_message(&self, approval: &PendingApproval) -> String {
+    match self.get_unapproved_process_plugins(&approval.id) {
+      Some(unapproved) => unapproved.message(&self.session_permissions.read(&self.environment)),
+      None => approval.message.clone(),
+    }
+  }
+
+  /// Gets the process plugins that the approval with the id is for.
+  fn get_unapproved_process_plugins(&self, approval_id: &str) -> Option<UnapprovedProcessPlugins> {
+    self.approvals.borrow().values().flatten().find_map(|stored| match &stored.subject {
+      ApprovalSubject::ProcessPlugins(unapproved) if stored.approval.id == approval_id => Some(unapproved.clone()),
+      _ => None,
+    })
   }
 
   /// Gets the outcome of a file that wasn't formatted because of problems with
@@ -4367,8 +4379,7 @@ fn get_config_changed_key(params: &ConfigChangedParams) -> Option<String> {
 /// Gets the message to ask a language client's user about the approval,
 /// which has what the process plugins run with so it can be seen before
 /// deciding (an editor extension shows it itself).
-fn get_language_client_approval_message(approval: &PendingApproval) -> String {
-  let mut message = approval.message.clone();
+fn get_language_client_approval_message(approval: &PendingApproval, mut message: String) -> String {
   let configuration = approval
     .items
     .iter()
@@ -5045,20 +5056,20 @@ mod test {
       trusted_configuration: None,
     };
     assert_eq!(
-      get_language_client_approval_message(&approval),
+      get_language_client_approval_message(&approval, approval.message.clone()),
       r#"Allow them? They run with this configuration: {"exec":{"commands":[]}}"#
     );
     approval.items[0].plugin = None;
     approval.items[0].configuration = None;
     approval.trusted_configuration = Some(json!({ "exec": { "commands": [] } }));
     assert_eq!(
-      get_language_client_approval_message(&approval),
+      get_language_client_approval_message(&approval, approval.message.clone()),
       r#"Allow them? The plugins that weren't set up before run with this configuration: {"exec":{"commands":[]}}"#
     );
     // the configuration is from the project, so it can't change how the rest of the message reads
     let u = |hex: &str| format!("{}u{}", '\\', hex);
     approval.trusted_configuration = Some(json!({ "exec": { "a\u{202e}b": "c\u{2028}d\u{85}e", "f": "\u{301}g`" } }));
-    let message = get_language_client_approval_message(&approval);
+    let message = get_language_client_approval_message(&approval, approval.message.clone());
     assert_eq!(
       message,
       format!(
