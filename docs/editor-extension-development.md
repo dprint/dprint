@@ -306,9 +306,12 @@ interface PendingApproval {
   /**
    * The message to show the user when asking, which says what's approved and why. It names everything that's approved,
    * including where each item is from (ex. the registry of an npm plugin or the `.npmrc` file of a proxy), apart from what the
-   * process plugins run with (`configuration` and `trustedConfiguration`). It doesn't name the configuration file, so show the
-   * `configFile` with it. A client that can't show the items shows it, and an
-   * item property that isn't known doesn't need to be shown. The text it has from the project (ex. a url, a path, or the
+   * process plugins run with (`configuration` and `trustedConfiguration`). It asks first, then has a line with the configuration
+   * file (which says when it's outside the workspace) and a line with what's approved, then any notes, with a blank line between
+   * them (ex. "Formatting runs process plugins that aren't sandboxed. Allow them?\n\nConfig file: `/project/dprint.json`\nPlugins:
+   * `npm:@dprint/exec@0.7.4`"). A client that can't show line breaks joins the lines (ex. with " · "). A client that can't show
+   * the items shows it, and an item property that isn't known doesn't need to be shown. The text it has from the project (ex. a
+   * url, a path, or the
    * setting of an `.npmrc` file) is in backticks (ex. `` `https://example.com/plugin.wasm` ``), so it's clear where it starts and
    * ends when the message is shown as plain text. It's escaped like an item's `specifier`, and a backtick and a character that
    * looks like one are escaped too (ex. `\u{60}`), so the text can't end the quotes or change how the rest of the message reads.

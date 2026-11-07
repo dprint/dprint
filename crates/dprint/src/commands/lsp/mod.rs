@@ -1960,8 +1960,10 @@ mod test {
             assert!(
               shown[0]
                 .1
-                .starts_with("dprint needs to download `https://example.com/test-plugin.wasm` from domains that aren't trusted.")
+                .starts_with("Formatting downloads from domains that aren't trusted. Allow them?\n\nConfig file (outside the workspace): `"),
+              "{shown:?}"
             );
+            assert!(shown[0].1.contains("\nDownloads: `https://example.com/test-plugin.wasm`"), "{shown:?}");
             assert_eq!(shown[0].2, vec!["Download", "Cancel"]);
             // the user chose to download it
             let mut result = None;
@@ -3592,7 +3594,10 @@ mod test {
         assert_eq!(shown.len(), 1, "{shown:?}");
         let (message_type, message, actions) = &shown[0];
         assert_eq!(*message_type, MessageType::WARNING);
-        assert!(message.starts_with("dprint isn't formatting files with `/dprint.json` because "), "{message}");
+        assert!(
+          message.contains("\n\nConfig file (outside the workspace): `/dprint.json`\nPlugins: `"),
+          "{message}"
+        );
         assert!(message.contains(reason), "{message}");
         assert_eq!(*actions, vec!["Allow", "Always Allow", "Deny", "Always Deny"]);
       }
@@ -3607,16 +3612,16 @@ mod test {
       // denying only asks once per session
       let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny"), [false, false]).await;
       assert!(!was_set_up);
-      assert_asked(shown, "because its process plugins (`https://plugins.dprint.dev/test-process.json`)");
+      assert_asked(shown, "Formatting runs process plugins that aren't sandboxed. Allow them?");
 
       // allowing uses it for the session
       let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Allow"), [false, true]).await;
       assert!(was_set_up);
-      assert_asked(shown, "because its process plugins (`https://plugins.dprint.dev/test-process.json`)");
+      assert_asked(shown, "Formatting runs process plugins that aren't sandboxed. Allow them?");
 
       // always denying doesn't ask in the next session
       let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Deny"), [false, false]).await;
-      assert_asked(shown, "because its process plugins (`https://plugins.dprint.dev/test-process.json`)");
+      assert_asked(shown, "Formatting runs process plugins that aren't sandboxed. Allow them?");
       assert_eq!(
         run_session(&environment, message_actions_capabilities(), None, [false, false]).await,
         (Vec::new(), false)
@@ -3625,7 +3630,7 @@ mod test {
       // always allowing replaces the decision and uses it in the next session
       environment.remove_file(get_editor_approvals_file_path(&environment).unwrap()).unwrap();
       let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Allow"), [false, true]).await;
-      assert_asked(shown, "because its process plugins (`https://plugins.dprint.dev/test-process.json`)");
+      assert_asked(shown, "Formatting runs process plugins that aren't sandboxed. Allow them?");
       assert_eq!(
         run_session(&environment, message_actions_capabilities(), None, [true, true]).await,
         (Vec::new(), false)
@@ -3642,10 +3647,7 @@ mod test {
         )
         .unwrap();
       let (shown, _) = run_session(&environment, message_actions_capabilities(), None, [false, false]).await;
-      assert_asked(
-        shown,
-        "because the configuration of its process plugins (`https://plugins.dprint.dev/test-process.json`)",
-      );
+      assert_asked(shown, "The configuration of these process plugins changed since you allowed them.");
     });
   }
 

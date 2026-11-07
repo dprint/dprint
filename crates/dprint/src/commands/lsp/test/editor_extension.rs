@@ -3482,13 +3482,20 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert!(
           approval
             .message
-            .starts_with("dprint needs to download `https://example.com/test-plugin.wasm` from domains that aren't trusted.")
+            .starts_with("Formatting downloads from domains that aren't trusted. Allow them?\n\nConfig file: `"),
+          "{}",
+          approval.message
         );
+        assert!(
+          approval.message.contains("\nDownloads: `https://example.com/test-plugin.wasm`"),
+          "{}",
+          approval.message
+        );
+        // the message of a file that isn't formatted says why rather than asking
+        let message = crate::utils::get_untrusted_download_message(&[UNTRUSTED_PLUGIN_URL.to_string()], None);
         assert_eq!(
           client.format("/file.txt", "text").await,
-          FormatResult::NotFormatted(
-            NotFormatted::new(NotFormattedReason::ApprovalRequired, Some(approval.message.clone()), vec![approval.clone()]).unclaimed()
-          )
+          FormatResult::NotFormatted(NotFormatted::new(NotFormattedReason::ApprovalRequired, Some(message), vec![approval.clone()]).unclaimed())
         );
         assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
         // the server doesn't ask the user itself
@@ -3645,7 +3652,7 @@ fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
         assert!(
           approval
             .message
-            .starts_with(&format!("The proxy `{}` that `{}` sets isn't trusted", PROXY_SETTING, npmrc_path)),
+            .contains(&format!("\nProxy: `{}`\n.npmrc file: `{}`", PROXY_SETTING, npmrc_path)),
           "{}",
           approval.message
         );
@@ -3730,7 +3737,7 @@ fn should_approve_the_proxy_of_a_project_npmrc_on_its_own() {
         assert!(
           proxy_approval
             .message
-            .starts_with(&format!("The proxy `{}` that `{}` sets isn't trusted", PROXY_SETTING, npmrc_path)),
+            .contains(&format!("\nProxy: `{}`\n.npmrc file: `{}`", PROXY_SETTING, npmrc_path)),
           "{}",
           proxy_approval.message
         );
@@ -3819,13 +3826,8 @@ fn should_approve_reading_a_config_file_on_another_machine() {
           configuration: None,
         }]
       );
-      assert!(
-        approval
-          .message
-          .starts_with(&format!("dprint needs to read `{}`, which is on another machine.", specifier)),
-        "{}",
-        approval.message
-      );
+      assert!(approval.message.starts_with("Formatting reads from another machine,"), "{}", approval.message);
+      assert!(approval.message.contains(&format!("\nPaths: `{}`", specifier)), "{}", approval.message);
       assert!(!approval.message.contains("trustedDomains"), "{}", approval.message);
       // the config file in the directory of another file is used
       assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
@@ -4046,7 +4048,14 @@ fn should_approve_running_process_plugins() {
         assert!(
           approval
             .message
-            .starts_with("It runs process plugins (`https://plugins.dprint.dev/test-process.json`), "),
+            .starts_with("Formatting runs process plugins that aren't sandboxed. Allow them?\n\nConfig file: `"),
+          "{}",
+          approval.message
+        );
+        assert!(
+          approval
+            .message
+            .ends_with("dprint.json`\nPlugins: `https://plugins.dprint.dev/test-process.json`"),
           "{}",
           approval.message
         );
@@ -4261,7 +4270,7 @@ fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one
   assert!(
     approval
       .message
-      .contains("(`npm:@dprint/exec@0.5.0/plugin.json` from `https://raw.githubusercontent.com/other/registry/main`)"),
+      .ends_with("\nPlugins: `npm:@dprint/exec@0.5.0/plugin.json` from `https://raw.githubusercontent.com/other/registry/main`"),
     "{}",
     approval.message
   );
@@ -4272,7 +4281,7 @@ fn should_show_the_registry_of_an_npm_process_plugin_that_is_not_the_default_one
   let default_registry = get_approval(None);
   assert_eq!(default_registry.items[0].registry, None);
   assert!(
-    default_registry.message.contains("(`npm:@dprint/exec@0.5.0/plugin.json`)"),
+    default_registry.message.ends_with("\nPlugins: `npm:@dprint/exec@0.5.0/plugin.json`"),
     "{}",
     default_registry.message
   );

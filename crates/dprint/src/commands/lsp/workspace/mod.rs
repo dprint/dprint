@@ -106,6 +106,7 @@ use crate::utils::Semaphore;
 use crate::utils::UntrustedDownloadError;
 use crate::utils::escape_text;
 use crate::utils::get_bytes_hash;
+use crate::utils::get_download_approval_message;
 use crate::utils::get_download_url_text;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
@@ -117,6 +118,7 @@ use crate::utils::is_combining_mark;
 use crate::utils::is_escaped_in_text;
 use crate::utils::is_path_download;
 use crate::utils::normalize_download;
+use crate::utils::quote_text;
 
 mod config_diagnostics;
 mod editor_paths;
@@ -2262,6 +2264,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       return Vec::new();
     };
     let permissions = self.session_permissions.read(&self.environment);
+    let config_file_line = get_config_file_line(&config_file);
     let stored = subjects
       .into_iter()
       .map(|(subject, items)| {
@@ -2275,9 +2278,13 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               true => &[ApprovalDecision::Allow, ApprovalDecision::Deny],
               false => &[ApprovalDecision::Deny],
             };
-            let mut message = self.get_untrusted_download_message(urls);
+            let mut message = get_download_approval_message(
+              &self.with_editor_npmrc_paths(urls),
+              &config_file_line,
+              read_ignored_settings_message(&self.environment).as_deref(),
+            );
             if !is_allowable {
-              message.push_str(&format!(" {}", NOT_ALLOWABLE_PATH_MESSAGE));
+              message.push_str(&format!("\n\n{}", NOT_ALLOWABLE_PATH_MESSAGE));
             }
             PendingApproval {
               denied,
@@ -2316,7 +2323,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               true => Some(ApprovalDecision::Deny),
               false => None,
             },
-            message: unapproved.approval_message(&permissions),
+            message: unapproved.approval_message(&permissions, &config_file_line),
           },
         };
         StoredApproval {
@@ -2372,8 +2379,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             .map(|unapproved| get_cant_ask_message(&self.environment, &unapproved.config_file))
             .unwrap_or_default(),
         };
-        let message = self.get_language_client_message(&approval);
-        self.client.show_message(MessageType::WARNING, format!("{} {}", message, guidance));
+        self.client.show_message(MessageType::WARNING, format!("{}\n\n{}", approval.message, guidance));
       }
       return;
     }
@@ -2391,7 +2397,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           ApprovalKind::Downloads => &[DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
           ApprovalKind::ProcessPlugins => &PROCESS_PLUGIN_ACTION_TITLES,
         };
-        let message = get_language_client_approval_message(&approval, workspace.get_language_client_message(&approval));
+        let message = get_language_client_approval_message(&approval);
         let Some(title) = workspace.show_message_request(MessageType::WARNING, message, titles).await else {
           // not choosing an action leaves it undecided
           return;
@@ -2440,16 +2446,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       })
       .cloned()
       .collect()
-  }
-
-  /// Gets the message of the approval for a language client, which has the
-  /// config file of process plugins because it isn't shown with the message
-  /// like an editor extension shows it.
-  fn get_language_client_message(&self, approval: &PendingApproval) -> String {
-    match self.get_unapproved_process_plugins(&approval.id) {
-      Some(unapproved) => unapproved.message(&self.session_permissions.read(&self.environment)),
-      None => approval.message.clone(),
-    }
   }
 
   /// Gets the process plugins that the approval with the id is for.
@@ -3733,7 +3729,15 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// `get_untrusted_download_message`) with the editor's path of each `.npmrc`
   /// file.
   fn get_untrusted_download_message(&self, downloads: &[String]) -> String {
-    let downloads = downloads
+    get_untrusted_download_message(
+      &self.with_editor_npmrc_paths(downloads),
+      read_ignored_settings_message(&self.environment).as_deref(),
+    )
+  }
+
+  /// Gets the downloads with the editor's path of each `.npmrc` file of a proxy.
+  fn with_editor_npmrc_paths(&self, downloads: &[String]) -> Vec<String> {
+    downloads
       .iter()
       .map(|download| match NpmrcProxy::from_download(download) {
         Some(proxy) => NpmrcProxy {
@@ -3743,8 +3747,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         .to_download(),
         None => download.clone(),
       })
-      .collect::<Vec<_>>();
-    get_untrusted_download_message(&downloads, read_ignored_settings_message(&self.environment).as_deref())
+      .collect()
   }
 
   /// Gets the notification that a local config file the editor said changed did.
@@ -4379,7 +4382,8 @@ fn get_config_changed_key(params: &ConfigChangedParams) -> Option<String> {
 /// Gets the message to ask a language client's user about the approval,
 /// which has what the process plugins run with so it can be seen before
 /// deciding (an editor extension shows it itself).
-fn get_language_client_approval_message(approval: &PendingApproval, mut message: String) -> String {
+fn get_language_client_approval_message(approval: &PendingApproval) -> String {
+  let mut message = approval.message.clone();
   let configuration = approval
     .items
     .iter()
@@ -4387,13 +4391,13 @@ fn get_language_client_approval_message(approval: &PendingApproval, mut message:
     .collect::<serde_json::Map<_, _>>();
   if !configuration.is_empty() {
     message.push_str(&format!(
-      " They run with this configuration: {}",
+      "\n\nThey run with this configuration: {}",
       get_escaped_json(&serde_json::Value::Object(configuration))
     ));
   }
   if let Some(trusted_configuration) = &approval.trusted_configuration {
     message.push_str(&format!(
-      " The plugins that weren't set up before run with this configuration: {}",
+      "\n\nThe plugins that weren't set up before run with this configuration: {}",
       get_escaped_json(trusted_configuration)
     ));
   }
@@ -4620,6 +4624,19 @@ fn get_download_groups(downloads: &[String]) -> Vec<Vec<String>> {
   let mut groups = proxies.into_iter().map(|proxy| vec![proxy]).collect::<Vec<_>>();
   groups.extend([paths, urls].into_iter().filter(|group| !group.is_empty()));
   groups
+}
+
+/// Gets the line of an approval's message that has its config file (ex.
+/// ``Config file: `/project/dprint.json` ``), which says when it's outside the
+/// workspace.
+fn get_config_file_line(config_file: &ConfigFileInfo) -> String {
+  let path = uri_to_file_path(&config_file.uri)
+    .map(|path| path.display().to_string())
+    .unwrap_or_else(|| config_file.uri.as_str().to_string());
+  match config_file.in_workspace {
+    true => format!("Config file: {}", quote_text(&path)),
+    false => format!("Config file (outside the workspace): {}", quote_text(&path)),
+  }
 }
 
 /// Gets the title of the approval of a group of downloads (see `get_download_groups`).
@@ -5056,24 +5073,30 @@ mod test {
       trusted_configuration: None,
     };
     assert_eq!(
-      get_language_client_approval_message(&approval, approval.message.clone()),
-      r#"Allow them? They run with this configuration: {"exec":{"commands":[]}}"#
+      get_language_client_approval_message(&approval),
+      concat!("Allow them?\n\n", r#"They run with this configuration: {"exec":{"commands":[]}}"#)
     );
     approval.items[0].plugin = None;
     approval.items[0].configuration = None;
     approval.trusted_configuration = Some(json!({ "exec": { "commands": [] } }));
     assert_eq!(
-      get_language_client_approval_message(&approval, approval.message.clone()),
-      r#"Allow them? The plugins that weren't set up before run with this configuration: {"exec":{"commands":[]}}"#
+      get_language_client_approval_message(&approval),
+      concat!(
+        "Allow them?\n\n",
+        r#"The plugins that weren't set up before run with this configuration: {"exec":{"commands":[]}}"#
+      )
     );
     // the configuration is from the project, so it can't change how the rest of the message reads
     let u = |hex: &str| format!("{}u{}", '\\', hex);
     approval.trusted_configuration = Some(json!({ "exec": { "a\u{202e}b": "c\u{2028}d\u{85}e", "f": "\u{301}g`" } }));
-    let message = get_language_client_approval_message(&approval, approval.message.clone());
+    let message = get_language_client_approval_message(&approval);
     assert_eq!(
       message,
       format!(
-        r#"Allow them? The plugins that weren't set up before run with this configuration: {{"exec":{{"a{}b":"c{}d{}e","f":"{}g`"}}}}"#,
+        concat!(
+          "Allow them?\n\n",
+          r#"The plugins that weren't set up before run with this configuration: {{"exec":{{"a{}b":"c{}d{}e","f":"{}g`"}}}}"#
+        ),
         u("202e"),
         u("2028"),
         u("0085"),
