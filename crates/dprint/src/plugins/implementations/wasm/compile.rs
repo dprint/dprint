@@ -4,7 +4,6 @@ use std::sync::Weak;
 
 use anyhow::Context;
 use anyhow::Result;
-use dprint_core::plugins::PluginInfo;
 
 use super::create_identity_import_object;
 use super::create_wasm_plugin_instance;
@@ -14,6 +13,7 @@ use super::load_instance::WasmModuleCreator;
 use super::load_instance::load_instance;
 use super::load_instance::plugin_initializes_on_start;
 use crate::plugins::CompilationResult;
+use crate::plugins::ReceivedPluginInfo;
 
 /// Compiles a Wasm module, compiling its functions in parallel on a thread
 /// pool of at most `max_threads` threads that's shared with any other
@@ -48,7 +48,7 @@ pub fn compile(wasm_bytes: &[u8], max_threads: usize) -> Result<CompilationResul
   Ok(CompilationResult { bytes, plugin_info })
 }
 
-fn get_plugin_info(module: &WasmModule) -> Result<PluginInfo> {
+fn get_plugin_info(module: &WasmModule) -> Result<ReceivedPluginInfo> {
   let linker = create_identity_import_object(module.version(), module.engine())?;
   let mut store = module.new_store(WasmHostState::Empty);
   let instance = load_instance(&mut store, module, linker)?;

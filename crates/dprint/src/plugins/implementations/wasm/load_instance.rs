@@ -3,12 +3,13 @@ use std::path::Path;
 use anyhow::Result;
 use anyhow::bail;
 use deno_semver::Version;
-use dprint_core::plugins::PluginInfo;
 use wasmtime::Config;
 use wasmtime::Engine;
 use wasmtime::Func;
 use wasmtime::Memory;
 use wasmtime::Module;
+
+use crate::plugins::ReceivedPluginInfo;
 
 use super::PluginSchemaVersion;
 use super::instance::Linker;
@@ -84,7 +85,7 @@ pub fn load_instance(store: &mut Store, module: &WasmModule, mut linker: Linker)
 ///
 /// This is hardcoded for old versions of dprint-plugin-gofumpt, which trap when
 /// initialized a second time (https://github.com/dprint/dprint/issues/1306).
-pub fn plugin_initializes_on_start(plugin_info: &PluginInfo) -> bool {
+pub fn plugin_initializes_on_start(plugin_info: &ReceivedPluginInfo) -> bool {
   plugin_info.name == "dprint-plugin-gofumpt"
     && Version::parse_from_npm(&plugin_info.version).is_ok_and(|version| version < Version::parse_from_npm("0.0.19").unwrap())
 }
@@ -302,7 +303,7 @@ mod tests {
   #[test]
   fn gofumpt_initializes_on_start() {
     let run = |name: &str, version: &str| {
-      plugin_initializes_on_start(&PluginInfo {
+      plugin_initializes_on_start(&ReceivedPluginInfo {
         name: name.to_string(),
         version: version.to_string(),
         config_key: String::new(),
@@ -310,6 +311,7 @@ mod tests {
         config_schema_url: String::new(),
         update_url: None,
         supports_range_formatting: None,
+        allow_plugin_override_config: None,
       })
     };
     assert!(run("dprint-plugin-gofumpt", "0.0.1"));

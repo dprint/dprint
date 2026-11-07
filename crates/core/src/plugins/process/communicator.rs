@@ -46,7 +46,6 @@ use crate::plugins::FormatRange;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
 use crate::plugins::NullCancellationToken;
-use crate::plugins::PluginInfo;
 use crate::plugins::error_to_string;
 
 type Result<T> = std::result::Result<T, FormatError>;
@@ -341,7 +340,11 @@ impl ProcessPluginCommunicator {
     self.send_with_acknowledgement(MessageBody::IsAlive).await.is_ok()
   }
 
-  pub async fn plugin_info(&self) -> Result<PluginInfo> {
+  /// Gets the plugin's info, which the plugin sends as a [`ProcessPluginInfo`](crate::plugins::ProcessPluginInfo).
+  ///
+  /// The type to deserialize it to is generic because a plugin made with an
+  /// older version of dprint-core might not send every property.
+  pub async fn plugin_info<T: DeserializeOwned>(&self) -> Result<T> {
     self.send_receiving_data(MessageBody::GetPluginInfo).await
   }
 
