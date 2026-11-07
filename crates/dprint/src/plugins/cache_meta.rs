@@ -5,10 +5,9 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
-use dprint_core::plugins::PluginInfo;
-
 use super::implementations::WASM_CACHE_VERSION;
 use crate::environment::Environment;
+use crate::plugins::PluginInfo;
 use crate::utils::FastInsecureHasher;
 use crate::utils::PluginKind;
 use std::hash::Hasher;
@@ -192,6 +191,7 @@ mod test {
         config_schema_url: "schema".to_string(),
         update_url: None,
         supports_range_formatting: None,
+        allow_plugin_override_config: None,
       },
       executable_sub_path: None,
       npm_executable_sub_path: None,

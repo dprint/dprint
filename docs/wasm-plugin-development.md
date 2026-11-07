@@ -47,21 +47,21 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    use dprint_core::plugins::FileMatchingInfo;
    use dprint_core::plugins::FormatError;
    use dprint_core::plugins::FormatResult;
-   use dprint_core::plugins::PluginInfo;
    use dprint_core::plugins::PluginResolveConfigurationResult;
    use dprint_core::plugins::SyncFormatRequest;
    use dprint_core::plugins::SyncHostFormatRequest;
    use dprint_core::plugins::SyncPluginHandler;
+   use dprint_core::plugins::WasmPluginInfo;
 
    use crate::configuration::Configuration; // import the Configuration from above
 
    pub struct MyPluginHandler;
 
    impl SyncPluginHandler<Configuration> for MyPluginHandler {
-     fn plugin_info(&mut self) -> PluginInfo {
+     fn plugin_info(&mut self) -> WasmPluginInfo {
        // for config_schema_url and update_url, see schema.json and latest.json helpers at https://github.com/dprint/plugins
        let repo_name = "your-org/your-repo";
-       PluginInfo {
+       WasmPluginInfo {
          name: env!("CARGO_PKG_NAME").to_string(),
          version: env!("CARGO_PKG_VERSION").to_string(),
          config_key: "keyGoesHere".to_string(),
@@ -69,8 +69,8 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
          // the schema url for your config file or "".to_string() if no config
          config_schema_url: format!("https://plugins.dprint.dev/{repo_name}/{}/schema.json", env!("CARGO_PKG_VERSION")),
          update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
-         // whether `format` formats the request's range (see `PluginInfo::supports_range_formatting`)
-         supports_range_formatting: Some(false),
+         // whether `format` formats the request's range (see `WasmPluginInfo::supports_range_formatting`)
+         supports_range_formatting: false,
        }
      }
 

@@ -1,9 +1,9 @@
 use std::fmt;
 
 use anyhow::Result;
-use dprint_core::plugins::PluginInfo;
 
 use crate::environment::Environment;
+use crate::plugins::PluginInfo;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::parse_checksum_path_or_url;

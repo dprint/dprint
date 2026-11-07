@@ -22,7 +22,6 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::wasm::JsonResponse;
 use wasmtime::Caller;
 use wasmtime::Engine;
@@ -33,6 +32,7 @@ use wasmtime::WasmResults;
 
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
+use crate::plugins::PluginInfo;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
 

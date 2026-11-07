@@ -3,12 +3,13 @@ use std::path::Path;
 use anyhow::Result;
 use anyhow::bail;
 use deno_semver::Version;
-use dprint_core::plugins::PluginInfo;
 use wasmtime::Config;
 use wasmtime::Engine;
 use wasmtime::Func;
 use wasmtime::Memory;
 use wasmtime::Module;
+
+use crate::plugins::PluginInfo;
 
 use super::PluginSchemaVersion;
 use super::instance::Linker;
@@ -310,6 +311,7 @@ mod tests {
         config_schema_url: String::new(),
         update_url: None,
         supports_range_formatting: None,
+        allow_plugin_override_config: None,
       })
     };
     assert!(run("dprint-plugin-gofumpt", "0.0.1"));

@@ -23,7 +23,6 @@ use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
-use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::HostFormatCallback;
 use indexmap::IndexMap;
 use thiserror::Error;
@@ -61,6 +60,7 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::OutputPluginConfigDiagnosticsError;
+use crate::plugins::PluginInfo;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
@@ -194,10 +194,11 @@ impl PluginWithConfig {
     let mut result = self.get_config_file_overrides_for_path(file_path);
     // IMPORTANT: A plugin's request can come from any plugin (ex. a Wasm plugin
     // from remote configuration formatting a code block), so its override config
-    // may only change the global configuration of a process plugin. Process plugins
-    // don't run sandboxed, so it could otherwise get them to do something like run
-    // commands of its choosing (ex. dprint-plugin-exec).
-    let only_global_config = is_plugin_request && self.plugin.is_process_plugin();
+    // may only change the global configuration of a process plugin unless the
+    // process plugin allows it. Process plugins don't run sandboxed, so it could
+    // otherwise get them to do something like run commands of its choosing (ex.
+    // dprint-plugin-exec). Plugins made before they could say so aren't allowed.
+    let only_global_config = is_plugin_request && self.plugin.is_process_plugin() && !self.info().allow_plugin_override_config.unwrap_or(false);
     for (key, value) in request_override_config.iter() {
       if only_global_config && !GLOBAL_CONFIG_KEYS.contains(&key.as_str()) {
         continue;
@@ -1345,6 +1346,50 @@ mod test {
       hash_with_resolved_config(r#"{"cacheKey":"a"}"#),
       hash_with_resolved_config(r#"{"cacheKey":"a"}"#)
     );
+  }
+
+  #[test]
+  fn should_only_let_plugin_requests_change_global_config_of_process_plugins_that_do_not_allow_it() {
+    fn get_override_keys(plugin: TestPlugin, is_plugin_request: bool) -> Vec<String> {
+      let plugin_with_config = PluginWithConfig::new(
+        Rc::new(PluginWrapper::new(Box::new(plugin))),
+        PluginWithConfigOptions {
+          associations: None,
+          format_config: Arc::new(FormatConfig {
+            id: FormatConfigId::from_raw(1),
+            global: Default::default(),
+            plugin: Default::default(),
+          }),
+          file_matching: FileMatchingInfo {
+            file_extensions: vec!["txt".to_string()],
+            file_names: vec![],
+            additive: false,
+          },
+          overrides: Vec::new(),
+          serialized_resolved_config: String::new(),
+        },
+      );
+      let request_override_config = ConfigKeyMap::from([
+        ("lineWidth".to_string(), ConfigKeyValue::from_i32(80)),
+        ("commands".to_string(), ConfigKeyValue::String("rm".to_string())),
+      ]);
+      plugin_with_config
+        .get_merged_overrides_for_path(Path::new("/file.txt"), &request_override_config, is_plugin_request)
+        .into_keys()
+        .collect()
+    }
+    let create_plugin = || TestPlugin::new("test-plugin", "test-plugin", vec!["txt"], vec![]);
+    let all_keys = vec!["lineWidth".to_string(), "commands".to_string()];
+    let global_keys = vec!["lineWidth".to_string()];
+
+    // wasm plugins are sandboxed
+    assert_eq!(get_override_keys(create_plugin(), true), all_keys);
+    // process plugins that don't say are treated as not allowing it
+    assert_eq!(get_override_keys(create_plugin().as_process_plugin(None), true), global_keys);
+    assert_eq!(get_override_keys(create_plugin().as_process_plugin(Some(false)), true), global_keys);
+    assert_eq!(get_override_keys(create_plugin().as_process_plugin(Some(true)), true), all_keys);
+    // requests not from a plugin (ex. the editor service) can change anything
+    assert_eq!(get_override_keys(create_plugin().as_process_plugin(Some(false)), false), all_keys);
   }
 
   #[test]

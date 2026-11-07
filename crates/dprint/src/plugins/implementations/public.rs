@@ -1,8 +1,6 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-use dprint_core::plugins::PluginInfo;
-
 use super::WasmModuleCreator;
 use super::process;
 use super::wasm;
@@ -10,6 +8,7 @@ use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginCacheItem;
+use crate::plugins::PluginInfo;
 use crate::plugins::PluginSourceReference;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;

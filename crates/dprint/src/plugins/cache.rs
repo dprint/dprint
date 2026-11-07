@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use dprint_core::plugins::PluginInfo;
 use sys_traits::FsMetadata;
 use sys_traits::FsMetadataValue;
 
@@ -37,6 +36,7 @@ use super::npm_resolution;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
+use crate::plugins::PluginInfo;
 use crate::plugins::PluginSourceReference;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
@@ -856,6 +856,7 @@ mod test {
         config_schema_url: "schema".to_string(),
         update_url: None,
         supports_range_formatting: None,
+        allow_plugin_override_config: None,
       },
       executable_sub_path: None,
       npm_executable_sub_path: None,

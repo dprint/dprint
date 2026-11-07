@@ -18,8 +18,8 @@ use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRequest;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
-use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::PluginResolveConfigurationResult;
+use dprint_core::plugins::ProcessPluginInfo;
 use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
 use dprint_core::plugins::process::start_parent_process_checker_task;
@@ -61,8 +61,8 @@ impl TestProcessPluginHandler {
 impl AsyncPluginHandler for TestProcessPluginHandler {
   type Configuration = Configuration;
 
-  fn plugin_info(&self) -> PluginInfo {
-    PluginInfo {
+  fn plugin_info(&self) -> ProcessPluginInfo {
+    ProcessPluginInfo {
       name: String::from(env!("CARGO_PKG_NAME")),
       version: {
         let exe_path = std::env::current_exe().unwrap();
@@ -76,7 +76,8 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       help_url: "https://dprint.dev/plugins/test-process".to_string(),
       config_schema_url: "".to_string(),
       update_url: Some("https://plugins.dprint.dev/dprint/test-process-plugin/latest.json".to_string()),
-      supports_range_formatting: Some(true),
+      supports_range_formatting: true,
+      allow_plugin_override_config: false,
     }
   }
 

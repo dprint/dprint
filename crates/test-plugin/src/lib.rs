@@ -12,11 +12,11 @@ use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatResult;
-use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::PluginResolveConfigurationResult;
 use dprint_core::plugins::SyncFormatRequest;
 use dprint_core::plugins::SyncHostFormatRequest;
 use dprint_core::plugins::SyncPluginHandler;
+use dprint_core::plugins::WasmPluginInfo;
 use serde::Deserialize;
 use serde::Serialize;
 use std::io::Write;
@@ -81,15 +81,15 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     }
   }
 
-  fn plugin_info(&mut self) -> PluginInfo {
-    PluginInfo {
+  fn plugin_info(&mut self) -> WasmPluginInfo {
+    WasmPluginInfo {
       name: env!("CARGO_PKG_NAME").to_string(),
       version: env!("CARGO_PKG_VERSION").to_string(),
       config_key: "test-plugin".to_string(),
       help_url: "https://dprint.dev/plugins/test".to_string(),
       config_schema_url: "https://plugins.dprint.dev/test/schema.json".to_string(),
       update_url: Some("https://plugins.dprint.dev/dprint/test-plugin/latest.json".to_string()),
-      supports_range_formatting: None,
+      supports_range_formatting: true,
     }
   }
 

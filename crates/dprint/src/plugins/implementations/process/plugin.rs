@@ -5,7 +5,6 @@ use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
-use dprint_core::plugins::PluginInfo;
 use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -17,6 +16,7 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
+use crate::plugins::PluginInfo;
 
 use super::InitializedProcessPluginCommunicator;
 

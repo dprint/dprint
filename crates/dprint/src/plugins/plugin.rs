@@ -16,8 +16,9 @@ use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
-use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::HostFormatCallback;
+
+use crate::plugins::PluginInfo;
 
 /// Looks for a [`CriticalFormatError`] in an `anyhow::Error`, whether it was
 /// stored directly or wrapped in a [`FormatError`].
@@ -89,11 +90,20 @@ pub trait InitializedPlugin {
 #[cfg(test)]
 pub struct TestPlugin {
   info: PluginInfo,
+  is_process_plugin: bool,
   initialized_test_plugin: InitializedTestPlugin,
 }
 
 #[cfg(test)]
 impl TestPlugin {
+  /// Makes the plugin act as a process plugin that has the provided
+  /// `allow_plugin_override_config` in its plugin info.
+  pub fn as_process_plugin(mut self, allow_plugin_override_config: Option<bool>) -> Self {
+    self.is_process_plugin = true;
+    self.info.allow_plugin_override_config = allow_plugin_override_config;
+    self
+  }
+
   pub fn new(name: &str, config_key: &str, file_extensions: Vec<&str>, file_names: Vec<&str>) -> TestPlugin {
     TestPlugin {
       info: PluginInfo {
@@ -104,7 +114,9 @@ impl TestPlugin {
         config_schema_url: "https://plugins.dprint.dev/schemas/test.json".to_string(),
         update_url: None,
         supports_range_formatting: None,
+        allow_plugin_override_config: None,
       },
+      is_process_plugin: false,
       initialized_test_plugin: InitializedTestPlugin(FileMatchingInfo {
         file_extensions: file_extensions.into_iter().map(String::from).collect(),
         file_names: file_names.into_iter().map(String::from).collect(),
@@ -122,7 +134,7 @@ impl Plugin for TestPlugin {
   }
 
   fn is_process_plugin(&self) -> bool {
-    false
+    self.is_process_plugin
   }
 
   async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {

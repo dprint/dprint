@@ -21,7 +21,6 @@ use std::time::Instant;
 
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use dprint_core::plugins::PluginInfo;
 
 use super::WasmHostFormatSender;
 use super::create_pools_import_object;
@@ -35,6 +34,7 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
+use crate::plugins::PluginInfo;
 use crate::plugins::implementations::wasm::create_wasm_plugin_instance;
 
 pub struct WasmPlugin<TEnvironment: Environment> {

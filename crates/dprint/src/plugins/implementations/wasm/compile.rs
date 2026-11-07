@@ -4,7 +4,6 @@ use std::sync::Weak;
 
 use anyhow::Context;
 use anyhow::Result;
-use dprint_core::plugins::PluginInfo;
 
 use super::create_identity_import_object;
 use super::create_wasm_plugin_instance;
@@ -14,6 +13,7 @@ use super::load_instance::WasmModuleCreator;
 use super::load_instance::load_instance;
 use super::load_instance::plugin_initializes_on_start;
 use crate::plugins::CompilationResult;
+use crate::plugins::PluginInfo;
 
 /// Compiles a Wasm module, compiling its functions in parallel on a thread
 /// pool of at most `max_threads` threads that's shared with any other

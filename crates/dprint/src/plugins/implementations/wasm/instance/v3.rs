@@ -19,7 +19,6 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use dprint_core::plugins::PluginInfo;
 use serde::Serialize;
 use wasmtime::Caller;
 use wasmtime::Engine;
@@ -29,6 +28,7 @@ use wasmtime::WasmParams;
 use wasmtime::WasmResults;
 
 use crate::plugins::FormatConfig;
+use crate::plugins::PluginInfo;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
 
