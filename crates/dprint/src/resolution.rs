@@ -1177,19 +1177,8 @@ pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
-  get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, &Permissions::allow_all()).await
-}
-
-/// Gets the plugins scope like `get_plugins_scope_from_args`, but only with the
-/// process plugins that are approved (see `resolve_plugins_scope_with_approval`).
-pub async fn get_plugins_scope_from_args_with_approval<TEnvironment: Environment>(
-  args: &CliArgs,
-  environment: &TEnvironment,
-  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
-  permissions: &Permissions,
-) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
   match resolve_config_from_args(args, environment).await {
-    Ok(config) => resolve_plugins_scope_with_approval(Rc::new(config), environment, plugin_resolver, permissions).await,
+    Ok(config) => resolve_plugins_scope(Rc::new(config), environment, plugin_resolver).await,
     // ignore
     Err(_) => Ok(PluginsScope {
       environment: environment.clone(),

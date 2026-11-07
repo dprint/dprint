@@ -6,7 +6,6 @@ use dprint_core::communication::MessageWriter;
 use dprint_core::communication::RcIdStore;
 use dprint_core::communication::SingleThreadMessageWriter;
 use dprint_core::plugins::HostFormatRequest;
-use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
@@ -20,18 +19,14 @@ mod messages;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
-use crate::configuration::Permissions;
 use crate::configuration::ResolvedConfig;
-use crate::configuration::SessionPermissions;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginsScope;
-use crate::resolution::UnapprovedProcessPlugins;
-use crate::resolution::get_cant_ask_message;
-use crate::resolution::get_plugins_scope_from_args_with_approval;
-use crate::resolution::resolve_plugins_scope_with_approval;
+use crate::resolution::get_plugins_scope_from_args;
+use crate::resolution::resolve_plugins_scope;
 use crate::utils::Semaphore;
 
 use self::messages::EditorMessage;
@@ -68,16 +63,9 @@ pub async fn output_editor_info<TEnvironment: Environment>(
   }
 
   let mut plugins = Vec::new();
-  // IMPORTANT: An editor gets this when it opens a project, which isn't the same
-  // as the user choosing to run dprint there, so only provide the plugins when
-  // the user allowed its process plugins.
-  let permissions = SessionPermissions::default().read(environment);
-  let scope = get_plugins_scope_from_args_with_approval(args, environment, plugin_resolver, &permissions).await?;
+  let scope = get_plugins_scope_from_args(args, environment, plugin_resolver).await?;
 
   scope.ensure_no_global_config_diagnostics()?;
-  if let Some(unapproved) = &scope.unapproved_process_plugins {
-    log_unapproved_process_plugins(environment, unapproved, &permissions);
-  }
 
   for plugin in scope.plugins.values() {
     let initialized_plugin = plugin.initialize().await?;
@@ -143,11 +131,6 @@ struct EditorService<'a, TEnvironment: Environment> {
   environment: &'a TEnvironment,
   plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>,
   plugins_scope: Option<Rc<PluginsScope<TEnvironment>>>,
-  /// What the user allowed when the plugins were resolved.
-  permissions: Option<Permissions>,
-  session_permissions: SessionPermissions,
-  /// The process plugins that weren't allowed to run that the log said so about.
-  warned_process_plugins: HashSet<UnapprovedProcessPlugins>,
   context: Rc<EditorContext>,
   concurrency_limiter: Rc<Semaphore>,
   config_semaphore: Rc<Semaphore>,
@@ -168,9 +151,6 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       environment,
       plugin_resolver,
       plugins_scope: None,
-      permissions: None,
-      session_permissions: Default::default(),
-      warned_process_plugins: Default::default(),
       context: Rc::new(EditorContext {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
@@ -351,7 +331,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       .environment
       .canonicalize_maybe_not_exists(file_path)
       .map(|p| p.into_path_buf())
-      .unwrap_or_else(|_| file_path.to_path_buf());
+      .unwrap_or(file_path.to_path_buf());
     log_debug!(self.environment, "Checking can format: {}", file_path.display());
     // the editor service only receives a path, so an extensionless file's
     // shebang is resolved from the file on disk
@@ -361,12 +341,9 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   async fn ensure_latest_config(&mut self) -> Result<Rc<ResolvedConfig>> {
     let _update_permit = self.config_semaphore.acquire().await;
     let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
-    // read each time so allowing process plugins or editing the file takes effect
-    let permissions = self.session_permissions.read(self.environment);
 
     let last_config = self.plugins_scope.as_ref().and_then(|scope| scope.config.as_ref());
-    let has_config_changed =
-      last_config.is_none() || last_config.unwrap() != &config || self.plugins_scope.is_none() || self.permissions.as_ref() != Some(&permissions);
+    let has_config_changed = last_config.is_none() || last_config.unwrap() != &config || self.plugins_scope.is_none();
     if has_config_changed {
       self.plugins_scope.take();
       let mut tokens = self.context.cancellation_tokens.take_all().into_iter().collect::<Vec<_>>();
@@ -383,43 +360,13 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       }
       self.plugin_resolver.clear_and_shutdown_initialized().await;
 
-      // IMPORTANT: Process plugins don't run sandboxed, so only use the plugins
-      // when the user allowed its process plugins. The editor starting the service
-      // in a project (ex. one that was just cloned) isn't the same as the user
-      // choosing to run dprint there.
-      let scope = resolve_plugins_scope_with_approval(config.clone(), self.environment, self.plugin_resolver, &permissions).await?;
+      let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
       scope.ensure_no_global_config_diagnostics()?;
-      if let Some(unapproved) = &scope.unapproved_process_plugins {
-        self.warn_unapproved_process_plugins(unapproved, &permissions);
-      }
       self.plugins_scope = Some(Rc::new(scope));
-      self.permissions = Some(permissions);
     }
 
     Ok(self.plugins_scope.as_ref().unwrap().config.clone().unwrap())
   }
-
-  /// Says in the log that dprint isn't formatting with the config file because
-  /// its process plugins weren't allowed to run, which is only done once per
-  /// session for each configuration and not when the user denied them. The
-  /// editor service can't ask the user whether to allow them.
-  fn warn_unapproved_process_plugins(&mut self, unapproved: &UnapprovedProcessPlugins, permissions: &Permissions) {
-    if !self.warned_process_plugins.insert(unapproved.clone()) || unapproved.is_denied(permissions) {
-      return;
-    }
-    log_unapproved_process_plugins(self.environment, unapproved, permissions);
-  }
-}
-
-/// Says in the log that dprint isn't formatting with the config file because
-/// its process plugins weren't allowed to run.
-fn log_unapproved_process_plugins(environment: &impl Environment, unapproved: &UnapprovedProcessPlugins, permissions: &Permissions) {
-  log_warn!(
-    environment,
-    "{} {}",
-    unapproved.message(permissions),
-    get_cant_ask_message(environment, &unapproved.config_file)
-  );
 }
 
 fn handle_message(context: &EditorContext, original_message_id: u32, action: impl FnOnce() -> Result<EditorMessageBody>) {
@@ -449,8 +396,6 @@ mod test {
   use anyhow::Result;
   use anyhow::anyhow;
   use dprint_core::async_runtime::DropGuardAction;
-  use dprint_core::async_runtime::FutureExt;
-  use dprint_core::async_runtime::LocalBoxFuture;
   use dprint_core::async_runtime::future;
   use dprint_core::communication::IdGenerator;
   use dprint_core::communication::MessageReader;
@@ -472,7 +417,6 @@ mod test {
   use tokio::sync::oneshot;
   use tokio_util::sync::CancellationToken;
 
-  use crate::configuration::get_settings_file_path;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -492,7 +436,6 @@ mod test {
         c.add_remote_wasm_plugin().add_remote_process_plugin();
       })
       .build(); // build only, don't initialize
-    crate::test_helpers::allow_process_plugins_in_editors(&environment);
     run_test_cli(vec!["editor-info"], &environment).unwrap();
     let mut final_output = r#"{"schemaVersion":5,"cliVersion":""#.to_string();
     final_output.push_str(&environment.cli_version());
@@ -538,31 +481,6 @@ mod test {
         "Extracting zip for test-process-plugin"
       ]
     );
-  }
-
-  /// Requires the user to approve running process plugins.
-  fn disallow_process_plugins(environment: &TestEnvironment) {
-    let file_path = get_settings_file_path(environment).unwrap();
-    // macOS only uses this directory when it's already there
-    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
-    environment.write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": false } }"#).unwrap();
-  }
-
-  /// Runs the editor service while the action communicates with it.
-  fn run_editor_service_session(environment: &TestEnvironment, action: impl FnOnce(EditorServiceCommunicator) -> LocalBoxFuture<'static, ()> + Send + 'static) {
-    let stdin = environment.stdin_writer();
-    let stdout = environment.stdout_reader();
-    let result = std::thread::spawn(move || {
-      TestEnvironment::new().run_in_runtime(async move {
-        let communicator = EditorServiceCommunicator::new(stdin, stdout);
-        action(communicator.clone()).await;
-        communicator.exit().await.unwrap();
-      });
-    });
-    // usually this would be the editor's process id, but this is ok for testing purposes
-    let pid = std::process::id().to_string();
-    run_test_cli(vec!["editor-service", "--parent-pid", &pid], environment).unwrap();
-    result.join().unwrap();
   }
 
   enum MessageResponseChannel {
@@ -755,106 +673,6 @@ mod test {
   }
 
   #[test]
-  fn should_not_output_plugins_with_unapproved_process_plugins_in_editor_info() {
-    let environment = TestEnvironmentBuilder::new()
-      .add_remote_process_plugin()
-      .add_remote_wasm_plugin()
-      .with_default_config(|c| {
-        c.add_remote_wasm_plugin().add_remote_process_plugin();
-      })
-      .build(); // build only, don't initialize
-    disallow_process_plugins(&environment);
-    run_test_cli(vec!["editor-info"], &environment).unwrap();
-    let stdout_messages = environment.take_stdout_messages();
-    assert_eq!(stdout_messages.len(), 1);
-    // the wasm plugin isn't used either so that it doesn't format differently than the cli
-    assert!(stdout_messages[0].contains(r#""plugins":[]"#), "{stdout_messages:?}");
-    // only the warning is logged because the process plugin is never set up (setting it up runs it)
-    let stderr_messages = environment.take_stderr_messages();
-    assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
-    assert!(
-      stderr_messages[0].starts_with("dprint isn't formatting files with `/dprint.json` because its process plugins (`"),
-      "{stderr_messages:?}"
-    );
-  }
-
-  #[test]
-  fn should_not_set_up_unapproved_process_plugins_for_editor_service() {
-    let file_path = PathBuf::from("/file.txt_ps");
-    let environment = TestEnvironmentBuilder::new()
-      .add_remote_process_plugin()
-      .with_default_config(|c| {
-        c.add_remote_process_plugin();
-      })
-      .write_file(&file_path, "text")
-      .build(); // not initialized, so the process plugin is only set up when it's allowed
-    disallow_process_plugins(&environment);
-
-    run_editor_service_session(&environment, move |communicator| {
-      async move {
-        communicator.check_file(&file_path).await.unwrap();
-        assert_eq!(
-          communicator
-            .format_text(&file_path, b"text".to_vec(), None, Default::default(), Default::default())
-            .await
-            .unwrap(),
-          None
-        );
-      }
-      .boxed_local()
-    });
-
-    let stderr_messages = environment.take_stderr_messages();
-    assert_eq!(stderr_messages.len(), 1, "{stderr_messages:?}");
-    assert!(
-      stderr_messages[0].starts_with(concat!(
-        "dprint isn't formatting files with `/dprint.json` because its process plugins ",
-        "(`https://plugins.dprint.dev/test-process.json@"
-      )),
-      "{stderr_messages:?}"
-    );
-    assert!(
-      stderr_messages[0].contains(concat!(
-        "dprint only formats with it once you allow them by running `dprint config install` in the directory of the configuration file ",
-        "or when \"editor.allowProcessPlugins\" isn't false in"
-      )),
-      "{stderr_messages:?}"
-    );
-  }
-
-  #[test]
-  fn should_use_process_plugins_installed_with_cli_for_editor_service() {
-    let file_path = PathBuf::from("/file.txt_ps");
-    let environment = TestEnvironmentBuilder::new()
-      .add_remote_process_plugin()
-      .with_default_config(|c| {
-        c.add_remote_process_plugin();
-      })
-      .write_file(&file_path, "text")
-      .build(); // not initialized, so the process plugin is only set up when it's allowed
-    disallow_process_plugins(&environment);
-
-    run_test_cli(vec!["config", "install"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec!["Installed test-process-plugin 0.1.0"]);
-
-    run_editor_service_session(&environment, move |communicator| {
-      async move {
-        communicator.check_file(&file_path).await.unwrap();
-        assert!(
-          communicator
-            .format_text(&file_path, b"text".to_vec(), None, Default::default(), Default::default())
-            .await
-            .unwrap()
-            .is_some()
-        );
-      }
-      .boxed_local()
-    });
-    let stderr_messages = environment.take_stderr_messages();
-    assert!(!stderr_messages.iter().any(|message| message.contains("didn't use")), "{stderr_messages:?}");
-  }
-
-  #[test]
   fn should_format_for_editor_service() {
     let txt_file_path = PathBuf::from("/file.txt");
     let ts_file_path = PathBuf::from("/file.ts");
@@ -876,7 +694,6 @@ mod test {
       .write_file(&ignored_file_path, "text")
       .initialize()
       .build();
-    crate::test_helpers::allow_process_plugins_in_editors(&environment);
     let stdin = environment.stdin_writer();
     let stdout = environment.stdout_reader();
 
@@ -1754,7 +1571,6 @@ mod test {
       .write_file(&file_path4, "")
       .write_file(&file_path5, "")
       .build();
-    crate::test_helpers::allow_process_plugins_in_editors(&environment);
 
     let stdin = environment.stdin_writer();
     let stdout = environment.stdout_reader();
