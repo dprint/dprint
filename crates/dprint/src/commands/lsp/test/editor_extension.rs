@@ -1465,14 +1465,15 @@ fn should_provide_the_plugins_known_before_in_another_session_when_they_need_to_
   run_session(&environment, |client| {
     async move {
       let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
-      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+      assert_eq!(client.approve(&approval.id, ApprovalDecision::AlwaysAllow).await, Vec::new());
       let config_info = client.config_info("/dprint.json").await;
       assert_eq!(config_info.status, FormatStatus::ready());
       assert_eq!(config_info.plugins.unwrap().len(), 2);
     }
     .boxed_local()
   });
-  // they were only allowed for the session, so a new session needs them approved
+  // the decision is forgotten (ex. the approvals file was deleted), so a new session needs them approved
+  forget_stored_decisions(&environment);
   run_session(&environment, |client| {
     async move {
       let config_info = client.config_info("/dprint.json").await;
@@ -1511,12 +1512,13 @@ fn should_provide_the_plugins_known_before_for_the_same_config_file_when_they_ne
       // the plugin matches other files for each config file because of its configuration
       for path in ["/a/dprint.json", "/b/dprint.json"] {
         let approval = client.config_info(path).await.status.approvals()[0].clone();
-        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::AlwaysAllow).await, Vec::new());
         assert_eq!(client.config_info(path).await.status, FormatStatus::ready());
       }
     }
     .boxed_local()
   });
+  forget_stored_decisions(&environment);
   run_session(&environment, |client| {
     async move {
       for (path, extension) in [("/a/dprint.json", "py"), ("/b/dprint.json", "rs")] {
@@ -1598,13 +1600,15 @@ fn should_only_claim_the_documents_a_config_file_that_needs_approval_formats() {
       assert_eq!(status.reason(), Some(NotFormattedReason::ApprovalRequired));
       assert!(!status.claim());
       let approval = status.approvals()[0].clone();
-      assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+      assert_eq!(client.approve(&approval.id, ApprovalDecision::AlwaysAllow).await, Vec::new());
       // what they format is remembered once the editor gets it again
       assert_eq!(client.config_info("/dprint.json").await.status, FormatStatus::ready());
     }
     .boxed_local()
   });
-  // a new session needs them approved again, which is only asked about for what they format
+  // a new session needs them approved again once the decision is forgotten, which is only asked
+  // about for what they format
+  forget_stored_decisions(&environment);
   run_session(&environment, |client| {
     async move {
       for path in ["/file.txt", "/file.txt_ps", "/file.other"] {
@@ -4036,7 +4040,11 @@ fn should_approve_running_process_plugins() {
         let approval = file_info.status.approvals()[0].clone();
         assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
         assert_eq!(approval.config_file, local_config("/a/dprint.json"));
-        assert_eq!(approval.decisions.len(), 4);
+        // allowing them only for the session isn't offered
+        assert_eq!(
+          approval.decisions.iter().map(|option| option.decision).collect::<Vec<_>>(),
+          vec![ApprovalDecision::AlwaysAllow, ApprovalDecision::Deny, ApprovalDecision::AlwaysDeny]
+        );
         assert_eq!(approval.items.len(), 1);
         // it's shown without its checksum
         assert_eq!(approval.items[0].specifier, "https://plugins.dprint.dev/test-process.json");
@@ -4094,7 +4102,7 @@ fn should_approve_running_process_plugins() {
         assert_eq!(plugin.name, "test-process-plugin");
         assert_eq!(plugin.config_key, "testProcessPlugin");
         assert_eq!(item.configuration, Some(json!({ "ending": "allowed" })));
-        assert_eq!(client.approve(&approval.id, ApprovalDecision::Allow).await, Vec::new());
+        assert_eq!(client.approve(&approval.id, ApprovalDecision::AlwaysAllow).await, Vec::new());
         assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_allowed"));
       }
       .boxed_local()
@@ -4581,7 +4589,7 @@ fn should_set_up_an_allowed_process_plugin_once_what_needs_to_be_downloaded_is_a
         vec![ApprovalKind::Downloads, ApprovalKind::ProcessPlugins]
       );
       // the process plugins are allowed first, which can't be set up until the download is allowed
-      let remaining = client.approve(&approvals[1].id, ApprovalDecision::Allow).await;
+      let remaining = client.approve(&approvals[1].id, ApprovalDecision::AlwaysAllow).await;
       assert_eq!(
         remaining.iter().map(|approval| approval.kind).collect::<Vec<_>>(),
         vec![ApprovalKind::Downloads]
@@ -4667,7 +4675,7 @@ fn should_not_use_a_process_plugin_that_was_denied_while_it_was_set_up() {
           crate::configuration::store_process_plugin_decision(&environment, decision).await.unwrap();
           environment.remove_unresponsive_remote_file(ZIP_URL);
         };
-        let (remaining, _) = tokio::join!(client.approve(&approval.id, ApprovalDecision::Allow), deny);
+        let (remaining, _) = tokio::join!(client.approve(&approval.id, ApprovalDecision::AlwaysAllow), deny);
         // it isn't used even though it was set up
         assert_eq!(remaining.len(), 1);
         assert!(remaining[0].denied);
@@ -4835,7 +4843,7 @@ fn should_only_forget_the_decisions_of_the_session_with_the_approvals_of_a_newer
         // the user allows it for the session
         let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
         assert!(approval.denied);
-        assert!(client.approve(&approval.id, ApprovalDecision::Allow).await.is_empty());
+        assert!(client.approve(&approval.id, ApprovalDecision::AlwaysAllow).await.is_empty());
         let result = client
           .forget_decisions(Some(ConfigFileIdentifier {
             uri: uri("/a/dprint.json"),
@@ -4920,7 +4928,7 @@ fn should_return_what_needs_to_be_approved_next_when_approving() {
       // the download that was approved isn't pending anymore
       assert_eq!(client.format("/a/file.txt_ps", "text").await.approvals(), remaining.as_slice());
 
-      assert_eq!(client.approve(&approvals[1].id, ApprovalDecision::Allow).await, Vec::new());
+      assert_eq!(client.approve(&approvals[1].id, ApprovalDecision::AlwaysAllow).await, Vec::new());
       assert_eq!(client.format("/a/file.txt_ps", "text").await, formatted("text", "text_formatted_process"));
     }
     .boxed_local()
@@ -5063,9 +5071,6 @@ fn should_keep_the_decisions_of_the_session_when_the_server_is_started_again_for
     .with_local_config("/denied-download/dprint.json", |c| {
       c.add_plugin(DENIED_URL);
     })
-    .with_local_config("/allowed/dprint.json", |c| {
-      c.add_remote_wasm_plugin().add_remote_process_plugin();
-    })
     .with_local_config("/denied/dprint.json", |c| {
       c.add_remote_wasm_plugin().add_remote_process_plugin();
     })
@@ -5076,7 +5081,6 @@ fn should_keep_the_decisions_of_the_session_when_the_server_is_started_again_for
       for (config_file, decision) in [
         ("/allowed-download/dprint.json", ApprovalDecision::Allow),
         ("/denied-download/dprint.json", ApprovalDecision::Deny),
-        ("/allowed/dprint.json", ApprovalDecision::Allow),
         ("/denied/dprint.json", ApprovalDecision::Deny),
       ] {
         let approval = client.config_info(config_file).await.status.approvals()[0].clone();
@@ -5090,7 +5094,6 @@ fn should_keep_the_decisions_of_the_session_when_the_server_is_started_again_for
   // a server started again for the session uses them like the server that exited
   run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
     async move {
-      assert_eq!(client.config_info("/allowed/dprint.json").await.status, FormatStatus::ready());
       assert!(client.config_info("/denied/dprint.json").await.status.approvals()[0].denied);
       assert!(client.config_info("/denied-download/dprint.json").await.status.approvals()[0].denied);
       assert_eq!(client.config_info("/allowed-download/dprint.json").await.status, FormatStatus::ready());
@@ -5110,9 +5113,6 @@ fn should_keep_the_decisions_of_the_session_when_the_server_is_started_again_for
   // and one of another session doesn't (ex. after the restart command)
   run_session_with(&environment, session_params(OTHER_SESSION_ID), |client| {
     async move {
-      let approval = client.config_info("/allowed/dprint.json").await.status.approvals()[0].clone();
-      assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
-      assert!(!approval.denied);
       assert!(!client.config_info("/denied/dprint.json").await.status.approvals()[0].denied);
       assert!(!client.config_info("/denied-download/dprint.json").await.status.approvals()[0].denied);
       assert!(!client.decisions().await.iter().any(|decision| decision.allows));
@@ -5136,7 +5136,7 @@ fn should_keep_allowing_a_process_plugin_to_be_set_up_when_the_server_is_started
     async move {
       let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
       // the process plugins can't be set up until the download is allowed
-      let remaining = client.approve(&approvals[1].id, ApprovalDecision::Allow).await;
+      let remaining = client.approve(&approvals[1].id, ApprovalDecision::AlwaysAllow).await;
       assert_eq!(
         remaining.iter().map(|approval| approval.kind).collect::<Vec<_>>(),
         vec![ApprovalKind::Downloads]
@@ -5265,7 +5265,7 @@ fn should_forget_the_decisions_of_the_session_in_its_session_file() {
     move |client| {
       async move {
         for (config_file, decision) in [
-          ("/allowed/dprint.json", ApprovalDecision::Allow),
+          ("/allowed/dprint.json", ApprovalDecision::AlwaysAllow),
           ("/denied/dprint.json", ApprovalDecision::Deny),
         ] {
           let approval = client.config_info(config_file).await.status.approvals()[0].clone();
@@ -5304,14 +5304,14 @@ fn should_not_keep_what_was_forgotten_in_a_session_file_that_failed_to_be_writte
     move |client| {
       async move {
         let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
-        client.approve(&approval.id, ApprovalDecision::Allow).await;
+        client.approve(&approval.id, ApprovalDecision::Deny).await;
         let session_file_path = get_session_file_path(&environment, SESSION_ID);
         assert!(environment.path_exists(&session_file_path));
         // ex. the disk is full and another process has the file open
         environment.set_file_write_fails(&session_file_path, true);
         environment.set_file_remove_fails(&session_file_path, true);
         let forget = || async { client.forget_decisions(None).await };
-        // so the allow may come back, which the user is told about
+        // so the denial may come back, which the user is told about
         let notice = forget().await.notice.unwrap();
         assert!(notice.message.contains("may come back if dprint restarts"), "{}", notice.message);
         assert!(environment.path_exists(&session_file_path));
@@ -5329,6 +5329,7 @@ fn should_not_keep_what_was_forgotten_in_a_session_file_that_failed_to_be_writte
     async move {
       let approvals = client.config_info("/dprint.json").await.status.approvals().to_vec();
       assert_eq!(approvals[0].kind, ApprovalKind::ProcessPlugins);
+      assert!(!approvals[0].denied);
     }
     .boxed_local()
   });
@@ -5458,47 +5459,6 @@ fn should_take_over_the_session_file_without_a_request_once_the_other_server_exi
   run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
     async move {
       assert!(client.config_info("/dprint.json").await.status.approvals()[0].denied);
-    }
-    .boxed_local()
-  });
-}
-
-#[test]
-fn should_keep_the_allows_of_the_session_with_an_approvals_file_when_the_server_is_started_again() {
-  let environment = TestEnvironmentBuilder::new()
-    .add_remote_wasm_plugin()
-    .add_remote_process_plugin()
-    .with_local_config("/always/dprint.json", |c| {
-      c.add_remote_wasm_plugin().add_remote_process_plugin();
-    })
-    .with_local_config("/session/dprint.json", |c| {
-      c.add_remote_wasm_plugin().add_remote_process_plugin();
-    })
-    .build();
-  disallow_process_plugins(&environment);
-  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
-    async move {
-      for (config_file, decision) in [
-        ("/always/dprint.json", ApprovalDecision::AlwaysAllow),
-        ("/session/dprint.json", ApprovalDecision::Allow),
-      ] {
-        let approval = client.config_info(config_file).await.status.approvals()[0].clone();
-        assert_eq!(approval.kind, ApprovalKind::ProcessPlugins);
-        client.approve(&approval.id, decision).await;
-      }
-    }
-    .boxed_local()
-  });
-  // the session file has the fingerprint of the approvals file the server stored the "Always Allow" in
-  let text = environment.read_file(get_session_file_path(&environment, SESSION_ID)).unwrap();
-  let fingerprint = serde_json::from_str::<serde_json::Value>(&text).unwrap()["approvalsFileFingerprint"].clone();
-  assert!(fingerprint.as_str().is_some_and(|fingerprint| fingerprint != "none"), "{}", text);
-
-  // which didn't change since, so the allow for the session is used again
-  run_session_until_the_server_exits(&environment, session_params(SESSION_ID), |client| {
-    async move {
-      assert_eq!(client.config_info("/session/dprint.json").await.status, FormatStatus::ready());
-      assert_eq!(client.config_info("/always/dprint.json").await.status, FormatStatus::ready());
     }
     .boxed_local()
   });
@@ -6172,6 +6132,13 @@ fn remote_process_plugin(environment: &TestEnvironment) -> String {
   let url = "https://plugins.dprint.dev/test-process.json";
   let file_text = environment.get_remote_file(url).unwrap().unwrap();
   format!("{}@{}", url, crate::utils::get_sha256_checksum(&file_text))
+}
+
+/// Deletes the approvals file, which forgets the decisions that are always used.
+fn forget_stored_decisions(environment: &TestEnvironment) {
+  environment
+    .remove_file(crate::configuration::get_editor_approvals_file_path(environment).unwrap())
+    .unwrap();
 }
 
 fn local_config(path: &str) -> ConfigFileInfo {

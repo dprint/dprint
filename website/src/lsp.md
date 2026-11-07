@@ -112,7 +112,6 @@ Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Open
 
 When a file is formatted with a configuration file whose process plugins you haven't allowed, the server doesn't set them up or start them and asks with a message that has the following actions:
 
-- `Allow` runs them for the rest of the session.
 - `Always Allow` runs them from then on.
 - `Deny` doesn't run them for the rest of the session.
 - `Always Deny` doesn't run them or ask about them again.

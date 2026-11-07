@@ -3596,7 +3596,7 @@ mod test {
         assert_eq!(*message_type, MessageType::WARNING);
         assert!(message.contains("`/dprint.json` (outside the workspace)"), "{message}");
         assert!(message.contains(reason), "{message}");
-        assert_eq!(*actions, vec!["Allow", "Always Allow", "Deny", "Always Deny"]);
+        assert_eq!(*actions, vec!["Always Allow", "Deny", "Always Deny"]);
       }
 
       // a client that can't ask is told how to allow them
@@ -3609,14 +3609,6 @@ mod test {
       // denying only asks once per session
       let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny"), [false, false]).await;
       assert!(!was_set_up);
-      assert_asked(
-        shown,
-        "runs process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`). Allow them?",
-      );
-
-      // allowing uses it for the session
-      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Allow"), [false, true]).await;
-      assert!(was_set_up);
       assert_asked(
         shown,
         "runs process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`). Allow them?",

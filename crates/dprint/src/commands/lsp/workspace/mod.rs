@@ -54,7 +54,7 @@ use crate::commands::not_formatted_messages::NO_PLUGIN_MESSAGE;
 use crate::commands::not_formatted_messages::NOT_MATCHED_MESSAGE;
 use crate::commands::not_formatted_messages::RANGE_FORMATTING_NOT_SUPPORTED_MESSAGE;
 use crate::commands::process_plugin_approval::PROCESS_PLUGIN_ACTION_TITLES;
-use crate::commands::process_plugin_approval::get_process_plugin_action_title;
+use crate::commands::process_plugin_approval::PROCESS_PLUGIN_DECISIONS;
 use crate::commands::process_plugin_approval::get_process_plugin_decision;
 use crate::commands::process_plugin_approval::get_process_plugin_store_error_message;
 use crate::commands::process_plugin_approval::store_process_plugin_action;
@@ -1638,8 +1638,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         }
       }
       ApprovalSubject::ProcessPlugins(unapproved) => {
-        let title = get_process_plugin_action_title(decision);
-        if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, Some(title)).await {
+        if let Err(err) = store_process_plugin_action(&self.environment, &self.session_permissions, unapproved, decision).await {
           let message = get_process_plugin_store_error_message(&err);
           log_warn!(self.environment, "{}", message);
           notice = Some(new_warning_notice(message));
@@ -2308,15 +2307,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             config_file: config_file.clone(),
             trusted_configuration: trusted_configuration.clone(),
             items,
-            decisions: get_decision_options(
-              ApprovalKind::ProcessPlugins,
-              &[
-                ApprovalDecision::Allow,
-                ApprovalDecision::AlwaysAllow,
-                ApprovalDecision::Deny,
-                ApprovalDecision::AlwaysDeny,
-              ],
-            ),
+            decisions: get_decision_options(ApprovalKind::ProcessPlugins, &PROCESS_PLUGIN_DECISIONS),
             denied: unapproved.is_denied(&permissions),
             previous_decision: match unapproved.is_denied(&permissions) {
               true if unapproved.is_always_denied(&permissions) => Some(ApprovalDecision::AlwaysDeny),

@@ -20,12 +20,16 @@ use crate::resolution::get_unpinned_plugin_file_checksum;
 
 /// The actions of the message that asks the user whether to allow running the
 /// process plugins of a config file, in the order they're shown.
-pub const PROCESS_PLUGIN_ACTION_TITLES: [&str; 4] = [ALLOW_ACTION_TITLE, ALWAYS_ALLOW_ACTION_TITLE, DENY_ACTION_TITLE, ALWAYS_DENY_ACTION_TITLE];
+pub const PROCESS_PLUGIN_ACTION_TITLES: [&str; 3] = [ALWAYS_ALLOW_ACTION_TITLE, DENY_ACTION_TITLE, ALWAYS_DENY_ACTION_TITLE];
 
-/// Stores what the user decided about running the process plugins from the
-/// action they chose, which is only for the session unless they chose to always
-/// allow or deny them. Not choosing an action (ex. closing the message) leaves
-/// it undecided, so they can be asked again.
+/// The decisions the user can make about running the process plugins of a
+/// config file. Allowing them only for the session isn't one, because they'd
+/// be asked again each session, and "Always Allow" is only for the plugins
+/// with their current configuration.
+pub const PROCESS_PLUGIN_DECISIONS: [ApprovalDecision; 3] = [ApprovalDecision::AlwaysAllow, ApprovalDecision::Deny, ApprovalDecision::AlwaysDeny];
+
+/// Stores what the user decided about running the process plugins, which is
+/// only for the session unless they chose to always allow or deny them.
 ///
 /// A plugin that isn't set up is only allowed to be set up with the trusted
 /// configuration of the config file because its configuration isn't known
@@ -40,15 +44,10 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
   environment: &TEnvironment,
   session_permissions: &SessionPermissions,
   unapproved: &UnapprovedProcessPlugins,
-  action_title: Option<&str>,
+  decision: ApprovalDecision,
 ) -> Result<()> {
-  let allowed = match action_title {
-    Some(ALLOW_ACTION_TITLE | ALWAYS_ALLOW_ACTION_TITLE) => true,
-    Some(DENY_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE) => false,
-    // the editor responded with an action that wasn't offered
-    Some(_) | None => return Ok(()),
-  };
-  let always = matches!(action_title, Some(ALWAYS_ALLOW_ACTION_TITLE | ALWAYS_DENY_ACTION_TITLE));
+  let allowed = decision.is_allowed();
+  let always = matches!(decision, ApprovalDecision::AlwaysAllow | ApprovalDecision::AlwaysDeny);
   // forgetting the decisions waits until every plugin's decision is stored (see `SessionPermissions::pause_stores`)
   let _store = match always {
     true => Some(session_permissions.start_store().await),
@@ -179,22 +178,10 @@ pub fn get_process_plugin_store_error_message(err: &anyhow::Error) -> String {
   }
 }
 
-/// Gets the title of the action of a decision, which is what
-/// `store_process_plugin_action` stores.
-pub fn get_process_plugin_action_title(decision: ApprovalDecision) -> &'static str {
-  match decision {
-    ApprovalDecision::Allow => ALLOW_ACTION_TITLE,
-    ApprovalDecision::AlwaysAllow => ALWAYS_ALLOW_ACTION_TITLE,
-    ApprovalDecision::Deny => DENY_ACTION_TITLE,
-    ApprovalDecision::AlwaysDeny => ALWAYS_DENY_ACTION_TITLE,
-  }
-}
-
 /// Gets the decision of the action the user chose, which is `None` for an
 /// action that wasn't offered.
 pub fn get_process_plugin_decision(action_title: &str) -> Option<ApprovalDecision> {
   match action_title {
-    ALLOW_ACTION_TITLE => Some(ApprovalDecision::Allow),
     ALWAYS_ALLOW_ACTION_TITLE => Some(ApprovalDecision::AlwaysAllow),
     DENY_ACTION_TITLE => Some(ApprovalDecision::Deny),
     ALWAYS_DENY_ACTION_TITLE => Some(ApprovalDecision::AlwaysDeny),
@@ -202,7 +189,6 @@ pub fn get_process_plugin_decision(action_title: &str) -> Option<ApprovalDecisio
   }
 }
 
-const ALLOW_ACTION_TITLE: &str = "Allow";
 const ALWAYS_ALLOW_ACTION_TITLE: &str = "Always Allow";
 const DENY_ACTION_TITLE: &str = "Deny";
 const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
@@ -320,32 +306,13 @@ mod test {
   }
 
   #[test]
-  fn should_leave_undecided_without_an_action() {
-    let environment = TestEnvironment::new();
-    require_approval(&environment);
-    let session_permissions = SessionPermissions::default();
-
-    environment.clone().run_in_runtime(async move {
-      let unapproved = unapproved(Some(approval()));
-      store_process_plugin_action(&environment, &session_permissions, &unapproved, None)
-        .await
-        .unwrap();
-      assert!(!session_permissions.read(&environment).is_process_plugin_denied(&approval()));
-      store_process_plugin_action(&environment, &session_permissions, &unapproved, Some(DENY_ACTION_TITLE))
-        .await
-        .unwrap();
-      assert!(session_permissions.read(&environment).is_process_plugin_denied(&approval()));
-    });
-  }
-
-  #[test]
   fn should_only_allow_setting_up_a_plugin_that_is_not_set_up() {
     let environment = TestEnvironment::new();
     require_approval(&environment);
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
-      store_process_plugin_action(&environment, &session_permissions, &unapproved(None), Some(ALWAYS_ALLOW_ACTION_TITLE))
+      store_process_plugin_action(&environment, &session_permissions, &unapproved(None), ApprovalDecision::AlwaysAllow)
         .await
         .unwrap();
       let permissions = session_permissions.read(&environment);
@@ -368,14 +335,9 @@ mod test {
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
-      store_process_plugin_action(
-        &environment,
-        &session_permissions,
-        &unapproved(Some(approval())),
-        Some(ALWAYS_ALLOW_ACTION_TITLE),
-      )
-      .await
-      .unwrap();
+      store_process_plugin_action(&environment, &session_permissions, &unapproved(Some(approval())), ApprovalDecision::AlwaysAllow)
+        .await
+        .unwrap();
       // it's stored for the versions that use the settings
       assert_eq!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.len(), 1);
       assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
@@ -404,14 +366,9 @@ mod test {
       assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
       // and a denial is only stored, because the stored denials are used
       let session_permissions = SessionPermissions::default();
-      store_process_plugin_action(
-        &environment,
-        &session_permissions,
-        &unapproved(Some(approval())),
-        Some(ALWAYS_DENY_ACTION_TITLE),
-      )
-      .await
-      .unwrap();
+      store_process_plugin_action(&environment, &session_permissions, &unapproved(Some(approval())), ApprovalDecision::AlwaysDeny)
+        .await
+        .unwrap();
       assert!(session_permissions.session_process_plugin_decisions().is_empty());
       assert!(SessionPermissions::default().read(&environment).is_process_plugin_denied(&approval()));
       environment.take_stderr_messages();
@@ -427,7 +384,7 @@ mod test {
     environment.clone().run_in_runtime(async move {
       let mut not_set_up = unapproved(None);
       not_set_up.plugins[0].unpinned_file_checksum = Some("file".to_string());
-      store_process_plugin_action(&environment, &session_permissions, &not_set_up, Some(ALLOW_ACTION_TITLE))
+      store_process_plugin_action(&environment, &session_permissions, &not_set_up, ApprovalDecision::AlwaysAllow)
         .await
         .unwrap();
       let permissions = session_permissions.read(&environment);
@@ -446,7 +403,7 @@ mod test {
 
     environment.clone().run_in_runtime(async move {
       let not_set_up = unapproved(None);
-      store_process_plugin_action(&environment, &session_permissions, &not_set_up, Some(DENY_ACTION_TITLE))
+      store_process_plugin_action(&environment, &session_permissions, &not_set_up, ApprovalDecision::Deny)
         .await
         .unwrap();
       assert!(not_set_up.is_denied(&session_permissions.read(&environment)));
@@ -454,7 +411,7 @@ mod test {
       assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
       assert!(!not_set_up.is_denied(&SessionPermissions::default().read(&environment)));
 
-      store_process_plugin_action(&environment, &session_permissions, &not_set_up, Some(ALWAYS_DENY_ACTION_TITLE))
+      store_process_plugin_action(&environment, &session_permissions, &not_set_up, ApprovalDecision::AlwaysDeny)
         .await
         .unwrap();
       let permissions = SessionPermissions::default().read(&environment);
@@ -472,14 +429,9 @@ mod test {
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
-      store_process_plugin_action(
-        &environment,
-        &session_permissions,
-        &unapproved(Some(approval())),
-        Some(ALWAYS_DENY_ACTION_TITLE),
-      )
-      .await
-      .unwrap();
+      store_process_plugin_action(&environment, &session_permissions, &unapproved(Some(approval())), ApprovalDecision::AlwaysDeny)
+        .await
+        .unwrap();
       // changing its configuration doesn't ask the user again
       let other_config = ProcessPluginApproval {
         config_hash: Some("1:b".to_string()),
@@ -507,7 +459,7 @@ mod test {
         decided_at: 10_000,
       };
       store_process_plugin_decision(&environment, denied).await.unwrap();
-      store_process_plugin_action(&environment, &session_permissions, &unapproved(None), Some(ALWAYS_ALLOW_ACTION_TITLE))
+      store_process_plugin_action(&environment, &session_permissions, &unapproved(None), ApprovalDecision::AlwaysAllow)
         .await
         .unwrap();
       assert!(
@@ -515,14 +467,9 @@ mod test {
           .read(&environment)
           .may_set_up_process_plugin("/dprint.json", PLUGIN, "hash", None)
       );
-      store_process_plugin_action(
-        &environment,
-        &session_permissions,
-        &unapproved(Some(approval())),
-        Some(ALWAYS_ALLOW_ACTION_TITLE),
-      )
-      .await
-      .unwrap();
+      store_process_plugin_action(&environment, &session_permissions, &unapproved(Some(approval())), ApprovalDecision::AlwaysAllow)
+        .await
+        .unwrap();
       let decisions = read_editor_approvals(&environment).unwrap().process_plugin_decisions;
       assert_eq!(
         decisions,
@@ -546,14 +493,9 @@ mod test {
 
     environment.clone().run_in_runtime(async move {
       assert!(
-        store_process_plugin_action(
-          &environment,
-          &session_permissions,
-          &unapproved(Some(approval())),
-          Some(ALWAYS_ALLOW_ACTION_TITLE)
-        )
-        .await
-        .is_err()
+        store_process_plugin_action(&environment, &session_permissions, &unapproved(Some(approval())), ApprovalDecision::AlwaysAllow)
+          .await
+          .is_err()
       );
       assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
       // reading what's stored failed too, which nothing is allowed by
@@ -573,14 +515,9 @@ mod test {
     let session_permissions = SessionPermissions::default();
 
     environment.clone().run_in_runtime(async move {
-      let err = store_process_plugin_action(
-        &environment,
-        &session_permissions,
-        &unapproved(Some(approval())),
-        Some(ALWAYS_ALLOW_ACTION_TITLE),
-      )
-      .await
-      .unwrap_err();
+      let err = store_process_plugin_action(&environment, &session_permissions, &unapproved(Some(approval())), ApprovalDecision::AlwaysAllow)
+        .await
+        .unwrap_err();
       assert!(get_process_plugin_store_error_message(&err).contains("Failed locking"), "{:#}", err);
       assert!(!environment.path_exists(&approvals_file_path));
       assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
@@ -608,7 +545,7 @@ mod test {
       // ex. `dprint fmt` is storing its decisions
       let lock_path = get_editor_approvals_file_path(&environment).unwrap().with_file_name(".editor-approvals.lock");
       let other_lock = environment.try_lock_file(&lock_path).unwrap().unwrap();
-      let store = store_process_plugin_action(&environment, &session_permissions, &unapproved, Some(ALWAYS_ALLOW_ACTION_TITLE));
+      let store = store_process_plugin_action(&environment, &session_permissions, &unapproved, ApprovalDecision::AlwaysAllow);
       // the user forgets the decisions while the first plugin's waits for the lock
       let forget = async {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -645,7 +582,7 @@ mod test {
         approval: None,
       });
       assert!(
-        store_process_plugin_action(&environment, &session_permissions, &unapproved, Some(ALWAYS_ALLOW_ACTION_TITLE))
+        store_process_plugin_action(&environment, &session_permissions, &unapproved, ApprovalDecision::AlwaysAllow)
           .await
           .is_err()
       );
