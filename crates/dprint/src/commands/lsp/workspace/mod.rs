@@ -254,7 +254,6 @@ const MAX_APPROVAL_FILES: usize = 256;
 /// that did.
 const CONFIG_CHANGE_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
 
-/// How a config file changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigFileChange {
   Created,
@@ -271,7 +270,6 @@ pub struct WatchedFileChange {
   pub is_config_file: bool,
 }
 
-/// How the client works with the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientKind {
   /// A language client, which only uses the text document methods, so the
@@ -299,7 +297,6 @@ pub struct WorkspaceSettings {
   /// Whether to log debug messages, which is the log level dprint was started
   /// with when `None`.
   pub verbose: Option<bool>,
-  /// The paths of the workspace folders.
   pub workspace_folders: Vec<PathBuf>,
 }
 
@@ -317,7 +314,6 @@ pub struct DocumentInfo {
   pub file_uri: Option<Uri>,
 }
 
-/// What to format.
 pub struct FormatRequest {
   pub document: DocumentInfo,
   pub text: String,
@@ -331,7 +327,6 @@ pub struct FormatRequest {
   pub notify_no_config: bool,
 }
 
-/// The outcome of formatting a document.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum FormatOutcome {
@@ -345,7 +340,6 @@ pub enum FormatOutcome {
   },
 }
 
-/// The workspace that the language server formats the files of.
 pub struct Workspace<TEnvironment: Environment> {
   environment: TEnvironment,
   client: ClientWrapper,
@@ -357,7 +351,6 @@ pub struct Workspace<TEnvironment: Environment> {
   initial_log_level: LogLevel,
   client_kind: Cell<ClientKind>,
   settings: RefCell<WorkspaceSettings>,
-  /// What the user allowed for this session.
   session_permissions: Arc<SessionPermissions>,
   /// The error that was shown to the user for resolving each config file,
   /// which is removed once it resolves.
@@ -445,7 +438,6 @@ pub struct Workspace<TEnvironment: Environment> {
   session_file: RefCell<Option<Rc<SessionFile>>>,
 }
 
-/// The plugins of a config file the last time they were known.
 struct LastPluginInfos {
   /// What identifies the plugins of the config file they're for, which they
   /// aren't for anymore once a plugin was added or changed.
@@ -456,7 +448,6 @@ struct LastPluginInfos {
   config: Rc<ResolvedConfig>,
 }
 
-/// What a config file resolved to.
 #[derive(Clone, PartialEq)]
 struct ResolvedConfigState {
   config: Rc<ResolvedConfig>,
@@ -501,24 +492,19 @@ enum ApprovalTarget {
   ConfigFile { file_path: PathBuf, dir_path: Option<PathBuf> },
 }
 
-/// What's approved.
 #[derive(Clone)]
 enum ApprovalSubject {
   Downloads(Vec<String>),
   ProcessPlugins(UnapprovedProcessPlugins),
 }
 
-/// The config file that's used for a document.
 #[allow(clippy::large_enum_variant)]
 enum DocumentConfig<TEnvironment: Environment> {
   Resolved(Rc<PluginsScope<TEnvironment>>),
-  /// There's no config file for the document.
   NotFound,
-  /// The config file failed to resolve.
   Failed(ConfigFailure),
 }
 
-/// A config file that failed to resolve.
 struct ConfigFailure {
   /// The config file, which is `None` when it failed to be found (ex. an
   /// ancestor directory couldn't be read).
@@ -568,19 +554,15 @@ struct DocumentFile {
 /// The file a document is formatted as.
 struct ChosenFile {
   file_path: PathBuf,
-  /// Why it can't be formatted, which is `None` when it can.
   cant_format_reason: Option<NotFormattedReason>,
 }
 
-/// A scope whose config diagnostics were checked.
 struct CheckedScope<TEnvironment: Environment> {
   scope: Weak<PluginsScope<TEnvironment>>,
   /// The text of the config file, which is where the diagnostics are.
   config_text: Rc<str>,
 }
 
-/// The error that was shown to the user for the plugin config diagnostics of
-/// a config file.
 struct ShownPluginConfigError<TEnvironment: Environment> {
   /// The scope that had the diagnostics, so they're shown again once the
   /// config file changes.
@@ -1233,7 +1215,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     Ok((approvals, None))
   }
 
-  /// Resolves the config file of the target and gets what needs to be approved for it.
   async fn get_approvals_for_target(self: &Rc<Self>, target: &ApprovalTarget) -> Vec<PendingApproval> {
     match self.resolve_approval_target(target).await {
       Ok(DocumentConfig::Resolved(scope)) => self.get_scope_approvals(&scope, target),
@@ -1246,7 +1227,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
-  /// Resolves the config file of something that needs to be approved.
   async fn resolve_approval_target(self: &Rc<Self>, target: &ApprovalTarget) -> Result<DocumentConfig<TEnvironment>> {
     match target {
       ApprovalTarget::File { file_path, use_global_config } => {
@@ -1266,7 +1246,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
-  /// Resolves the config file of a config target.
   async fn resolve_config_target(self: &Rc<Self>, target: &ConfigTarget, use_global_config: bool) -> Result<(ApprovalTarget, DocumentConfig<TEnvironment>)> {
     match target {
       ConfigTarget::ConfigFile { uri, dir_uri } => {
@@ -1399,7 +1378,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     Ok((outcome, config_file))
   }
 
-  /// Formats the document with the plugins of its config file.
   async fn format_with_scope(
     self: &Rc<Self>,
     scope: Rc<PluginsScope<TEnvironment>>,
@@ -1431,7 +1409,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
     let file_path = chosen_file.file_path;
     let file_text = request.text;
-    // `None` formats the whole text
     let mut ranges = match &request.ranges {
       Some(ranges) => get_utf16_ranges(&file_text, ranges),
       None => vec![None],
@@ -2046,7 +2023,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// lists it from the text it's stored with, which is `None` when that isn't
   /// a path or url this version can make a uri of.
   fn get_listed_config_file(&self, config_file_text: &str, global_config_path: Option<&Path>) -> Option<ConfigFileIdentifier> {
-    // it's a path unless it's a remote or npm config file
     let is_remote = ["http://", "https://", "npm:"].iter().any(|prefix| config_file_text.starts_with(prefix));
     if is_remote {
       return config_file_text.parse().ok().map(|uri| ConfigFileIdentifier { uri, dir_uri: None });
@@ -2178,7 +2154,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     })
   }
 
-  /// Gets what needs to be approved for the scope to format files.
   fn get_scope_approvals(&self, scope: &PluginsScope<TEnvironment>, target: &ApprovalTarget) -> Vec<PendingApproval> {
     let Some(config) = scope.config.as_ref() else {
       return Vec::new();
@@ -2439,7 +2414,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .collect()
   }
 
-  /// Gets the process plugins that the approval with the id is for.
   fn get_unapproved_process_plugins(&self, approval_id: &str) -> Option<UnapprovedProcessPlugins> {
     self.approvals.borrow().values().flatten().find_map(|stored| match &stored.subject {
       ApprovalSubject::ProcessPlugins(unapproved) if stored.approval.id == approval_id => Some(unapproved.clone()),
@@ -2650,7 +2624,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
-  /// Resolves the plugins of a config file that was found.
   async fn resolve_found_config(self: &Rc<Self>, config_file: ResolvedConfigPathWithText) -> Result<DocumentConfig<TEnvironment>> {
     let key = get_config_file_key(&config_file);
     self.used_configs.borrow_mut().insert(key.clone(), config_file.clone());
@@ -3690,7 +3663,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
-  /// Gets the uri of a config file as the editor knows it.
   fn editor_config_file_uri(&self, config_file: ConfigFileRef<'_>) -> Option<Uri> {
     match config_file.file_path {
       Some(path) => self.editor_config_file_path_uri(path),
@@ -3726,7 +3698,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     )
   }
 
-  /// Gets the downloads with the editor's path of each `.npmrc` file of a proxy.
   fn with_editor_npmrc_paths(&self, downloads: &[String]) -> Vec<String> {
     downloads
       .iter()
@@ -3850,7 +3821,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     NotFormatted::new(reason, message, Vec::new())
   }
 
-  /// Gets the message for why the scope doesn't format a file.
   fn get_reason_message(
     &self,
     scope: &PluginsScope<TEnvironment>,
@@ -3904,7 +3874,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
-  /// Gets why the scope can't format the file, which is `None` when it can.
   fn get_cant_format_reason(
     &self,
     scope: &PluginsScope<TEnvironment>,
@@ -3957,7 +3926,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     }
   }
 
-  /// Gets the files the document may be formatted as.
   fn get_document_file(&self, document: &DocumentInfo) -> Result<DocumentFile> {
     // the document is formatted as the file instead (ex. a document with another scheme)
     if let Some(file_uri) = &document.file_uri {
@@ -4352,7 +4320,6 @@ fn new_identified_config_changed(uri: Uri, dir_uri: Uri, change: ConfigChange) -
   }
 }
 
-/// Gets the notification that every config file may have changed.
 fn new_every_config_changed() -> ConfigChangedParams {
   ConfigChangedParams {
     config_file: None,
@@ -4479,7 +4446,6 @@ fn push_warning_notice(notice: &mut Option<Notice>, message: String) {
   }
 }
 
-/// Gets the action that opens a config file.
 fn open_config_file_action(uri: &Uri) -> Action {
   Action::OpenUri {
     label: "Open Configuration File".to_string(),
@@ -4565,7 +4531,6 @@ fn get_config_file_dir<'a>(environment: &impl Environment, file_path: &'a Path) 
   })
 }
 
-/// Gets what identifies each plugin of the config.
 fn get_plugin_references(config: &ResolvedConfig) -> Vec<String> {
   config.plugins.iter().map(|plugin| plugin.to_full_string()).collect()
 }

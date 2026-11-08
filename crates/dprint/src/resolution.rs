@@ -454,7 +454,6 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     )
   }
 
-  /// The problems with the global configuration (ex. an unknown property).
   pub fn global_config_diagnostics(&self) -> &[GlobalConfigDiagnostic] {
     &self.global_config_diagnostics
   }
@@ -1211,7 +1210,6 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   resolve_plugins_scope_with_approval(config, environment, plugin_resolver, &Permissions::allow_all()).await
 }
 
-/// The process plugins of a config file that the user didn't approve running.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnapprovedProcessPlugins {
   pub config_file: String,
@@ -1221,7 +1219,6 @@ pub struct UnapprovedProcessPlugins {
   pub plugins: Vec<UnapprovedProcessPlugin>,
 }
 
-/// A process plugin that the user didn't approve running.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnapprovedProcessPlugin {
   /// The plugin as the config file specifies it (ex. its url and checksum).
@@ -1257,8 +1254,6 @@ impl UnapprovedProcessPlugins {
     self.all_approvals(|approval| permissions.is_process_plugin_denied(approval))
   }
 
-  /// Gets whether the user chose to always deny running each of the process
-  /// plugins.
   pub fn is_always_denied(&self, permissions: &Permissions) -> bool {
     self.all_approvals(|approval| permissions.is_process_plugin_always_denied(approval))
   }
@@ -1520,7 +1515,6 @@ pub fn get_trusted_config_hash(config: &ResolvedConfig) -> String {
   get_trusted_config_map_hash(&config.trusted_config_map)
 }
 
-/// Gets the hash of a trusted configuration like `get_trusted_config_hash`.
 pub(crate) fn get_trusted_config_map_hash(trusted_config_map: &ConfigMap) -> String {
   let text = serde_json::to_string(trusted_config_map).expect("config should serialize");
   format!("{}:{}", TRUSTED_CONFIG_HASH_VERSION, get_sha256_checksum(text.as_bytes()))

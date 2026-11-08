@@ -616,8 +616,6 @@ async fn format_line_ranges<TEnvironment: Environment>(
   Ok(formatted_bytes)
 }
 
-/// Allows the editors to run the process plugins of the config files because
-/// running dprint with a config file is the same as choosing to run them.
 #[cfg(test)]
 mod test {
   use deno_terminal::colors;

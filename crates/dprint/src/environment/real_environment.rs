@@ -980,7 +980,6 @@ fn is_automount_point(_path: &Path) -> bool {
   false
 }
 
-/// The `f_type` of an `autofs` file system on Linux.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const AUTOFS_SUPER_MAGIC: u64 = 0x0187;
 
@@ -990,7 +989,6 @@ const AUTOFS_SUPER_MAGIC: u64 = 0x0187;
 #[cfg(target_os = "linux")]
 const STATX_TYPE: libc::c_uint = 0x0001;
 
-/// The attribute of `statx` for an automount point.
 #[cfg(target_os = "linux")]
 const STATX_ATTR_AUTOMOUNT: u64 = 0x1000;
 
@@ -1088,7 +1086,6 @@ mod test {
         environment.write_file(&file_path, "{}").unwrap();
         let change = tokio::time::timeout(std::time::Duration::from_secs(10), watcher.changes.recv()).await;
         assert!(matches!(change, Ok(Some(()))));
-        // a directory that doesn't exist can't be watched
         assert!(environment.watch_files(&[temp_dir.path().join("missing").join("settings.json")]).is_err());
       }
       .boxed_local()
@@ -1131,7 +1128,6 @@ mod test {
       use std::os::unix::fs::PermissionsExt;
       assert_eq!(fs::metadata(&target_path).unwrap().permissions().mode() & 0o777, 0o600);
     }
-    // a file that doesn't exist yet is created
     let new_path = temp_dir.path().join("new.json");
     environment.atomic_write_file_bytes_through_symlinks(&new_path, b"new").unwrap();
     assert_eq!(fs::read_to_string(&new_path).unwrap(), "new");

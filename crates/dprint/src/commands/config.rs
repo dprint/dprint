@@ -4445,7 +4445,6 @@ text",
     assert_eq!(args[args.len() - 1], "/custom.config.json");
   }
 
-  /// Gets the process plugins the editors are allowed to run.
   fn get_allowed_process_plugins(environment: &TestEnvironment) -> Vec<String> {
     crate::configuration::read_editor_approvals(environment)
       .unwrap()

@@ -36,7 +36,6 @@ pub const FILE_URI_FEATURE: &str = "fileUri";
 /// The feature to have the server register the files it needs to be told
 /// about with `workspace/didChangeWatchedFiles`.
 pub const WATCH_FILES_FEATURE: &str = "watchFiles";
-/// The features the server supports.
 const SUPPORTED_FEATURES: [&str; 2] = [FILE_URI_FEATURE, WATCH_FILES_FEATURE];
 
 /// The capability that an editor extension provides in the experimental
@@ -228,7 +227,6 @@ pub struct DocumentIdentifier {
   pub uri: Uri,
 }
 
-/// What identifies the notebook of a notebook cell.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotebookIdentifier {
@@ -239,7 +237,6 @@ pub struct NotebookIdentifier {
   pub file_uri: Option<Uri>,
 }
 
-/// The language of a document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentLanguage {
@@ -301,9 +298,7 @@ pub enum FormatResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     notice: Option<Notice>,
   },
-  /// Why the document wasn't formatted.
   NotFormatted(NotFormatted),
-  /// Why formatting the document failed.
   #[serde(rename_all = "camelCase")]
   Failed {
     reason: FormatFailedReason,
@@ -314,7 +309,6 @@ pub enum FormatResult {
     /// Whether the editor extension keeps acting as the formatter of the
     /// document (see `NotFormatted::claim`), which it does for a failure.
     claim: bool,
-    /// What the user can do about it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     actions: Vec<Action>,
     /// The plugin that failed when it's known.
@@ -352,9 +346,7 @@ pub struct NotFormatted {
   /// The message to show the user about why it wasn't formatted (ex. for a
   /// command the user ran).
   pub message: String,
-  /// When to show the message.
   pub show: ShowPolicy,
-  /// How to show the message.
   pub severity: Severity,
   /// Whether the editor extension keeps acting as the formatter of the
   /// document so that the user is told why it isn't formatted (ex. the config
@@ -364,7 +356,6 @@ pub struct NotFormatted {
   /// What the user needs to approve to format it.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub approvals: Vec<PendingApproval>,
-  /// What the user can do about it.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub actions: Vec<Action>,
 }
@@ -387,7 +378,6 @@ impl NotFormatted {
     }
   }
 
-  /// Offers what the user can do about it.
   pub fn with_actions(mut self, actions: Vec<Action>) -> Self {
     self.actions = actions;
     self
@@ -446,7 +436,6 @@ impl FormatStatus {
   }
 }
 
-/// Why formatting a file failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FormatFailedReason {
@@ -458,7 +447,6 @@ pub enum FormatFailedReason {
 }
 
 impl FormatFailedReason {
-  /// Gets when to show the message of the failure.
   pub fn show(self) -> ShowPolicy {
     match self {
       FormatFailedReason::FormatError => ShowPolicy::Command,
@@ -466,7 +454,6 @@ impl FormatFailedReason {
     }
   }
 
-  /// Gets how to show the message of the failure.
   pub fn severity(self) -> Severity {
     match self {
       // usually a syntax error, which the editor shows too
@@ -476,7 +463,6 @@ impl FormatFailedReason {
   }
 }
 
-/// Why a file isn't formatted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NotFormattedReason {
@@ -511,7 +497,6 @@ pub enum NotFormattedReason {
 }
 
 impl NotFormattedReason {
-  /// Gets when to show the message of the reason.
   pub fn show(self) -> ShowPolicy {
     match self {
       NotFormattedReason::ConfigError | NotFormattedReason::ConfigDiagnostics => ShowPolicy::OncePerConfigFile,
@@ -527,7 +512,6 @@ impl NotFormattedReason {
     }
   }
 
-  /// Gets how to show the message of the reason.
   pub fn severity(self) -> Severity {
     match self {
       NotFormattedReason::ConfigError | NotFormattedReason::ConfigDiagnostics => Severity::Error,
@@ -797,7 +781,6 @@ pub struct PendingApprovalsParams {
   /// config file that was used when `None`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file: Option<ConfigFileIdentifier>,
-  /// The token to report the progress of the request with.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub work_done_token: Option<NumberOrString>,
 }
@@ -827,7 +810,6 @@ pub struct ForgetDecisionsParams {
   /// it's used for (ex. the global config file on each drive).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_file: Option<ConfigFileIdentifier>,
-  /// The token to report the progress of the request with.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub work_done_token: Option<NumberOrString>,
 }
@@ -921,7 +903,6 @@ pub struct FileInfoResult {
   pub status: FormatStatus,
 }
 
-/// A plugin that formats a file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilePlugin {
@@ -954,7 +935,6 @@ pub struct ConfigParams {
   /// ancestor directory, which is what the setting says when `None`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub global_config: Option<GlobalConfigUse>,
-  /// The token to report the progress of the request with.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub work_done_token: Option<NumberOrString>,
 }
@@ -1039,7 +1019,6 @@ pub enum OtherFilesKind {
   Associations,
 }
 
-/// A plugin of a config file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
@@ -1054,7 +1033,6 @@ pub struct PluginInfo {
   /// instead of formatting it on its own (ex. sorting the keys of a
   /// `package.json`).
   pub additive: bool,
-  /// How it formats a range.
   pub range_formatting: RangeFormatting,
   pub help_url: String,
   /// Where its newer version is said to be.
@@ -1062,7 +1040,6 @@ pub struct PluginInfo {
   pub update_url: Option<String>,
 }
 
-/// How a plugin formats a range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RangeFormatting {
@@ -1150,7 +1127,6 @@ pub struct ConfigChangedParams {
   pub schema_only: bool,
 }
 
-/// How a config file changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ConfigChange {

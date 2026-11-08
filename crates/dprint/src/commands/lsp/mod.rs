@@ -290,7 +290,6 @@ pub async fn run_language_server<TEnvironment: Environment>(
   std::process::exit(get_exit_code(shutdown_received))
 }
 
-/// Adds the `dprint/*` methods that an editor extension uses.
 fn with_dprint_methods<TEnvironment: Environment>(
   builder: deno_tower_lsp::LspServiceBuilder<Backend<TEnvironment>>,
 ) -> deno_tower_lsp::LspServiceBuilder<Backend<TEnvironment>> {
@@ -421,7 +420,6 @@ struct State<TEnvironment: Environment> {
   client_kind: ClientKind,
   /// Whether the client supports the versioned document edits of a `WorkspaceEdit`.
   supports_document_changes: bool,
-  /// Where an editor extension's progress is sent.
   output_sink: Option<Arc<LspOutputSink>>,
   /// The features of the `dprint/*` methods that the server uses with the
   /// editor extension.
@@ -561,13 +559,10 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     self.run(task).await.unwrap_or_else(|| Err(new_server_stopped_error())).map_err(to_lsp_error)
   }
 
-  /// Runs the task with the `Workspace` on the message handler's task without
-  /// waiting on it.
   fn spawn(&self, task: impl FnOnce(Rc<Workspace<TEnvironment>>) -> LocalBoxFuture<'static, ()> + Send + 'static) {
     let _ = self.sender.send(ChannelMessage::Workspace(Box::new(task)));
   }
 
-  /// Sends the settings to the `Workspace`.
   async fn update_workspace_settings(&self) {
     let settings = {
       let state = self.state.lock();
@@ -693,7 +688,6 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     }
   }
 
-  /// Formats the document, which says the config file that was used.
   async fn format_request(&self, request: FormatRequest, token: CancellationToken) -> Result<(FormatOutcome, Option<ConfigFileInfo>)> {
     let start_time = std::time::Instant::now();
     let uri = request.document.uri.clone();
@@ -1366,7 +1360,6 @@ struct ActiveProgress {
   percentage: Option<u32>,
 }
 
-/// The progress of everything that's being done.
 struct TotalProgress {
   message: String,
   percentage: Option<u32>,
@@ -1404,7 +1397,6 @@ fn get_total_progress(active_progress: &[ActiveProgress]) -> Option<TotalProgres
   Some(TotalProgress { message, percentage })
 }
 
-/// Gets the progress that begins something that's being done.
 fn new_progress_begin(title: String, percentage: Option<u32>) -> WorkDoneProgress {
   WorkDoneProgress::Begin(WorkDoneProgressBegin {
     title,
@@ -1414,7 +1406,6 @@ fn new_progress_begin(title: String, percentage: Option<u32>) -> WorkDoneProgres
   })
 }
 
-/// Gets the server's own token of the progress of something that's being done.
 fn get_server_progress_token(id: usize) -> NumberOrString {
   NumberOrString::String(format!("dprint/{}", id))
 }
@@ -1440,7 +1431,6 @@ impl LspOutputSink {
     dprint_core::async_runtime::spawn(async move {
       // the requests with a progress token and whether their progress was begun
       let mut requests: Vec<(NumberOrString, bool)> = Vec::new();
-      // the progress that's reported on the server's own tokens
       let mut server_progress_ids: HashSet<usize> = HashSet::new();
       // what's being done, which a request reports the total of
       let mut active_progress: Vec<ActiveProgress> = Vec::new();
@@ -1629,7 +1619,6 @@ pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
   }
 }
 
-/// Gets the uri of a file path, which is the reverse of `uri_to_file_path`.
 pub fn file_path_to_uri(file_path: &Path) -> Option<Uri> {
   let url = match Url::from_file_path(file_path) {
     Ok(url) => url,
@@ -1642,7 +1631,6 @@ pub fn file_path_to_uri(file_path: &Path) -> Option<Uri> {
   url.as_str().parse().ok()
 }
 
-/// Gets the error response of a `dprint/*` method.
 fn to_lsp_error(err: anyhow::Error) -> LspError {
   let mut data = None;
   let code = if err.downcast_ref::<InvalidParamsError>().is_some() || err.downcast_ref::<UnsupportedDocumentError>().is_some() {
@@ -1699,7 +1687,6 @@ fn get_unsupported_versions_message(client_versions: &[u32], cli_version: &str) 
   )
 }
 
-/// Gets where dprint's own files are for an editor extension.
 fn get_dprint_files(environment: &impl Environment) -> DprintFiles {
   // where `dprint init --global` creates it when there's none, which is the name that's used first
   let global_config = resolve_global_config_file_path(environment).or_else(|| {
@@ -4988,7 +4975,6 @@ mod test {
     assert_eq!(get_total_progress(&[unknown]).unwrap().percentage, None);
   }
 
-  /// Requires the user to approve running process plugins.
   fn disallow_process_plugins(environment: &TestEnvironment) {
     ensure_global_config_dir(environment);
     let file_path = get_settings_file_path(environment).unwrap();
@@ -5055,7 +5041,6 @@ mod test {
     applied_edits: Mutex<Vec<WorkspaceEdit>>,
     published_diagnostics: Mutex<Vec<(Uri, Vec<Diagnostic>)>>,
     config_changes: Mutex<Vec<Uri>>,
-    /// The progress that was sent with the token it was sent on.
     progress: Mutex<Vec<(NumberOrString, WorkDoneProgress)>>,
   }
 

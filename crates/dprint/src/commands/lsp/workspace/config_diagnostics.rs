@@ -13,7 +13,6 @@ use crate::commands::lsp::text::LineIndex;
 use crate::configuration::GlobalConfigDiagnostic;
 use crate::plugins::PluginConfigDiagnostic;
 
-/// A problem with a config file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigDiagnostic {
   pub message: String,

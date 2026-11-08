@@ -152,7 +152,6 @@ impl Write for TestPipeWriter {
 pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
   download_policy: Arc<Mutex<DownloadPolicy>>,
-  /// Where to log and show progress instead of stderr.
   output_sink: Arc<Mutex<Option<Arc<dyn OutputSink>>>>,
   progress_bars: ProgressBarsCell,
   sys: Arc<InMemorySys>,
@@ -174,23 +173,14 @@ pub struct TestEnvironment {
   remote_file_request_counts: Arc<Mutex<HashMap<String, usize>>>,
   /// Number of times each file was read (whether or not it existed).
   file_read_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
-  /// Number of times each path was canonicalized, which follows its symlinks.
   canonicalize_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// The paths that are canonicalized to another one, which is like a
   /// symlink to a local file or directory (see `add_canonical_symlink`).
   canonical_paths: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
-  /// Number of times each file was opened (ex. to read its shebang line).
   file_open_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
-  /// Number of times each path was looked up following its symlinks (ex.
-  /// `path_exists` or `fs_metadata`).
   stat_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
-  /// How many times the kind of a path was gotten (see `Environment::path_kind`).
   path_kind_count: Arc<Mutex<usize>>,
-  /// The directories that are the roots of an automounter's file system (see
-  /// `Environment::is_automount_dir`).
   automount_dirs: Arc<Mutex<HashSet<PathBuf>>>,
-  /// The paths where a share is mounted from another machine when they're
-  /// looked up (see `Environment::is_automount_point`).
   automount_points: Arc<Mutex<HashSet<PathBuf>>>,
   /// URLs whose requests never get a response.
   unresponsive_remote_files: Arc<Mutex<Vec<String>>>,
@@ -229,7 +219,6 @@ pub struct TestEnvironment {
   remove_dir_all_failures: Arc<Mutex<usize>>,
   /// The files that are watched with what's told when one changes.
   file_watchers: Arc<Mutex<Vec<(Vec<PathBuf>, tokio::sync::mpsc::UnboundedSender<()>)>>>,
-  /// The files that are locked (see `Environment::try_lock_file`).
   locked_files: Arc<Mutex<HashSet<PathBuf>>>,
   /// The files that fail to be written (ex. the disk is full).
   failing_file_writes: Arc<Mutex<HashSet<PathBuf>>>,
@@ -427,7 +416,6 @@ impl TestEnvironment {
     self.canonicalize_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
   }
 
-  /// Gets the number of times the kind of any path was gotten.
   pub fn path_kind_count(&self) -> usize {
     *self.path_kind_count.lock()
   }
@@ -584,7 +572,6 @@ impl TestEnvironment {
     self.running_processes.lock().push((self.clean_path(exe_path), restarts));
   }
 
-  /// Simulates a running `dprint lsp` process.
   pub fn add_running_lsp_process(&self) {
     *self.running_lsp_processes.lock() += 1;
   }
@@ -609,12 +596,10 @@ impl TestEnvironment {
     set_contains(&self.failing_file_writes, self.clean_path(file_path), fails);
   }
 
-  /// Sets whether deleting the file fails.
   pub fn set_file_remove_fails(&self, file_path: impl AsRef<Path>, fails: bool) {
     set_contains(&self.failing_file_removes, self.clean_path(file_path), fails);
   }
 
-  /// Sets whether locking the file fails (see `Environment::try_lock_file`).
   pub fn set_file_lock_fails(&self, file_path: impl AsRef<Path>, fails: bool) {
     set_contains(&self.failing_file_locks, self.clean_path(file_path), fails);
   }
@@ -682,7 +667,6 @@ impl TestEnvironment {
   }
 }
 
-/// Releases a lock of a file when it's dropped (see `Environment::try_lock_file`).
 struct TestFileLockGuard {
   file_path: PathBuf,
   locked_files: Arc<Mutex<HashSet<PathBuf>>>,

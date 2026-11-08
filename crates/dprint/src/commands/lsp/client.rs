@@ -55,7 +55,6 @@ pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   ) -> LocalBoxFuture<'static, Option<MessageActionItem>>;
   fn apply_edit(&self, edit: WorkspaceEdit) -> LocalBoxFuture<'static, Result<()>>;
   fn publish_diagnostics(&self, uri: Uri, diagnostics: Vec<Diagnostic>);
-  /// Sends the `dprint/configChanged` notification.
   fn send_config_changed(&self, params: ConfigChangedParams);
   /// Logs the message, which resolves once it's sent so that the messages
   /// are sent in order.
@@ -65,7 +64,6 @@ pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   fn send_progress(&self, token: NumberOrString, progress: WorkDoneProgress) -> LocalBoxFuture<'static, ()>;
 }
 
-/// The `dprint/configChanged` notification.
 enum ConfigChangedNotification {}
 
 impl Notification for ConfigChangedNotification {
@@ -288,7 +286,6 @@ impl ClientWrapper {
   }
 }
 
-/// Escapes the characters of the text that a glob treats specially.
 fn escape_glob(text: &str) -> String {
   let mut glob = String::with_capacity(text.len());
   for c in text.chars() {

@@ -22,7 +22,6 @@ pub struct NoConfigMessageOptions {
   pub settings_owner: &'static str,
 }
 
-/// Gets the message to show when no config file was found for a file.
 pub fn get_no_config_message(options: NoConfigMessageOptions) -> String {
   let message = "No dprint configuration file found. Run \"dprint init\" in your project to create one";
   if options.use_global_config {

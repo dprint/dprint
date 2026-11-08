@@ -788,7 +788,6 @@ where
     self.cached_meta(&path_source, &hash, &cache_key)
   }
 
-  /// Reads the cached entry's sidecar like `cached_item`.
   fn cached_meta(&self, source: &PathSource, hash: &str, cache_key: &str) -> Option<PluginCacheMeta> {
     let meta = read_meta(hash, &self.environment)?;
     if meta.source != cache_key {
@@ -1117,7 +1116,6 @@ mod test {
     // resolving a config file again with the same files matched doesn't write it (which would move it to the front)
     plugin_cache.store_file_matching_info(&plugin_source, "a", &matching("ts")).await?;
     assert_eq!(stored_configs(), ["b", "a"]);
-    // but a change does
     plugin_cache.store_file_matching_info(&plugin_source, "a", &matching("js")).await?;
     assert_eq!(stored_configs(), ["a", "b"]);
     assert_eq!(plugin_cache.get_last_file_matching_info(&plugin_source, "a"), Some(matching("js")));

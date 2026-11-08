@@ -252,7 +252,6 @@ impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
     }
   }
 
-  /// Gets whether the schema at any of the urls was downloaded.
   pub fn is_any_downloaded(&self, urls: &[&str]) -> bool {
     self.plugin_schemas.is_any_ready(urls)
   }
@@ -298,12 +297,10 @@ impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
   }
 }
 
-/// The schema of a config file.
 pub struct BuiltConfigSchema {
   pub schema: Value,
   /// Whether it has the schema of each plugin that has one.
   pub is_complete: bool,
-  /// Whether the schema of a plugin is still being downloaded.
   pub is_downloading: bool,
 }
 

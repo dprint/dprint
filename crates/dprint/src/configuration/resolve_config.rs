@@ -1408,7 +1408,6 @@ fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -
     .collect()
 }
 
-/// Adds a local file the config was resolved from when it's not there already.
 fn add_local_dependency(config: &mut ResolvedConfig, path: &Path) {
   if !config.local_dependencies.iter().any(|dependency| dependency == path) {
     config.local_dependencies.push(path.to_path_buf());

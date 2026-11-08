@@ -990,8 +990,6 @@ fn is_absolute_reference(reference: &str) -> bool {
   matches!(chars.first(), Some(c) if c.is_ascii_alphabetic()) && matches!(chars.get(1), Some(':')) && matches!(chars.get(2), Some('/' | '\\'))
 }
 
-/// Whether the package is extracted in the npm cache, which is when it doesn't
-/// need to be downloaded.
 pub fn is_npm_package_extracted(name: &str, version: &str, registry: &NpmRegistryResolution, environment: &impl Environment) -> bool {
   let extract_dir = get_npm_extract_dir(&registry_dir_segment(&registry.url), name, version, environment);
   read_npm_package_dir_checksum(&extract_dir, environment).is_some()
@@ -1276,8 +1274,6 @@ pub fn resolve_registry_for_package(
   NpmrcChain::load(start_dir, environment).registry_for_package(package_name, environment)
 }
 
-/// Gets whether the registry url is npm's default registry, which a package
-/// is resolved from unless something configures another one.
 pub fn is_default_registry(url: &str) -> bool {
   url.trim_end_matches('/') == deno_npmrc::NPM_DEFAULT_REGISTRY.trim_end_matches('/')
 }
@@ -1968,7 +1964,6 @@ mod tests {
     );
     environment.remove_file("/home/repo/sub/.npmrc").unwrap();
 
-    // once the user allows reading it
     environment.download_policy().allow(&[err.download]);
     assert!(resolve("@acme/plugin").is_ok());
     assert_eq!(environment.file_read_count("/home/repo/.npmrc"), 2);

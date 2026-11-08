@@ -147,7 +147,6 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
     // when it's discovered, but a remote or npm config file has no directory
     let (dirs, found_path) = match &resolved_file.source {
       PathSource::Local(source) => {
-        // use the path as specified (see `resolve_config_file_dirs_at_path`)
         let specified_path = get_specified_config_path(environment, config).unwrap_or_else(|| source.path.as_ref().to_path_buf());
         // it's used for the directory it was found in and known by its path there like when it's found, so what the
         // editors allow for it is the same (see `get_config_file_found_path`)
@@ -556,8 +555,6 @@ pub fn get_config_file_found_path(found_path: PathBuf, canonical_path: &Path) ->
   (found_path != canonical_path).then_some(found_path)
 }
 
-/// Gets whether the file system is case insensitive, which it is by default
-/// on Windows and macOS.
 fn is_case_insensitive_file_system() -> bool {
   cfg!(any(windows, target_os = "macos"))
 }
@@ -716,7 +713,6 @@ mod tests {
       get_config_file_found_path(PathBuf::from("/p/.config/dprint.json"), Path::new("/other/dprint.json")),
       Some(PathBuf::from("/p/.config/dprint.json"))
     );
-    // the same file
     assert_eq!(get_config_file_found_path(PathBuf::from("/p/dprint.json"), Path::new("/p/dprint.json")), None);
     // which is known by the names that were looked up when they're in another case on disk
     assert_eq!(
@@ -773,7 +769,6 @@ mod tests {
     // its `.config` directory is an ordinary one, which isn't read to tell
     assert!(is_dot_config_dir(&env, Path::new("/project/link/.config")));
     assert_eq!(env.canonicalize_count("/project/link"), 0);
-    // while a local directory is canonicalized
     assert!(is_dot_config_dir(&env, Path::new("/project/.config")));
     assert_eq!(env.canonicalize_count("/project"), 1);
   }
@@ -954,11 +949,9 @@ mod tests {
     assert_eq!(path, dot_config_dir.join("dprint.json"));
     assert_eq!(dir, Path::new("/repo/src/sub"));
     assert_eq!(dot_config_download, format!(r"{} -> \\server\share\config", dot_config_dir.display()));
-    // and it's read once it's allowed
     env.download_policy().allow(&[download]);
     assert_eq!(find_asked("/repo/src"), None);
 
-    // a config file that's local is found
     env.mk_dir_all("/repo/other").unwrap();
     let config = find("/repo/other").unwrap().unwrap();
     assert_eq!(config.base_path, CanonicalizedPathBuf::new_for_testing("/repo"));

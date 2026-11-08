@@ -493,7 +493,6 @@ mod tests {
     // unbalanced
     run("*.{a,b", &["*.{a,b"]);
 
-    // too many
     assert_eq!(expand_all_braces("{a,b}{c,d}{e,f}{g,h}", 10), None);
     assert_eq!(expand_all_braces("{a,b,c,d,e,f,g,h,i,j}", 10).unwrap().len(), 10);
     assert_eq!(expand_all_braces("{a,b,c,d,e,f,g,h,i,j,k}", 10), None);

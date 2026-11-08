@@ -102,7 +102,6 @@ pub struct EditorSettings {
   pub trusted_domains: Vec<String>,
 }
 
-/// Gets the path of the settings file.
 pub fn get_settings_file_path(environment: &impl Environment) -> Option<PathBuf> {
   resolve_global_config_dir_path(environment).map(|dir| dir.join(SETTINGS_FILE_NAME))
 }
@@ -189,7 +188,6 @@ pub(super) fn set_setting(environment: &impl Environment, property_path: &[&str]
   Ok(file_path)
 }
 
-/// Gets the paths of the properties of the settings that dprint doesn't know.
 /// The `init` preferences aren't checked because only `dprint init` writes them.
 fn get_unknown_properties(value: &serde_json::Value) -> Vec<String> {
   let mut unknown_properties = Vec::new();

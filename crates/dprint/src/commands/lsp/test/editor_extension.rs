@@ -44,7 +44,6 @@ fn should_say_it_supports_the_dprint_methods() {
     let (backend, recv_task, test_client) = setup_backend(environment.clone());
     let run_test_task = dprint_core::async_runtime::spawn(async move {
       let result = initialize_backend(&backend, editor_extension_params()).await;
-      // the version it uses and where dprint's own files are
       let capability = &result.capabilities.experimental.unwrap()["dprint"];
       assert_eq!(capability["version"], json!(1));
       assert!(capability["files"]["settingsUri"].is_string(), "{}", capability);
@@ -1269,7 +1268,6 @@ fn should_get_the_config_file_of_a_config_file_or_a_document() {
   environment.write_file("/dprint.jsonc", r#"{ "plugins": [] }"#).unwrap();
   run_session(&environment, |client| {
     async move {
-      // the config file that's asked about
       let config_info = client.config_info("/dprint.jsonc").await;
       assert_eq!(config_info.config_file.unwrap().uri, uri("/dprint.jsonc"));
       // the config file of an untitled document
@@ -3676,7 +3674,6 @@ fn should_approve_downloading_through_the_proxy_of_a_project_npmrc() {
         assert_eq!(client.take_config_changes(), vec![uri("/project/dprint.json")]);
         assert_eq!(client.format("/project/file.txt", "text").await, formatted("text", "text_formatted"));
 
-        // the user can see what they allowed
         let decisions = client.decisions().await;
         assert_eq!(decisions.len(), 1);
         assert_eq!(decisions[0].kind, ApprovalKind::Downloads);
@@ -4370,7 +4367,6 @@ fn should_forget_the_decisions_of_a_config_file() {
         client.take_config_changes();
         let stored = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
         assert_eq!(stored.len(), 1);
-        // the user can see what they decided
         let decisions = client
           .backend
           .dprint_decisions(Some(DecisionsParams::default()), CancellationToken::new())
@@ -4803,7 +4799,6 @@ fn should_only_use_always_decisions_for_the_session_with_the_approvals_of_a_newe
         // and it's not an "Always" decision
         assert_eq!(result.config_approvals.approvals[0].previous_decision, Some(ApprovalDecision::Deny));
 
-        // the file isn't written
         assert_eq!(environment.read_file(&file_path).unwrap(), text);
         environment.take_stderr_messages();
       }
@@ -4861,7 +4856,6 @@ fn should_only_forget_the_decisions_of_the_session_with_the_approvals_of_a_newer
         let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
         assert!(approval.denied);
         assert_eq!(approval.previous_decision, Some(ApprovalDecision::AlwaysDeny));
-        // and the file isn't written
         assert_eq!(environment.read_file(&file_path).unwrap(), text);
         environment.take_stderr_messages();
       }
@@ -4989,7 +4983,6 @@ fn should_not_download_a_plugin_schema_from_a_domain_that_is_not_trusted() {
           .dprint_config_schema(config_params("/dprint.json"), CancellationToken::new())
           .await
           .unwrap();
-        // it doesn't have the plugin's schema
         assert!(!result.complete);
         assert!(result.schema["definitions"].get("plugin-test-plugin").is_none(), "{:#}", result.schema);
         assert_eq!(environment.remote_file_request_count(UNTRUSTED_SCHEMA_URL), 0);
@@ -5831,7 +5824,6 @@ impl Client {
       .approvals
   }
 
-  /// Tells the server the editor saw the file change.
   async fn did_change_file(&self, path_or_uri: &str, typ: FileChangeType) {
     self
       .backend
@@ -5893,7 +5885,6 @@ fn run_session(environment: &TestEnvironment, action: impl FnOnce(Client) -> Loc
   run_session_with(environment, editor_extension_params(), action);
 }
 
-/// Runs a session of an editor extension that's initialized with the params.
 fn run_session_with(environment: &TestEnvironment, params: InitializeParams, action: impl FnOnce(Client) -> LocalBoxFuture<'static, ()> + 'static) {
   run_session_with_config(environment, params, None, action);
 }
@@ -5959,7 +5950,6 @@ fn run_session_until_the_server_exits(
 const SESSION_ID: &str = "0f8c2b1e-5a4d-4c3b-9e2f-7a6b5c4d3e2f";
 const OTHER_SESSION_ID: &str = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a";
 
-/// Gets the params of an editor extension that provides a session id.
 fn session_params(session_id: &str) -> InitializeParams {
   let mut params = editor_extension_params();
   params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "sessionId": session_id } }));
@@ -5970,7 +5960,6 @@ fn get_session_file_path(environment: &TestEnvironment, session_id: &str) -> Pat
   environment.get_cache_dir().join("editor-sessions").join(format!("{}.json", session_id))
 }
 
-/// Gets the params of an editor extension with the `watchFiles` feature.
 fn watch_files_params() -> InitializeParams {
   let mut params = editor_extension_params();
   params.capabilities.experimental = Some(json!({ "dprint": { "versions": [1], "features": { "watchFiles": true } } }));

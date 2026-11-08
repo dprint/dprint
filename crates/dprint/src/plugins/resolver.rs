@@ -96,7 +96,6 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     }
   }
 
-  /// Shuts down and forgets the plugins that aren't one of the used ones.
   pub async fn shutdown_unused(&self, used_plugins: &[Rc<PluginWrapper>]) {
     let unused_plugins = {
       let mut memory_cache = self.memory_cache.borrow_mut();
@@ -188,8 +187,6 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     self.plugin_cache.get_last_file_matching_info(plugin_reference, config)
   }
 
-  /// Remembers the files the plugin matched when an editor resolved the config
-  /// file with it.
   pub async fn store_file_matching_info(&self, plugin_reference: &PluginSourceReference, config: &str, file_matching: &FileMatchingInfo) -> Result<()> {
     self.plugin_cache.store_file_matching_info(plugin_reference, config, file_matching).await
   }

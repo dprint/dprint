@@ -47,7 +47,6 @@ const APPROVALS_FILE_VERSION: u32 = 1;
 /// of dprint writes, which is only raised by a change that an older reader
 /// can't safely ignore (see `EditorApprovals`).
 const APPROVALS_FILE_MIN_VERSION: u32 = 1;
-/// The property of the approvals file with the process plugin decisions.
 const PROCESS_PLUGIN_DECISIONS_PROPERTY: &str = "processPluginDecisions";
 /// The most process plugin decisions to remember, where the oldest are
 /// forgotten first, which only means the user is asked again.
@@ -58,8 +57,6 @@ const APPROVALS_LOCK_FILE_NAME: &str = ".editor-approvals.lock";
 /// How long a writer of the approvals file waits for its lock before it fails
 /// without writing (see `lock_editor_approvals`).
 const APPROVALS_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
-/// How long a writer of the approvals file waits before it tries to take the
-/// lock again.
 const APPROVALS_LOCK_RETRY_DELAY: Duration = Duration::from_millis(20);
 /// The fingerprint of the approvals file when there's none (see
 /// `ApprovalsFileRead::fingerprint`).
@@ -713,7 +710,6 @@ impl SessionPermissions {
     self.process_plugin_decisions.lock().clone()
   }
 
-  /// Gets the process plugins the user allowed setting up for the session.
   pub fn process_plugin_set_up_grants(&self) -> Vec<ProcessPluginSetUpGrant> {
     self.process_plugin_set_up_grants.lock().clone()
   }
@@ -1117,7 +1113,6 @@ pub(crate) fn get_editor_approvals_file_path(environment: &impl Environment) -> 
   get_settings_file_path(environment).map(|file_path| file_path.with_file_name(APPROVALS_FILE_NAME))
 }
 
-/// Updates what the editor integrations remember.
 pub async fn update_editor_state<TEnvironment: Environment>(environment: &TEnvironment, update: impl FnOnce(&mut EditorState)) -> Result<()> {
   // prevent another process from storing something between the read and
   // write of the state file, which would lose one of the two
@@ -1339,8 +1334,6 @@ fn get_read_denials(read: &std::io::Result<Option<ApprovalsFileRead>>) -> Option
   }
 }
 
-/// Takes the lock of the approvals file like `lock_editor_approvals`, which
-/// fails when it can't be taken within the timeout.
 async fn lock_editor_approvals_within(environment: &impl Environment, timeout: Duration) -> Result<FileLock> {
   let lock_path = get_editor_approvals_lock_path(environment);
   if let Some(dir_path) = lock_path.parent() {
@@ -1373,7 +1366,6 @@ async fn lock_editor_approvals_within(environment: &impl Environment, timeout: D
   }
 }
 
-/// Gets the path of the lock of the approvals file (see `EditorApprovals`).
 fn get_editor_approvals_lock_path(environment: &impl Environment) -> PathBuf {
   match get_editor_approvals_file_path(environment).as_deref().and_then(|file_path| file_path.parent()) {
     Some(dir_path) => dir_path.join(APPROVALS_LOCK_FILE_NAME),
@@ -1630,7 +1622,6 @@ mod test {
     assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     assert!(!permissions.is_process_plugin_denied(&approval("/a/dprint.json", "1:a")));
     assert!(!permissions.may_set_up_process_plugin("/a/dprint.json", "plugin", "hash", None));
-    // the user can opt out
     crate::test_helpers::allow_process_plugins_in_editors(&environment);
     let permissions = read_permissions(&environment, &[]);
     assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
@@ -1812,7 +1803,6 @@ mod test {
       approvals.add_process_plugin_decision(any_config("/a/dprint.json", false))
     })
     .unwrap();
-    // it's stored without a config hash
     let text = environment.read_file(get_editor_approvals_file_path(&environment).unwrap()).unwrap();
     assert!(!text.contains("configHash"), "{}", text);
     assert_eq!(
@@ -2507,7 +2497,6 @@ mod test {
       )
       .unwrap();
     environment.clone().run_in_runtime(async move {
-      // the one of the config file
       forget_editor_approvals(&environment, |config_file| config_file == "/a/dprint.json")
         .await
         .unwrap();
@@ -2515,7 +2504,6 @@ mod test {
       assert!(!text.contains("/a/dprint.json"), "{}", text);
       assert!(text.contains("/b/dprint.json"), "{}", text);
       assert!(text.contains(r#"{ "kind": "other", "allowed": true }"#), "{}", text);
-      // and every one
       forget_editor_approvals(&environment, |_| true).await.unwrap();
       let text = environment.read_file(&file_path).unwrap();
       assert!(!text.contains("allowed"), "{}", text);
@@ -2784,7 +2772,6 @@ mod test {
       let text = environment.read_file(&file_path).unwrap();
       assert_eq!(text.matches(r#""allowed": true"#).count(), 5, "{}", text);
 
-      // the ones of the config file
       forget_editor_approvals(&environment, |config_file| config_file == "/a/dprint.json")
         .await
         .unwrap();
@@ -2997,7 +2984,6 @@ mod test {
 
   #[test]
   fn should_read_the_legacy_state_file() {
-    // dprint 0.60 to 0.64 stored it in lsp-state.json
     let environment = TestEnvironment::new();
     environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     environment

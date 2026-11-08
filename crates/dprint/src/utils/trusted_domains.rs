@@ -182,7 +182,6 @@ impl DownloadPolicy {
     }
   }
 
-  /// Gets what the user allowed downloading this session.
   pub fn allowed_downloads(&self) -> Vec<String> {
     match self {
       DownloadPolicy::All => Vec::new(),
@@ -190,7 +189,6 @@ impl DownloadPolicy {
     }
   }
 
-  /// Reads the trusted domains from the settings file again (ex. after it changed).
   pub fn reload_trusted_domains(&self, environment: &impl Environment) {
     if let DownloadPolicy::TrustedDomains(trusted_downloads) = self {
       *trusted_downloads.trusted_domains.lock() = TrustedDomains::from_settings(environment);
@@ -350,7 +348,6 @@ impl TrustedDownloads {
 /// user's environment variables (ex. `https://${GITHUB_TOKEN}@proxy.example`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NpmrcProxy {
-  /// The path of the `.npmrc` file.
   pub npmrc_path: String,
   /// The text of the setting as it is in the file, before its environment
   /// variables are replaced, which is what the user is shown.
@@ -565,7 +562,6 @@ impl std::fmt::Display for UntrustedDownloadError {
 impl std::error::Error for UntrustedDownloadError {}
 
 impl UntrustedDownloadError {
-  /// Finds the error in the chain of an error.
   pub fn find(err: &anyhow::Error) -> Option<&UntrustedDownloadError> {
     err.chain().find_map(|err| {
       // a transparent error's source is the source of what it wraps
@@ -1013,7 +1009,6 @@ fn quote_download(download: &str) -> String {
   }
 }
 
-/// Gets whether a download reads an `.npmrc` file on another machine.
 fn is_npmrc_path_download(download: &str) -> bool {
   let path = get_path_download_local_path(download).unwrap_or_else(|| PathBuf::from(unescape_text(download)));
   path.file_name().is_some_and(|name| name == ".npmrc")
@@ -1120,7 +1115,6 @@ impl PathLocation {
     }
   }
 
-  /// Gets whether it's on the share.
   fn is_share(&self, share: &str) -> bool {
     matches!(self, PathLocation::Share(location_share) if location_share == share)
   }
@@ -1245,7 +1239,6 @@ impl PathWalk {
     }
   }
 
-  /// Follows a name in the directory that was followed.
   fn step_into(&mut self, environment: &impl Environment, name: &OsStr, remaining: &mut Vec<OwnedComponent>, rules: PathRules) {
     let next = self.resolved.join(name);
     let (mut location, mut automount_root) = self.get_location(&next, rules);
@@ -1335,8 +1328,6 @@ impl PathWalk {
     }
   }
 
-  /// Sets where the walk is, with the root of the share an automounter
-  /// mounted when it's on one.
   fn set_location(&mut self, location: PathLocation, automount_root: Option<PathBuf>) {
     self.location = location;
     self.automount_root = automount_root;
@@ -1366,7 +1357,6 @@ impl PathWalk {
     }
   }
 
-  /// Gets where the path that was followed is when it's on another machine.
   fn into_network_path(self, path: &Path) -> Option<NetworkPath> {
     match self.location {
       PathLocation::Local => None,
@@ -1387,7 +1377,6 @@ impl PathWalk {
   }
 }
 
-/// A component of a path that's owned (see `resolve_network_share`).
 enum OwnedComponent {
   /// A prefix (ex. `C:` or a UNC prefix on Windows) or the root directory.
   Root(OsString),
@@ -1422,7 +1411,6 @@ impl OwnedComponent {
 
 /// How Windows resolves a name of a path (see `PathRules::has_windows_names`).
 enum WindowsName<'a> {
-  /// It's the file or directory with the name.
   Plain,
   /// It's an alternate data stream of the file or directory with the name
   /// before the `:` (ex. `link:stream` or `dir::$INDEX_ALLOCATION`), which is
@@ -1659,7 +1647,6 @@ fn is_verbatim(path: &Path) -> bool {
   matches!(path.components().next(), Some(Component::Prefix(prefix)) if prefix.kind().is_verbatim())
 }
 
-/// Gets whether a prefix's name is the name of a volume (ex. `Volume{...}`).
 fn is_volume_name(name: &OsStr) -> bool {
   name
     .to_str()
@@ -1936,7 +1923,6 @@ mod test {
     policy.allow(&["npm-registry:https://npm.corp".to_string()]);
     assert!(!policy.allows(&url("https://npm.corp.example/package")));
     assert!(!policy.allows(&url("https://npm.corp/package")));
-    // the cli downloads anything
     assert!(DownloadPolicy::All.allows(&url("http://example.com/plugin.wasm")));
   }
 
@@ -1959,7 +1945,6 @@ mod test {
         .ensure_allows_path(&environment, Path::new(r"\\?\UNC\server\share\plugin.wasm"), None)
         .is_err()
     );
-    // other ways of reaching another machine
     assert!(
       policy
         .ensure_allows_path(&environment, Path::new(r"\\.\UNC\server\share\plugin.wasm"), None)
@@ -1996,7 +1981,6 @@ mod test {
     );
     policy.allow(&[r"\\server\share\plugin.wasm".to_string()]);
     assert!(policy.ensure_allows_path(&environment, Path::new(r"\\server\share\plugin.wasm"), None).is_ok());
-    // the cli reads anything
     assert!(
       DownloadPolicy::All
         .ensure_allows_path(&environment, Path::new(r"\\server\share\plugin.wasm"), None)
@@ -2081,14 +2065,12 @@ mod test {
     let resolved = |path: &str| resolve_network_share(&environment, Path::new(path), MACOS, None).map(|network_path| network_path.resolved);
     assert_eq!(share("/home/me/project/plugin.wasm"), None);
     assert_eq!(share("/net/host/share/plugin.wasm").as_deref(), Some("/net/host"));
-    // the parent directories
     assert_eq!(share("/home/me/project/../../../net/host/plugin.wasm").as_deref(), Some("/net/host"));
     assert_eq!(share("/../../net/host/plugin.wasm").as_deref(), Some("/net/host"));
     assert_eq!(share("/home/me/./project/../../net/host/plugin.wasm"), None);
     // the file system is case insensitive
     assert_eq!(share("/NET/Host/plugin.wasm").as_deref(), Some("/net/host"));
     assert_eq!(share("/home/me/project/../../../Net/host/plugin.wasm").as_deref(), Some("/net/host"));
-    // a symlink to it
     environment.symlink("/net", "/home/me/project/net_link").unwrap();
     assert_eq!(share("/home/me/project/net_link/host/plugin.wasm").as_deref(), Some("/net/host"));
     environment.symlink("/NET/host", "/home/me/project/host_link").unwrap();
@@ -2362,7 +2344,6 @@ mod test {
         .ensure_allows(&environment, Path::new("/project/node_modules/pkg/other.wasm"), Some(base))
         .is_ok()
     );
-    // which is then allowed
     let err = ensure_allows("/project/node_modules/pkg/plugin.wasm").unwrap_err();
     policy.allow(&[err.download]);
     assert!(ensure_allows("/project/node_modules/pkg/plugin.wasm").is_ok());
@@ -2788,7 +2769,6 @@ mod test {
     assert!(policy.ensure_allows_npmrc_proxy(&changed).is_err());
     // nor is it the url of a download
     assert!(!policy.allows(&url("https://proxy.example/")));
-    // the cli downloads through any proxy
     assert!(DownloadPolicy::All.ensure_allows_download(&trusted_url, through_proxy).is_ok());
   }
 
@@ -2936,7 +2916,6 @@ mod test {
       setting: "https://proxy.example".to_string(),
     };
     assert!(!is_path_download(&proxy.to_download()));
-    // the path in the project is the one before the arrow
     assert_eq!(get_path_download_local_path(&path), Some(PathBuf::from("/project/.npmrc")));
     assert_eq!(get_path_download_local_path("/net/host/plugin.wasm"), None);
     let escaped = get_path_download(Path::new("/project/a->b\u{202e}"), Path::new("/net/x"));
@@ -3050,11 +3029,9 @@ mod test {
     assert!(trusted_domains.is_trusted(&url("https://github.com/dprint/dprint-plugin-exec/releases/download/0.5.0/plugin.json")));
     assert!(trusted_domains.is_trusted(&url("https://raw.githubusercontent.com/dprint/dprint/main/dprint.json")));
     assert!(trusted_domains.is_trusted(&url("https://PLUGINS.dprint.dev./plugin.wasm")));
-    // not a subdomain
     assert!(!trusted_domains.is_trusted(&url("https://notgithub.com/plugin.wasm")));
     assert!(!trusted_domains.is_trusted(&url("https://github.com.example.com/plugin.wasm")));
     assert!(!trusted_domains.is_trusted(&url("https://example.com/plugin.wasm")));
-    // only https
     assert!(!trusted_domains.is_trusted(&url("http://plugins.dprint.dev/plugin.wasm")));
   }
 
@@ -3076,7 +3053,6 @@ mod test {
     assert!(trusted_domains.is_trusted(&url("https://[::1]/plugin.wasm")));
     assert!(trusted_domains.is_trusted(&url("https://127.0.0.1/plugin.wasm")));
     assert!(trusted_domains.is_trusted(&url("https://npm_registry.corp/@scope/package")));
-    // the default ones are still trusted
     assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
     assert!(!trusted_domains.is_trusted(&url("https://example.com/plugin.wasm")));
     // the environment doesn't change them

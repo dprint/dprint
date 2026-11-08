@@ -55,7 +55,6 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   /// Whether the remote files are downloaded even when they're fresh, which
   /// is still only once until `download_remote_files_again` (`--reload`).
   reload_remote_files: bool,
-  /// What the user allowed for this session.
   session_permissions: Arc<SessionPermissions>,
 }
 
@@ -107,7 +106,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     }
   }
 
-  /// Finds the config file to format the files in the provided directory with.
   pub fn find_config_file(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<ResolvedConfigPathWithText>> {
     Ok(if let Some(path) = &self.config_override {
       // it's used for the directory it's in and known by its path there like `dprint fmt --config` (see
@@ -133,7 +131,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     })
   }
 
-  /// Loads the config file at the path, which is `None` when it doesn't exist.
   pub fn load_config_file(&self, path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
     let canonical_path = match self.environment.canonicalize(path) {
       Ok(canonical_path) => canonical_path,
@@ -168,7 +165,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     }))
   }
 
-  /// Resolves the plugins of the config file found by `find_config_file`.
   pub async fn resolve_config_file(&self, config_file: &ResolvedConfigPathWithText) -> Result<Rc<PluginsScope<TEnvironment>>> {
     let cell = {
       let mut plugins_scope_by_config = self.plugins_scope_by_config.borrow_mut();
@@ -231,7 +227,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     Ok(new_scope)
   }
 
-  /// Gets the path of the config file the server was started with.
   pub fn config_override_path(&self) -> Option<PathBuf> {
     self.config_override.clone()
   }
@@ -255,7 +250,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
     self.plugin_resolver.get_last_file_matching_info(plugin, config)
   }
 
-  /// Remembers the files a plugin matched when the config file was resolved with it.
   pub async fn store_file_matching_info(
     &self,
     plugin: &crate::plugins::PluginSourceReference,
@@ -298,7 +292,6 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   }
 }
 
-/// Gets the key that identifies the config file found for a directory.
 pub fn get_config_file_key(config_file: &ResolvedConfigPathWithText) -> String {
   // the base path is part of the key because the global config
   // file has a different one for each root directory (ex. drive)
@@ -310,7 +303,6 @@ pub fn get_config_file_key(config_file: &ResolvedConfigPathWithText) -> String {
   }
 }
 
-/// Gets the current time in seconds since the UNIX epoch.
 fn now_secs(environment: &impl Environment) -> u64 {
   environment
     .sys_time_now()

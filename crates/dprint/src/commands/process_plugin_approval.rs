@@ -81,7 +81,6 @@ pub async fn store_process_plugin_action<TEnvironment: Environment>(
       result = Err(err);
     }
   }
-  // the decision is only used for the session once storing it failed
   let always = always && result.is_ok();
   for plugin in &not_set_up {
     session_permissions.add_process_plugin_set_up_grant(ProcessPluginSetUpGrant::new(
@@ -407,7 +406,6 @@ mod test {
       // it's stored for the versions that use the settings
       assert_eq!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.len(), 1);
       assert!(session_permissions.read(&environment).is_process_plugin_allowed(&approval()));
-      // but isn't used by another session
       assert!(!SessionPermissions::default().read(&environment).is_process_plugin_allowed(&approval()));
 
       // the same goes for a plugin that's allowed once it's set up
@@ -473,7 +471,6 @@ mod test {
         .await
         .unwrap();
       assert!(not_set_up.is_denied(&session_permissions.read(&environment)));
-      // denying it for the session isn't stored
       assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
       assert!(!not_set_up.is_denied(&SessionPermissions::default().read(&environment)));
 
@@ -625,7 +622,6 @@ mod test {
       };
       let (store_result, (), ()) = dprint_core::async_runtime::future::join3(store, forget, release).await;
       store_result.unwrap();
-      // neither plugin's decision is stored after forgetting
       assert!(read_editor_approvals(&environment).unwrap().process_plugin_decisions.is_empty());
     });
   }

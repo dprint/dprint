@@ -98,7 +98,6 @@ impl EditorPaths {
   }
 }
 
-/// What `EditorPaths::add` replaced.
 #[derive(Debug, Default, PartialEq)]
 pub struct ReplacedEditorPaths {
   /// The canonical directory the editor's path was an alias of before, whose
@@ -110,7 +109,6 @@ pub struct ReplacedEditorPaths {
   pub other_editor_dir: Option<PathBuf>,
 }
 
-/// Finds the alias of the directories that the canonical path is in.
 fn find_alias<'a>(dirs: &'a [(PathBuf, PathBuf)], canonical_path: &Path) -> Option<&'a (PathBuf, PathBuf)> {
   find_closest_alias(dirs, canonical_path, |(dir, _)| dir)
 }

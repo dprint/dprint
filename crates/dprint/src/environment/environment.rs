@@ -49,7 +49,6 @@ pub struct FileLock {
 }
 
 impl FileLock {
-  /// Gets a lock that's released when the guard is dropped.
   pub fn new(guard: impl std::any::Any + Send + Sync) -> Self {
     Self { _guard: Box::new(guard) }
   }
