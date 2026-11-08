@@ -16,12 +16,6 @@ use sys_traits::OpenOptions;
 use sys_traits::SystemRandom;
 use sys_traits::ThreadSleep;
 
-/// Gets the temporary path to write a file at before it's renamed to the
-/// path, which replaces the path's extension with 8 random lowercase hex
-/// digits and `.tmp` (ex. `<name>.0a1b2c3d.tmp`).
-///
-/// IMPORTANT: Every version of dprint deletes the stale temporary files of the
-/// session files by this name (see `SessionFile`), so don't change it.
 pub fn get_atomic_path(sys: &impl SystemRandom, path: &Path) -> PathBuf {
   let rand = gen_rand_path_component(sys);
   let extension = format!("{rand}.tmp");
@@ -40,9 +34,22 @@ fn gen_rand_path_component(sys: &impl SystemRandom) -> String {
 pub trait AtomicWriteFileWithRetriesSys: AtomicWriteFileSys + ThreadSleep {}
 
 pub fn atomic_write_file_with_retries<TSys: AtomicWriteFileWithRetriesSys>(sys: &TSys, file_path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
+  atomic_write_file_with_retries_and_temp_paths(sys, file_path, data, mode, || get_atomic_path(sys, file_path))
+}
+
+/// Like `atomic_write_file_with_retries`, but with the temporary file of each
+/// try at the path `get_temp_file_path` gets (ex. for files whose temporary
+/// files need a name of their own).
+pub fn atomic_write_file_with_retries_and_temp_paths<TSys: AtomicWriteFileWithRetriesSys>(
+  sys: &TSys,
+  file_path: &Path,
+  data: &[u8],
+  mode: u32,
+  get_temp_file_path: impl Fn() -> PathBuf,
+) -> std::io::Result<()> {
   let mut count = 0;
   loop {
-    match atomic_write_file(sys, file_path, data, mode) {
+    match atomic_write_file(sys, file_path, &get_temp_file_path(), data, mode) {
       Ok(()) => return Ok(()),
       Err(err) => {
         if count >= 5 {
@@ -66,7 +73,7 @@ pub trait AtomicWriteFileSys: FsCreateDirAll + FsMetadata + FsOpen + FsRemoveFil
 ///
 /// This also handles creating the directory if a NotFound error
 /// occurs.
-pub fn atomic_write_file<TSys: AtomicWriteFileSys>(sys: &TSys, file_path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
+pub fn atomic_write_file<TSys: AtomicWriteFileSys>(sys: &TSys, file_path: &Path, temp_file_path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
   fn atomic_write_file_raw<TSys: AtomicWriteFileSys>(sys: &TSys, temp_file_path: &Path, file_path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
     let mut options = OpenOptions::new_write();
     options.mode = Some(mode);
@@ -78,14 +85,12 @@ pub fn atomic_write_file<TSys: AtomicWriteFileSys>(sys: &TSys, file_path: &Path,
     })
   }
 
-  let temp_file_path = get_atomic_path(sys, file_path);
-
-  if let Err(write_err) = atomic_write_file_raw(sys, &temp_file_path, file_path, data, mode) {
+  if let Err(write_err) = atomic_write_file_raw(sys, temp_file_path, file_path, data, mode) {
     if write_err.kind() == ErrorKind::NotFound {
       let parent_dir_path = file_path.parent().unwrap();
       match sys.fs_create_dir_all(parent_dir_path) {
         Ok(()) => {
-          return atomic_write_file_raw(sys, &temp_file_path, file_path, data, mode).map_err(|err| add_file_context_to_err(file_path, err));
+          return atomic_write_file_raw(sys, temp_file_path, file_path, data, mode).map_err(|err| add_file_context_to_err(file_path, err));
         }
         Err(create_err) => {
           if !sys.fs_exists(parent_dir_path).unwrap_or(false) {

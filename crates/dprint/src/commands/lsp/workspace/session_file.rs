@@ -185,7 +185,7 @@ impl std::error::Error for SessionFileWriteError {}
 /// - They're in the `editor-sessions` directory of the cache directory. The
 ///   file of a session is `<id>.json`, its lock is `<id>.lock`, and a
 ///   temporary file of writing it is `<id>.<8 lowercase hex digits>.tmp` (see
-///   `atomic_write_file`), where the id is 16 to 128 ASCII letters, digits,
+///   `get_temp_file_path`), where the id is 16 to 128 ASCII letters, digits,
 ///   underscores, and hyphens (see `is_valid_session_id`). Nothing else in
 ///   the directory has a name of these forms.
 /// - A file is a JSON object with a `version` integer of its format, and a
@@ -413,7 +413,11 @@ impl SessionFile {
     }
     // only the user may read it on Unix because it may have the credentials in a proxy setting of an
     // `.npmrc` file (see `NpmrcProxy::to_download`)
-    .and_then(|()| crate::utils::fs::atomic_write_file_with_retries(environment, &self.file_path, text.as_bytes(), SESSION_FILE_MODE));
+    .and_then(|()| {
+      crate::utils::fs::atomic_write_file_with_retries_and_temp_paths(environment, &self.file_path, text.as_bytes(), SESSION_FILE_MODE, || {
+        get_temp_file_path(environment, &self.file_path)
+      })
+    });
     match result {
       Ok(()) => {
         *self.last_text.borrow_mut() = Some(text);
@@ -568,6 +572,15 @@ fn parse_session_dir_file_name(name: &str) -> Option<(&str, SessionDirFileKind)>
     }
   };
   Some((session_id, kind))
+}
+
+/// Gets a path of a temporary file of writing the file of a session, which
+/// is `<id>.<8 random lowercase hex digits>.tmp` (see `SessionFile`).
+fn get_temp_file_path(environment: &impl Environment, file_path: &Path) -> PathBuf {
+  let mut random = [0; 4];
+  environment.sys_random(&mut random).unwrap();
+  let random = random.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+  file_path.with_extension(format!("{random}.tmp"))
 }
 
 /// Gets whether a file in the sessions directory is stale, which is when its
@@ -1154,6 +1167,16 @@ mod test {
     assert_eq!(parse_session_dir_file_name("0123456789abcdef"), None);
     assert_eq!(parse_session_dir_file_name("0123456789abcdef.tmp"), None);
     assert_eq!(parse_session_dir_file_name(".0123456789abcdef.json"), None);
+  }
+
+  #[test]
+  fn should_parse_the_temp_file_paths() {
+    let environment = TestEnvironment::new();
+    let temp_file_path = get_temp_file_path(&environment, Path::new("/sessions/0123456789abcdef.json"));
+    assert_eq!(
+      parse_session_dir_file_name(temp_file_path.file_name().unwrap().to_str().unwrap()),
+      Some(("0123456789abcdef", SessionDirFileKind::Temp))
+    );
   }
 
   fn open_locked(environment: &TestEnvironment, session_id: &str) -> SessionFile {
