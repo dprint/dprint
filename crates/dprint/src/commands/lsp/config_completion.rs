@@ -247,9 +247,7 @@ impl<TEnvironment: Environment> ConfigJsonSchemaBuilder<TEnvironment> {
   /// for at most the time it takes a download to time out.
   pub async fn wait_for_downloads(&self, urls: &[&str]) {
     let deadline = tokio::time::Instant::now() + SCHEMA_DOWNLOAD_TIMEOUT;
-    while self.plugin_schemas.is_any_downloading(urls) && tokio::time::Instant::now() < deadline {
-      tokio::time::sleep(Duration::from_millis(250)).await;
-    }
+    self.plugin_schemas.wait_for_downloads(urls, deadline).await;
   }
 
   pub fn is_any_downloaded(&self, urls: &[&str]) -> bool {
@@ -448,6 +446,20 @@ impl<TEnvironment: Environment> PluginSchemas<TEnvironment> {
   fn is_any_downloading(&self, urls: &[&str]) -> bool {
     let entries = self.entries.borrow();
     urls.iter().any(|url| matches!(entries.get(url.trim()), Some(SchemaEntry::Downloading(_))))
+  }
+
+  /// Waits until the schemas at the provided urls that are being downloaded
+  /// aren't anymore, or until the deadline.
+  async fn wait_for_downloads(&self, urls: &[&str], deadline: tokio::time::Instant) {
+    for url in urls {
+      let download = match self.entries.borrow().get(url.trim()) {
+        Some(SchemaEntry::Downloading(download)) => download.clone(),
+        _ => continue,
+      };
+      if tokio::time::timeout_at(deadline, download.finished.notified()).await.is_err() {
+        return;
+      }
+    }
   }
 
   /// Starts downloading the schema when it isn't cached or being downloaded,
