@@ -113,9 +113,15 @@ pub struct ProgressBars {
 }
 
 enum ProgressBarsBackend {
-  Terminal { logger: Arc<Logger>, state: Arc<Mutex<InternalState>> },
+  Terminal {
+    logger: Arc<Logger>,
+    state: Arc<Mutex<InternalState>>,
+  },
   /// Sends the progress to the sink instead (ex. to an editor).
-  Sink { sink: Arc<dyn OutputSink>, next_id: AtomicUsize },
+  Sink {
+    sink: Arc<dyn OutputSink>,
+    next_id: AtomicUsize,
+  },
 }
 
 struct ProgressBarState {

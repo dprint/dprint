@@ -384,7 +384,7 @@ The server escapes project text in `specifier`, `registry`, and `message` so it 
 
 - These are shown as `\u{<lowercase hex>}` (ex. `\u{a}` for a newline): control characters (`Cc`), separators other than a plain space (`Zs`, `Zl`, `Zp`), format characters (`Cf`, ex. the bidi override U+202E or a zero width space), other `Default_Ignorable_Code_Point`s, code points unassigned in the server's Unicode version (`Cn`, currently Unicode 16), and a combining mark (`Mn` or `Me`) at the start. In JavaScript: `/[\p{Cc}\p{Cf}\p{Cn}\p{Z}\p{Default_Ignorable_Code_Point}]/u` for any character but a space, and `/^[\p{Mn}\p{Me}]/u` for the first one. A client with other Unicode tables escapes slightly differently.
 - A backslash followed by `u{` is shown as `\u{5c}`, and any other backslash as it is, so Windows paths stay readable (ex. `C:\new`).
-- A `networkPath` specifier is also escaped like `message` text (backticks and look-alikes, and a combining mark at the start of each path), so a `localUri` shown next to it with your own escaping may differ (ex. `C:\proj\a\u{60}b\x -> \\srv\s\x` next to `` C:\proj\a`b\x ``).
+- A `networkPath` specifier is also escaped like `message` text (backticks and look-alikes, and a combining mark at the start of each path), so a `localUri` shown next to it with your own escaping may differ (ex. `C:\proj\a\u{60}b\x -> \\srv\s\x` next to ``C:\proj\a`b\x``).
 - A path that isn't valid Unicode can't be allowed, because its text can't be told apart from other paths: its approval only offers denying it, and its `message` says why.
 
 ### Asking
