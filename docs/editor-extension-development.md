@@ -445,7 +445,10 @@ Formats a document.
 ```ts
 interface FormatParams extends DocumentParams {
   text: string;
-  /** The ranges to format, which is the whole text when not provided and nothing when empty. */
+  /**
+   * The ranges to format, which is the whole text when not provided and nothing when empty. A position past the end of a line or
+   * of the text is its end, and a range that starts after its end is an `InvalidParams` error.
+   */
   ranges?: Range[];
   /**
    * The editor's indentation, used instead of the configuration file's. Only send it when the user wants the editor's to win (ex. an

@@ -799,14 +799,27 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       });
     }
     let line_index = LineIndex::new(&params.text);
-    let request = FormatRequest {
-      document: self.get_document_info(&params.document),
-      ranges: params.ranges.map(|ranges| {
-        ranges
+    let ranges = match params.ranges {
+      Some(ranges) => {
+        let ranges = ranges
           .iter()
           .map(|range| line_index.offset_utf16(range.start)..line_index.offset_utf16(range.end))
-          .collect::<Vec<StdRange<u32>>>()
-      }),
+          .collect::<Vec<StdRange<u32>>>();
+        // it would otherwise format nothing without saying so (ex. a selection made backwards)
+        if ranges.iter().any(|range| range.start > range.end) {
+          return Err(LspError {
+            code: ErrorCode::InvalidParams,
+            message: "The start of a range was after its end.".into(),
+            data: None,
+          });
+        }
+        Some(ranges)
+      }
+      None => None,
+    };
+    let request = FormatRequest {
+      document: self.get_document_info(&params.document),
+      ranges,
       text: params.text,
       override_config: params.override_config,
       global_config: params.document.global_config,

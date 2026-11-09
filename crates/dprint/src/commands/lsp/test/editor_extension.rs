@@ -639,6 +639,21 @@ fn should_format_ranges_with_utf16_positions() {
         panic!("expected it to be formatted");
       };
       assert!(!edits.is_empty());
+
+      // a position past the end is the end, like in the language server protocol
+      let mut params = client.format_params("/file.txt", "text");
+      params.ranges = Some(vec![Range::new(Position::new(0, 0), Position::new(5, 0))]);
+      assert_eq!(client.format_with(params).await, formatted("text", "text_formatted"));
+
+      // but a range that starts after its end is an error
+      let mut params = client.format_params("/file.txt", "a\nb\nc\n");
+      params.ranges = Some(vec![
+        Range::new(Position::new(0, 0), Position::new(0, 1)),
+        Range::new(Position::new(2, 1), Position::new(2, 0)),
+      ]);
+      let err = client.backend.dprint_format(params, CancellationToken::new()).await.unwrap_err();
+      assert_eq!(err.code, deno_tower_lsp::jsonrpc::ErrorCode::InvalidParams);
+      assert_eq!(err.message, "The start of a range was after its end.");
     }
     .boxed_local()
   });
