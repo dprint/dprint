@@ -299,10 +299,11 @@ impl SessionFile {
 
   /// Takes the lock of the session, which is tried several times because the
   /// server of the session that exited may not have released it yet.
-  pub fn lock(&self, environment: &impl Environment) -> Result<(), SessionLockError> {
+  pub async fn lock(&self, environment: &impl Environment) -> Result<(), SessionLockError> {
     for attempt in 0..SESSION_LOCK_ATTEMPTS {
       match self.lock_once(environment) {
-        Err(SessionLockError::InUse) if attempt + 1 < SESSION_LOCK_ATTEMPTS => environment.thread_sleep(SESSION_LOCK_RETRY_DELAY),
+        // not a sleep of the thread, which the other tasks of the server run on
+        Err(SessionLockError::InUse) if attempt + 1 < SESSION_LOCK_ATTEMPTS => tokio::time::sleep(SESSION_LOCK_RETRY_DELAY).await,
         result => return result,
       }
     }
@@ -769,7 +770,7 @@ mod test {
     assert!(!environment.path_exists(&file.file_path));
     // the lock is deleted and released too
     assert!(!environment.path_exists(&file.lock_path));
-    assert!(SessionFile::new(&environment, SESSION_ID).unwrap().lock(&environment).is_ok());
+    assert!(SessionFile::new(&environment, SESSION_ID).unwrap().lock_once(&environment).is_ok());
     // ex. a request that was still running
     file.write(&environment, &SessionState::default(), true).unwrap();
     assert!(!environment.path_exists(&file.file_path));
@@ -798,7 +799,7 @@ mod test {
     let other = open_locked(&environment, SESSION_ID);
     other.write(&environment, &new_allowed_state(), false).unwrap();
     let file = SessionFile::new(&environment, SESSION_ID).unwrap();
-    assert!(matches!(file.lock(&environment), Err(SessionLockError::InUse)));
+    assert!(matches!(environment.run_in_runtime(file.lock(&environment)), Err(SessionLockError::InUse)));
     // so it neither uses nor changes what the other server kept
     assert_eq!(file.read(&environment), None);
     let err = file.write(&environment, &SessionState::default(), false).unwrap_err();
@@ -827,7 +828,7 @@ mod test {
     let file = SessionFile::new(&environment, SESSION_ID).unwrap();
     // ex. the file system doesn't support locks
     environment.set_file_lock_fails(&file.lock_path, true);
-    assert!(matches!(file.lock(&environment), Err(SessionLockError::Failed(_))));
+    assert!(matches!(file.lock_once(&environment), Err(SessionLockError::Failed(_))));
     assert!(matches!(
       file.write(&environment, &SessionState::default(), false),
       Err(SessionFileWriteError::NotKept { .. })
@@ -1181,7 +1182,7 @@ mod test {
 
   fn open_locked(environment: &TestEnvironment, session_id: &str) -> SessionFile {
     let file = SessionFile::new(environment, session_id).unwrap();
-    file.lock(environment).unwrap();
+    file.lock_once(environment).unwrap();
     file
   }
 

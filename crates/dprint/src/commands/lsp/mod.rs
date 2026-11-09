@@ -1052,11 +1052,13 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         if watches_files_outside_workspace {
           workspace.use_watch_files_registration();
         }
-        // only an editor extension's decisions are kept for its session
-        if is_editor_extension {
-          workspace.use_session(session_id.as_ref());
+        async move {
+          // only an editor extension's decisions are kept for its session
+          if is_editor_extension {
+            workspace.use_session(session_id.as_ref()).await;
+          }
         }
-        async {}.boxed_local()
+        .boxed_local()
       })
       .await;
     self.update_workspace_settings().await;

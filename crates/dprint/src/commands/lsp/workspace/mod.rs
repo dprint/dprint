@@ -637,7 +637,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   /// the other server kept isn't used, and the lock is tried again until it's
   /// taken (see `keep_session_file`). The session files that weren't written
   /// for a while are deleted too.
-  pub fn use_session(self: &Rc<Self>, session_id: Option<&serde_json::Value>) {
+  pub async fn use_session(self: &Rc<Self>, session_id: Option<&serde_json::Value>) {
     let session_file = session_id.and_then(|session_id| {
       let session_file = session_id.as_str().and_then(|session_id| SessionFile::new(&self.environment, session_id));
       if session_file.is_none() {
@@ -651,7 +651,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     });
     if let Some((session_id, session_file)) = session_file {
       let session_file = Rc::new(session_file);
-      match session_file.lock(&self.environment) {
+      match session_file.lock(&self.environment).await {
         Ok(()) => {
           if let Some(state) = session_file.read(&self.environment) {
             self.restore_session_state(state);
