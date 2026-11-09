@@ -18,7 +18,7 @@ pub use editor::*;
 pub use formatting::*;
 pub use general::*;
 pub use lsp::*;
-pub use process_plugin_approval::set_up_and_allow_process_plugins_in_editors_or_warn;
+pub use process_plugin_approval::set_up_and_allow_process_plugins_in_editors;
 pub use upgrade::*;
 #[cfg(target_os = "windows")]
 pub use windows_install::*;

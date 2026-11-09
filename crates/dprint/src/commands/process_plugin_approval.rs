@@ -156,21 +156,27 @@ pub async fn record_set_up_process_plugins<TEnvironment: Environment>(
 }
 
 /// Allows the editors to run the process plugins of the config file with its
-/// configuration like `allow_process_plugins_in_editors`, which only warns
-/// when that fails because the user is using the CLI.
-pub async fn allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>(
+/// configuration like `try_allow_process_plugins_in_editors`. Failing to is
+/// only logged in debug mode because the command did what the user asked
+/// (ex. it would otherwise warn on every run where the approvals file can't
+/// be written), and an editor asks about them then. It's not done in CI,
+/// where no editor uses it.
+pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   environment: &TEnvironment,
   config: &ResolvedConfig,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) {
-  if let Err(err) = allow_process_plugins_in_editors(environment, config, plugin_resolver).await {
-    log_warn!(environment, "Failed allowing the process plugins of {} in editors: {:#}", config.display(), err);
+  if environment.is_ci() {
+    return;
+  }
+  if let Err(err) = try_allow_process_plugins_in_editors(environment, config, plugin_resolver).await {
+    log_debug!(environment, "Failed allowing the process plugins of {} in editors: {:#}", config.display(), err);
   }
 }
 
 /// Allows the editors to run the process plugins of the config files of the
 /// scopes that the user ran dprint with (ex. `dprint fmt`), like
-/// `allow_process_plugins_in_editors_or_warn`.
+/// `allow_process_plugins_in_editors`.
 pub async fn allow_process_plugins_of_scopes_in_editors<TEnvironment: Environment>(
   args: &CliArgs,
   scopes: &PluginsScopeAndPathsCollection<TEnvironment>,
@@ -182,25 +188,25 @@ pub async fn allow_process_plugins_of_scopes_in_editors<TEnvironment: Environmen
     return;
   }
   for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
-    allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
+    allow_process_plugins_in_editors(environment, config, plugin_resolver).await;
   }
 }
 
 /// Sets up the process plugins of the config file of the args, which runs
 /// them, and allows the editors to run them like
-/// `allow_process_plugins_in_editors_or_warn`. It's for when the user chose
+/// `allow_process_plugins_in_editors`. It's for when the user chose
 /// the config file's plugins without running dprint with it (ex. `dprint config
 /// add`), because what's allowed is each plugin with its configuration, which
 /// isn't known until it's set up. Failing to set them up (ex. without a
 /// network connection) is only logged in debug mode, because the command did
 /// what the user asked and formatting says why it fails.
-pub async fn set_up_and_allow_process_plugins_in_editors_or_warn<TEnvironment: Environment>(
+pub async fn set_up_and_allow_process_plugins_in_editors<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) {
   // the plugins provided as arguments aren't the config file's
-  if !args.plugins.is_empty() {
+  if !args.plugins.is_empty() || environment.is_ci() {
     return;
   }
   let config = match resolve_config_from_args(args, environment).await {
@@ -225,7 +231,7 @@ pub async fn set_up_and_allow_process_plugins_in_editors_or_warn<TEnvironment: E
     log_debug!(environment, "Not allowing the process plugins of {} in editors. {:#}", config.display(), err);
     return;
   }
-  allow_process_plugins_in_editors_or_warn(environment, &config, plugin_resolver).await;
+  allow_process_plugins_in_editors(environment, &config, plugin_resolver).await;
 }
 
 /// Gets the message for the user about a failure to store a decision for
@@ -267,7 +273,7 @@ const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 /// newer version of dprint that this version can't use, which this version
 /// never writes to), which is only logged in debug mode because it would be
 /// on each run.
-async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
+async fn try_allow_process_plugins_in_editors<TEnvironment: Environment>(
   environment: &TEnvironment,
   config: &ResolvedConfig,
   plugin_resolver: &PluginResolver<TEnvironment>,

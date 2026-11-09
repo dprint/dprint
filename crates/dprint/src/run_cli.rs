@@ -138,7 +138,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
         .await?;
         // the user chose the plugins, which is the same as choosing to run them
         if !*global {
-          commands::set_up_and_allow_process_plugins_in_editors_or_warn(args, environment, plugin_resolver).await;
+          commands::set_up_and_allow_process_plugins_in_editors(args, environment, plugin_resolver).await;
         }
         Ok(())
       }
@@ -166,7 +166,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
         match install {
           Some(cmd) => commands::install_plugins(cmd, args, environment, plugin_resolver).await?,
           // the user chose the plugin, which is the same as choosing to run it
-          None => commands::set_up_and_allow_process_plugins_in_editors_or_warn(args, environment, plugin_resolver).await,
+          None => commands::set_up_and_allow_process_plugins_in_editors(args, environment, plugin_resolver).await,
         }
         Ok(())
       }

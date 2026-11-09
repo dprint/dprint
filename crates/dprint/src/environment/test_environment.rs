@@ -202,6 +202,7 @@ pub struct TestEnvironment {
   max_threads_count: Arc<Mutex<usize>>,
   current_exe_path: Arc<Mutex<PathBuf>>,
   is_terminal_interactive: Arc<Mutex<bool>>,
+  is_ci: Arc<Mutex<bool>>,
   run_command_results: Arc<Mutex<Vec<(Vec<OsString>, io::Result<Option<i32>>)>>>,
   /// Executables of processes that are pretending to be running, each paired
   /// with the number of times it will "restart" (re-lock its directory) after
@@ -277,6 +278,7 @@ impl TestEnvironment {
       max_threads_count: Arc::new(Mutex::new(std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4))),
       current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
       is_terminal_interactive: Arc::new(Mutex::new(true)),
+      is_ci: Default::default(),
       run_command_results: Default::default(),
       running_processes: Default::default(),
       running_lsp_processes: Default::default(),
@@ -492,6 +494,10 @@ impl TestEnvironment {
 
   pub fn set_terminal_interactive(&self, value: bool) {
     *self.is_terminal_interactive.lock() = value;
+  }
+
+  pub fn set_ci(&self, value: bool) {
+    *self.is_ci.lock() = value;
   }
 
   pub fn set_cwd(&self, new_path: &str) {
@@ -1209,7 +1215,7 @@ impl Environment for TestEnvironment {
   }
 
   fn is_ci(&self) -> bool {
-    false
+    *self.is_ci.lock()
   }
 
   fn is_terminal_interactive(&self) -> bool {

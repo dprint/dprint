@@ -915,6 +915,31 @@ mod test {
   }
 
   #[test]
+  fn should_not_warn_when_the_approvals_of_editors_cannot_be_written() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file("/file.txt_ps", "text_formatted_process")
+      .build();
+    // ex. the directory is read-only
+    let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+    environment.set_file_write_fails(&file_path, true);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().is_empty());
+    assert!(!environment.path_exists(&file_path));
+  }
+
+  #[test]
+  fn should_not_allow_the_process_plugins_in_editors_in_ci() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file("/file.txt_ps", "text_formatted_process")
+      .build();
+    environment.set_ci(true);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().is_empty());
+    let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+    assert!(!environment.path_exists(&file_path));
+  }
+
+  #[test]
   fn should_format_only_dirty_files_while_respecting_includes() {
     let file_path1 = "/file.txt";
     let file_path2 = "/file.txt_ps";

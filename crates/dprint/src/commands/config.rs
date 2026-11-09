@@ -20,7 +20,7 @@ use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::InstallSubCommand;
 use crate::arg_parser::OutputResolvedConfigSubCommand;
 use crate::cache::RemoteCacheMode;
-use crate::commands::process_plugin_approval::allow_process_plugins_in_editors_or_warn;
+use crate::commands::process_plugin_approval::allow_process_plugins_in_editors;
 use crate::configuration::GetInitConfigFileTextOptions;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
@@ -1006,7 +1006,7 @@ pub async fn install_plugins<TEnvironment: Environment>(
     .await?;
     if args.plugins.is_empty() {
       for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
-        allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
+        allow_process_plugins_in_editors(environment, config, plugin_resolver).await;
       }
     }
     scopes
@@ -1023,7 +1023,7 @@ pub async fn install_plugins<TEnvironment: Environment>(
       .map_err(ResolvePluginsError::from)?;
     // the plugins provided as arguments aren't the config file's
     if args.plugins.is_empty() {
-      allow_process_plugins_in_editors_or_warn(environment, &config, plugin_resolver).await;
+      allow_process_plugins_in_editors(environment, &config, plugin_resolver).await;
     }
     plugins
   };
@@ -1244,7 +1244,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   )
   .await?;
   for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
-    allow_process_plugins_in_editors_or_warn(environment, config, plugin_resolver).await;
+    allow_process_plugins_in_editors(environment, config, plugin_resolver).await;
   }
 
   Ok(())
@@ -1807,7 +1807,7 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   plugins_scope.ensure_no_global_config_diagnostics()?;
   // resolving the configuration of the plugins runs them, and the plugins provided as arguments aren't the config file's
   if args.plugins.is_empty() {
-    allow_process_plugins_in_editors_or_warn(environment, &config, plugin_resolver).await;
+    allow_process_plugins_in_editors(environment, &config, plugin_resolver).await;
   }
 
   // when a file path is provided, limit the output to only the plugins that
