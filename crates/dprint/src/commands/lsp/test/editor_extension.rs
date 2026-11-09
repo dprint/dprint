@@ -4004,9 +4004,9 @@ fn should_not_follow_a_path_from_the_editor_to_another_machine_before_it_is_allo
         assert_eq!(environment.file_read_count("/src/dprint.json"), read_count);
 
         // nor when the config files that were used are resolved again (ex. after forgetting decisions,
-        // or when the approvals file changed), which tells the editor it changed instead
+        // or when the approvals file changed), which the editor was already told about
         client.forget_decisions(None).await;
-        assert_eq!(client.take_config_changes(), vec![uri("/src/dprint.json")]);
+        assert!(client.take_config_changes().is_empty());
         assert_eq!(environment.canonicalize_count("/src/dprint.json"), canonicalize_count);
         assert_eq!(environment.file_read_count("/src/dprint.json"), read_count);
         let approval = client.config_info("/src/dprint.json").await.status.approvals()[0].clone();
