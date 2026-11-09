@@ -7,6 +7,8 @@
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Child;
 use std::process::ChildStdin;
 use std::process::Command;
@@ -47,23 +49,62 @@ fn exits_with_one_after_exit_without_shutdown() {
   assert_eq!(server.wait_for_exit_with_stdin_open(), 1);
 }
 
+#[test]
+fn clear_cache_kills_the_language_servers_using_the_cache_dir() {
+  let mut server = LspProcess::spawn();
+  let cache_dir = server.cache_dir.clone();
+  // a flag with a value before the subcommand
+  let mut server_with_flag = LspProcess::spawn_with(&["--log-level", "debug", "lsp"], Some(&cache_dir));
+  let mut other_server = LspProcess::spawn();
+  for server in [&mut server, &mut server_with_flag, &mut other_server] {
+    server.send(json!({
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": { "processId": null, "capabilities": {} },
+    }));
+    server.read_response(1);
+  }
+
+  let status = Command::new(env!("CARGO_BIN_EXE_dprint"))
+    .arg("clear-cache")
+    .env("DPRINT_CACHE_DIR", &cache_dir)
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .status()
+    .unwrap();
+  assert!(status.success());
+
+  server.wait_for_exit_with_stdin_open();
+  server_with_flag.wait_for_exit_with_stdin_open();
+  // the one that uses another cache directory keeps running
+  assert!(other_server.child.try_wait().unwrap().is_none());
+}
+
 struct LspProcess {
   child: Child,
   stdin: ChildStdin,
   messages: mpsc::Receiver<Value>,
+  cache_dir: PathBuf,
   // keeps the directories around until the process is done
   _temp_dir: tempfile::TempDir,
 }
 
 impl LspProcess {
   fn spawn() -> Self {
+    Self::spawn_with(&["lsp"], None)
+  }
+
+  /// Spawns dprint with the arguments, which uses its own cache directory
+  /// unless one is provided.
+  fn spawn_with(args: &[&str], cache_dir: Option<&Path>) -> Self {
     let temp_dir = tempfile::tempdir().unwrap();
     let cwd = temp_dir.path().join("cwd");
-    let cache_dir = temp_dir.path().join("cache");
+    let cache_dir = cache_dir.map(|dir| dir.to_path_buf()).unwrap_or_else(|| temp_dir.path().join("cache"));
     std::fs::create_dir_all(&cwd).unwrap();
     std::fs::create_dir_all(&cache_dir).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_dprint"))
-      .arg("lsp")
+      .args(args)
       .current_dir(&cwd)
       .env("DPRINT_CACHE_DIR", &cache_dir)
       .stdin(Stdio::piped())
@@ -86,6 +127,7 @@ impl LspProcess {
       child,
       stdin,
       messages,
+      cache_dir,
       _temp_dir: temp_dir,
     }
   }
@@ -118,10 +160,11 @@ impl LspProcess {
     let deadline = Instant::now() + TIMEOUT;
     loop {
       if let Some(status) = self.child.try_wait().unwrap() {
-        return status.code().expect("the process should have an exit code");
+        // a process that was killed doesn't have one on Unix
+        return status.code().unwrap_or(-1);
       }
       if Instant::now() >= deadline {
-        panic!("the process was still running {}s after the exit notification", TIMEOUT.as_secs());
+        panic!("the process was still running after {}s", TIMEOUT.as_secs());
       }
       std::thread::sleep(Duration::from_millis(10));
     }

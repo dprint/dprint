@@ -29,7 +29,9 @@ use sys_traits::SystemRandom;
 use sys_traits::SystemTimeNow;
 use sys_traits::ThreadSleep;
 use sys_traits::impls::RealSys;
+use sysinfo::ProcessRefreshKind;
 use sysinfo::System;
+use sysinfo::UpdateKind;
 use url::Url;
 
 use dprint_core::async_runtime::async_trait;
@@ -404,7 +406,8 @@ impl Environment for RealEnvironment {
 
   fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize {
     let dir_path = dir_path.as_ref();
-    kill_processes(self, |process| {
+    let refresh = |system: &mut System| system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    kill_processes(self, refresh, |process, _| {
       let Some(exe) = process.exe() else {
         return false;
       };
@@ -417,13 +420,29 @@ impl Environment for RealEnvironment {
     })
   }
 
-  fn kill_dprint_lsp_processes(&self) -> usize {
-    let current_pid = sysinfo::Pid::from_u32(std::process::id());
-    kill_processes(self, |process| {
-      if process.pid() == current_pid || !is_dprint_lsp_process(process) {
+  fn kill_dprint_processes_using_cache_dir(&self, should_kill: impl Fn(&[String]) -> bool) -> usize {
+    let cache_dir = self.get_cache_dir();
+    // the arguments and the environment variables of a process aren't refreshed by default
+    let refresh = |system: &mut System| {
+      let refresh_kind = ProcessRefreshKind::nothing()
+        .with_exe(UpdateKind::OnlyIfNotSet)
+        .with_cmd(UpdateKind::OnlyIfNotSet)
+        .with_environ(UpdateKind::OnlyIfNotSet)
+        .with_user(UpdateKind::OnlyIfNotSet);
+      system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, refresh_kind)
+    };
+    kill_processes(self, refresh, |process, current_process| {
+      let Some(current_process) = current_process else {
+        return false;
+      };
+      if process.pid() == current_process.pid() || !is_dprint_process_using_cache_dir(process, current_process, &cache_dir) {
         return false;
       }
-      log_debug!(self, "Killing the dprint language server process {}", process.pid());
+      let args = process.cmd().iter().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
+      if !should_kill(&args) {
+        return false;
+      }
+      log_debug!(self, "Killing the dprint process {}", process.pid());
       true
     })
   }
@@ -1020,15 +1039,21 @@ fn is_same_file_at_path(file: &fs::File, file_path: &Path) -> io::Result<bool> {
   }
 }
 
-/// Kills the running processes it says to and waits for them to exit, then
-/// returns how many were killed.
-fn kill_processes(environment: &RealEnvironment, should_kill: impl Fn(&sysinfo::Process) -> bool) -> usize {
+/// Kills the running processes it says to, which is provided the process
+/// and this process, and waits for them to exit, then returns how many were
+/// killed.
+fn kill_processes(
+  environment: &RealEnvironment,
+  refresh: impl FnOnce(&mut System) -> usize,
+  should_kill: impl Fn(&sysinfo::Process, Option<&sysinfo::Process>) -> bool,
+) -> usize {
   let mut system = environment.system.lock();
-  system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+  refresh(&mut system);
+  let current_process = system.process(sysinfo::Pid::from_u32(std::process::id()));
   let killed_pids = system
     .processes()
     .values()
-    .filter(|process| should_kill(process) && process.kill())
+    .filter(|process| should_kill(process, current_process) && process.kill())
     .map(|process| process.pid())
     .collect::<Vec<_>>();
 
@@ -1051,21 +1076,36 @@ fn kill_processes(environment: &RealEnvironment, should_kill: impl Fn(&sysinfo::
   killed_pids.len()
 }
 
-/// Gets whether the process is a dprint language server (`dprint lsp`), which
-/// is a `dprint` executable whose subcommand, the first argument that isn't a
-/// flag, is `lsp`.
-fn is_dprint_lsp_process(process: &sysinfo::Process) -> bool {
+/// Gets whether the process is a `dprint` executable of the user of this
+/// process that uses the cache directory, which is from its environment
+/// variables. It's not one when they can't be read (ex. it's another user's).
+fn is_dprint_process_using_cache_dir(process: &sysinfo::Process, current_process: &sysinfo::Process, cache_dir: &CanonicalizedPathBuf) -> bool {
   let is_dprint = process
     .exe()
     .and_then(|exe| exe.file_stem())
     .is_some_and(|stem| stem.eq_ignore_ascii_case("dprint"));
-  is_dprint
-    && process
-      .cmd()
-      .iter()
-      .skip(1)
-      .find(|arg| !arg.to_string_lossy().starts_with('-'))
-      .is_some_and(|arg| arg == "lsp")
+  // the default cache directory is the user's
+  if !is_dprint || process.user_id() != current_process.user_id() || process.environ().is_empty() {
+    return false;
+  }
+  let process_cache_dir = get_cache_dir_internal(|var_name| get_environ_var(process.environ(), var_name));
+  process_cache_dir
+    .and_then(canonicalize_path)
+    .is_ok_and(|process_cache_dir| process_cache_dir == *cache_dir)
+}
+
+/// Gets an environment variable from the environment variables of a process,
+/// which are each `<name>=<value>`.
+fn get_environ_var(environ: &[OsString], var_name: &str) -> Option<String> {
+  environ.iter().find_map(|var| {
+    let var = var.to_string_lossy();
+    let (name, value) = var.split_once('=')?;
+    let is_name = match cfg!(windows) {
+      true => name.eq_ignore_ascii_case(var_name),
+      false => name == var_name,
+    };
+    is_name.then(|| value.to_string())
+  })
 }
 
 #[cfg(test)]
@@ -1220,6 +1260,15 @@ mod test {
     assert_eq!(get_cache_dir_internal(|_| Some("".to_string())).unwrap(), default_dir);
     assert_eq!(get_cache_dir_internal(|_| Some("  ".to_string())).unwrap(), default_dir);
     assert_eq!(get_cache_dir_internal(|_| None).unwrap(), default_dir);
+  }
+
+  #[test]
+  fn should_get_environ_var() {
+    let environ = ["PATH=/bin", "DPRINT_CACHE_DIR=/cache=dir", "EMPTY="].map(OsString::from);
+    assert_eq!(get_environ_var(&environ, "DPRINT_CACHE_DIR"), Some("/cache=dir".to_string()));
+    assert_eq!(get_environ_var(&environ, "EMPTY"), Some("".to_string()));
+    assert_eq!(get_environ_var(&environ, "OTHER"), None);
+    assert_eq!(get_environ_var(&environ, "dprint_cache_dir").is_some(), cfg!(windows));
   }
 
   #[test]

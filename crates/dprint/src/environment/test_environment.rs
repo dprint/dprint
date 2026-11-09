@@ -213,7 +213,7 @@ pub struct TestEnvironment {
   running_processes: Arc<Mutex<Vec<(PathBuf, usize)>>>,
   /// How many `dprint lsp` processes are pretending to be running (see
   /// `Environment::kill_dprint_lsp_processes`).
-  running_lsp_processes: Arc<Mutex<usize>>,
+  running_dprint_processes: Arc<Mutex<Vec<Vec<String>>>>,
   /// Number of times `remove_dir_all` should fail with a transient error before
   /// succeeding, independent of any running process. Models a flaky deletion
   /// (e.g. a file briefly locked) that succeeds on retry.
@@ -281,7 +281,7 @@ impl TestEnvironment {
       is_ci: Default::default(),
       run_command_results: Default::default(),
       running_processes: Default::default(),
-      running_lsp_processes: Default::default(),
+      running_dprint_processes: Default::default(),
       remove_dir_all_failures: Default::default(),
       file_watchers: Default::default(),
       locked_files: Default::default(),
@@ -578,12 +578,15 @@ impl TestEnvironment {
     self.running_processes.lock().push((self.clean_path(exe_path), restarts));
   }
 
-  pub fn add_running_lsp_process(&self) {
-    *self.running_lsp_processes.lock() += 1;
+  /// Adds another running dprint process that uses the cache directory with
+  /// its arguments, which start with the executable.
+  pub fn add_running_dprint_process(&self, args: &[&str]) {
+    let args = args.iter().map(|arg| arg.to_string()).collect();
+    self.running_dprint_processes.lock().push(args);
   }
 
-  pub fn running_lsp_process_count(&self) -> usize {
-    *self.running_lsp_processes.lock()
+  pub fn running_dprint_processes(&self) -> Vec<Vec<String>> {
+    self.running_dprint_processes.lock().clone()
   }
 
   pub fn is_process_running(&self, exe_path: impl AsRef<Path>) -> bool {
@@ -941,8 +944,11 @@ impl Environment for TestEnvironment {
     killed
   }
 
-  fn kill_dprint_lsp_processes(&self) -> usize {
-    std::mem::take(&mut *self.running_lsp_processes.lock())
+  fn kill_dprint_processes_using_cache_dir(&self, should_kill: impl Fn(&[String]) -> bool) -> usize {
+    let mut processes = self.running_dprint_processes.lock();
+    let count = processes.len();
+    processes.retain(|args| !should_kill(args));
+    count - processes.len()
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {

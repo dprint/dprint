@@ -377,12 +377,13 @@ pub trait Environment:
   /// (e.g. on Windows a running executable can't be removed). This is best-effort
   /// and never fails.
   fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize;
-  /// Kills every running `dprint lsp` process other than this one and returns
-  /// how many were killed. Used when clearing the cache, which the language
-  /// servers use (ex. their plugins and session files), so that an editor
-  /// starts them again with nothing from before. This is best-effort and never
-  /// fails.
-  fn kill_dprint_lsp_processes(&self) -> usize;
+  /// Kills the other running dprint processes of the user that use this
+  /// process's cache directory and whose arguments, which start with the
+  /// executable, it says to, and returns how many were killed. Used when
+  /// clearing the cache, which the language servers use (ex. their plugins and
+  /// session files), so that an editor starts them again with nothing from
+  /// before. This is best-effort and never fails.
+  fn kill_dprint_processes_using_cache_dir(&self, should_kill: impl Fn(&[String]) -> bool) -> usize;
   /// Gets whether anything exists at the path (follows symlinks, so a broken
   /// symlink does not count as existing).
   fn path_exists(&self, path: impl AsRef<Path>) -> bool;
