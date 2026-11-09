@@ -1371,6 +1371,58 @@ fn should_publish_the_diagnostics_of_config_files() {
 }
 
 #[test]
+fn should_resolve_a_config_file_again_when_the_editor_says_it_was_created_again() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        client.config_info("/dprint.json").await;
+        assert!(client.take_published_diagnostics().is_empty());
+
+        // ex. it was saved by renaming a file over it
+        environment.write_file("/dprint.json", "{").unwrap();
+        client.did_change_file("/dprint.json", FileChangeType::CREATED).await;
+        let diagnostics = client.wait_for_published_diagnostics().await;
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].0, uri("/dprint.json"));
+        assert_eq!(diagnostics[0].1.len(), 1);
+        assert_eq!(client.take_config_changes(), vec![uri("/dprint.json")]);
+        client.test_client.take_shown_messages();
+
+        // and a checkout that deletes and creates it is handled as it being created
+        let text = r#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"] }"#;
+        environment.write_file("/dprint.json", text).unwrap();
+        client
+          .backend
+          .did_change_watched_files(DidChangeWatchedFilesParams {
+            changes: vec![
+              FileEvent {
+                uri: uri("/dprint.json"),
+                typ: FileChangeType::DELETED,
+              },
+              FileEvent {
+                uri: uri("/dprint.json"),
+                typ: FileChangeType::CREATED,
+              },
+            ],
+          })
+          .await;
+        assert_eq!(client.wait_for_published_diagnostics().await, vec![(uri("/dprint.json"), Vec::new())]);
+        assert_eq!(client.take_config_changes(), vec![uri("/dprint.json")]);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_resolve_a_config_file_again_when_the_editor_says_it_changed() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()

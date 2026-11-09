@@ -817,7 +817,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       return;
     };
     match change {
-      ConfigFileChange::Changed if self.was_resolved(file_path) => {
+      // one that's created was replaced (ex. it was saved by renaming a file over it, or a checkout deleted
+      // and created it, which is handled as the most recent change)
+      ConfigFileChange::Changed | ConfigFileChange::Created if self.was_resolved(file_path) => {
         // an editor extension is told when what it resolves to changed, and what
         // needs to be approved may have changed too (ex. a process plugin's
         // configuration), which is for this file even when its directory uses another
