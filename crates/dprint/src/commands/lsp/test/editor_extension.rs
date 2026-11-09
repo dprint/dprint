@@ -608,6 +608,32 @@ fn should_only_override_the_indentation_config() {
 }
 
 #[test]
+fn should_only_read_the_settings_once_to_format_when_nothing_needs_approval() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .initialize()
+    .build();
+  let settings_file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
+  environment.mk_dir_all(settings_file_path.parent().unwrap()).unwrap();
+  environment.write_file(&settings_file_path, "{}").unwrap();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+        let read_count = environment.file_read_count(&settings_file_path);
+        assert_eq!(client.format("/file.txt", "text").await, formatted("text", "text_formatted"));
+        assert_eq!(environment.file_read_count(&settings_file_path), read_count + 1);
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_format_ranges_with_utf16_positions() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()

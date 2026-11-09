@@ -2239,6 +2239,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       self.approvals.borrow_mut().remove(&config_key);
       return Vec::new();
     };
+    // which is usually the case, and reading the permissions reads the settings and approvals files
+    if subjects.is_empty() {
+      self.approvals.borrow_mut().remove(&config_key);
+      return Vec::new();
+    }
     let permissions = self.session_permissions.read(&self.environment);
     let config_file_text = get_config_file_text(&config_file);
     let stored = subjects
