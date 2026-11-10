@@ -402,10 +402,12 @@ where
                     single_line_separator.into_print_items(arena)
                   }
                 };
-                if i == values_count - 1 && !had_newline {
+                if i == values_count - 1 && !had_newline && !multi_line_options.newline_at_start {
                   // If there hasn't been a newline, then this should be forced to be one
                   // since this is in multi-line mode (meaning, since we're here, one of these
-                  // was a newline due to the line width so it must be this one)
+                  // was a newline due to the line width so it must be this one). This isn't
+                  // necessary when there's a newline at the start because that newline is
+                  // what makes it multi-line.
                   items.push_condition(if_true_or(
                     "forcedNewLineIfNoNewLine",
                     arena.alloc_resolver(move |context| condition_helpers::is_on_different_line(context, first_line_number)),
