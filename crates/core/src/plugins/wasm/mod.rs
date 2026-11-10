@@ -92,13 +92,18 @@ pub mod macros {
         }
 
         #[unsafe(no_mangle)]
+        pub fn set_format_ranges() {
+          STATE.set_format_ranges()
+        }
+
+        #[unsafe(no_mangle)]
         pub fn format(config_id: u32) -> u8 {
-          STATE.format(config_id, None)
+          STATE.format(config_id)
         }
 
         #[unsafe(no_mangle)]
         pub fn format_range(config_id: u32, range_start: u32, range_end: u32) -> u8 {
-          STATE.format(config_id, Some(range_start as usize..range_end as usize))
+          STATE.format_range(config_id, range_start, range_end)
         }
 
         #[unsafe(no_mangle)]

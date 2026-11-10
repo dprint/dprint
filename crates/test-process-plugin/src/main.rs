@@ -183,12 +183,12 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       (false, file_text.to_string())
     };
 
-    let inner_format_text = if let Some(range) = request.range {
+    let inner_format_text = if let Some(ranges) = request.ranges {
       if let Some(new_text) = file_text.strip_prefix("plugin-range: ") {
         let result = (format_with_host)(HostFormatRequest {
           file_path: PathBuf::from("./test.txt"),
           file_bytes: new_text.to_string().into_bytes(),
-          range: Some(range),
+          ranges: Some(ranges),
           override_config: Default::default(),
           token: request.token.clone(),
         })
@@ -198,7 +198,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
           result.map(|r| String::from_utf8(r).unwrap()).unwrap_or_else(|| new_text.to_string())
         )
       } else {
-        format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..])
+        format_ranges(&file_text, &ranges, &request.config.ending)
       }
     } else if file_text.starts_with("wait_cancellation") {
       request.token.wait_cancellation().await;
@@ -207,7 +207,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       let result = (format_with_host)(HostFormatRequest {
         file_path: PathBuf::from("./test.txt"),
         file_bytes: new_text.to_string().into_bytes(),
-        range: None,
+        ranges: None,
         override_config: Default::default(),
         token: request.token.clone(),
       })
@@ -222,7 +222,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       let result = (format_with_host)(HostFormatRequest {
         file_path: PathBuf::from("./test.txt"),
         file_bytes: new_text.to_string().into_bytes(),
-        range: None,
+        ranges: None,
         override_config: config_map,
         token: request.token.clone(),
       })
@@ -253,4 +253,14 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       Ok(Some(format!("{}_{}", inner_format_text, request.config.ending).into_bytes()))
     }
   }
+}
+
+/// Replaces each range with `_<ending>_`, from the last to the first so that
+/// the earlier ranges still apply.
+fn format_ranges(text: &str, ranges: &[std::ops::Range<usize>], ending: &str) -> String {
+  let mut text = text.to_string();
+  for range in ranges.iter().rev() {
+    text = format!("{}_{}_{}", &text[0..range.start], ending, &text[range.end..]);
+  }
+  text
 }

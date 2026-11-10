@@ -5,6 +5,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+use super::MAX_SCHEMA_VERSION_ENV_VAR;
+use super::MIN_PLUGIN_SCHEMA_VERSION;
 use super::PLUGIN_SCHEMA_VERSION;
 use super::context::ProcessContext;
 use super::context::StoredConfig;
@@ -30,6 +32,7 @@ use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
 use crate::plugins::error_to_string;
+use crate::plugins::single_format_range;
 
 type Result<T> = std::result::Result<T, FormatError>;
 
@@ -204,7 +207,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           let token = Arc::new(CancellationToken::new());
           let request = FormatRequest {
             file_path: body.file_path,
-            range: body.range,
+            ranges: body.ranges,
             config_id: body.config_id,
             config: match context.configs.get_cloned(body.config_id.as_raw()) {
               Some(config) => {
@@ -299,6 +302,11 @@ fn host_format<TConfiguration: Serialize + Clone + Send + Sync>(
   original_message_id: u32,
   request: HostFormatRequest,
 ) -> LocalBoxFuture<'static, FormatResult> {
+  // the message to the host has a single range
+  let range = match single_format_range(request.ranges) {
+    Ok(range) => range,
+    Err(err) => return async move { Err(err) }.boxed_local(),
+  };
   let (tx, rx) = tokio::sync::oneshot::channel::<FormatResult>();
   let id = context.id_generator.next();
   context.format_host_senders.store(id, tx);
@@ -311,7 +319,7 @@ fn host_format<TConfiguration: Serialize + Clone + Send + Sync>(
         original_message_id,
         file_path: request.file_path,
         file_text: request.file_bytes,
-        range: request.range,
+        range,
         override_config: serde_json::to_vec(&request.override_config).unwrap(),
       }),
     })
@@ -400,9 +408,40 @@ fn schema_establishment_phase<TRead: Read + Unpin, TWrite: Write + Unpin>(
 
   // 2. The client responds with `0` (4 bytes) for success
   stdout.send_u32(0)?;
-  // 3. Then 4 bytes for the schema version
-  stdout.send_u32(PLUGIN_SCHEMA_VERSION)?;
+  // 3. Then 4 bytes for the schema version, which is the newest one the host supports too
+  let host_max_schema_version = std::env::var(MAX_SCHEMA_VERSION_ENV_VAR).ok();
+  stdout.send_u32(negotiate_schema_version(host_max_schema_version.as_deref()))?;
   stdout.flush()?;
 
   Ok(())
+}
+
+/// Gets the schema version to use with a host that says the newest one it
+/// supports (see `MAX_SCHEMA_VERSION_ENV_VAR`). A host that doesn't say is from
+/// before the schema version was negotiated and only accepts the oldest one.
+fn negotiate_schema_version(host_max_schema_version: Option<&str>) -> u32 {
+  match host_max_schema_version.and_then(|version| version.trim().parse::<u32>().ok()) {
+    Some(host_max_schema_version) => host_max_schema_version.clamp(MIN_PLUGIN_SCHEMA_VERSION, PLUGIN_SCHEMA_VERSION),
+    None => MIN_PLUGIN_SCHEMA_VERSION,
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn negotiates_schema_version_with_host() {
+    // a host from before the schema version was negotiated
+    assert_eq!(negotiate_schema_version(None), 5);
+    assert_eq!(negotiate_schema_version(Some("")), 5);
+    assert_eq!(negotiate_schema_version(Some("not a number")), 5);
+    // the newest version both support
+    assert_eq!(negotiate_schema_version(Some("5")), 5);
+    assert_eq!(negotiate_schema_version(Some("6")), 6);
+    assert_eq!(negotiate_schema_version(Some(" 6 ")), 6);
+    assert_eq!(negotiate_schema_version(Some("7")), 6);
+    // a host can't support less than the oldest version
+    assert_eq!(negotiate_schema_version(Some("4")), 5);
+  }
 }

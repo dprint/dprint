@@ -15,7 +15,7 @@ use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatError;
-use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatRanges;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
@@ -184,7 +184,7 @@ fn host_format(mut caller: Caller<'_, WasmHostState>) -> u32 {
   let request = HostFormatRequest {
     file_path,
     file_bytes,
-    range: None,
+    ranges: None,
     override_config,
     token,
   };
@@ -402,12 +402,17 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
     &mut self,
     file_path: &Path,
     file_bytes: &[u8],
-    range: FormatRange,
+    ranges: FormatRanges,
     config: &FormatConfig,
     override_config: &ConfigKeyMap,
     token: Arc<dyn CancellationToken>,
   ) -> FormatResult {
-    if range.is_some() && range != Some(0..file_bytes.len()) {
+    let is_whole_text = match ranges.as_deref() {
+      None => true,
+      Some([range]) => *range == (0..file_bytes.len()),
+      Some(_) => false,
+    };
+    if !is_whole_text {
       return Ok(None); // not supported for v3
     }
     self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);

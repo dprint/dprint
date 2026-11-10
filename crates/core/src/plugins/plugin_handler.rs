@@ -51,7 +51,26 @@ impl CancellationToken for NullCancellationToken {
   }
 }
 
+/// The byte range of the text to format, which is `None` for all of it.
 pub type FormatRange = Option<std::ops::Range<usize>>;
+
+/// The byte ranges of the text to format, which is `None` for all of it.
+///
+/// The ranges are in order and don't overlap or touch, and they never cover
+/// the whole text. The host merges the ranges it's given, so a plugin formats
+/// each of them in the text it was given and returns the text formatted once.
+pub type FormatRanges = Option<Vec<std::ops::Range<usize>>>;
+
+/// Gets the one range of the ranges for a host that only formats a single range.
+pub(crate) fn single_format_range(ranges: FormatRanges) -> Result<FormatRange, FormatError> {
+  match ranges {
+    None => Ok(None),
+    Some(ranges) => match <[_; 1]>::try_from(ranges) {
+      Ok([range]) => Ok(Some(range)),
+      Err(_) => Err(FormatError::new("The host only formats a single range.")),
+    },
+  }
+}
 
 /// An error returned by formatting operations.
 ///
@@ -158,8 +177,8 @@ pub struct CheckConfigUpdatesMessage {
 pub struct HostFormatRequest {
   pub file_path: std::path::PathBuf,
   pub file_bytes: Vec<u8>,
-  /// Range to format.
-  pub range: FormatRange,
+  /// The ranges to format, which is `None` for the whole text.
+  pub ranges: FormatRanges,
   pub override_config: ConfigKeyMap,
   pub token: std::sync::Arc<dyn CancellationToken>,
 }
@@ -169,8 +188,8 @@ pub struct HostFormatRequest {
 pub struct SyncHostFormatRequest<'a> {
   pub file_path: &'a std::path::Path,
   pub file_bytes: &'a [u8],
-  /// Range to format.
-  pub range: FormatRange,
+  /// The ranges to format, which is `None` for the whole text.
+  pub ranges: FormatRanges,
   pub override_config: &'a ConfigKeyMap,
 }
 
@@ -215,8 +234,8 @@ pub struct FormatRequest<TConfiguration> {
   pub file_bytes: Vec<u8>,
   pub config_id: FormatConfigId,
   pub config: std::sync::Arc<TConfiguration>,
-  /// Range to format.
-  pub range: FormatRange,
+  /// The ranges to format, which is `None` for the whole text.
+  pub ranges: FormatRanges,
   pub token: std::sync::Arc<dyn CancellationToken>,
 }
 
@@ -226,8 +245,8 @@ pub struct SyncFormatRequest<'a, TConfiguration> {
   pub file_bytes: Vec<u8>,
   pub config_id: FormatConfigId,
   pub config: &'a TConfiguration,
-  /// Range to format.
-  pub range: FormatRange,
+  /// The ranges to format, which is `None` for the whole text.
+  pub ranges: FormatRanges,
   pub token: &'a dyn CancellationToken,
   /// The pool to create the arenas for formatting the file from (ex. `request.arena_pool.create_arena()`),
   /// which reuses their memory between formats.

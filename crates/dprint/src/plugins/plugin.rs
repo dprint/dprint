@@ -14,7 +14,7 @@ use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatError;
-use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatRanges;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::process::HostFormatCallback;
 
@@ -62,7 +62,7 @@ pub struct FormatConfig {
 pub struct InitializedPluginFormatRequest {
   pub file_path: PathBuf,
   pub file_text: Arc<Vec<u8>>,
-  pub range: FormatRange,
+  pub ranges: FormatRanges,
   pub config: Arc<FormatConfig>,
   pub override_config: ConfigKeyMap,
   pub on_host_format: HostFormatCallback,
