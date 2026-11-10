@@ -114,9 +114,13 @@ pub struct GitIgnoreTreeOptions {
   /// resolved from so `refresh_for_file` can detect when they change. This is
   /// for a tree that outlives a single run (ex. in the language server) and
   /// it's off by default because of what it costs: a stat of `.git` and of
-  /// `.gitignore` for a directory, plus one of `.git/info/exclude` at a
-  /// repository root, when the directory is resolved and again for each
-  /// resolved ancestor directory on every `refresh_for_file` call.
+  /// `.gitignore` for a directory, plus one of the repository's `info/exclude`
+  /// at a repository root, when the directory is resolved and again for each
+  /// resolved ancestor directory on every `refresh_for_file` call. A
+  /// repository root whose `.git` is a file (ex. a linked worktree) also has
+  /// that file and its git directory's `commondir` read when it's resolved,
+  /// and on every `refresh_for_file` call for as long as the repository has
+  /// no `info/exclude`.
   pub detect_changes: bool,
 }
 
@@ -149,7 +153,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
   }
 
   /// Drops what was resolved for the file's ancestor directories when a
-  /// `.gitignore`, `.git/info/exclude` or `.git` that it was resolved from has
+  /// `.gitignore`, `info/exclude` or `.git` that it was resolved from has
   /// since been changed, added or removed, so the next resolution reads the
   /// files again. Does nothing unless the `detect_changes` option is set.
   ///
@@ -167,11 +171,11 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
       let Some(snapshot) = self.ignores.get(dir_path).and_then(|cached| cached.snapshot.as_ref()) else {
         continue;
       };
-      let current_snapshot = self.take_dir_snapshot(dir_path);
+      let current_snapshot = self.take_dir_snapshot(dir_path, Some(snapshot));
       if *snapshot != current_snapshot {
         stale_dir = Some(dir_path);
       }
-      if current_snapshot.has_git {
+      if current_snapshot.repo.is_some() {
         break; // resolution doesn't look above the repository root
       }
     }
@@ -196,21 +200,22 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
   fn resolve_gitignore_in_dir(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>) -> CachedDir {
     // take this before reading the files so a change made while resolving
     // is seen as a change the next time
-    let snapshot = self.options.detect_changes.then(|| self.take_dir_snapshot(dir_path));
-    // a directory containing `.git` is the root of a repository, so don't
-    // search for gitignores above it
-    let is_repo_root = match (&snapshot, hint) {
-      (Some(snapshot), _) => snapshot.has_git,
-      (None, Some(hint)) => hint.has_git,
-      (None, None) => self.environment.path_exists(dir_path.join(".git")),
+    let snapshot = self.options.detect_changes.then(|| self.take_dir_snapshot(dir_path, None));
+    // a directory containing `.git` is the root of a repository, which is
+    // the only kind of directory an exclude file applies at
+    let exclude_path = match (&snapshot, hint) {
+      (Some(snapshot), _) => snapshot.repo.as_ref().map(|repo| repo.exclude_path.clone()),
+      // skip the stat when the caller's listing already shows there's no `.git`
+      (None, Some(hint)) if !hint.has_git => None,
+      (None, _) => self.stat_git(dir_path).map(|git| self.resolve_info_exclude_path(dir_path, &git)),
     };
-    let parent = if is_repo_root {
-      None
+    let parent = if exclude_path.is_some() {
+      None // don't search for gitignores above the repository root
     } else {
       // ancestors aren't part of the caller's listing, so resolve them without a hint
       dir_path.parent().and_then(|parent| self.get_resolved_git_ignore_inner(parent, None))
     };
-    let current = self.resolve_current_gitignore(dir_path, is_repo_root, hint);
+    let current = self.resolve_current_gitignore(dir_path, exclude_path.as_deref(), hint);
     let resolved = if parent.is_none() && current.is_none() {
       None
     } else {
@@ -219,7 +224,10 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     CachedDir { resolved, snapshot }
   }
 
-  fn resolve_current_gitignore(&self, dir_path: &Path, is_repo_root: bool, hint: Option<DirEntriesHint>) -> Option<Rc<ignore::gitignore::Gitignore>> {
+  /// Resolves the gitignore of the directory itself, where the exclude path is
+  /// the one of the repository's `info/exclude` when the directory is the root
+  /// of a repository.
+  fn resolve_current_gitignore(&self, dir_path: &Path, exclude_path: Option<&Path>, hint: Option<DirEntriesHint>) -> Option<Rc<ignore::gitignore::Gitignore>> {
     // skip the read when the caller's listing already shows there's no `.gitignore`
     let maybe_has_gitignore = hint.map(|h| h.has_gitignore).unwrap_or(true);
     let gitignore_text = if maybe_has_gitignore {
@@ -227,14 +235,11 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     } else {
       None
     };
-    // git also reads `.git/info/exclude` at the repository root, treating it
-    // like an uncommitted `.gitignore` there (https://git-scm.com/docs/gitignore).
+    // git also reads the repository's `info/exclude`, treating it like an
+    // uncommitted `.gitignore` at the repository root (https://git-scm.com/docs/gitignore).
     // Only the repo root can have this file, so avoid the read everywhere else.
-    let exclude_text = if is_repo_root {
-      self.environment.read_file(dir_path.join(".git").join("info").join("exclude")).ok()
-    } else {
-      None
-    };
+    let is_repo_root = exclude_path.is_some();
+    let exclude_text = exclude_path.and_then(|path| self.environment.read_file(path).ok());
     // git's global excludes file applies repository-wide, so resolve it at the
     // repo root where it becomes the parent of every descendant directory
     let global_lines: &[String] = if is_repo_root { self.options.global_gitignore_lines.as_slice() } else { &[] };
@@ -243,7 +248,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     }
 
     let mut builder = ignore::gitignore::GitignoreBuilder::new(dir_path);
-    // git's precedence is global excludes < `.git/info/exclude` < `.gitignore`,
+    // git's precedence is global excludes < `info/exclude` < `.gitignore`,
     // and the last matching pattern wins, so add them in that order
     for line in global_lines {
       builder.add_line(None, line).ok()?;
@@ -275,28 +280,78 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     Some(Rc::new(gitignore))
   }
 
-  fn take_dir_snapshot(&self, dir_path: &Path) -> DirSnapshot {
-    let git_path = dir_path.join(".git");
-    // not `path_exists` because that would debug log on every refresh
-    let has_git = self.environment.fs_metadata(&git_path).is_ok();
+  /// Takes a snapshot of the directory, where the previous one is provided
+  /// when there is one to save resolving what it already has.
+  fn take_dir_snapshot(&self, dir_path: &Path, previous: Option<&DirSnapshot>) -> DirSnapshot {
     DirSnapshot {
-      has_git,
       gitignore: self.take_file_snapshot(&dir_path.join(".gitignore")),
-      // only read at the repository root
-      exclude: if has_git {
-        self.take_file_snapshot(&git_path.join("info").join("exclude"))
-      } else {
-        None
-      },
+      repo: self.stat_git(dir_path).map(|git| {
+        let exclude_path = match previous.and_then(|previous| previous.repo.as_ref()) {
+          // the `.git` is the same as last time, so don't read the files that
+          // lead to the path again. That's not done when no file was at the
+          // path because then it might be wrong: the files could have been
+          // read while git was creating them or the read could have failed.
+          Some(previous) if previous.git == git && previous.exclude.is_some() => previous.exclude_path.clone(),
+          _ => self.resolve_info_exclude_path(dir_path, &git),
+        };
+        RepoSnapshot {
+          exclude: self.take_file_snapshot(&exclude_path),
+          exclude_path,
+          git,
+        }
+      }),
     }
+  }
+
+  /// Stats the `.git` in the directory, which is `None` when it doesn't have one.
+  fn stat_git(&self, dir_path: &Path) -> Option<GitStat> {
+    // not `path_exists` because that would debug log on every refresh
+    let metadata = self.environment.fs_metadata(dir_path.join(".git")).ok()?;
+    Some(if metadata.file_type().is_file() {
+      GitStat::File(FileSnapshot::from_metadata(&metadata))
+    } else {
+      GitStat::Dir
+    })
+  }
+
+  /// Resolves the path of the `info/exclude` of the repository the directory
+  /// is the root of.
+  ///
+  /// It's in `.git` except when that's a file with the path of the repository's
+  /// git directory, which is the case in a linked worktree (`git worktree add`)
+  /// and in a submodule (https://git-scm.com/docs/gitrepository-layout).
+  fn resolve_info_exclude_path(&self, dir_path: &Path, git: &GitStat) -> PathBuf {
+    let git_path = dir_path.join(".git");
+    let git_dir = match git {
+      // git doesn't read a file that's larger than this either
+      GitStat::File(file) if file.len <= MAX_GIT_FILE_LEN => self.resolve_git_file_common_dir(&git_path),
+      GitStat::File(_) | GitStat::Dir => None,
+    };
+    git_dir.unwrap_or(git_path).join("info").join("exclude")
+  }
+
+  /// Resolves the git directory a `.git` file leads to that's shared by all the
+  /// worktrees of the repository, which is where git reads `info/exclude` from.
+  fn resolve_git_file_common_dir(&self, git_file_path: &Path) -> Option<PathBuf> {
+    let text = self.environment.read_file(git_file_path).ok()?;
+    let git_dir = text.strip_prefix("gitdir: ")?.trim_end_matches(['\r', '\n']);
+    if git_dir.is_empty() {
+      return None;
+    }
+    // a relative path is relative to the directory the `.git` file is in
+    let git_dir = git_file_path.parent()?.join(git_dir);
+    // the git directory of a linked worktree only has the files that are
+    // specific to the worktree and its `commondir` file has the path of the
+    // git directory with the rest (relative to the worktree's git directory)
+    Some(match self.environment.read_file(git_dir.join("commondir")) {
+      Ok(text) => git_dir.join(text.trim_end_matches(['\r', '\n'])),
+      Err(_) => git_dir, // ex. a submodule
+    })
   }
 
   fn take_file_snapshot(&self, file_path: &Path) -> Option<FileSnapshot> {
     let metadata = self.environment.fs_metadata(file_path).ok()?;
-    Some(FileSnapshot {
-      modified: metadata.modified().ok(),
-      len: metadata.len(),
-    })
+    Some(FileSnapshot::from_metadata(&metadata))
   }
 }
 
@@ -311,11 +366,32 @@ struct CachedDir {
 /// is compared to detect when the directory needs to be resolved again.
 #[derive(PartialEq, Eq)]
 struct DirSnapshot {
-  has_git: bool,
   /// `None` when there's no `.gitignore` in the directory.
   gitignore: Option<FileSnapshot>,
-  /// `None` when there's no `.git/info/exclude` in the directory.
+  /// `None` when there's no `.git` in the directory, which means it's not
+  /// the root of a repository.
+  repo: Option<RepoSnapshot>,
+}
+
+/// State of what's specific to a directory that's the root of a repository.
+#[derive(PartialEq, Eq)]
+struct RepoSnapshot {
+  git: GitStat,
+  /// Path of the repository's `info/exclude`, which is kept so the file can
+  /// be checked for changes without resolving where it is again.
+  exclude_path: PathBuf,
+  /// `None` when the repository has no `info/exclude`.
   exclude: Option<FileSnapshot>,
+}
+
+/// State of the `.git` in the root directory of a repository.
+#[derive(PartialEq, Eq)]
+enum GitStat {
+  /// The repository's git directory, which has no state to compare because
+  /// most git commands modify it.
+  Dir,
+  /// A file with the path of the repository's git directory.
+  File(FileSnapshot),
 }
 
 #[derive(PartialEq, Eq)]
@@ -323,6 +399,18 @@ struct FileSnapshot {
   modified: Option<SystemTime>,
   len: u64,
 }
+
+impl FileSnapshot {
+  fn from_metadata(metadata: &impl FsMetadataValue) -> Self {
+    Self {
+      modified: metadata.modified().ok(),
+      len: metadata.len(),
+    }
+  }
+}
+
+/// Size above which git refuses to read a `.git` file.
+const MAX_GIT_FILE_LEN: u64 = 1 << 20;
 
 #[cfg(test)]
 mod test {
@@ -519,6 +607,206 @@ mod test {
     let path = PathBuf::from("/ignored.txt");
     let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
     assert!(gitignore.is_ignored(&path, /* is_dir */ false));
+  }
+
+  #[test]
+  fn honours_git_info_exclude_in_linked_worktree() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/main/.git/info").unwrap();
+    env.write_file("/main/.git/info/exclude", "from_exclude.txt").unwrap();
+    env.write_file("/main/.gitignore", "from_main_gitignore.txt").unwrap();
+    // what `git worktree add` creates
+    env.mk_dir_all("/main/.git/worktrees/absolute").unwrap();
+    env.write_file("/main/.git/worktrees/absolute/commondir", "../..\n").unwrap();
+    env.mk_dir_all("/absolute/sub_dir").unwrap();
+    env.write_file("/absolute/.git", "gitdir: /main/.git/worktrees/absolute\n").unwrap();
+    env.write_file("/absolute/.gitignore", "from_gitignore.txt").unwrap();
+    // and with `worktree.useRelativePaths` and Windows line endings
+    env.mk_dir_all("/main/.git/worktrees/relative").unwrap();
+    env.write_file("/main/.git/worktrees/relative/commondir", "../..\r\n").unwrap();
+    env.mk_dir_all("/main/relative").unwrap();
+    env.write_file("/main/relative/.git", "gitdir: ../.git/worktrees/relative\r\n").unwrap();
+    // git also accepts an absolute path in a `commondir`
+    env.mk_dir_all("/main/.git/worktrees/absolute_commondir").unwrap();
+    env.write_file("/main/.git/worktrees/absolute_commondir/commondir", "/main/.git\n").unwrap();
+    env.mk_dir_all("/absolute_commondir").unwrap();
+    env
+      .write_file("/absolute_commondir/.git", "gitdir: /main/.git/worktrees/absolute_commondir\n")
+      .unwrap();
+    let mut ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
+    let mut run_test = |path: &str, expected: bool| {
+      let path = PathBuf::from(path);
+      let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
+      assert_eq!(gitignore.is_ignored(&path, /* is_dir */ false), expected, "Path: {}", path.display());
+    };
+    run_test("/absolute/from_exclude.txt", true);
+    run_test("/absolute/sub_dir/from_exclude.txt", true);
+    run_test("/absolute/from_gitignore.txt", true);
+    run_test("/absolute/other.txt", false);
+    // only the exclude file is shared with the main worktree
+    run_test("/absolute/from_main_gitignore.txt", false);
+    run_test("/main/relative/from_exclude.txt", true);
+    // the worktree is a repository root, so gitignores above it don't apply
+    run_test("/main/relative/from_main_gitignore.txt", false);
+    run_test("/absolute_commondir/from_exclude.txt", true);
+    run_test("/main/from_exclude.txt", true);
+  }
+
+  #[test]
+  fn honours_git_info_exclude_in_submodule() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/.git/info").unwrap();
+    env.write_file("/.git/info/exclude", "from_super_exclude.txt").unwrap();
+    // a submodule's git directory isn't shared, so it has no `commondir`
+    env.mk_dir_all("/.git/modules/sub/info").unwrap();
+    env.write_file("/.git/modules/sub/info/exclude", "from_exclude.txt").unwrap();
+    env.mk_dir_all("/sub").unwrap();
+    env.write_file("/sub/.git", "gitdir: ../.git/modules/sub\n").unwrap();
+    let mut ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
+    let mut run_test = |path: &str, expected: bool| {
+      let path = PathBuf::from(path);
+      let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
+      assert_eq!(gitignore.is_ignored(&path, /* is_dir */ false), expected, "Path: {}", path.display());
+    };
+    run_test("/sub/from_exclude.txt", true);
+    run_test("/sub/from_super_exclude.txt", false);
+    run_test("/from_super_exclude.txt", true);
+    run_test("/from_exclude.txt", false);
+  }
+
+  #[test]
+  fn git_file_that_does_not_lead_to_an_info_exclude() {
+    let env = TestEnvironment::new();
+    env.write_file("/.gitignore", "above.txt").unwrap();
+    // a git directory that would be used if these were followed
+    env.mk_dir_all("/git_dir/info").unwrap();
+    env.write_file("/git_dir/info/exclude", "from_exclude.txt").unwrap();
+    // git doesn't read a `.git` file that's over a megabyte
+    let too_large = format!("gitdir: /git_dir{}", "\n".repeat(1 << 20));
+    let dirs = [
+      ("/not_a_git_file", "/git_dir"),
+      ("/wrong_prefix", "gitdir:/git_dir\n"),
+      ("/no_path", "gitdir: \n"),
+      ("/missing_git_dir", "gitdir: /missing\n"),
+      ("/too_large", too_large.as_str()),
+    ];
+    for (dir, git_file_text) in dirs {
+      env.mk_dir_all(dir).unwrap();
+      env.write_file(format!("{dir}/.git"), git_file_text).unwrap();
+      env.write_file(format!("{dir}/.gitignore"), "from_gitignore.txt").unwrap();
+      // not used because the directory isn't a git directory
+      env.mk_dir_all(format!("{dir}/info")).unwrap();
+      env.write_file(format!("{dir}/info/exclude"), "from_exclude.txt").unwrap();
+    }
+    let mut ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
+    for (dir, _) in dirs {
+      let mut run_test = |name: &str, expected: bool| {
+        let path = PathBuf::from(format!("{dir}/{name}"));
+        let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
+        assert_eq!(gitignore.is_ignored(&path, /* is_dir */ false), expected, "Path: {}", path.display());
+      };
+      run_test("from_gitignore.txt", true);
+      run_test("from_exclude.txt", false);
+      // still a repository root
+      run_test("above.txt", false);
+    }
+  }
+
+  #[test]
+  fn refresh_detects_info_exclude_changes_in_linked_worktree() {
+    let env = TestEnvironment::new();
+    env.set_fs_time(1000);
+    for main in ["/main", "/other_main"] {
+      env.mk_dir_all(format!("{main}/.git/info")).unwrap();
+      env.mk_dir_all(format!("{main}/.git/worktrees/linked")).unwrap();
+      env.write_file(format!("{main}/.git/worktrees/linked/commondir"), "../..\n").unwrap();
+    }
+    env.mk_dir_all("/linked/sub_dir").unwrap();
+    env.write_file("/linked/.git", "gitdir: /main/.git/worktrees/linked\n").unwrap();
+    let mut ignore_tree = new_change_detecting_tree(&env);
+    let mut assert_ignored = |path: &str, expected: bool| {
+      let path = PathBuf::from(path);
+      ignore_tree.refresh_for_file(&path);
+      let is_ignored = ignore_tree
+        .get_resolved_git_ignore_for_file(&path)
+        .map(|gitignore| gitignore.is_ignored(&path, /* is_dir */ false))
+        .unwrap_or(false);
+      assert_eq!(is_ignored, expected, "Path: {}", path.display());
+    };
+    assert_ignored("/linked/sub_dir/a.txt", false);
+
+    // added, changed and removed in the main worktree's git directory
+    env.write_file("/main/.git/info/exclude", "a.txt").unwrap();
+    assert_ignored("/linked/sub_dir/a.txt", true);
+    assert_ignored("/linked/sub_dir/b.txt", false);
+    env.set_fs_time(2000);
+    env.write_file("/main/.git/info/exclude", "b.txt").unwrap();
+    assert_ignored("/linked/sub_dir/a.txt", false);
+    assert_ignored("/linked/sub_dir/b.txt", true);
+    env.remove_file("/main/.git/info/exclude").unwrap();
+    assert_ignored("/linked/sub_dir/b.txt", false);
+
+    // the files that lead to the exclude file aren't read when nothing changed
+    env.write_file("/main/.git/info/exclude", "a.txt").unwrap();
+    assert_ignored("/linked/sub_dir/a.txt", true);
+    let read_counts = |env: &TestEnvironment| {
+      (
+        env.file_read_count("/linked/.git"),
+        env.file_read_count("/main/.git/worktrees/linked/commondir"),
+      )
+    };
+    let counts = read_counts(&env);
+    assert_ignored("/linked/sub_dir/a.txt", true);
+    assert_ignored("/linked/a.txt", true);
+    assert_ignored("/linked/sub_dir/b.txt", false);
+    assert_eq!(read_counts(&env), counts);
+
+    // the `.git` file is changed to make it a worktree of another repository,
+    // whose exclude file has the same modified time and size
+    env.write_file("/other_main/.git/info/exclude", "b.txt").unwrap();
+    env.write_file("/linked/.git", "gitdir: /other_main/.git/worktrees/linked\n").unwrap();
+    assert_ignored("/linked/sub_dir/a.txt", false);
+    assert_ignored("/linked/sub_dir/b.txt", true);
+
+    // and to having its own git directory
+    env.remove_file("/linked/.git").unwrap();
+    env.mk_dir_all("/linked/.git/info").unwrap();
+    assert_ignored("/linked/sub_dir/b.txt", false);
+    env.write_file("/linked/.git/info/exclude", "c.txt").unwrap();
+    assert_ignored("/linked/sub_dir/c.txt", true);
+  }
+
+  #[test]
+  fn refresh_detects_git_file_starting_to_lead_to_an_info_exclude() {
+    let env = TestEnvironment::new();
+    env.set_fs_time(1000);
+    env.mk_dir_all("/main/.git/info").unwrap();
+    env.write_file("/main/.git/info/exclude", "a.txt").unwrap();
+    env.mk_dir_all("/main/.git/worktrees/linked").unwrap();
+    env.mk_dir_all("/linked").unwrap();
+    // the same length as what it gets changed to
+    env.write_file("/linked/.git", "gitdir: /nain/.git/worktrees/linked\n").unwrap();
+    let mut ignore_tree = new_change_detecting_tree(&env);
+    let mut assert_ignored = |path: &str, expected: bool| {
+      let path = PathBuf::from(path);
+      ignore_tree.refresh_for_file(&path);
+      let is_ignored = ignore_tree
+        .get_resolved_git_ignore_for_file(&path)
+        .map(|gitignore| gitignore.is_ignored(&path, /* is_dir */ false))
+        .unwrap_or(false);
+      assert_eq!(is_ignored, expected, "Path: {}", path.display());
+    };
+    assert_ignored("/linked/a.txt", false);
+
+    // the git directory exists, but resolved while git was still creating the
+    // worktree, which is before it has a `commondir`
+    env.set_fs_time(2000);
+    env.write_file("/linked/.git", "gitdir: /main/.git/worktrees/linked\n").unwrap();
+    assert_ignored("/linked/a.txt", false);
+
+    // the `.git` file hasn't changed since it was last looked at
+    env.write_file("/main/.git/worktrees/linked/commondir", "../..\n").unwrap();
+    assert_ignored("/linked/a.txt", true);
   }
 
   fn new_change_detecting_tree(env: &TestEnvironment) -> GitIgnoreTree<TestEnvironment> {

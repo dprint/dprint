@@ -1382,6 +1382,45 @@ mod test {
   }
 
   #[tokio::test]
+  async fn should_respect_git_info_exclude_in_linked_worktree() {
+    // a worktree created with `git worktree add` has a `.git` file that leads
+    // to the git directory of the main worktree, which has the exclude file
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/main/.git/info/exclude", "excluded-dir/")
+      .write_file("/main/.git/worktrees/linked/commondir", "../..\n")
+      .write_file("/linked/.git", "gitdir: /main/.git/worktrees/linked\n")
+      .write_file("/linked/included.txt", "")
+      .write_file("/linked/excluded-dir/probe.txt", "")
+      .write_file("/linked/sub/included.txt", "")
+      .write_file("/linked/sub/excluded-dir/probe.txt", "")
+      .build();
+    let root_dir = environment.canonicalize("/linked").unwrap();
+    let result = glob(
+      &environment,
+      GlobOptions {
+        current_config_path: None,
+        start_dir: PathBuf::from("/linked"),
+        config_discovery: ConfigDiscovery::Default,
+        file_patterns: GlobPatterns {
+          config_includes_from_plugins: false,
+          shebangs: Vec::new(),
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/linked"),
+        no_gitignore: false,
+      },
+    )
+    .unwrap();
+
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    assert_eq!(result, vec!["/linked/included.txt", "/linked/sub/included.txt"]);
+  }
+
+  #[tokio::test]
   async fn should_respect_global_gitignore_when_opted_in() {
     let environment = TestEnvironmentBuilder::new()
       // a `.git` dir makes `/` the repository root, where the global excludes apply
