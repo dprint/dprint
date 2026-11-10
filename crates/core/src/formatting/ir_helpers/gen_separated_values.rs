@@ -70,7 +70,13 @@ pub struct MultiLineOptions<'a> {
   pub newline_at_end: bool,
   pub with_indent: bool,
   pub with_hanging_indent: BoolOrCondition<'a>,
+  /// Whether to maintain the line breaks between the values based on their `lines_span`
+  /// when multi-line, or when hanging because of `prefer_hanging`.
   pub maintain_line_breaks: bool,
+  /// When maintaining the line breaks and multi-line, whether a value goes on a new line
+  /// when the value before it is on a single line based on its `lines_span`, but is
+  /// printed on multiple lines.
+  pub newline_after_value_made_multi_line: bool,
 }
 
 impl MultiLineOptions<'_> {
@@ -82,6 +88,7 @@ impl MultiLineOptions<'_> {
       with_indent: true,
       with_hanging_indent: BoolOrCondition::Bool(false),
       maintain_line_breaks: false,
+      newline_after_value_made_multi_line: false,
     }
   }
 
@@ -92,6 +99,7 @@ impl MultiLineOptions<'_> {
       with_indent: true,
       with_hanging_indent: BoolOrCondition::Bool(false),
       maintain_line_breaks: false,
+      newline_after_value_made_multi_line: false,
     }
   }
 
@@ -102,6 +110,7 @@ impl MultiLineOptions<'_> {
       with_indent: false,
       with_hanging_indent: BoolOrCondition::Bool(true),
       maintain_line_breaks: false,
+      newline_after_value_made_multi_line: false,
     }
   }
 
@@ -112,6 +121,7 @@ impl MultiLineOptions<'_> {
       with_indent: false,
       with_hanging_indent: BoolOrCondition::Bool(false),
       maintain_line_breaks: false,
+      newline_after_value_made_multi_line: false,
     }
   }
 
@@ -122,6 +132,7 @@ impl MultiLineOptions<'_> {
       with_indent: false,
       with_hanging_indent: BoolOrCondition::Bool(false),
       maintain_line_breaks: true,
+      newline_after_value_made_multi_line: false,
     }
   }
 }
@@ -242,11 +253,11 @@ where
   .into_iter();
   let has_values = generated_values.len() > 0;
   let inner_gen_result = inner_gen(
-    arena,
     generated_values,
     is_multi_line,
     opts.single_line_options.separator,
     &multi_line_options,
+    opts.prefer_hanging,
     opts.max_blank_lines,
     value_datas,
   );
@@ -322,14 +333,15 @@ where
   };
 
   fn inner_gen<'a>(
-    arena: &'a Arena,
     generated_values: impl ExactSizeIterator<Item = GeneratedValue<'a>>,
     is_multi_line: ConditionResolver<'a>,
     single_line_separator: PrintItems<'a>,
     multi_line_options: &MultiLineOptions<'a>,
+    prefer_hanging: bool,
     max_blank_lines: u32,
     value_datas: ValueDatas<'a>,
   ) -> PrintItems<'a> {
+    let arena = single_line_separator.arena();
     let mut items = PrintItems::new(arena);
     let values_count = generated_values.len();
     value_datas.borrow_mut().reserve(values_count);
@@ -339,6 +351,7 @@ where
     let mut had_newline = false;
     let first_line_number = LineNumber::new("firstValue");
     let mut last_line_start_indent_level = None;
+    let mut last_line_number = first_line_number;
 
     for (i, generated_value) in generated_values.enumerate() {
       let start_line_number = if i == 0 { first_line_number } else { LineNumber::new("value") };
@@ -391,9 +404,24 @@ where
               } else {
                 let space_or_newline = {
                   if let Some(last_line_start_indent_level) = last_line_start_indent_level {
+                    // the line number of the last value when it should only be on that line
+                    let last_single_line_number =
+                      if multi_line_options.newline_after_value_made_multi_line && last_lines_span.is_some_and(|span| span.start_line == span.end_line) {
+                        Some(last_line_number)
+                      } else {
+                        None
+                      };
                     if_true_or(
                       "newlineIfHanging",
-                      arena.alloc_resolver(move |context| condition_helpers::is_hanging(context, last_line_start_indent_level, None)),
+                      arena.alloc_resolver(move |context| {
+                        if condition_helpers::is_hanging(context, last_line_start_indent_level, None)? {
+                          return Some(true);
+                        }
+                        match last_single_line_number {
+                          Some(line_number) => condition_helpers::is_on_different_line(context, line_number),
+                          None => Some(false),
+                        }
+                      }),
                       Signal::NewLine.into_print_items(arena),
                       single_line_separator.into_print_items(arena),
                     )
@@ -462,7 +490,12 @@ where
             },
             false_path: {
               let mut items = PrintItems::new(arena);
-              items.extend(single_line_separator.into_print_items(arena)); // ex. Signal::SpaceOrNewLine
+              if maintain_line_breaks && prefer_hanging && has_new_line {
+                // the false path is only used for being on a single line when not preferring hanging
+                items.push_signal(Signal::NewLine);
+              } else {
+                items.extend(single_line_separator.into_print_items(arena)); // ex. Signal::SpaceOrNewLine
+              }
               items.push_condition(indent_if_start_of_line({
                 let mut items = PrintItems::new(arena);
                 items.push_info(start_line_number);
@@ -479,6 +512,7 @@ where
 
       last_lines_span = generated_value.lines_span;
       last_line_start_indent_level.replace(start_line_start_indent_level);
+      last_line_number = start_line_number;
     }
 
     items
