@@ -1,4 +1,6 @@
 use std::rc::Rc;
+use std::time::Duration;
+use std::time::UNIX_EPOCH;
 
 use anyhow::Result;
 
@@ -263,6 +265,12 @@ pub fn get_process_plugin_decision(action_title: &str) -> Option<ApprovalDecisio
 const ALWAYS_ALLOW_ACTION_TITLE: &str = "Always Allow";
 const DENY_ACTION_TITLE: &str = "Deny";
 const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
+/// How long after running dprint allowed the process plugins of a config
+/// file in editors that running it allows them again, which stores it with
+/// the time of that run. It's not on each run so that running dprint many
+/// times (ex. in parallel or in a loop) doesn't write the approvals file each
+/// time.
+const EDITOR_ALLOW_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Allows the editors to run the process plugins of the config file with its
 /// configuration, which is for when the user ran dprint with it (ex. `dprint
@@ -292,11 +300,22 @@ async fn try_allow_process_plugins_in_editors<TEnvironment: Environment>(
       return Ok(());
     }
   };
+  let now = environment
+    .sys_time_now()
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0);
   let decisions = approvals
     .into_iter()
-    // the approvals file is only written when something changed, which is usually not, and an allow
-    // that's stored by a version of dprint that makes its config hash another way doesn't change it
-    .filter(|approval| !stored.is_process_plugin_allowed(approval))
+    // the approvals file isn't written on each run, and an allow that's stored by a version of
+    // dprint that makes its config hash another way doesn't change it
+    .filter(|approval| match stored.get_process_plugin_allow(approval) {
+      // IMPORTANT: Allow it again once it's a while ago, because the user may have denied it in an
+      // editor for the session since (ex. while it had another configuration), which isn't stored,
+      // and running dprint is more recent than that.
+      Some(decision) => now.saturating_sub(decision.decided_at) >= EDITOR_ALLOW_REFRESH_INTERVAL.as_millis() as u64,
+      None => true,
+    })
     // running dprint is more recent than what the user decided before
     .map(|approval| ProcessPluginDecision::new(environment, approval, true, &stored.process_plugin_decisions))
     .collect::<Vec<_>>();

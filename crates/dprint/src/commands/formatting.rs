@@ -900,6 +900,32 @@ mod test {
   }
 
   #[test]
+  fn should_allow_the_process_plugins_in_editors_again_after_a_while() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file("/file.txt_ps", "text_formatted_process")
+      .build();
+    let get_decided_at = || {
+      let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
+      assert_eq!(decisions.len(), 1);
+      assert!(decisions[0].allowed);
+      decisions[0].decided_at
+    };
+    environment.set_fs_time(1_000);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert_eq!(get_decided_at(), 1_000_000);
+
+    // the approvals file isn't written on each run
+    environment.set_fs_time(1_059);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert_eq!(get_decided_at(), 1_000_000);
+
+    // but running dprint is more recent than a denial for the session of an editor since, which isn't stored
+    environment.set_fs_time(1_060);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert_eq!(get_decided_at(), 1_060_000);
+  }
+
+  #[test]
   fn should_not_warn_when_the_approvals_of_editors_cannot_be_read() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.txt_ps", "text_formatted_process")

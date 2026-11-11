@@ -243,7 +243,13 @@ impl EditorApprovals {
   /// configuration like they do in an editor, which an allow whose config hash
   /// is made another way doesn't change.
   pub fn is_process_plugin_allowed(&self, approval: &ProcessPluginApproval) -> bool {
-    get_winning_decision(&self.process_plugin_decisions, approval).is_some_and(|decision| decision.allowed)
+    self.get_process_plugin_allow(approval).is_some()
+  }
+
+  /// Gets the decision that allows running the process plugin with its
+  /// configuration (see `is_process_plugin_allowed`).
+  pub fn get_process_plugin_allow(&self, approval: &ProcessPluginApproval) -> Option<&ProcessPluginDecision> {
+    get_winning_decision(&self.process_plugin_decisions, approval).filter(|decision| decision.allowed)
   }
 }
 
