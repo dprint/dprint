@@ -1490,6 +1490,10 @@ pub fn get_unapproved_process_plugins<TEnvironment: Environment>(
   environment: &TEnvironment,
   permissions: &Permissions,
 ) -> Vec<(PluginSourceReference, Option<ProcessPluginApproval>)> {
+  // ex. the cli, which doesn't need to make the hashes of what's allowed
+  if !permissions.requires_process_plugin_approval() {
+    return Vec::new();
+  }
   let config_file = config.display();
   let trusted_config_hash = get_trusted_config_hash(config);
   get_process_plugin_approvals(config, plugin_resolver, environment)

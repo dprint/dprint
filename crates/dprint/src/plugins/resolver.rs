@@ -19,6 +19,7 @@ use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::ReceivedPluginInfo;
 use crate::utils::AsyncCell;
+use crate::utils::DownloadPolicy;
 use crate::utils::PathSource;
 
 pub struct PluginWrapper {
@@ -209,10 +210,11 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
   /// downloaded through (see `NpmrcProxy`), or the `.npmrc` file on another
   /// machine that needs to be read to know the url (see `NpmrcChain::load`).
   pub fn get_disallowed_downloads(&self, plugin_reference: &PluginSourceReference) -> Vec<String> {
-    if self.is_installed(plugin_reference) {
+    let download_policy = self.environment.download_policy();
+    // ex. the cli, which doesn't need to look up whether it's installed for this
+    if matches!(download_policy, DownloadPolicy::All) || self.is_installed(plugin_reference) {
       return Vec::new();
     }
-    let download_policy = self.environment.download_policy();
     let mut downloads = Vec::new();
     let is_npm = matches!(plugin_reference.path_source, PathSource::Npm(_));
     match self.plugin_cache.get_download_url(plugin_reference) {

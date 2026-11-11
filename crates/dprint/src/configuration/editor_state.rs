@@ -505,7 +505,9 @@ impl Permissions {
       .map(|decision| &decision.approval)
   }
 
-  fn requires_process_plugin_approval(&self) -> bool {
+  /// Gets whether running a process plugin needs to be approved, which it
+  /// doesn't for the CLI or when the user opted out.
+  pub fn requires_process_plugin_approval(&self) -> bool {
     // IMPORTANT: Opening a project isn't the same as choosing to run its
     // process plugins, so they need to be approved unless the user opted out.
     self.allow_process_plugins != Some(true)
