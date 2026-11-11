@@ -16,7 +16,6 @@ use tar::Archive;
 use deno_npmrc::RegistryConfig;
 use deno_semver::Version;
 
-use crate::configuration::resolve_global_config_dir_path;
 use crate::environment::DownloadOptions;
 use crate::environment::DownloadProxy;
 use crate::environment::Environment;
@@ -1280,10 +1279,9 @@ pub fn is_default_registry(url: &str) -> bool {
 }
 
 /// The `.npmrc` files that apply to a directory, nearest first: those found
-/// walking up from the start directory, then the user-level `~/.npmrc`. A
-/// proxy is only trusted from the ones that are the user's own, which are the
-/// ones that can't be a project's (see `NpmrcFile::is_users` and
-/// `NpmrcProxy`).
+/// walking up from the start directory, then the user-level `~/.npmrc`. Only
+/// the user-level one is the user's own, which is what a proxy is trusted
+/// from (see `NpmrcProxy`).
 ///
 /// Each file is read once on load so the registry, proxy and `min-release-age`
 /// lookups share the reads instead of each walking the directory tree, and so
@@ -1305,15 +1303,8 @@ enum NpmrcEntry {
 
 struct NpmrcFile {
   path: PathBuf,
-  /// Whether it's the user's own, which is one in the home directory, in
-  /// dprint's global config directory, or in a directory that one of those is
-  /// in (ex. `/.npmrc`), unlike one in a project or another of its ancestor
-  /// directories.
-  ///
-  /// IMPORTANT: Only the files of a project aren't trusted (ex. a repository
-  /// that was cloned), which is never where the user's own directories are
-  /// in, so this never includes a directory that a project could be or be in
-  /// (ex. another directory of the home directory).
+  /// Whether it's the user-level `~/.npmrc`, which is the user's own, unlike
+  /// one in the project or another of its ancestor directories.
   is_users: bool,
   text: String,
   /// `None` when the file couldn't be parsed, in which case the settings that
@@ -1325,7 +1316,7 @@ impl NpmrcChain {
   /// Loads the `.npmrc` files of the start directory and its ancestors, and
   /// then the user's own.
   ///
-  /// IMPORTANT: A file that isn't in the home directory isn't read when it's on
+  /// IMPORTANT: A file that isn't the user's own isn't read when it's on
   /// another machine (ex. a symlink to a UNC path or into `/net`) that the
   /// download policy doesn't allow reading without asking, because reading it
   /// contacts the machine. One on the same share as the start directory is
@@ -1336,16 +1327,12 @@ impl NpmrcChain {
   /// (ex. a package on the public registry with the name of a company's).
   pub fn load(start_dir: Option<&Path>, environment: &impl Environment) -> Self {
     let home_dir = environment.get_home_dir();
-    // the directories it's compared to are canonical
-    let global_config_dir = resolve_global_config_dir_path(environment).and_then(|dir| environment.canonicalize(dir).ok());
     let ancestor_paths = start_dir.map(|start_dir| environment.download_policy().ancestor_paths(start_dir));
     let mut files = Vec::new();
     let mut load_dir = |dir: &Path| {
       let path = dir.join(".npmrc");
-      let is_home_dir = home_dir.as_ref().is_some_and(|home_dir| dir == home_dir.as_ref());
-      let is_users = home_dir.as_ref().is_some_and(|home_dir| home_dir.as_ref().starts_with(dir))
-        || global_config_dir.as_ref().is_some_and(|config_dir| config_dir.as_ref().starts_with(dir));
-      if !is_home_dir
+      let is_users = home_dir.as_ref().is_some_and(|home_dir| dir == home_dir.as_ref());
+      if !is_users
         && let Some(ancestor_paths) = &ancestor_paths
         && let Err(err) = ancestor_paths.ensure_allows(environment, &path, start_dir)
       {
@@ -1458,9 +1445,9 @@ impl NpmrcChain {
   /// be used (ex. one with an unknown scheme), since failing every request
   /// because of an npm setting would be worse than not following it.
   ///
-  /// A proxy from an `.npmrc` file that isn't the user's own (see
-  /// `NpmrcFile::is_users`) has its setting so that the editors only send
-  /// downloads through it once the user allows it (see `NpmrcProxy`).
+  /// A proxy from an `.npmrc` file other than `~/.npmrc` has its setting so
+  /// that the editors only send downloads through it once the user allows it
+  /// (see `NpmrcProxy`).
   fn proxy(&self, environment: &impl Environment) -> Result<Option<NpmProxy>, UntrustedDownloadError> {
     // npm matches these regardless of their casing
     let env_var = |name: &str| {
@@ -2111,55 +2098,6 @@ mod tests {
   }
 
   #[test]
-  fn resolve_registry_trusts_the_proxy_of_an_npmrc_that_cannot_be_a_projects() {
-    use crate::environment::TestEnvironment;
-    let environment = TestEnvironment::new();
-    let resolve = |dir: &str| {
-      resolve_registry_for_package("@dprint/typescript", Some(std::path::Path::new(dir)), &environment)
-        .unwrap()
-        .proxy
-    };
-    let trusted = |url: &str| {
-      Some(NpmProxy {
-        url: url.to_string(),
-        no_proxy: None,
-        npmrc: None,
-      })
-    };
-    let global_config_dir = resolve_global_config_dir_path(&environment).unwrap();
-    environment.mk_dir_all("/home/repo").unwrap();
-    environment.mk_dir_all("/other/repo").unwrap();
-    environment.mk_dir_all(&global_config_dir).unwrap();
-
-    // a directory that the home directory is in, which a project in it or elsewhere is under too
-    environment.write_file("/.npmrc", "proxy=http://root:8080/path").unwrap();
-    assert_eq!(resolve("/home/repo"), trusted("http://root:8080/path"));
-    assert_eq!(resolve("/other/repo"), trusted("http://root:8080/path"));
-    // the home directory
-    environment.write_file("/home/.npmrc", "proxy=http://home:8080").unwrap();
-    assert_eq!(resolve("/home/repo"), trusted("http://home:8080"));
-    // the global config directory and a directory it's in
-    environment
-      .write_file(global_config_dir.parent().unwrap().join(".npmrc"), "proxy=http://config:8080")
-      .unwrap();
-    assert_eq!(resolve(&global_config_dir.to_string_lossy()), trusted("http://config:8080"));
-    environment.write_file(global_config_dir.join(".npmrc"), "proxy=http://dprint:8080").unwrap();
-    assert_eq!(resolve(&global_config_dir.to_string_lossy()), trusted("http://dprint:8080"));
-
-    // but not another directory, which may be a project's or one it's in
-    environment.write_file("/other/.npmrc", "proxy=http://other:8080").unwrap();
-    assert_eq!(
-      resolve("/other/repo").unwrap().npmrc.unwrap().npmrc_path,
-      Path::new("/other").join(".npmrc").display().to_string()
-    );
-    environment.write_file("/home/repo/.npmrc", "proxy=http://repo:8080").unwrap();
-    assert_eq!(
-      resolve("/home/repo").unwrap().npmrc.unwrap().npmrc_path,
-      Path::new("/home/repo").join(".npmrc").display().to_string()
-    );
-  }
-
-  #[test]
   fn resolve_registry_ignores_a_proxy_setting_that_isnt_the_url_of_a_proxy() {
     use crate::environment::TestEnvironment;
     let environment = TestEnvironment::new();
@@ -2255,8 +2193,8 @@ mod tests {
       assert_eq!(proxy.npmrc, None);
     }
 
-    // one in the project or an ancestor directory that may be a project's has the setting the user is shown
-    for (npmrc_dir, dir) in [("/home/repo", "/home/repo"), ("/other", "/other/repo")] {
+    // one in the project or another ancestor directory has the setting the user is shown
+    for (npmrc_dir, dir) in [("/home/repo", "/home/repo"), ("/other", "/other/repo"), ("/", "/other/repo")] {
       let npmrc_path = Path::new(npmrc_dir).join(".npmrc");
       environment.write_file(&npmrc_path, "https-proxy=https://${REPO_TOKEN}@repo.example").unwrap();
       let proxy = resolve(dir);
