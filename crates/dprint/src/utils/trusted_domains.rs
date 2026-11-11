@@ -339,8 +339,9 @@ impl TrustedDownloads {
   }
 }
 
-/// A proxy that an `.npmrc` file other than the user's own (`~/.npmrc`) sets,
-/// such as one in the project or one of its ancestor directories.
+/// A proxy that an `.npmrc` file other than the user's own sets, such as one
+/// in the project (see `NpmrcChain` for which ones are the user's own, ex.
+/// `~/.npmrc`).
 ///
 /// IMPORTANT: The editors only send downloads through it once the user allows
 /// it. The project would otherwise choose a server that's sent every download

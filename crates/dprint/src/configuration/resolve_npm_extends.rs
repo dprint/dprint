@@ -759,24 +759,24 @@ mod tests {
   #[test]
   fn should_need_the_proxy_of_a_project_npmrc_to_be_allowed_by_the_editors() {
     let environment = TestEnvironmentBuilder::new()
-      .write_file("/dprint.json", r#"{ "extends": "npm:config@1.0.0" }"#)
-      .write_file("/.npmrc", "https-proxy=https://${TOKEN}@proxy.example")
+      .write_file("/project/dprint.json", r#"{ "extends": "npm:config@1.0.0" }"#)
+      .write_file("/project/.npmrc", "https-proxy=https://${TOKEN}@proxy.example")
       .build();
     environment.set_env_var("TOKEN", Some("secret"));
     add_registry_package(&environment, "config", "1.0.0", &[("package/dprint.json", r#"{ "prop1": 1 }"#)]);
     environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
     let npmrc_proxy = crate::utils::NpmrcProxy {
-      npmrc_path: Path::new("/").join(".npmrc").display().to_string(),
+      npmrc_path: Path::new("/project").join(".npmrc").display().to_string(),
       setting: "https://${TOKEN}@proxy.example".to_string(),
     };
 
     environment.clone().run_in_runtime(async move {
       // the registry is trusted, but not the proxy
-      let err = resolve_config("/dprint.json", &environment).await.unwrap_err();
+      let err = resolve_config("/project/dprint.json", &environment).await.unwrap_err();
       assert_eq!(crate::utils::UntrustedDownloadError::find(&err).unwrap().download, npmrc_proxy.to_download());
       assert_eq!(environment.remote_file_request_count("https://registry.npmjs.org/config"), 0);
       environment.download_policy().allow(&[npmrc_proxy.to_download()]);
-      let result = resolve_config("/dprint.json", &environment).await.unwrap();
+      let result = resolve_config("/project/dprint.json", &environment).await.unwrap();
       assert_eq!(get_number(&result, "prop1"), 1);
     });
   }
