@@ -769,6 +769,37 @@ fn should_send_what_is_logged_and_the_progress_to_an_editor_extension() {
 }
 
 #[test]
+fn should_keep_logging_when_the_client_does_not_answer_creating_progress() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin();
+    })
+    .build(); // not initialized, so the plugin is compiled, which has progress
+  run_session(&environment, |client| {
+    async move {
+      *client.test_client.ignores_progress_create.lock() = true;
+      assert_eq!(client.format("/a/file.txt", "text").await, formatted("text", "text_formatted"));
+      // what's logged after it still gets to the client
+      client.format("/b/file.txt", "text").await;
+      let is_logged = || {
+        let messages = client.test_client.logged_messages.lock();
+        messages.iter().any(|(_, message)| message.contains("did not have a dprint config file"))
+      };
+      for _ in 0..200 {
+        if is_logged() {
+          break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+      }
+      assert!(is_logged());
+      client.test_client.take_messages();
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_report_progress_on_the_token_of_a_request() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()

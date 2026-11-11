@@ -6,6 +6,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use anyhow::bail;
@@ -1425,6 +1426,26 @@ fn get_server_progress_token(id: usize) -> NumberOrString {
   NumberOrString::String(format!("dprint/{}", id))
 }
 
+/// How long the client is given to answer a request to create the server's
+/// own progress (see `create_server_progress`).
+const CREATE_PROGRESS_TIMEOUT: Duration = Duration::from_millis(if cfg!(test) { 50 } else { 5_000 });
+
+/// Asks the client to create the server's own progress, which resolves to
+/// whether it did. A client that doesn't answer in time isn't asked again,
+/// because what's logged and the progress of the requests wait on its answer.
+async fn create_server_progress(client: &ClientWrapper, token: NumberOrString, supports_progress: &mut bool) -> bool {
+  if !*supports_progress {
+    return false;
+  }
+  match tokio::time::timeout(CREATE_PROGRESS_TIMEOUT, client.create_work_done_progress(token)).await {
+    Ok(is_created) => is_created,
+    Err(_) => {
+      *supports_progress = false;
+      false
+    }
+  }
+}
+
 /// Reports the progress of what's done while a request is handled until it's
 /// dropped (see `Backend::track_request_progress`).
 struct RequestProgress {
@@ -1441,7 +1462,7 @@ impl Drop for RequestProgress {
 }
 
 impl LspOutputSink {
-  fn new(client: ClientWrapper, supports_progress: bool) -> Self {
+  fn new(client: ClientWrapper, mut supports_progress: bool) -> Self {
     let (sender, mut receiver) = mpsc::unbounded_channel::<OutputEvent>();
     dprint_core::async_runtime::spawn(async move {
       // the requests with a progress token and whether their progress was begun
@@ -1483,7 +1504,7 @@ impl LspOutputSink {
               WorkDoneProgress::Begin(_) => {
                 // it's only reported on the tokens of the requests while there are
                 // some so that the editor doesn't show it twice
-                if !requests.is_empty() || !client.create_work_done_progress(token.clone()).await {
+                if !requests.is_empty() || !create_server_progress(&client, token.clone(), &mut supports_progress).await {
                   continue;
                 }
                 server_progress_ids.insert(id);
@@ -1523,7 +1544,7 @@ impl LspOutputSink {
             }
             for active in &active_progress {
               let token = get_server_progress_token(active.id);
-              if server_progress_ids.contains(&active.id) || !client.create_work_done_progress(token.clone()).await {
+              if server_progress_ids.contains(&active.id) || !create_server_progress(&client, token.clone(), &mut supports_progress).await {
                 continue;
               }
               server_progress_ids.insert(active.id);
@@ -5057,6 +5078,8 @@ mod test {
     published_diagnostics: Mutex<Vec<(Uri, Vec<Diagnostic>)>>,
     config_changes: Mutex<Vec<Uri>>,
     progress: Mutex<Vec<(NumberOrString, WorkDoneProgress)>>,
+    /// Whether the client never answers a request to create progress.
+    ignores_progress_create: Mutex<bool>,
   }
 
   impl Drop for TestClient {
@@ -5152,7 +5175,10 @@ mod test {
     }
 
     fn create_work_done_progress(&self, _token: NumberOrString) -> LocalBoxFuture<'static, bool> {
-      async { true }.boxed_local()
+      match *self.ignores_progress_create.lock() {
+        true => std::future::pending().boxed_local(),
+        false => async { true }.boxed_local(),
+      }
     }
 
     fn send_progress(&self, token: NumberOrString, progress: WorkDoneProgress) -> LocalBoxFuture<'static, ()> {
