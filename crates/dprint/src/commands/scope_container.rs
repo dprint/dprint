@@ -56,6 +56,9 @@ pub struct PluginsScopeContainer<TEnvironment: Environment> {
   /// is still only once until `download_remote_files_again` (`--reload`).
   reload_remote_files: bool,
   session_permissions: Arc<SessionPermissions>,
+  /// Whether the plugins that aren't used anymore weren't shut down because a
+  /// config file was being resolved (see `shutdown_unused_plugins`).
+  has_unused_plugins_to_shut_down: Cell<bool>,
 }
 
 impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
@@ -74,6 +77,7 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
       config_override,
       reload_remote_files,
       session_permissions,
+      has_unused_plugins_to_shut_down: Default::default(),
     }
   }
 
@@ -166,6 +170,15 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
   }
 
   pub async fn resolve_config_file(&self, config_file: &ResolvedConfigPathWithText) -> Result<Rc<PluginsScope<TEnvironment>>> {
+    let result = self.resolve_config_file_inner(config_file).await;
+    // they weren't shut down while this was being resolved, which may not have got to it (ex. it's cached or it failed)
+    if self.has_unused_plugins_to_shut_down.get() {
+      self.shutdown_unused_plugins().await;
+    }
+    result
+  }
+
+  async fn resolve_config_file_inner(&self, config_file: &ResolvedConfigPathWithText) -> Result<Rc<PluginsScope<TEnvironment>>> {
     let cell = {
       let mut plugins_scope_by_config = self.plugins_scope_by_config.borrow_mut();
       plugins_scope_by_config.entry(get_config_file_key(config_file)).or_default().clone()
@@ -275,13 +288,17 @@ impl<TEnvironment: Environment> PluginsScopeContainer<TEnvironment> {
 
   /// Shuts down the plugins that none of the scopes use anymore (ex. a plugin
   /// that was removed from a config file), which leaves the others running so
-  /// that changing a config file doesn't stop formatting with another.
+  /// that changing a config file doesn't stop formatting with another. It's
+  /// done once the config files that are being resolved are, because they may
+  /// use any of them.
   async fn shutdown_unused_plugins(&self) {
+    self.has_unused_plugins_to_shut_down.set(false);
     let cells = self.plugins_scope_by_config.borrow().values().cloned().collect::<Vec<_>>();
     let mut used_plugins = Vec::new();
     for cell in cells {
       // a scope that's being resolved may use any of them
       let Some(cell) = cell.try_read() else {
+        self.has_unused_plugins_to_shut_down.set(true);
         return;
       };
       if let Some(cached_scope) = cell.as_ref() {
