@@ -1344,6 +1344,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
 
   /// Formats the document, which says the config file that was used.
   pub async fn format(self: &Rc<Self>, request: FormatRequest, token: &Arc<CancellationToken>) -> Result<(FormatOutcome, Option<ConfigFileInfo>)> {
+    // a request from before the client asked the server to shut down, which
+    // stopped the plugins, so they're not set up again for it
+    if self.stopped.is_cancelled() {
+      return Ok((FormatOutcome::Formatted(Vec::new()), None));
+    }
     let document_file = match self.get_document_file(&request.document) {
       Ok(document_file) => document_file,
       Err(err) => return Ok((FormatOutcome::NotFormatted(into_unsupported_document(err)?), None)),
@@ -1440,7 +1445,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let mut text = file_text.clone();
     let mut edits = Vec::new();
     for index in 0..ranges.len() {
-      if token.is_cancelled() {
+      if token.is_cancelled() || self.stopped.is_cancelled() {
         return Ok(FormatOutcome::Formatted(Vec::new()));
       }
       let range = ranges[index].as_ref().and_then(|range| get_byte_range(&text, range.start, range.end));
