@@ -1939,6 +1939,29 @@ fn should_not_watch_a_directory_of_an_extended_file_that_is_on_another_machine_n
 }
 
 #[test]
+fn should_approve_reading_a_plugin_of_the_config_file_on_another_machine() {
+  let environment = TestEnvironmentBuilder::new()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_plugin("./plugin.wasm");
+    })
+    .build();
+  // ex. a symlink in a cloned repository
+  environment.symlink(network_path("plugin.wasm"), "/a/plugin.wasm").unwrap();
+  run_session(&environment, |client| {
+    async move {
+      let result = client.format("/a/file.txt", "text").await;
+      assert_eq!(result.not_formatted_reason(), Some(NotFormattedReason::ApprovalRequired));
+      let approvals = result.approvals();
+      assert_eq!(approvals.len(), 1);
+      assert_eq!(approvals[0].kind, ApprovalKind::Downloads);
+      assert_eq!(approvals[0].config_file.uri, uri("/a/dprint.json"));
+      assert_eq!(approvals[0].items[0].kind, ApprovalItemKind::NetworkPath);
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_check_a_directory_alias_again_before_providing_a_path_through_it() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()

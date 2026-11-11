@@ -313,7 +313,11 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
 ) -> Result<ResolvedConfig, ResolveConfigError> {
   let base_source = config_path_and_text.source.parent();
   // the errors of the file's contents say which configuration file they're in
-  let with_source = |err: anyhow::Error| anyhow::anyhow!("{:#}\n    at {}", err, config_path_and_text.source.display());
+  let with_source = |err: anyhow::Error| match UntrustedDownloadError::find(&err) {
+    // keep this one's type so the editors can ask the user to allow it (ex. a plugin on another machine)
+    Some(_) => err,
+    None => anyhow::anyhow!("{:#}\n    at {}", err, config_path_and_text.source.display()),
+  };
   let mut config_map = get_config_map_from_path(ConfigPathContext {
     current: config_path_and_text.as_file_path_with_text_ref(),
     origin: &config_path_and_text.source,
