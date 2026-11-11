@@ -15,6 +15,7 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::utils::RemotePathSource;
+use crate::utils::UntrustedDownloadError;
 
 const MAX_REDIRECTS: usize = 10;
 
@@ -106,6 +107,9 @@ async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(
     Ok(Some(result)) => Ok(result),
     Ok(None) => bail!("Error downloading {} - 404 Not Found", url),
     Err(err) => match read_cached_chain(&cache, url, |_| true) {
+      // one that needs to be allowed (ex. in an editor) isn't a failure to reach the server, so
+      // the next check isn't deferred, which would be for the cli too
+      Ok(Some(cached)) if UntrustedDownloadError::find(&err).is_some() => Ok(cached),
       Ok(Some(cached)) => {
         log_warn!(
           environment,
@@ -798,6 +802,40 @@ mod tests {
       assert_eq!(result.content, b"v2");
       assert_eq!(environment.remote_file_request_count(url), 3);
       assert!(environment.take_stderr_messages().is_empty());
+    });
+  }
+
+  #[test]
+  fn should_not_defer_next_check_when_downloading_needs_to_be_allowed() {
+    let environment = TestEnvironment::new();
+    let url = "https://example.com/config.json";
+    environment.set_fs_time(1_000);
+    environment.add_remote_file_with_headers(url, b"v1", &[("cache-control", "max-age=300")]);
+    environment.clone().run_in_runtime(async move {
+      let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
+      // ex. the cli downloaded it
+      resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+
+      // stale in an editor, which doesn't trust the domain, so the cached one is used
+      environment.set_fs_time(1_300);
+      environment.add_remote_file_with_headers(url, b"v2", &[("cache-control", "max-age=300")]);
+      environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+      let result = resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      assert_eq!(result.content, b"v1");
+      assert_eq!(environment.remote_file_request_count(url), 1);
+      assert!(environment.take_stderr_messages().is_empty());
+
+      // and the cli still checks for a newer one
+      environment.set_download_policy(crate::utils::DownloadPolicy::All);
+      let result = resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      assert_eq!(result.content, b"v2");
+      assert_eq!(environment.remote_file_request_count(url), 2);
     });
   }
 
