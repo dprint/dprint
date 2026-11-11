@@ -2680,6 +2680,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err), Vec::new()));
       }
     };
+    // one that was forgotten while it was resolved (ex. it was deleted) isn't known again, which
+    // would publish its problems and watch what it extends
+    if !self.used_configs.borrow().contains_key(&key) {
+      return Ok(match scope.ensure_no_global_config_diagnostics() {
+        Ok(()) => DocumentConfig::Resolved(scope),
+        Err(err) => failed(NotFormattedReason::ConfigError, format!("{:#}", anyhow::Error::from(err)), Vec::new()),
+      });
+    }
     self.check_config_diagnostics(&key, &config_file, &scope);
     if let Err(err) = scope.ensure_no_global_config_diagnostics() {
       let err = anyhow::Error::from(err);

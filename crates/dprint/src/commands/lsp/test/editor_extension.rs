@@ -2848,6 +2848,42 @@ fn should_not_publish_the_error_of_a_config_file_that_was_deleted_while_it_was_r
   });
 }
 
+#[test]
+fn should_not_publish_the_diagnostics_of_a_config_file_that_was_deleted_while_it_was_resolved() {
+  const PLUGIN_URL: &str = "https://plugins.dprint.dev/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+    })
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        environment.add_unresponsive_remote_file(PLUGIN_URL);
+        let delete = async {
+          while environment.remote_file_request_count(PLUGIN_URL) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+          }
+          environment.remove_file("/a/dprint.json").unwrap();
+          client.did_change_file("/a/dprint.json", FileChangeType::DELETED).await;
+          client.wait_for_config_changes().await;
+          client.test_client.published_diagnostics.lock().clear();
+          // the plugin is then downloaded, so it resolves
+          environment.remove_unresponsive_remote_file(PLUGIN_URL);
+        };
+        let (config_info, _) = tokio::join!(client.config_info("/a/dprint.json"), delete);
+        assert_eq!(*client.test_client.published_diagnostics.lock(), Vec::new());
+        // nor is what it extends watched
+        assert_eq!(config_info.watch_uris, Vec::<Uri>::new());
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
 #[cfg(any(windows, target_os = "macos"))]
 #[test]
 fn should_not_know_two_directories_whose_names_are_only_different_in_case_as_one() {
