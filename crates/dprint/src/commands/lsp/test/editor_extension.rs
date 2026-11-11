@@ -1899,6 +1899,35 @@ fn should_stop_watching_a_config_file_that_is_on_another_machine_now() {
 }
 
 #[test]
+fn should_watch_what_a_config_file_with_problems_extends() {
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_remote_wasm_plugin().add_config_section("extends", r#""./base.json""#);
+    })
+    .build();
+  // the problem is in what it extends
+  environment.write_file("/a/base.json", r#"{ "lineWidth": "wide" }"#).unwrap();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let config_info = client.config_info("/a/dprint.json").await;
+        assert_eq!(config_info.status.reason(), Some(NotFormattedReason::ConfigError));
+        assert_eq!(config_info.watch_uris, vec![uri("/a/base.json")]);
+        // so fixing it there is known
+        environment.write_file("/a/base.json", "{}").unwrap();
+        client.did_change_file("/a/base.json", FileChangeType::CHANGED).await;
+        assert_eq!(client.wait_for_config_changes().await, vec![uri("/a/dprint.json")]);
+        assert_eq!(client.config_info("/a/dprint.json").await.status, FormatStatus::ready());
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_not_watch_a_directory_of_an_extended_file_that_is_on_another_machine_now() {
   let environment = TestEnvironmentBuilder::new()
     .add_remote_wasm_plugin()

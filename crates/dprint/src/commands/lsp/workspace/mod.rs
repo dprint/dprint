@@ -2693,6 +2693,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       let err = anyhow::Error::from(err);
       set_failed();
       self.show_config_error(key, &err);
+      // what it extends is still watched, because the problem may be there
+      if let Some(config) = &scope.config
+        && self.set_config_dependencies(&config_file, config)
+      {
+        self.register_watch_files();
+      }
       return Ok(failed(NotFormattedReason::ConfigError, format!("{:#}", err), Vec::new()));
     }
     self.config_errors.borrow_mut().remove(&key);
@@ -2935,17 +2941,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let Some(config) = &scope.config else {
       return;
     };
-    let mut are_dependencies_changed = false;
-    if let (Some(uri), Some(config_file_path)) = (ConfigFileRef::of_found(config_file).uri(), config_file.file_path()) {
-      let dependencies = ConfigDependencies {
-        file_path: config_file_path.to_path_buf(),
-        canonical_path: get_other_canonical_path(&config_file.source, config_file.found_path.as_deref()).map(|path| path.to_path_buf()),
-        dependencies: config.local_dependencies.clone(),
-      };
-      let mut config_dependencies = self.config_dependencies.borrow_mut();
-      are_dependencies_changed = config_dependencies.get(uri.as_str()) != Some(&dependencies);
-      config_dependencies.insert(uri.as_str().to_string(), dependencies);
-    }
+    let are_dependencies_changed = self.set_config_dependencies(config_file, config);
     let state = ResolvedConfigState {
       config: config.clone(),
       untrusted_downloads: scope.untrusted_downloads.clone(),
@@ -2966,6 +2962,23 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if are_dependencies_changed {
       self.register_watch_files();
     }
+  }
+
+  /// Sets the local files the config file was resolved from (ex. the ones it
+  /// extends), which provides whether they changed.
+  fn set_config_dependencies(&self, config_file: &ResolvedConfigPathWithText, config: &ResolvedConfig) -> bool {
+    let (Some(uri), Some(config_file_path)) = (ConfigFileRef::of_found(config_file).uri(), config_file.file_path()) else {
+      return false;
+    };
+    let dependencies = ConfigDependencies {
+      file_path: config_file_path.to_path_buf(),
+      canonical_path: get_other_canonical_path(&config_file.source, config_file.found_path.as_deref()).map(|path| path.to_path_buf()),
+      dependencies: config.local_dependencies.clone(),
+    };
+    let mut config_dependencies = self.config_dependencies.borrow_mut();
+    let is_changed = config_dependencies.get(uri.as_str()) != Some(&dependencies);
+    config_dependencies.insert(uri.as_str().to_string(), dependencies);
+    is_changed
   }
 
   /// Tells the download policy what the user denied downloading this session,
