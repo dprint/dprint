@@ -815,9 +815,11 @@ where
     if stamps.is_empty() {
       return false;
     }
+    // the first one is the plugin's own file, which the others are relative to
+    let plugin_dir = Path::new(&stamps[0].path).parent();
     stamps.iter().all(|stamp| {
       self
-        .file_size_and_mtime(&stamp.path)
+        .file_size_and_mtime(&stamp.path, plugin_dir)
         .map(|(len, modified)| len == stamp.len && to_unix_millis(modified) == stamp.modified_ms)
         .unwrap_or(false)
     })
@@ -840,15 +842,21 @@ where
     if plugin_kind == PluginKind::Process
       && pre_resolved_executable.is_none()
       && let Some(archive_path) = self.resolve_local_per_platform_archive_path(source, plugin_bytes)
-      && let Some(stamp) = self.stamp_for(&archive_path)
+      && let Some(stamp) = self.stamp_in_dir_for(&archive_path, source.maybe_local_path().and_then(|path| path.as_ref().parent()))
     {
       stamps.push(stamp);
     }
     Some(stamps)
   }
 
+  /// Gets the stamp of a plugin's own file.
   fn stamp_for(&self, path: impl AsRef<Path>) -> Option<LocalStamp> {
-    let (len, modified) = self.file_size_and_mtime(&path)?;
+    self.stamp_in_dir_for(&path, path.as_ref().parent())
+  }
+
+  /// Gets the stamp of a file of the plugin whose own file is in the directory.
+  fn stamp_in_dir_for(&self, path: impl AsRef<Path>, plugin_dir: Option<&Path>) -> Option<LocalStamp> {
+    let (len, modified) = self.file_size_and_mtime(&path, plugin_dir)?;
     Some(LocalStamp {
       path: path.as_ref().to_string_lossy().into_owned(),
       len,
@@ -858,17 +866,19 @@ where
 
   /// Size + modification time of a local file via sys_traits, or `None` if it
   /// can't be stat'd. The cheap stat that backs local cache-change detection.
-  fn file_size_and_mtime(&self, path: impl AsRef<Path>) -> Option<(u64, SystemTime)> {
+  /// The directory is the one of the plugin's own file.
+  fn file_size_and_mtime(&self, path: impl AsRef<Path>, plugin_dir: Option<&Path>) -> Option<(u64, SystemTime)> {
     let path = path.as_ref();
-    // IMPORTANT: Looking it up follows a symlink, which may be to another machine now (ex. the local per-platform
-    // archive of a process plugin that a `git pull` replaced with a symlink to a share, which the config's resolution
-    // doesn't check), which then has no stamp, so it's set up again, where `resolve_local_per_platform_archive_path`
-    // checks the archive. The plugin's own path is checked by the config's resolution on every request (see
-    // `resolve_url_or_file_path_to_path_source`).
+    // IMPORTANT: Looking it up contacts the machine it's on, which may be another one (ex. the local per-platform
+    // archive of a process plugin that a `git pull` replaced with a symlink to a share, or one that was on a share
+    // when it was set up before, which the config's resolution doesn't check), which then has no stamp, so it's set
+    // up again, where `resolve_local_per_platform_archive_path` checks the archive. So it's checked against where
+    // the plugin's own file is and not where it is itself, which would always be its own share. The plugin's own
+    // path is checked by the config's resolution on every request (see `resolve_url_or_file_path_to_path_source`).
     self
       .environment
       .download_policy()
-      .ensure_allows_path(&self.environment, path, path.parent())
+      .ensure_allows_path(&self.environment, path, plugin_dir)
       .ok()?;
     let metadata = self.environment.fs_metadata(path).ok()?;
     Some((metadata.len(), metadata.modified().ok()?))
@@ -1021,6 +1031,11 @@ mod test {
     // so it's set up again rather than looked up
     assert!(!plugin_cache.local_stamps_match(&meta));
     assert_eq!(environment.stat_count("/repo/plugin.zip"), 0);
+
+    // nor one that was on a share when it was set up before (ex. by the cli)
+    meta.local_stamps.as_mut().unwrap()[1].path = network_path.to_string();
+    assert!(!plugin_cache.local_stamps_match(&meta));
+    assert_eq!(environment.stat_count(network_path), 0);
   }
 
   fn make_wasm_meta(cache_key: &str, name: &str, version: &str, environment: &TestEnvironment) -> PluginCacheMeta {

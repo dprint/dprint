@@ -239,15 +239,9 @@ impl EditorApprovals {
     }
   }
 
-  /// Gets whether the decisions allow running the process plugin with its
-  /// configuration like they do in an editor, which an allow whose config hash
-  /// is made another way doesn't change.
-  pub fn is_process_plugin_allowed(&self, approval: &ProcessPluginApproval) -> bool {
-    self.get_process_plugin_allow(approval).is_some()
-  }
-
   /// Gets the decision that allows running the process plugin with its
-  /// configuration (see `is_process_plugin_allowed`).
+  /// configuration like the decisions do in an editor, which an allow whose
+  /// config hash is made another way doesn't change.
   pub fn get_process_plugin_allow(&self, approval: &ProcessPluginApproval) -> Option<&ProcessPluginDecision> {
     get_winning_decision(&self.process_plugin_decisions, approval).filter(|decision| decision.allowed)
   }
@@ -2862,7 +2856,7 @@ mod test {
     approvals.add_process_plugin_decision(at(decision("/a/dprint.json", "1:a", true), 1));
     approvals.add_process_plugin_decision(other_way.clone());
     // ex. the other version stored an allow since, which doesn't keep this version from storing its own
-    assert!(approvals.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
+    assert!(approvals.get_process_plugin_allow(&approval("/a/dprint.json", "1:a")).is_some());
     assert_eq!(
       approvals.process_plugin_decisions,
       vec![at(decision("/a/dprint.json", "1:a", true), 1), other_way.clone()]
@@ -2873,8 +2867,8 @@ mod test {
       approvals.process_plugin_decisions,
       vec![other_way.clone(), at(decision("/a/dprint.json", "1:b", true), 1)]
     );
-    assert!(!approvals.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
-    assert!(approvals.is_process_plugin_allowed(&approval("/a/dprint.json", "1:b")));
+    assert!(approvals.get_process_plugin_allow(&approval("/a/dprint.json", "1:a")).is_none());
+    assert!(approvals.get_process_plugin_allow(&approval("/a/dprint.json", "1:b")).is_some());
     // a denial that's older doesn't replace the allow made the other way
     let denied = ProcessPluginDecision {
       approval: ProcessPluginApproval::any_config("/a/dprint.json".to_string(), other_way.approval.plugin.clone()),
@@ -2924,7 +2918,8 @@ mod test {
     assert!(
       read_editor_approvals(&environment)
         .unwrap()
-        .is_process_plugin_allowed(&approval("/a/dprint.json", "1:a"))
+        .get_process_plugin_allow(&approval("/a/dprint.json", "1:a"))
+        .is_some()
     );
   }
 
