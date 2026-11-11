@@ -2705,7 +2705,8 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       config_text: config_text.clone(),
     };
     let previous = self.checked_scopes.borrow_mut().insert(key.to_string(), checked_scope);
-    if previous.is_some_and(|previous| previous.scope.ptr_eq(&weak_scope)) {
+    // the text may change without the config changing (ex. a comment), which moves where the problems are
+    if previous.is_some_and(|previous| previous.scope.ptr_eq(&weak_scope) && previous.config_text == config_text) {
       return;
     }
     self.publish_config_diagnostics(
@@ -2733,7 +2734,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         .checked_scopes
         .borrow()
         .get(&key)
-        .is_some_and(|checked| checked.scope.ptr_eq(&Rc::downgrade(&scope)));
+        .is_some_and(|checked| checked.scope.ptr_eq(&Rc::downgrade(&scope)) && checked.config_text == config_text);
       if !is_current {
         return;
       }

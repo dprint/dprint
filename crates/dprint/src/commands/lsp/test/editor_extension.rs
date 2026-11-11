@@ -1384,6 +1384,14 @@ fn should_publish_the_diagnostics_of_config_files() {
         // where the property is
         assert_eq!(diagnostics[0].1[0].range, Range::new(Position::new(1, 2), Position::new(1, 19)));
 
+        // they're moved when only the text changes (ex. a line is added above it)
+        let text = environment.read_file("/dprint.json").unwrap();
+        environment.write_file("/dprint.json", &format!("// comment\n{}", text)).unwrap();
+        client.config_info("/dprint.json").await;
+        let diagnostics = client.take_published_diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].1[0].range, Range::new(Position::new(2, 2), Position::new(2, 19)));
+
         // they're cleared once fixed
         environment
           .write_file("/dprint.json", r#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"] }"#)
