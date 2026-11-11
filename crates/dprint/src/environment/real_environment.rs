@@ -869,13 +869,13 @@ const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
 static CACHE_DIR: Lazy<io::Result<CanonicalizedPathBuf>> = Lazy::new(|| {
   #[allow(clippy::disallowed_methods)]
-  let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?;
+  let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok(), dirs::cache_dir)?;
   #[allow(clippy::disallowed_methods)]
   std::fs::create_dir_all(&cache_dir)?;
   canonicalize_path(cache_dir)
 });
 
-fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> io::Result<PathBuf> {
+fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>, get_user_cache_dir: impl FnOnce() -> Option<PathBuf>) -> io::Result<PathBuf> {
   if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME)
     && !dir_path.trim().is_empty()
   {
@@ -891,7 +891,7 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> io::R
     };
   }
 
-  match dirs::cache_dir() {
+  match get_user_cache_dir() {
     Some(dir) => Ok(dir.join("dprint").join("cache")),
     None => Err(io::Error::new(io::ErrorKind::NotFound, "Expected to find cache directory.")),
   }
@@ -1088,10 +1088,35 @@ fn is_dprint_process_using_cache_dir(process: &sysinfo::Process, current_process
   if !is_dprint || process.user_id() != current_process.user_id() || process.environ().is_empty() {
     return false;
   }
-  let process_cache_dir = get_cache_dir_internal(|var_name| get_environ_var(process.environ(), var_name));
+  let get_env_var = |var_name: &str| get_environ_var(process.environ(), var_name);
+  let process_cache_dir = get_cache_dir_internal(get_env_var, || get_user_cache_dir_with_env(get_env_var));
   process_cache_dir
     .and_then(canonicalize_path)
     .is_ok_and(|process_cache_dir| process_cache_dir == *cache_dir)
+}
+
+/// Gets the cache directory of the user like `dirs::cache_dir()` does, but
+/// from the environment variables of another process of the user, because
+/// it's from the ones of this process otherwise (ex. `XDG_CACHE_HOME`).
+fn get_user_cache_dir_with_env(get_env_var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+  // it's not from the environment variables on Windows
+  if cfg!(windows) {
+    return dirs::cache_dir();
+  }
+  let get_home_dir = || {
+    get_env_var("HOME")
+      .filter(|home_dir| !home_dir.is_empty())
+      .map(PathBuf::from)
+      .or_else(dirs::home_dir)
+  };
+  if cfg!(target_os = "macos") {
+    get_home_dir().map(|home_dir| home_dir.join("Library").join("Caches"))
+  } else {
+    get_env_var("XDG_CACHE_HOME")
+      .map(PathBuf::from)
+      .filter(|cache_dir| cache_dir.is_absolute())
+      .or_else(|| get_home_dir().map(|home_dir| home_dir.join(".cache")))
+  }
 }
 
 /// Gets an environment variable from the environment variables of a process,
@@ -1256,10 +1281,13 @@ mod test {
     } else {
       "/home/david/.dprint-cache"
     };
-    assert_eq!(get_cache_dir_internal(|_| Some(value.to_string())).unwrap().to_string_lossy(), value);
-    assert_eq!(get_cache_dir_internal(|_| Some("".to_string())).unwrap(), default_dir);
-    assert_eq!(get_cache_dir_internal(|_| Some("  ".to_string())).unwrap(), default_dir);
-    assert_eq!(get_cache_dir_internal(|_| None).unwrap(), default_dir);
+    assert_eq!(
+      get_cache_dir_internal(|_| Some(value.to_string()), dirs::cache_dir).unwrap().to_string_lossy(),
+      value
+    );
+    assert_eq!(get_cache_dir_internal(|_| Some("".to_string()), dirs::cache_dir).unwrap(), default_dir);
+    assert_eq!(get_cache_dir_internal(|_| Some("  ".to_string()), dirs::cache_dir).unwrap(), default_dir);
+    assert_eq!(get_cache_dir_internal(|_| None, dirs::cache_dir).unwrap(), default_dir);
   }
 
   #[test]
@@ -1272,8 +1300,30 @@ mod test {
   }
 
   #[test]
+  fn should_get_the_user_cache_dir_from_the_environment_variables_of_a_process() {
+    let get =
+      |vars: &[(&str, &str)]| get_user_cache_dir_with_env(|var_name| vars.iter().find(|(name, _)| *name == var_name).map(|(_, value)| value.to_string()));
+    let vars = [("HOME", "/other/home"), ("XDG_CACHE_HOME", "/other/cache")];
+    if cfg!(windows) {
+      assert_eq!(get(&vars), dirs::cache_dir());
+    } else if cfg!(target_os = "macos") {
+      assert_eq!(get(&vars), Some(PathBuf::from("/other/home/Library/Caches")));
+    } else {
+      assert_eq!(get(&vars), Some(PathBuf::from("/other/cache")));
+      assert_eq!(get(&vars[..1]), Some(PathBuf::from("/other/home/.cache")));
+      // one that's not absolute isn't used
+      assert_eq!(
+        get(&[("HOME", "/other/home"), ("XDG_CACHE_HOME", "cache")]),
+        Some(PathBuf::from("/other/home/.cache"))
+      );
+    }
+    // which is the one of this process with its environment variables
+    assert_eq!(get_user_cache_dir_with_env(|var_name| std::env::var(var_name).ok()), dirs::cache_dir());
+  }
+
+  #[test]
   fn should_error_when_cache_dir_env_var_relative() {
-    let result = get_cache_dir_internal(|_| Some("./dir".to_string())).err();
+    let result = get_cache_dir_internal(|_| Some("./dir".to_string()), || None).err();
     assert_eq!(
       result.unwrap().to_string(),
       "The DPRINT_CACHE_DIR environment variable must specify an absolute path."
