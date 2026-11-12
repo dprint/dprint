@@ -2,6 +2,7 @@ use crate::environment::Environment;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::utils::AsyncMutex;
+use crate::utils::LogLevel;
 use anyhow::Result;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
@@ -178,7 +179,7 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
   let communicator = ProcessPluginCommunicator::new(&restart_info.executable_file_path, move |error_message| {
     // consider messages from process plugins as warnings
     if environment.log_level().is_warn() {
-      environment.log_stderr_with_context(&error_message, &plugin_name);
+      environment.log_stderr_with_context(LogLevel::Warn, &error_message, &plugin_name);
     }
   })
   .await?;

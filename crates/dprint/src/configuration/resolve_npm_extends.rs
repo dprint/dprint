@@ -7,16 +7,20 @@ use std::rc::Rc;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
+use url::Url;
 
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::NpmrcChain;
 use crate::plugins::ensure_npm_package_extracted;
 use crate::plugins::find_package_in_node_modules;
+use crate::plugins::is_npm_package_extracted;
 use crate::utils::NpmPathSource;
 use crate::utils::NpmSpecifier;
+use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
 use crate::utils::ResolvedFilePathWithBytes;
+use crate::utils::UntrustedDownloadError;
 use crate::utils::parse_npm_specifier;
 
 /// File names checked at the root of an npm package when it doesn't otherwise
@@ -120,7 +124,7 @@ impl NpmExtendsResolver {
             name,
           );
         };
-        let Some(package_dir) = find_package_in_node_modules(&name, local_base.path.as_ref(), environment) else {
+        let Some(package_dir) = find_package_in_node_modules(&name, local_base.path.as_ref(), environment)? else {
           bail!(
             concat!(
               "Could not find {} in node_modules. Make sure the package is installed (ex. npm install {}) ",
@@ -142,6 +146,43 @@ impl NpmExtendsResolver {
         })
       }
     }
+  }
+
+  /// Gets the registry an npm specifier needs to be downloaded from with the
+  /// proxy of an `.npmrc` file that isn't the user's own that it's downloaded
+  /// through (see `NpmrcProxy`), which is `None` when it doesn't need to be
+  /// downloaded (ex. it's in node_modules or the npm cache).
+  ///
+  /// It errors when an `.npmrc` file that could set the registry couldn't be
+  /// read without asking the user (see `NpmrcChain::load`).
+  pub fn get_download(
+    &self,
+    text: &str,
+    base: &PathSource,
+    environment: &impl Environment,
+  ) -> Result<Option<(Url, Option<NpmrcProxy>)>, UntrustedDownloadError> {
+    let Ok(parsed) = parse_npm_specifier(text) else {
+      return Ok(None);
+    };
+    let Some(version) = parsed.specifier.version else {
+      return Ok(None);
+    };
+    let base_dir: Option<&Path> = match base {
+      PathSource::Local(local) => Some(local.path.as_ref()),
+      PathSource::Npm(npm) => npm.base_dir.as_ref().map(|d| d.as_ref()),
+      PathSource::Remote(_) => None,
+    };
+    let registry = self
+      .npmrc_chain(base_dir, environment)
+      .registry_for_package(&parsed.specifier.name, environment)?;
+    if is_npm_package_extracted(&parsed.specifier.name, &version, &registry, environment) {
+      return Ok(None);
+    }
+    let Ok(url) = Url::parse(&registry.url) else {
+      return Ok(None);
+    };
+    let proxy = registry.npmrc_proxy_for(&url).cloned();
+    Ok(Some((url, proxy)))
   }
 
   /// Resolves a relative path in the `extends` property of a configuration file
@@ -207,7 +248,7 @@ impl NpmExtendsResolver {
         ..package.clone()
       });
     }
-    let registry = self.npmrc_chain(base_dir, environment).registry_for_package(name, environment);
+    let registry = self.npmrc_chain(base_dir, environment).registry_for_package(name, environment)?;
     let package = ensure_npm_package_extracted(name, version, &registry, environment).await?;
     let package = RegistryPackageDir {
       dir: package.dir,
@@ -219,12 +260,16 @@ impl NpmExtendsResolver {
   }
 
   fn npmrc_chain(&self, start_dir: Option<&Path>, environment: &impl Environment) -> Rc<NpmrcChain> {
-    self
-      .npmrc_chains
-      .borrow_mut()
-      .entry(start_dir.map(|d| d.to_path_buf()))
-      .or_insert_with(|| Rc::new(NpmrcChain::load(start_dir, environment)))
-      .clone()
+    let key = start_dir.map(|d| d.to_path_buf());
+    if let Some(chain) = self.npmrc_chains.borrow().get(&key) {
+      return chain.clone();
+    }
+    let chain = Rc::new(NpmrcChain::load(start_dir, environment));
+    // one with a file that wasn't read is loaded again in case reading it was allowed since
+    if !chain.has_unread_files() {
+      self.npmrc_chains.borrow_mut().insert(key, chain.clone());
+    }
+    chain
   }
 
   fn read_package_json(&self, package_dir: &Path, environment: &impl Environment) -> Result<Rc<Option<serde_json::Value>>> {
@@ -278,20 +323,29 @@ impl NpmExtendsResolver {
       return Ok(sub_path.to_string());
     }
 
+    // IMPORTANT: Check a file before looking it up because it may be on another
+    // machine (see `find_package_in_node_modules`).
+    let package_paths = environment.download_policy().ancestor_paths(package_dir);
+    let file_exists = |file: &str| -> Result<bool> {
+      let path = package_dir.join(file);
+      package_paths.ensure_allows(environment, &path, Some(package_dir))?;
+      Ok(environment.path_exists(&path))
+    };
     let main = package_json
       .as_ref()
       .as_ref()
       .and_then(|p| p.get("main"))
       .and_then(|m| m.as_str())
       .filter(|m| is_json_file_name(m))
-      .and_then(normalize_package_json_path)
-      .filter(|m| environment.path_exists(package_dir.join(m)));
-    if let Some(main) = main {
+      .and_then(normalize_package_json_path);
+    if let Some(main) = main
+      && file_exists(&main)?
+    {
       return Ok(main);
     }
 
     for file_name in DEFAULT_CONFIG_FILE_NAMES {
-      if environment.path_exists(package_dir.join(file_name)) {
+      if file_exists(file_name)? {
         return Ok(file_name.to_string());
       }
     }
@@ -320,6 +374,9 @@ struct RegistryPackageDir {
 
 fn read_package_json(package_dir: &Path, environment: &impl Environment) -> Result<Option<serde_json::Value>> {
   let path = package_dir.join("package.json");
+  // IMPORTANT: Check this before reading it because a file in the package may be
+  // on another machine (see `find_package_in_node_modules`).
+  environment.download_policy().ensure_allows_path(environment, &path, Some(package_dir))?;
   if !environment.path_exists(&path) {
     return Ok(None);
   }
@@ -449,6 +506,9 @@ fn read_package_file(package_dir: &Path, package_name: &str, path: &str, environ
 
 fn get_existing_package_file_path(package_dir: &Path, package_name: &str, path: &str, environment: &impl Environment) -> Result<PathBuf> {
   let file_path = package_dir.join(path);
+  // IMPORTANT: Check this before reading it because a file in the package may be
+  // on another machine (see `find_package_in_node_modules`).
+  environment.download_policy().ensure_allows_path(environment, &file_path, Some(package_dir))?;
   if !environment.path_is_file(&file_path) {
     bail!("Could not find {} in npm package {}.", path, package_name);
   }
@@ -694,6 +754,56 @@ mod tests {
       let err = resolve_config("/dprint.json", &environment).await.unwrap_err().to_string();
       assert!(err.starts_with("Expected a checksum for 'https://dprint.dev/other.json'"), "{err}");
     });
+  }
+
+  #[test]
+  fn should_need_the_proxy_of_a_project_npmrc_to_be_allowed_by_the_editors() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/dprint.json", r#"{ "extends": "npm:config@1.0.0" }"#)
+      .write_file("/.npmrc", "https-proxy=https://${TOKEN}@proxy.example")
+      .build();
+    environment.set_env_var("TOKEN", Some("secret"));
+    add_registry_package(&environment, "config", "1.0.0", &[("package/dprint.json", r#"{ "prop1": 1 }"#)]);
+    environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+    let npmrc_proxy = crate::utils::NpmrcProxy {
+      npmrc_path: Path::new("/").join(".npmrc").display().to_string(),
+      setting: "https://${TOKEN}@proxy.example".to_string(),
+    };
+
+    environment.clone().run_in_runtime(async move {
+      // the registry is trusted, but not the proxy
+      let err = resolve_config("/dprint.json", &environment).await.unwrap_err();
+      assert_eq!(crate::utils::UntrustedDownloadError::find(&err).unwrap().download, npmrc_proxy.to_download());
+      assert_eq!(environment.remote_file_request_count("https://registry.npmjs.org/config"), 0);
+      environment.download_policy().allow(&[npmrc_proxy.to_download()]);
+      let result = resolve_config("/dprint.json", &environment).await.unwrap();
+      assert_eq!(get_number(&result, "prop1"), 1);
+    });
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_need_finding_the_config_file_of_a_package_on_another_machine_allowed_by_the_editors() {
+    for (package_json, file_name) in [(r#"{ "main": "index.json" }"#, "index.json"), ("{}", "dprint.json")] {
+      let environment = TestEnvironmentBuilder::new()
+        .write_file("/dprint.json", r#"{ "extends": "npm:config" }"#)
+        .write_file("/node_modules/config/package.json", package_json)
+        .build();
+      environment
+        .symlink(format!(r"\\server\share\{}", file_name), format!("/node_modules/config/{}", file_name))
+        .unwrap();
+      environment.set_download_policy(crate::utils::DownloadPolicy::for_editor(&environment));
+
+      environment.clone().run_in_runtime(async move {
+        // it isn't looked up before it's allowed
+        let err = resolve_config("/dprint.json", &environment).await.unwrap_err();
+        let path = Path::new("/").join("node_modules").join("config").join(file_name);
+        assert_eq!(
+          crate::utils::UntrustedDownloadError::find(&err).unwrap().download,
+          format!(r"{} -> \\server\share\{}", path.display(), file_name)
+        );
+      });
+    }
   }
 
   #[test]

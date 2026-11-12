@@ -20,6 +20,7 @@ use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::InstallSubCommand;
 use crate::arg_parser::OutputResolvedConfigSubCommand;
 use crate::cache::RemoteCacheMode;
+use crate::commands::process_plugin_approval::allow_process_plugins_in_editors;
 use crate::configuration::GetInitConfigFileTextOptions;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
@@ -194,7 +195,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
   config_file_path: PathBuf,
   options: &InitConfigFileOptions<'_>,
 ) -> Result<()> {
-  let dirs = resolve_local_config_file_dirs(environment, &environment.cwd().as_ref().join(&config_file_path))?;
+  let (dirs, _) = resolve_config_file_dirs_at_path(environment, &environment.cwd().as_ref().join(&config_file_path))?;
   let config_file_path = environment.canonicalize(&config_file_path)?;
   let config_dir = config_file_path.parent();
   let file_text = environment.read_file(&config_file_path)?;
@@ -208,6 +209,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
       is_global_config: options.global,
+      found_path: None,
     },
     options.remote_cache_mode,
     environment,
@@ -1002,6 +1004,11 @@ pub async fn install_plugins<TEnvironment: Environment>(
       ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
     )
     .await?;
+    if args.plugins.is_empty() {
+      for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
+        allow_process_plugins_in_editors(environment, config, plugin_resolver).await;
+      }
+    }
     scopes
       .iter()
       .flat_map(|scope| scope.scope.plugins.values())
@@ -1010,7 +1017,15 @@ pub async fn install_plugins<TEnvironment: Environment>(
   } else {
     // only resolve the plugins, as there's no need to start them up
     let config = resolve_config_from_args(args, environment).await?;
-    plugin_resolver.resolve_plugins(config.plugins).await.map_err(ResolvePluginsError::from)?
+    let plugins = plugin_resolver
+      .resolve_plugins(config.plugins.clone())
+      .await
+      .map_err(ResolvePluginsError::from)?;
+    // the plugins provided as arguments aren't the config file's
+    if args.plugins.is_empty() {
+      allow_process_plugins_in_editors(environment, &config, plugin_resolver).await;
+    }
+    plugins
   };
 
   let mut seen_plugins = HashSet::new();
@@ -1215,6 +1230,22 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   run_plugin_config_updates(environment, args, &file_pattern_args, plugin_resolver, &updates_per_scope)
     .await
     .with_context(|| "Failed running plugin config updates.".to_string())?;
+
+  // updating ran the process plugins of each config file, which is the same as choosing to run
+  // them, so the editors run them too with the configuration they were updated to
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &file_pattern_args,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions {
+      skip_traversal: config_discovery.is_global(),
+    },
+  )
+  .await?;
+  for config in scopes.iter().filter_map(|scope| scope.scope.config.as_ref()) {
+    allow_process_plugins_in_editors(environment, config, plugin_resolver).await;
+  }
 
   Ok(())
 }
@@ -1772,8 +1803,12 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = Rc::new(resolve_config_from_args(args, environment).await?);
-  let plugins_scope = resolve_plugins_scope(config, environment, plugin_resolver).await?;
+  let plugins_scope = resolve_plugins_scope(config.clone(), environment, plugin_resolver).await?;
   plugins_scope.ensure_no_global_config_diagnostics()?;
+  // resolving the configuration of the plugins runs them, and the plugins provided as arguments aren't the config file's
+  if args.plugins.is_empty() {
+    allow_process_plugins_in_editors(environment, &config, plugin_resolver).await;
+  }
 
   // when a file path is provided, limit the output to only the plugins that
   // would format that file (resolving associations, file names, and extensions
@@ -4408,6 +4443,176 @@ text",
     let commands = environment.take_run_commands();
     let (args, _) = &commands[0];
     assert_eq!(args[args.len() - 1], "/custom.config.json");
+  }
+
+  fn get_allowed_process_plugins(environment: &TestEnvironment) -> Vec<String> {
+    crate::configuration::read_editor_approvals(environment)
+      .unwrap()
+      .process_plugin_decisions
+      .into_iter()
+      .filter(|decision| decision.allowed)
+      .map(|decision| decision.approval.plugin)
+      .collect()
+  }
+
+  /// Gets the environment of `get_setup_env` where the process plugin that's
+  /// added isn't in the config file yet but can be set up.
+  fn get_process_plugin_to_add_env(config_has_wasm: bool) -> TestEnvironment {
+    get_setup_builder(SetupEnvOptions {
+      config_has_wasm,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: true,
+    })
+    .add_remote_process_plugin_at_url("https://plugins.dprint.dev/test-plugin-3.json", &*NEW_PROCESS_PLUGIN_FILE)
+    .initialize()
+    .build()
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_adding() {
+    let environment = get_process_plugin_to_add_env(false);
+    run_test_cli(vec!["config", "add", "test-process-plugin"], &environment).unwrap();
+    environment.take_stderr_messages();
+    let plugins = get_allowed_process_plugins(&environment);
+    assert_eq!(plugins.len(), 1, "{:?}", plugins);
+    assert!(plugins[0].starts_with("https://plugins.dprint.dev/test-plugin-3.json@"), "{}", plugins[0]);
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_initializing() {
+    let environment = get_process_plugin_to_add_env(true);
+    // the plugin the config file already has isn't selectable
+    environment.set_prompt_keys(&["space", "enter"], None).unwrap();
+    run_test_cli(vec!["init"], &environment).unwrap();
+    environment.take_prompt_screens();
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    let plugins = get_allowed_process_plugins(&environment);
+    assert_eq!(plugins.len(), 1, "{:?}", plugins);
+    assert!(plugins[0].starts_with("https://plugins.dprint.dev/test-plugin-3.json@"), "{}", plugins[0]);
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_outputting_what_runs_them() {
+    for args in [
+      vec!["output-resolved-config"],
+      vec!["output-file-paths"],
+      vec!["incremental-state"],
+      vec!["output-format-times"],
+    ] {
+      let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+        .write_file("/file.txt_ps", "text")
+        .build();
+      run_test_cli(args.clone(), &environment).unwrap();
+      environment.take_stdout_messages();
+      environment.take_stderr_messages();
+      assert_eq!(get_allowed_process_plugins(&environment).len(), 1, "{:?}", args);
+    }
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_updating() {
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: true,
+    });
+    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+    environment.take_stderr_messages();
+    let approvals = crate::configuration::read_editor_approvals(&environment)
+      .unwrap()
+      .process_plugin_decisions
+      .into_iter()
+      .filter(|decision| decision.allowed)
+      .map(|decision| decision.approval)
+      .collect::<Vec<_>>();
+    // the plugin it was updated to is allowed
+    assert_eq!(approvals.len(), 1, "{:?}", approvals);
+    assert_eq!(approvals[0].config_file, "/dprint.json");
+    assert!(
+      approvals[0].plugin.starts_with("https://plugins.dprint.dev/test-plugin-3.json@"),
+      "{}",
+      approvals[0].plugin
+    );
+  }
+
+  #[test]
+  fn should_not_allow_process_plugins_in_editors_on_a_dry_run_update() {
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: true,
+    });
+    run_test_cli(vec!["config", "update", "--dry-run"], &environment).unwrap();
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    assert_eq!(
+      crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions,
+      Vec::new()
+    );
+  }
+
+  #[test]
+  fn should_allow_process_plugins_in_editors_when_installing() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_process_plugin();
+      })
+      .build();
+    let get_approvals = || {
+      crate::configuration::read_editor_approvals(&environment)
+        .unwrap()
+        .process_plugin_decisions
+        .into_iter()
+        .filter(|decision| decision.allowed)
+        .map(|decision| decision.approval)
+        .collect::<Vec<_>>()
+    };
+
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
+    let approvals = get_approvals();
+    assert_eq!(approvals.len(), 1);
+    assert_eq!(approvals[0].config_file, "/dprint.json");
+    assert!(
+      approvals[0].plugin.starts_with("https://plugins.dprint.dev/test-process.json@"),
+      "{}",
+      approvals[0].plugin
+    );
+
+    // the plugin is allowed with its configuration
+    environment
+      .write_file(
+        "/dprint.json",
+        &environment
+          .read_file("/dprint.json")
+          .unwrap()
+          .replacen('{', r#"{ "testProcessPlugin": { "ending": "custom" }, "#, 1),
+      )
+      .unwrap();
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
+    let new_approvals = get_approvals();
+    assert_eq!(new_approvals.len(), 1);
+    assert_eq!(new_approvals[0].plugin, approvals[0].plugin);
+    assert_ne!(new_approvals[0].config_hash, approvals[0].config_hash);
+
+    // the global configuration isn't part of it
+    environment
+      .write_file(
+        "/dprint.json",
+        &environment.read_file("/dprint.json").unwrap().replacen('{', r#"{ "lineWidth": 10, "#, 1),
+      )
+      .unwrap();
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
+    assert_eq!(get_approvals(), new_approvals);
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
   }
 
   fn test_plugin_resolver(environment: &TestEnvironment) -> std::rc::Rc<crate::plugins::PluginResolver<TestEnvironment>> {

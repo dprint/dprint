@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use dprint_core::configuration::ConfigurationDiagnostic;
 use thiserror::Error;
 
 use super::FormatConfig;
@@ -12,8 +13,21 @@ use crate::environment::Environment;
 pub struct OutputPluginConfigDiagnosticsError {
   pub plugin_name: String,
   pub diagnostic_count: usize,
-  /// The text of each diagnostic in the form it was logged.
-  pub diagnostics: Vec<String>,
+  pub diagnostics: Vec<PluginConfigDiagnostic>,
+}
+
+/// A problem with the configuration of a plugin, which is displayed in the
+/// form it's logged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginConfigDiagnostic {
+  pub plugin_name: String,
+  pub diagnostic: ConfigurationDiagnostic,
+}
+
+impl std::fmt::Display for PluginConfigDiagnostic {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "[{}]: {}", self.plugin_name, self.diagnostic)
+  }
 }
 
 pub async fn output_plugin_config_diagnostics<TEnvironment: Environment>(
@@ -25,9 +39,12 @@ pub async fn output_plugin_config_diagnostics<TEnvironment: Environment>(
   let mut diagnostics = Vec::new();
 
   for diagnostic in plugin.config_diagnostics(format_config).await? {
-    let message = format!("[{}]: {}", plugin_name, diagnostic);
-    log_warn!(environment, "{}", message);
-    diagnostics.push(message);
+    let diagnostic = PluginConfigDiagnostic {
+      plugin_name: plugin_name.to_string(),
+      diagnostic,
+    };
+    log_warn!(environment, "{}", diagnostic);
+    diagnostics.push(diagnostic);
   }
 
   if !diagnostics.is_empty() {

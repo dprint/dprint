@@ -9,6 +9,7 @@ use sys_traits::FsMetadataValue;
 
 use crate::environment::DirEntry;
 use crate::environment::Environment;
+use crate::utils::AncestorPaths;
 use crate::utils::escape_glob_text;
 
 /// Lifted from the Deno code.
@@ -140,12 +141,14 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
   /// Resolves the gitignore for the children of a directory the caller has
   /// already listed, passing a hint so resolution can avoid redundant reads.
   pub fn get_resolved_git_ignore_for_dir_children(&mut self, dir_path: &Path, hint: DirEntriesHint) -> Option<Rc<DirGitIgnores>> {
-    self.get_resolved_git_ignore_inner(dir_path, Some(hint))
+    let ancestor_paths = self.environment.download_policy().ancestor_paths(dir_path);
+    self.get_resolved_git_ignore_inner(dir_path, Some(hint), &ancestor_paths)
   }
 
   pub fn get_resolved_git_ignore_for_file(&mut self, file_path: &Path) -> Option<Rc<DirGitIgnores>> {
     let dir_path = file_path.parent()?;
-    self.get_resolved_git_ignore_inner(dir_path, None)
+    let ancestor_paths = self.environment.download_policy().ancestor_paths(dir_path);
+    self.get_resolved_git_ignore_inner(dir_path, None, &ancestor_paths)
   }
 
   /// Drops what was resolved for the file's ancestor directories when a
@@ -160,6 +163,10 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     if !self.options.detect_changes {
       return;
     }
+    let Some(file_dir_path) = file_path.parent() else {
+      return;
+    };
+    let ancestor_paths = self.environment.download_policy().ancestor_paths(file_dir_path);
     let mut stale_dir = None;
     for dir_path in file_path.ancestors().skip(1) {
       // a directory that hasn't been resolved gets resolved from the file
@@ -167,7 +174,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
       let Some(snapshot) = self.ignores.get(dir_path).and_then(|cached| cached.snapshot.as_ref()) else {
         continue;
       };
-      let current_snapshot = self.take_dir_snapshot(dir_path);
+      let current_snapshot = self.take_dir_snapshot(dir_path, &ancestor_paths);
       if *snapshot != current_snapshot {
         stale_dir = Some(dir_path);
       }
@@ -181,36 +188,44 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     }
   }
 
-  fn get_resolved_git_ignore_inner(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>) -> Option<Rc<DirGitIgnores>> {
+  /// Resolves the gitignore of the directory, where the ancestor paths are of
+  /// the directory or one of its descendants (see `may_read_gitignore`).
+  fn get_resolved_git_ignore_inner(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>, ancestor_paths: &AncestorPaths) -> Option<Rc<DirGitIgnores>> {
     let maybe_resolved = self.ignores.get(dir_path).map(|cached| cached.resolved.clone());
     if let Some(resolved) = maybe_resolved {
       resolved
     } else {
-      let cached = self.resolve_gitignore_in_dir(dir_path, hint);
+      let cached = self.resolve_gitignore_in_dir(dir_path, hint, ancestor_paths);
       let resolved = cached.resolved.clone();
       self.ignores.insert(dir_path.to_owned(), cached);
       resolved
     }
   }
 
-  fn resolve_gitignore_in_dir(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>) -> CachedDir {
+  fn resolve_gitignore_in_dir(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>, ancestor_paths: &AncestorPaths) -> CachedDir {
     // take this before reading the files so a change made while resolving
     // is seen as a change the next time
-    let snapshot = self.options.detect_changes.then(|| self.take_dir_snapshot(dir_path));
+    let snapshot = self.options.detect_changes.then(|| self.take_dir_snapshot(dir_path, ancestor_paths));
     // a directory containing `.git` is the root of a repository, so don't
     // search for gitignores above it
     let is_repo_root = match (&snapshot, hint) {
       (Some(snapshot), _) => snapshot.has_git,
-      (None, Some(hint)) => hint.has_git,
-      (None, None) => self.environment.path_exists(dir_path.join(".git")),
+      (None, Some(hint)) => hint.has_git && self.may_access(&dir_path.join(".git"), dir_path, ancestor_paths, true),
+      (None, None) => {
+        let git_path = dir_path.join(".git");
+        self.may_access(&git_path, dir_path, ancestor_paths, true) && self.environment.path_exists(&git_path)
+      }
     };
     let parent = if is_repo_root {
       None
     } else {
       // ancestors aren't part of the caller's listing, so resolve them without a hint
-      dir_path.parent().and_then(|parent| self.get_resolved_git_ignore_inner(parent, None))
+      // what's above the root of a share isn't on it (ex. `/net/.gitignore` is a host named `.gitignore`)
+      ancestor_paths
+        .parent_on_share(&self.environment, dir_path)
+        .and_then(|parent| self.get_resolved_git_ignore_inner(parent, None, ancestor_paths))
     };
-    let current = self.resolve_current_gitignore(dir_path, is_repo_root, hint);
+    let current = self.resolve_current_gitignore(dir_path, is_repo_root, hint, ancestor_paths);
     let resolved = if parent.is_none() && current.is_none() {
       None
     } else {
@@ -219,21 +234,27 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     CachedDir { resolved, snapshot }
   }
 
-  fn resolve_current_gitignore(&self, dir_path: &Path, is_repo_root: bool, hint: Option<DirEntriesHint>) -> Option<Rc<ignore::gitignore::Gitignore>> {
+  fn resolve_current_gitignore(
+    &self,
+    dir_path: &Path,
+    is_repo_root: bool,
+    hint: Option<DirEntriesHint>,
+    ancestor_paths: &AncestorPaths,
+  ) -> Option<Rc<ignore::gitignore::Gitignore>> {
     // skip the read when the caller's listing already shows there's no `.gitignore`
     let maybe_has_gitignore = hint.map(|h| h.has_gitignore).unwrap_or(true);
     let gitignore_text = if maybe_has_gitignore {
-      self.environment.read_file(dir_path.join(".gitignore")).ok()
+      self.read_gitignore(&dir_path.join(".gitignore"), dir_path, ancestor_paths)
     } else {
       None
     };
     // git also reads `.git/info/exclude` at the repository root, treating it
     // like an uncommitted `.gitignore` there (https://git-scm.com/docs/gitignore).
     // Only the repo root can have this file, so avoid the read everywhere else.
-    let exclude_text = if is_repo_root {
-      self.environment.read_file(dir_path.join(".git").join("info").join("exclude")).ok()
-    } else {
-      None
+    let exclude_path = is_repo_root.then(|| dir_path.join(".git").join("info").join("exclude"));
+    let exclude_text = match exclude_path {
+      Some(exclude_path) if self.may_access(&exclude_path, dir_path, ancestor_paths, true) => self.environment.read_file(&exclude_path).ok(),
+      _ => None,
     };
     // git's global excludes file applies repository-wide, so resolve it at the
     // repo root where it becomes the parent of every descendant directory
@@ -275,18 +296,71 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     Some(Rc::new(gitignore))
   }
 
-  fn take_dir_snapshot(&self, dir_path: &Path) -> DirSnapshot {
+  /// Reads the `.gitignore` file of the directory, which is ignored when it's
+  /// on another machine (see `may_read_gitignore`).
+  fn read_gitignore(&self, gitignore_path: &Path, dir_path: &Path, ancestor_paths: &AncestorPaths) -> Option<String> {
+    if !self.may_read_gitignore(gitignore_path, dir_path, ancestor_paths) {
+      log_debug!(self.environment, "Ignoring {} because it's on another machine.", gitignore_path.display());
+      return None;
+    }
+    self.environment.read_file(gitignore_path).ok()
+  }
+
+  /// Gets whether the `.gitignore` file of the directory may be read.
+  ///
+  /// IMPORTANT: It's ignored when it's on another machine (ex. a symlink in the
+  /// repository to a UNC path or into `/net`) that the download policy doesn't
+  /// allow reading without asking, because reading it contacts the machine,
+  /// which git also doesn't do for a symlinked `.gitignore`. One on the same
+  /// share as the directory is read.
+  ///
+  /// The ancestor paths are of the directory or one of its descendants, so the
+  /// directories are only followed through the file system once for all of
+  /// their `.gitignore` files.
+  fn may_read_gitignore(&self, gitignore_path: &Path, dir_path: &Path, ancestor_paths: &AncestorPaths) -> bool {
+    ancestor_paths.ensure_allows(&self.environment, gitignore_path, Some(dir_path)).is_ok()
+  }
+
+  /// Gets whether a file of git in the directory (ex. its `.git` or
+  /// `.git/info/exclude`) may exist and be looked up without asking the user.
+  ///
+  /// IMPORTANT: Looking it up follows its symlinks, which contacts the machine
+  /// it's on (ex. a `.git` that someone else made a symlink to a share in an
+  /// ancestor directory like `/tmp`), so one on another machine is treated as
+  /// missing, which is like the CLI when it can't read it. A directory whose
+  /// `.git` is then isn't the root of a repository.
+  ///
+  /// It's only logged when `log` is `true`, because the changes are checked on
+  /// every refresh (see `take_dir_snapshot`).
+  fn may_access(&self, path: &Path, dir_path: &Path, ancestor_paths: &AncestorPaths, log: bool) -> bool {
+    match ancestor_paths.ensure_allows_existing(&self.environment, path, Some(dir_path)) {
+      Ok(may_exist) => may_exist,
+      Err(_) => {
+        if log {
+          log_debug!(self.environment, "Ignoring {} because it's on another machine.", path.display());
+        }
+        false
+      }
+    }
+  }
+
+  fn take_dir_snapshot(&self, dir_path: &Path, ancestor_paths: &AncestorPaths) -> DirSnapshot {
     let git_path = dir_path.join(".git");
     // not `path_exists` because that would debug log on every refresh
-    let has_git = self.environment.fs_metadata(&git_path).is_ok();
+    let has_git = self.may_access(&git_path, dir_path, ancestor_paths, false) && self.environment.fs_metadata(&git_path).is_ok();
+    let exclude_path = has_git.then(|| git_path.join("info").join("exclude"));
+    let gitignore_path = dir_path.join(".gitignore");
     DirSnapshot {
       has_git,
-      gitignore: self.take_file_snapshot(&dir_path.join(".gitignore")),
-      // only read at the repository root
-      exclude: if has_git {
-        self.take_file_snapshot(&git_path.join("info").join("exclude"))
+      gitignore: if self.may_read_gitignore(&gitignore_path, dir_path, ancestor_paths) {
+        self.take_file_snapshot(&gitignore_path)
       } else {
         None
+      },
+      // only read at the repository root
+      exclude: match exclude_path {
+        Some(exclude_path) if self.may_access(&exclude_path, dir_path, ancestor_paths, false) => self.take_file_snapshot(&exclude_path),
+        _ => None,
       },
     }
   }
@@ -519,6 +593,75 @@ mod test {
     let path = PathBuf::from("/ignored.txt");
     let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
     assert!(gitignore.is_ignored(&path, /* is_dir */ false));
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn ignores_a_gitignore_on_another_machine_in_the_editors() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/repo/.git").unwrap();
+    env.symlink(r"\\server\share\gitignore", "/repo/.gitignore").unwrap();
+    let resolve = |options: GitIgnoreTreeOptions| {
+      let mut ignore_tree = GitIgnoreTree::new(env.clone(), options);
+      ignore_tree.get_resolved_git_ignore_for_file(Path::new("/repo/file.txt"));
+    };
+    // the cli reads it
+    resolve(GitIgnoreTreeOptions::default());
+    assert_eq!(env.file_read_count("/repo/.gitignore"), 1);
+    // the editors don't contact the machine
+    env.set_download_policy(crate::utils::DownloadPolicy::for_editor(&env));
+    resolve(GitIgnoreTreeOptions::default());
+    resolve(GitIgnoreTreeOptions {
+      detect_changes: true,
+      ..Default::default()
+    });
+    assert_eq!(env.file_read_count("/repo/.gitignore"), 1);
+  }
+
+  #[test]
+  fn ignores_a_git_dir_on_another_machine_in_the_editors() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/tmp/proj/src").unwrap();
+    // ex. another user made it in a directory that's anyone's
+    let network_dir = if cfg!(windows) { r"\\server\share\git" } else { "/net/server/share/git" };
+    env.symlink(network_dir, "/tmp/.git").unwrap();
+    env.set_download_policy(crate::utils::DownloadPolicy::for_editor(&env));
+    for options in [
+      GitIgnoreTreeOptions::default(),
+      GitIgnoreTreeOptions {
+        detect_changes: true,
+        ..Default::default()
+      },
+    ] {
+      let mut ignore_tree = GitIgnoreTree::new(env.clone(), options);
+      ignore_tree.get_resolved_git_ignore_for_file(Path::new("/tmp/proj/src/file.txt"));
+      ignore_tree.refresh_for_file(Path::new("/tmp/proj/src/file.txt"));
+    }
+    assert_eq!(env.stat_count("/tmp/.git"), 0);
+    assert_eq!(env.stat_count("/tmp/.git/info/exclude"), 0);
+    assert_eq!(env.file_read_count("/tmp/.git/info/exclude"), 0);
+  }
+
+  #[test]
+  fn follows_the_directories_once_for_their_gitignores_in_the_editors() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/a/b/c/repo/.git").unwrap();
+    env.mk_dir_all("/a/b/c/repo/d/e/f/g/h/i/j").unwrap();
+    env.set_download_policy(crate::utils::DownloadPolicy::for_editor(&env));
+    let mut ignore_tree = new_change_detecting_tree(&env);
+    let file_path = Path::new("/a/b/c/repo/d/e/f/g/h/i/j/file.txt");
+    ignore_tree.get_resolved_git_ignore_for_file(file_path);
+    let count = env.path_kind_count();
+    ignore_tree.refresh_for_file(file_path);
+    // the components of the file's directory and then each `.gitignore` and `.git` up to the repository root (and
+    // its `.git/info/exclude`), rather than following each of them from the root
+    let dir_count = file_path.parent().unwrap().components().count();
+    let repo_dir_count = 8;
+    assert!(
+      env.path_kind_count() - count <= dir_count + repo_dir_count * 2 + 3,
+      "{}",
+      env.path_kind_count() - count
+    );
   }
 
   fn new_change_detecting_tree(env: &TestEnvironment) -> GitIgnoreTree<TestEnvironment> {

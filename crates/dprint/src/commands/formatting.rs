@@ -22,6 +22,7 @@ use crate::arg_parser::FmtSubCommand;
 use crate::arg_parser::LineRange;
 use crate::arg_parser::OutputFormatTimesSubCommand;
 use crate::arg_parser::StdInFmtSubCommand;
+use crate::commands::process_plugin_approval::allow_process_plugins_of_scopes_in_editors;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -153,6 +154,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
   )
   .await?;
   scopes.ensure_valid_for_cli_args(args)?;
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
   for scope_and_paths in scopes.into_iter() {
@@ -206,6 +208,7 @@ pub async fn check<TEnvironment: Environment>(
   )
   .await?;
   scopes.ensure_valid_for_cli_args(args)?;
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
   let not_formatted_files_count = Arc::new(AtomicCounter::default());
   let list_different = cmd.list_different;
   let output_json = cmd.json;
@@ -422,6 +425,7 @@ pub async fn format<TEnvironment: Environment>(
   )
   .await?;
   scopes.ensure_valid_for_cli_args(args)?;
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
 
   let line_ranges = Rc::new(resolve_line_ranges_by_path(&cmd.line_ranges, &scopes, environment)?);
 
@@ -869,6 +873,96 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2");
+  }
+
+  #[test]
+  fn should_allow_the_process_plugins_of_the_config_file_in_editors() {
+    // running dprint with a config file is the same as choosing to run its process plugins
+    for args in [vec!["fmt"], vec!["check"]] {
+      let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+        .write_file("/file.txt_ps", "text_formatted_process")
+        .build();
+      assert!(
+        crate::configuration::read_editor_approvals(&environment)
+          .unwrap()
+          .process_plugin_decisions
+          .is_empty()
+      );
+
+      // the file is already formatted, so this passes for `dprint check`
+      run_test_cli(args, &environment).unwrap();
+      let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
+      assert_eq!(decisions.len(), 1);
+      assert!(decisions[0].allowed);
+      assert_eq!(decisions[0].approval.config_file, "/dprint.json");
+      assert!(decisions[0].approval.plugin.starts_with("https://plugins.dprint.dev/test-process.json@"));
+    }
+  }
+
+  #[test]
+  fn should_allow_the_process_plugins_in_editors_again_after_a_while() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file("/file.txt_ps", "text_formatted_process")
+      .build();
+    let get_decided_at = || {
+      let decisions = crate::configuration::read_editor_approvals(&environment).unwrap().process_plugin_decisions;
+      assert_eq!(decisions.len(), 1);
+      assert!(decisions[0].allowed);
+      decisions[0].decided_at
+    };
+    environment.set_fs_time(1_000);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert_eq!(get_decided_at(), 1_000_000);
+
+    // the approvals file isn't written on each run
+    environment.set_fs_time(1_059);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert_eq!(get_decided_at(), 1_000_000);
+
+    // but running dprint is more recent than a denial for the session of an editor since, which isn't stored
+    environment.set_fs_time(1_060);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert_eq!(get_decided_at(), 1_060_000);
+  }
+
+  #[test]
+  fn should_not_warn_when_the_approvals_of_editors_cannot_be_read() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file("/file.txt_ps", "text_formatted_process")
+      .build();
+    // ex. a newer version of dprint wrote it in a format this version can't use
+    let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+    let text = r#"{ "version": 2, "minVersion": 2, "processPluginDecisions": [] }"#;
+    environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
+    environment.write_file(&file_path, text).unwrap();
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().is_empty());
+    assert_eq!(environment.read_file(&file_path).unwrap(), text);
+  }
+
+  #[test]
+  fn should_not_warn_when_the_approvals_of_editors_cannot_be_written() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file("/file.txt_ps", "text_formatted_process")
+      .build();
+    // ex. the directory is read-only
+    let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+    environment.set_file_write_fails(&file_path, true);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().is_empty());
+    assert!(!environment.path_exists(&file_path));
+  }
+
+  #[test]
+  fn should_not_allow_the_process_plugins_in_editors_in_ci() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file("/file.txt_ps", "text_formatted_process")
+      .build();
+    environment.set_ci(true);
+    run_test_cli(vec!["check"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().is_empty());
+    let file_path = crate::configuration::get_editor_approvals_file_path(&environment).unwrap();
+    assert!(!environment.path_exists(&file_path));
   }
 
   #[test]
@@ -1335,6 +1429,47 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_custom-formatted2");
+  }
+
+  #[test]
+  fn should_use_a_config_file_that_is_a_symlink_for_the_directory_it_was_found_in() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/repo/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .with_local_config("/repo/shared/base.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "shared" }"#);
+      })
+      .with_local_config("/repo/packages/a/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "shared" }"#);
+      })
+      .write_file("/repo/packages/a/file.txt", "text")
+      .build();
+    // ex. a symlink to a config file in another directory, which is read through it
+    environment.add_canonical_path("/repo/packages/a/dprint.json", "/repo/shared/base.json");
+    environment.set_cwd("/repo");
+    // found for a path that's given, which is formatted with it like in the editors
+    run_test_cli(vec!["fmt", "/repo/packages/a/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/repo/packages/a/file.txt").unwrap(), "text_shared");
+  }
+
+  #[test]
+  fn should_use_a_config_file_given_to_config_that_is_a_symlink_for_the_directory_it_is_in() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/repo/shared/base.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "shared" }"#);
+      })
+      .with_local_config("/repo/packages/a/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "shared" }"#);
+      })
+      .write_file("/repo/packages/a/file.txt", "text")
+      .build();
+    environment.add_canonical_path("/repo/packages/a/dprint.json", "/repo/shared/base.json");
+    environment.set_cwd("/repo/packages/a");
+    run_test_cli(vec!["fmt", "--config", "dprint.json"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/repo/packages/a/file.txt").unwrap(), "text_shared");
   }
 
   #[test]

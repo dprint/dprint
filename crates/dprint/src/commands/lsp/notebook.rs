@@ -1,6 +1,3 @@
-use std::path::Path;
-use std::path::PathBuf;
-
 use deno_tower_lsp::lsp_types::ClientCapabilities;
 use deno_tower_lsp::lsp_types::Notebook;
 use deno_tower_lsp::lsp_types::NotebookCellTextDocumentFilter;
@@ -9,8 +6,6 @@ use deno_tower_lsp::lsp_types::NotebookDocumentSyncOptions;
 use deno_tower_lsp::lsp_types::NotebookSelector;
 use deno_tower_lsp::lsp_types::Registration;
 use dprint_core::plugins::FormatRange;
-
-use super::language::get_language_file_name;
 
 /// Gets the capability that has the client sync the cells of notebooks on the
 /// file system, which are the only notebooks the cli formats.
@@ -54,14 +49,6 @@ pub fn get_notebook_cell_format_registrations(capabilities: &ClientCapabilities)
     register_options: Some(options.clone()),
   })
   .collect()
-}
-
-/// Gets the file path to format a notebook cell as, which is what the plugin
-/// that formats the cell is selected by. It's a file in the notebook's directory
-/// named based on the cell's language, which is how the jupyter plugin formats
-/// a notebook's code cells.
-pub fn get_notebook_cell_file_path(notebook_path: &Path, language_id: &str) -> Option<PathBuf> {
-  Some(notebook_path.parent()?.join(get_language_file_name("code_block", language_id)?))
 }
 
 /// Trims the trailing whitespace of a notebook cell's formatted text like the jupyter
@@ -142,24 +129,6 @@ mod tests {
       Vec::<String>::new()
     );
     assert_eq!(get(serde_json::json!({})), Vec::<String>::new());
-  }
-
-  #[test]
-  fn test_get_notebook_cell_file_path() {
-    fn get(language_id: &str) -> Option<PathBuf> {
-      get_notebook_cell_file_path(Path::new("/dir/notebook.ipynb"), language_id)
-    }
-
-    // known languages whose extension differs from the language id
-    assert_eq!(get("python"), Some(PathBuf::from("/dir/code_block.py")));
-    assert_eq!(get("TypeScript"), Some(PathBuf::from("/dir/code_block.ts")));
-    assert_eq!(get("markdown"), Some(PathBuf::from("/dir/code_block.md")));
-    // other languages use the language id as the extension
-    assert_eq!(get("sql"), Some(PathBuf::from("/dir/code_block.sql")));
-    // languages that can't be used as an extension
-    assert_eq!(get(""), None);
-    assert_eq!(get("objective-c"), None);
-    assert_eq!(get("ipynb"), None);
   }
 
   #[test]

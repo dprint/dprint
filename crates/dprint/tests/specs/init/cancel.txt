@@ -34,5 +34,5 @@ Selection cancelled.
 # /dprint.json
 (does not exist)
 
-# /config/dprint/init.json
+# /config/dprint/settings.json
 (does not exist)

