@@ -643,6 +643,9 @@ pub fn get_path_download_local_path(download: &str) -> Option<PathBuf> {
 /// domains that aren't trusted.
 pub const DOWNLOAD_ACTION_TITLE: &str = "Download";
 pub const CANCEL_DOWNLOAD_ACTION_TITLE: &str = "Cancel";
+/// The title of the action that allows it when it's reading from another
+/// machine, which isn't a download.
+pub const ALLOW_READ_ACTION_TITLE: &str = "Allow";
 
 /// Gets the message that asks the user whether to download what a config file
 /// needs from domains that aren't trusted, through the proxies of `.npmrc`

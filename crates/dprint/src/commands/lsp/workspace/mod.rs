@@ -97,6 +97,7 @@ use crate::resolution::UnapprovedProcessPlugin;
 use crate::resolution::UnapprovedProcessPlugins;
 use crate::resolution::get_cant_ask_message;
 use crate::resolution::get_plugin_display_text;
+use crate::utils::ALLOW_READ_ACTION_TITLE;
 use crate::utils::CANCEL_DOWNLOAD_ACTION_TITLE;
 use crate::utils::DOWNLOAD_ACTION_TITLE;
 use crate::utils::LogLevel;
@@ -2349,6 +2350,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if !supports_message_actions {
       for approval in pending {
         let guidance = match approval.kind {
+          // running dprint doesn't allow it, unlike a download, which an editor doesn't need once dprint did it
+          ApprovalKind::Downloads if is_read_from_another_machine(&approval) => {
+            "The client can't ask whether to allow it, which is the only way to, so it isn't read.".to_string()
+          }
           ApprovalKind::Downloads => {
             "The client can't ask whether to download them, so run `dprint config install` in the directory of the configuration file to do so.".to_string()
           }
@@ -2369,10 +2374,15 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     dprint_core::async_runtime::spawn(async move {
       while !pending.is_empty() {
         let approval = pending.remove(0);
+        let allow_title = match is_read_from_another_machine(&approval) {
+          true => ALLOW_READ_ACTION_TITLE,
+          false => DOWNLOAD_ACTION_TITLE,
+        };
+        let download_titles = [allow_title, CANCEL_DOWNLOAD_ACTION_TITLE];
         let titles: &[&str] = match approval.kind {
           // a path that isn't valid Unicode can only be denied (see `DownloadPolicy::is_allowable`)
           ApprovalKind::Downloads if !approval.decisions.iter().any(|option| option.decision == ApprovalDecision::Allow) => &[CANCEL_DOWNLOAD_ACTION_TITLE],
-          ApprovalKind::Downloads => &[DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
+          ApprovalKind::Downloads => &download_titles,
           ApprovalKind::ProcessPlugins => &PROCESS_PLUGIN_ACTION_TITLES,
         };
         let message = get_language_client_approval_message(&approval);
@@ -2381,7 +2391,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           return;
         };
         let decision = match approval.kind {
-          ApprovalKind::Downloads if title == DOWNLOAD_ACTION_TITLE => ApprovalDecision::Allow,
+          ApprovalKind::Downloads if title == allow_title => ApprovalDecision::Allow,
           ApprovalKind::Downloads => ApprovalDecision::Deny,
           ApprovalKind::ProcessPlugins => match get_process_plugin_decision(&title) {
             Some(decision) => decision,
@@ -4374,6 +4384,12 @@ fn get_config_changed_key(params: &ConfigChangedParams) -> Option<String> {
 /// Gets the message to ask a language client's user about the approval,
 /// which has what the process plugins run with so it can be seen before
 /// deciding (an editor extension shows it itself).
+/// Gets whether the approval is for reading from another machine, which is
+/// approved apart from the downloads (see `get_download_groups`).
+fn is_read_from_another_machine(approval: &PendingApproval) -> bool {
+  approval.kind == ApprovalKind::Downloads && !approval.items.is_empty() && approval.items.iter().all(|item| item.kind == ApprovalItemKind::NetworkPath)
+}
+
 fn get_language_client_approval_message(approval: &PendingApproval) -> String {
   let mut message = approval.message.clone();
   let configuration = approval
