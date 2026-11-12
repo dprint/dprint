@@ -81,10 +81,57 @@ fn clear_cache_kills_the_language_servers_using_the_cache_dir() {
   assert!(other_server.child.try_wait().unwrap().is_none());
 }
 
+// the unit tests call the methods of the server, so this is what goes through
+// the process and its pipes like a client does
+#[test]
+fn formats_a_document_for_a_client_without_capabilities() {
+  let mut server = LspProcess::spawn();
+  let plugin_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-plugin/test_plugin.wasm");
+  std::fs::copy(plugin_path, server.cwd.join("plugin.wasm")).unwrap();
+  std::fs::write(server.cwd.join("dprint.json"), r#"{ "plugins": ["./plugin.wasm"] }"#).unwrap();
+  let file_uri = url::Url::from_file_path(server.cwd.join("file.txt")).unwrap();
+
+  server.send(json!({
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": { "processId": null, "capabilities": {} },
+  }));
+  let capabilities = server.read_response(1)["result"]["capabilities"].clone();
+  assert_eq!(capabilities["documentFormattingProvider"], json!(true));
+  // only an editor extension is told about the dprint methods
+  assert!(capabilities.get("experimental").is_none());
+  server.send(json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }));
+  server.send(json!({
+    "jsonrpc": "2.0",
+    "method": "textDocument/didOpen",
+    "params": { "textDocument": { "uri": file_uri, "languageId": "plaintext", "version": 1, "text": "text" } },
+  }));
+  server.send(json!({
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "textDocument/formatting",
+    "params": { "textDocument": { "uri": file_uri }, "options": { "tabSize": 2, "insertSpaces": true } },
+  }));
+  assert_eq!(
+    server.read_response(2)["result"],
+    json!([{
+      "range": { "start": { "line": 0, "character": 4 }, "end": { "line": 0, "character": 4 } },
+      "newText": "_formatted",
+    }])
+  );
+
+  server.send(json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown" }));
+  server.read_response(3);
+  server.send(json!({ "jsonrpc": "2.0", "method": "exit" }));
+  assert_eq!(server.wait_for_exit_with_stdin_open(), 0);
+}
+
 struct LspProcess {
   child: Child,
   stdin: ChildStdin,
   messages: mpsc::Receiver<Value>,
+  cwd: PathBuf,
   cache_dir: PathBuf,
   // keeps the directories around until the process is done
   _temp_dir: tempfile::TempDir,
@@ -107,6 +154,8 @@ impl LspProcess {
       .args(args)
       .current_dir(&cwd)
       .env("DPRINT_CACHE_DIR", &cache_dir)
+      // not the settings and approvals of the user that runs the tests
+      .env("DPRINT_CONFIG_DIR", temp_dir.path().join("config"))
       .stdin(Stdio::piped())
       .stdout(Stdio::piped())
       .stderr(Stdio::null())
@@ -127,6 +176,7 @@ impl LspProcess {
       child,
       stdin,
       messages,
+      cwd,
       cache_dir,
       _temp_dir: temp_dir,
     }

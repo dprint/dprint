@@ -1866,6 +1866,7 @@ mod test {
   use deno_tower_lsp::lsp_types::ClientCapabilities;
   use deno_tower_lsp::lsp_types::Diagnostic;
   use deno_tower_lsp::lsp_types::DynamicRegistrationClientCapabilities;
+  use deno_tower_lsp::lsp_types::FileEvent;
   use deno_tower_lsp::lsp_types::MessageActionItem;
   use deno_tower_lsp::lsp_types::MessageType;
   use deno_tower_lsp::lsp_types::NotebookCellArrayChange;
@@ -2019,6 +2020,285 @@ mod test {
       }
     });
     environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_not_download_from_domains_that_are_not_trusted_without_the_user_choosing_to_with_lsp() {
+    const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+    for (capabilities, selection, expected_actions) in [
+      // a client that can't ask is told how to download them
+      (ClientCapabilities::default(), None, Vec::new()),
+      // not choosing an action (ex. closing the message)
+      (message_actions_capabilities(), None, vec!["Download", "Cancel"]),
+      (message_actions_capabilities(), Some("Cancel"), vec!["Download", "Cancel"]),
+    ] {
+      let environment = TestEnvironmentBuilder::new()
+        .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+        .with_default_config(|c| {
+          c.add_plugin(UNTRUSTED_PLUGIN_URL);
+        })
+        .build();
+      run_language_client(&environment, capabilities, {
+        let environment = environment.clone();
+        move |backend, test_client| {
+          async move {
+            if let Some(selection) = selection {
+              test_client.set_message_action_selection(selection);
+            }
+            let file_uri = Uri::from_str("file:///file.txt").unwrap();
+            did_open!(backend, file_uri, "text");
+            assert_format!(backend, file_uri, None);
+            let shown = test_client.take_shown_messages();
+            assert_eq!(shown.len(), 1, "{shown:?}");
+            assert_eq!(shown[0].0, MessageType::WARNING);
+            assert!(
+              shown[0]
+                .1
+                .contains("needs to download from domains that aren't trusted (`https://example.com/test-plugin.wasm`)."),
+              "{shown:?}"
+            );
+            let says_how = shown[0]
+              .1
+              .ends_with("The client can't ask whether to download them, so run `dprint config install` in the directory of the configuration file to do so.");
+            assert_eq!(says_how, expected_actions.is_empty(), "{shown:?}");
+            assert_eq!(shown[0].2, expected_actions);
+            // it's only said once in a session, and nothing is downloaded
+            for _ in 0..3 {
+              tokio::time::sleep(Duration::from_millis(10)).await;
+              assert_format!(backend, file_uri, None);
+            }
+            assert_eq!(test_client.take_shown_messages(), Vec::new());
+            assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
+          }
+          .boxed_local()
+        }
+      });
+    }
+  }
+
+  #[test]
+  fn should_ask_to_read_from_another_machine_with_lsp() {
+    for (capabilities, expected_actions) in [
+      (message_actions_capabilities(), vec!["Allow", "Cancel"]),
+      // a client that can't ask can't allow it, which running dprint doesn't either
+      (ClientCapabilities::default(), Vec::new()),
+    ] {
+      let environment = TestEnvironmentBuilder::new()
+        .with_local_config("/a/dprint.json", |c| {
+          c.add_plugin("./plugin.wasm");
+        })
+        .build();
+      // ex. a symlink in a cloned repository
+      environment.symlink(network_path("plugin.wasm"), "/a/plugin.wasm").unwrap();
+      run_language_client(&environment, capabilities, {
+        let environment = environment.clone();
+        move |backend, test_client| {
+          async move {
+            let file_uri = Uri::from_str("file:///a/file.txt").unwrap();
+            did_open!(backend, file_uri, "text");
+            assert_format!(backend, file_uri, None);
+            let shown = test_client.take_shown_messages();
+            assert_eq!(shown.len(), 1, "{shown:?}");
+            // the path is the one the config file names without its `./`
+            let path = Path::new("/a").join("plugin.wasm").components().collect::<PathBuf>();
+            let specifier = format!("{} -> {}", path.display(), network_path("plugin.wasm"));
+            assert!(
+              shown[0].1.contains(&format!("needs to read from another machine (`{}`)", specifier)),
+              "{shown:?}"
+            );
+            let says_it_cant = shown[0]
+              .1
+              .ends_with("The client can't ask whether to allow it, which is the only way to, so it isn't read.");
+            assert_eq!(says_it_cant, expected_actions.is_empty(), "{shown:?}");
+            assert!(!shown[0].1.contains("dprint config install"), "{shown:?}");
+            assert_eq!(shown[0].2, expected_actions);
+            // it's not read before it's allowed
+            assert_eq!(environment.file_read_count("/a/plugin.wasm"), 0);
+          }
+          .boxed_local()
+        }
+      });
+    }
+  }
+
+  #[test]
+  fn should_read_from_another_machine_once_allowed_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_plugin("./plugin.wasm");
+      })
+      .build();
+    environment.symlink(network_path("plugin.wasm"), "/a/plugin.wasm").unwrap();
+    run_language_client(&environment, message_actions_capabilities(), {
+      let environment = environment.clone();
+      move |backend, test_client| {
+        async move {
+          test_client.set_message_action_selection("Allow");
+          let file_uri = Uri::from_str("file:///a/file.txt").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert_format!(backend, file_uri, None);
+          assert_eq!(test_client.take_shown_messages().len(), 1);
+          // it's read once it's allowed (the test environment can't read what's on another machine)
+          for _ in 0..100 {
+            if environment.file_read_count("/a/plugin.wasm") > 0 {
+              break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            format_document(&backend, &file_uri).await;
+          }
+          assert!(environment.file_read_count("/a/plugin.wasm") > 0);
+          test_client.take_shown_messages();
+        }
+        .boxed_local()
+      }
+    });
+  }
+
+  #[test]
+  fn should_ask_to_download_through_the_proxy_of_a_project_npmrc_with_lsp() {
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    const PACKUMENT_URL: &str = "https://registry.npmjs.org/test-plugin";
+    const TARBALL_URL: &str = "https://registry.npmjs.org/test-plugin/-/test-plugin-1.0.0.tgz";
+    const PROXY_SETTING: &str = "https://${GITHUB_TOKEN}@proxy.example";
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/project/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin@1.0.0");
+      })
+      .write_file("/project/.npmrc", format!("https-proxy={}", PROXY_SETTING))
+      .build();
+    environment.set_env_var("GITHUB_TOKEN", Some("secret"));
+    let packument = serde_json::json!({ "versions": { "1.0.0": { "dist": { "tarball": TARBALL_URL } } } });
+    environment.add_remote_file_bytes(PACKUMENT_URL, packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(TARBALL_URL, create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]));
+    run_language_client(&environment, message_actions_capabilities(), {
+      let environment = environment.clone();
+      move |backend, test_client| {
+        async move {
+          test_client.set_message_action_selection("Download");
+          let file_uri = Uri::from_str("file:///project/file.txt").unwrap();
+          did_open!(backend, file_uri, "text");
+          // nothing is sent to the proxy until the user allows it
+          assert_format!(backend, file_uri, None);
+          assert_eq!(environment.remote_file_request_count(PACKUMENT_URL), 0);
+          let shown = test_client.take_shown_messages();
+          assert_eq!(shown.len(), 1, "{shown:?}");
+          let npmrc_path = Path::new("/project").join(".npmrc").display().to_string();
+          assert!(
+            shown[0]
+              .1
+              .contains(&format!("needs to download through a proxy (`{}`) that `{}` sets", PROXY_SETTING, npmrc_path)),
+            "{shown:?}"
+          );
+          // the value of the environment variable isn't shown
+          assert!(!shown[0].1.contains("secret"), "{shown:?}");
+          assert_eq!(shown[0].2, vec!["Download", "Cancel"]);
+          // the user chose to download through it
+          let mut result = None;
+          for _ in 0..100 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            result = format_document(&backend, &file_uri).await;
+            if result.is_some() {
+              break;
+            }
+          }
+          assert!(result.is_some());
+          assert_eq!(environment.remote_file_request_count(PACKUMENT_URL), 1);
+          assert!(test_client.take_shown_messages().is_empty());
+        }
+        .boxed_local()
+      }
+    });
+  }
+
+  #[test]
+  fn should_publish_the_diagnostics_of_a_config_file_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section("unknownProperty", "1");
+      })
+      .initialize()
+      .build();
+    run_language_client(&environment, ClientCapabilities::default(), {
+      let environment = environment.clone();
+      move |backend, test_client| {
+        async move {
+          let config_uri = Uri::from_str("file:///dprint.json").unwrap();
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert!(format_document(&backend, &file_uri).await.is_some());
+          let diagnostics = wait_for_published_diagnostics(&test_client).await;
+          assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+          assert_eq!(diagnostics[0].0, config_uri);
+          assert_eq!(diagnostics[0].1.len(), 1);
+          assert_eq!(diagnostics[0].1[0].message, "Unknown property in configuration");
+          assert_eq!(diagnostics[0].1[0].range, Range::new(Position::new(1, 2), Position::new(1, 19)));
+
+          // the client says the config file changed, which publishes them again without a request
+          environment.write_file("/dprint.json", "{").unwrap();
+          backend
+            .did_change_watched_files(DidChangeWatchedFilesParams {
+              changes: vec![FileEvent {
+                uri: config_uri.clone(),
+                typ: FileChangeType::CHANGED,
+              }],
+            })
+            .await;
+          let diagnostics = wait_for_published_diagnostics(&test_client).await;
+          assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+          assert_eq!(diagnostics[0].0, config_uri);
+          assert_eq!(diagnostics[0].1.len(), 1);
+          assert_ne!(diagnostics[0].1[0].message, "Unknown property in configuration");
+          // and it isn't formatted with what it resolved to before
+          assert_format!(backend, file_uri, None);
+          test_client.take_shown_messages();
+        }
+        .boxed_local()
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_report_progress_to_a_language_client_with_lsp() {
+    // what's logged and the progress only go to an editor extension, which says where it shows them
+    for supports_progress in [true, false] {
+      let environment = TestEnvironmentBuilder::new()
+        .add_remote_wasm_plugin()
+        .with_default_config(|c| {
+          c.add_remote_wasm_plugin();
+        })
+        .build(); // not initialized, so the plugin is compiled, which has progress
+      let capabilities = ClientCapabilities {
+        window: Some(WindowClientCapabilities {
+          work_done_progress: Some(supports_progress),
+          ..Default::default()
+        }),
+        ..Default::default()
+      };
+      run_language_client(&environment, capabilities, {
+        let environment = environment.clone();
+        move |backend, test_client| {
+          async move {
+            let file_uri = Uri::from_str("file:///file.txt").unwrap();
+            did_open!(backend, file_uri, "text");
+            assert!(format_document(&backend, &file_uri).await.is_some());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            assert!(test_client.progress.lock().is_empty());
+            // it's in what the server writes to stderr instead
+            let messages = environment.take_stderr_messages();
+            assert!(
+              messages
+                .iter()
+                .any(|message| message == "Compiling https://plugins.dprint.dev/test-plugin.wasm"),
+              "{messages:?}"
+            );
+          }
+          .boxed_local()
+        }
+      });
+    }
   }
 
   #[test]
@@ -4965,6 +5245,77 @@ mod test {
       .unwrap();
     backend.initialized(InitializedParams {}).await;
     result
+  }
+
+  /// Runs a session of a language client, which doesn't know the methods of
+  /// an editor extension, and shuts the server down after the action.
+  fn run_language_client(
+    environment: &TestEnvironment,
+    capabilities: ClientCapabilities,
+    action: impl FnOnce(Rc<Backend<TestEnvironment>>, Arc<TestClient>) -> LocalBoxFuture<'static, ()> + 'static,
+  ) {
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let (backend, recv_task, test_client) = setup_backend(environment);
+        let backend = Rc::new(backend);
+        let run_test_task = dprint_core::async_runtime::spawn({
+          let test_client = test_client.clone();
+          async move {
+            initialize_backend(
+              &backend,
+              InitializeParams {
+                capabilities,
+                ..Default::default()
+              },
+            )
+            .await;
+            action(backend.clone(), test_client).await;
+            backend.shutdown().await.unwrap();
+          }
+        });
+        try_join!(recv_task, run_test_task).unwrap();
+        test_client.take_messages();
+      }
+    });
+    environment.take_stderr_messages();
+  }
+
+  async fn format_document(backend: &Backend<TestEnvironment>, uri: &Uri) -> Option<Vec<TextEdit>> {
+    backend
+      .formatting(
+        DocumentFormattingParams {
+          text_document: TextDocumentIdentifier { uri: uri.clone() },
+          options: Default::default(),
+          work_done_progress_params: Default::default(),
+        },
+        CancellationToken::new(),
+      )
+      .await
+      .unwrap()
+  }
+
+  /// Takes the diagnostics that were published, which waits for some because
+  /// they may be published after a response.
+  async fn wait_for_published_diagnostics(test_client: &TestClient) -> Vec<(Uri, Vec<Diagnostic>)> {
+    for _ in 0..200 {
+      let diagnostics = test_client.published_diagnostics.lock().drain(..).collect::<Vec<_>>();
+      if !diagnostics.is_empty() {
+        return diagnostics;
+      }
+      tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Vec::new()
+  }
+
+  /// Gets a path on another machine, which is a UNC path on Windows and a
+  /// path in `/net` on macOS and Linux.
+  fn network_path(path: &str) -> String {
+    let separator = std::path::MAIN_SEPARATOR;
+    match cfg!(windows) {
+      true => format!("{0}{0}server{0}share{0}{1}", separator, path),
+      false => format!("/net/server/share/{}", path),
+    }
   }
 
   async fn execute_command(backend: &Backend<TestEnvironment>, command: &str, arguments: Vec<serde_json::Value>) -> LspResult<Option<serde_json::Value>> {
