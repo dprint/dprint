@@ -328,9 +328,12 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
 ///
 /// IMPORTANT: It's checked before it's canonicalized because that reads it.
 fn canonicalize_allowed_path(path: &Path, base: &PathSource, environment: &impl Environment) -> Result<CanonicalizedPathBuf> {
+  // the path is shown to the user when it needs to be allowed, so it's without the current
+  // directory components that don't change where it leads (ex. `/project/./plugin.wasm`)
+  let path = path.components().collect::<std::path::PathBuf>();
   environment
     .download_policy()
-    .ensure_allows_path(environment, path, base.maybe_local_path().map(|path| path.as_ref()))?;
+    .ensure_allows_path(environment, &path, base.maybe_local_path().map(|path| path.as_ref()))?;
   Ok(environment.canonicalize(path)?)
 }
 
