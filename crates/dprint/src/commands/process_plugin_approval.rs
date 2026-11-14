@@ -467,7 +467,7 @@ mod test {
     environment.mk_dir_all(settings_file_path.parent().unwrap()).unwrap();
     // ex. a setting of a newer version of dprint, which has the stored allows not be used
     environment
-      .write_file(&settings_file_path, r#"{ "editor": { "useStoredApprovals": false } }"#)
+      .write_file(&settings_file_path, r#"{ "editor": { "allowProcessPlugins": "no" } }"#)
       .unwrap();
     let session_permissions = SessionPermissions::default();
 

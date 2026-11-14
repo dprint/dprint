@@ -3832,7 +3832,7 @@ fn should_say_why_the_settings_file_is_not_used_when_asking() {
   let settings_file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
   // ex. a value of a newer version of dprint that trusts less
   environment
-    .write_file(&settings_file_path, r#"{ "editor": { "trustedDomains": ["example.com", "!github.com"] } }"#)
+    .write_file(&settings_file_path, r#"{ "editor": { "trustedDomains": "example.com" } }"#)
     .unwrap();
   run_session(&environment, move |client| {
     async move {
@@ -3841,10 +3841,11 @@ fn should_say_why_the_settings_file_is_not_used_when_asking() {
       // it doesn't say to trust the domain in the settings file, which the user did
       assert!(!approval.message.contains("Add a domain"), "{}", approval.message);
       assert!(
-        approval.message.ends_with(&format!(
-          "doesn't use its settings file in editors because {} has a value in \"editor.trustedDomains\" that isn't a domain (\"!github.com\"). Update dprint or change the file to use it.",
-          settings_file_path.display()
-        )),
+        approval
+          .message
+          .contains("doesn't use its settings file in editors because the settings couldn't be read: ")
+          && approval.message.contains(&settings_file_path.display().to_string())
+          && approval.message.ends_with("Update dprint or change the file to use it."),
         "{}",
         approval.message
       );
@@ -3866,7 +3867,7 @@ fn should_approve_downloads_from_the_default_domains_when_the_settings_file_is_n
   let settings_file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
   // ex. a setting of a newer version of dprint that doesn't trust a default domain
   environment
-    .write_file(&settings_file_path, r#"{ "editor": { "untrustedDomains": ["plugins.dprint.dev"] } }"#)
+    .write_file(&settings_file_path, r#"{ "editor": { "trustedDomains": "plugins.dprint.dev" } }"#)
     .unwrap();
   run_session(&environment, move |client| {
     async move {
@@ -3875,10 +3876,11 @@ fn should_approve_downloads_from_the_default_domains_when_the_settings_file_is_n
       assert_eq!(approvals[0].kind, ApprovalKind::Downloads);
       assert_eq!(approvals[0].items[0].specifier, PLUGIN_URL);
       assert!(
-        approvals[0].message.ends_with(&format!(
-          "doesn't use its settings file in editors because {} has a property in \"editor\" that this version of dprint doesn't know (editor.untrustedDomains). Update dprint or change the file to use it.",
-          settings_file_path.display()
-        )),
+        approvals[0]
+          .message
+          .contains("doesn't use its settings file in editors because the settings couldn't be read: ")
+          && approvals[0].message.contains(&settings_file_path.display().to_string())
+          && approvals[0].message.ends_with("Update dprint or change the file to use it."),
         "{}",
         approvals[0].message
       );

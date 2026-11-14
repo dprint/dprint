@@ -626,8 +626,15 @@ impl SessionPermissions {
       for property_name in &settings.unknown_properties {
         self.log_settings_problem(environment, format!("Unknown property in {}: {}", file_path, property_name));
       }
+      // it may be a setting of a newer version of dprint, which is only said
+      if let Some(warning) = settings.get_editor_warning() {
+        self.log_settings_problem(
+          environment,
+          format!("{} {}, which is ignored. Update dprint or change the file to use it.", file_path, warning),
+        );
+      }
     }
-    let ignored_reason = get_ignored_settings_reason(environment, &settings);
+    let ignored_reason = get_ignored_settings_reason(&settings);
     let allow_process_plugins = match (&settings, &ignored_reason) {
       (_, Some(reason)) => {
         // IMPORTANT: Don't allow what the user may have tried to disallow, and a property or
@@ -912,7 +919,7 @@ pub fn is_more_recent_at(decided_at: u64, allowed: bool, other_decided_at: u64, 
 /// `Settings`), and then trust no domains and ask before running process
 /// plugins without using the stored allows.
 pub fn read_ignored_settings_message(environment: &impl Environment) -> Option<String> {
-  let reason = get_ignored_settings_reason(environment, &read_settings(environment))?;
+  let reason = get_ignored_settings_reason(&read_settings(environment))?;
   Some(get_ignored_settings_message(environment, &reason))
 }
 
@@ -1711,14 +1718,9 @@ fn get_ignored_settings_message(environment: &impl Environment, reason: &str) ->
 
 /// Gets why the editors don't use the settings that were read, which is said
 /// after "because".
-fn get_ignored_settings_reason(environment: &impl Environment, settings: &Result<Option<Settings>>) -> Option<String> {
+fn get_ignored_settings_reason(settings: &Result<Option<Settings>>) -> Option<String> {
   match settings {
-    Ok(Some(settings)) => {
-      let problem = settings.get_editor_problem()?;
-      let file_path = get_settings_file_path(environment).map(|path| path.display().to_string()).unwrap_or_default();
-      Some(format!("{} {}", file_path, problem))
-    }
-    Ok(None) => None,
+    Ok(_) => None,
     Err(err) => Some(format!("the settings couldn't be read: {:#}", err)),
   }
 }
@@ -2404,7 +2406,7 @@ mod test {
         format!("Unknown property in {}: editor.allowProcessPlugin", file_path.display()),
         format!("Unknown property in {}: other", file_path.display()),
         format!(
-          "Requiring approval to run process plugins and to download from any domain in editors, and not using the stored \"Always Allow\" decisions, because {} has a property in \"editor\" that this version of dprint doesn't know (editor.allowProcessPlugin).",
+          "{} has a property in \"editor\" that this version of dprint doesn't know (editor.allowProcessPlugin), which is ignored. Update dprint or change the file to use it.",
           file_path.display()
         ),
       ]
@@ -2412,40 +2414,26 @@ mod test {
   }
 
   #[test]
-  fn should_not_allow_process_plugins_with_an_unknown_editor_setting() {
+  fn should_use_the_settings_with_an_unknown_editor_setting() {
     let environment = TestEnvironment::new();
     let file_path = get_settings_file_path(&environment).unwrap();
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
-    // ex. a setting of a newer version of dprint that narrows what's allowed
+    // ex. a setting of a newer version of dprint, which is only warned about
     environment
       .write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": true, "processPluginExceptions": [] } }"#)
       .unwrap();
     let permissions = read_permissions(&environment, &[]);
-    assert_eq!(permissions.allow_process_plugins, Some(false));
-    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
-    // the messages that ask the user say why, because it's what the user would otherwise do
-    let message = format!(
-      concat!(
-        "dprint {} doesn't use its settings file in editors because {} has a property in \"editor\" that this version of dprint ",
-        "doesn't know (editor.processPluginExceptions). Update dprint or change the file to use it."
-      ),
-      environment.cli_version(),
-      file_path.display()
-    );
-    assert_eq!(permissions.ignored_settings_message.as_deref(), Some(message.as_str()));
-    assert_eq!(read_ignored_settings_message(&environment), Some(message));
-    // what was decided for the session is still used
-    let permissions = read_permissions(&environment, &[decision("/a/dprint.json", "1:a", true)]);
-    assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
-    // an unknown property outside of "editor" is only logged
-    environment
-      .write_file(&file_path, r#"{ "editor": { "allowProcessPlugins": true }, "other": 1 }"#)
-      .unwrap();
-    let permissions = read_permissions(&environment, &[]);
+    assert_eq!(permissions.allow_process_plugins, Some(true));
     assert!(permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
     assert_eq!(permissions.ignored_settings_message, None);
     assert_eq!(read_ignored_settings_message(&environment), None);
-    environment.take_stderr_messages();
+    let messages = environment.take_stderr_messages();
+    assert!(
+      messages
+        .iter()
+        .any(|message| message.ends_with("(editor.processPluginExceptions), which is ignored. Update dprint or change the file to use it.")),
+      "{messages:?}"
+    );
   }
 
   #[test]
@@ -2494,11 +2482,11 @@ mod test {
   }
 
   #[test]
-  fn should_not_allow_process_plugins_with_a_trusted_domain_this_version_does_not_know() {
+  fn should_use_the_settings_with_a_trusted_domain_this_version_does_not_know() {
     let environment = TestEnvironment::new();
     let file_path = get_settings_file_path(&environment).unwrap();
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
-    // ex. a value of a newer version of dprint that trusts less
+    // ex. a syntax of a newer version of dprint, which is only warned about
     environment
       .write_file(
         &file_path,
@@ -2506,18 +2494,13 @@ mod test {
       )
       .unwrap();
     let permissions = read_permissions(&environment, &[]);
-    assert_eq!(permissions.allow_process_plugins, Some(false));
-    assert!(!permissions.is_process_plugin_allowed(&approval("/a/dprint.json", "1:a")));
-    let reason = format!(
-      "{} has a value in \"editor.trustedDomains\" that isn't a domain (\"!github.com\")",
-      file_path.display()
-    );
-    assert!(permissions.ignored_settings_message.unwrap().contains(&reason));
+    assert_eq!(permissions.allow_process_plugins, Some(true));
+    assert_eq!(permissions.ignored_settings_message, None);
     assert_eq!(
       environment.take_stderr_messages(),
       vec![format!(
-        "Requiring approval to run process plugins and to download from any domain in editors, and not using the stored \"Always Allow\" decisions, because {}.",
-        reason
+        "{} has a value in \"editor.trustedDomains\" that isn't a domain (\"!github.com\"), which is ignored. Update dprint or change the file to use it.",
+        file_path.display()
       )]
     );
   }

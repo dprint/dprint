@@ -897,12 +897,11 @@ impl TrustedDomains {
   /// directory).
   pub fn from_settings(environment: &impl Environment) -> Self {
     let settings = match read_settings(environment) {
-      Ok(Some(settings)) if settings.get_editor_problem().is_none() => Some(settings),
-      Ok(Some(_)) | Err(_) => {
-        // IMPORTANT: A property or value in `editor` this version doesn't know may be a
-        // setting of a newer version that trusts less (ex. not a default domain), so no
-        // domain is trusted then, like when the settings can't be read. A warning for
-        // either is logged when reading the permissions.
+      Ok(Some(settings)) => Some(settings),
+      Err(_) => {
+        // IMPORTANT: The settings may trust less than the defaults do in a way this version
+        // can't read, so no domain is trusted when they can't be read. A warning for it is
+        // logged when reading the permissions.
         return TrustedDomains(Vec::new());
       }
       Ok(None) => None,
@@ -3104,27 +3103,20 @@ mod test {
   }
 
   #[test]
-  fn should_trust_no_domains_with_an_unknown_editor_setting() {
+  fn should_use_the_trusted_domains_with_an_unknown_editor_setting() {
     let environment = TestEnvironment::new();
     let file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
-    // ex. a setting of a newer version of dprint that trusts less
+    // ex. a setting of a newer version of dprint, which is only warned about
     environment
       .write_file(
         &file_path,
         r#"{ "editor": { "trustedDomains": ["npm.example.com"], "trustDefaultDomains": false } }"#,
       )
       .unwrap();
-    // not even the default ones, so every download needs to be approved
     let trusted_domains = TrustedDomains::from_settings(&environment);
-    assert_eq!(trusted_domains, TrustedDomains(Vec::new()));
-    assert!(!trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
-    assert!(!trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
-    // an unknown property outside of "editor" doesn't change them
-    environment
-      .write_file(&file_path, r#"{ "editor": { "trustedDomains": ["npm.example.com"] }, "other": 1 }"#)
-      .unwrap();
-    assert!(TrustedDomains::from_settings(&environment).is_trusted(&url("https://npm.example.com/@scope/package")));
+    assert!(trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
+    assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
   }
 
   #[test]
@@ -3155,18 +3147,18 @@ mod test {
   }
 
   #[test]
-  fn should_trust_no_domains_with_a_trusted_domain_this_version_does_not_know() {
+  fn should_leave_out_a_trusted_domain_this_version_does_not_know() {
     let environment = TestEnvironment::new();
     let file_path = crate::configuration::get_settings_file_path(&environment).unwrap();
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
-    // ex. a newer version of dprint that lets the user not trust a default domain, which this one honors
+    // ex. a syntax of a newer version of dprint, which is only warned about
     environment
       .write_file(&file_path, r#"{ "editor": { "trustedDomains": ["!github.com", "npm.example.com"] } }"#)
       .unwrap();
     let trusted_domains = TrustedDomains::from_settings(&environment);
-    assert!(!trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
-    assert!(!trusted_domains.is_trusted(&url("https://github.com/dprint/plugin.wasm")));
-    assert!(!trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
+    assert!(trusted_domains.is_trusted(&url("https://npm.example.com/@scope/package")));
+    assert!(trusted_domains.is_trusted(&url("https://github.com/dprint/plugin.wasm")));
+    assert!(trusted_domains.is_trusted(&url("https://plugins.dprint.dev/plugin.wasm")));
   }
 
   #[test]
