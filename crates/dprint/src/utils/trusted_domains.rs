@@ -694,11 +694,6 @@ pub fn get_path_download_local_path(download: &str) -> Option<PathBuf> {
   Some(PathBuf::from(unescape_text(path)))
 }
 
-/// The titles of the actions of the message that asks whether to download from
-/// domains that aren't trusted, through a proxy, or to read from another machine.
-pub const ALLOW_DOWNLOAD_ACTION_TITLE: &str = "Allow";
-pub const CANCEL_DOWNLOAD_ACTION_TITLE: &str = "Cancel";
-
 /// Gets the message that asks the user whether to download what a config file
 /// needs from domains that aren't trusted, through the proxies of `.npmrc`
 /// files that aren't the user's own, or from another machine.

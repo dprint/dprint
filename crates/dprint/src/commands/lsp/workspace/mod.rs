@@ -76,13 +76,16 @@ use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
 use crate::configuration::is_dot_config_dir;
 use crate::configuration::is_more_recent_at;
+use crate::configuration::read_download_denials;
 use crate::configuration::read_editor_approval_denials;
 use crate::configuration::read_editor_approvals;
 use crate::configuration::read_ignored_settings_message;
+use crate::configuration::remove_download_denials;
 use crate::configuration::resolve_global_config_dir;
 use crate::configuration::resolve_global_config_file_path;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
+use crate::configuration::store_download_denial;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::paths::get_plugin_names_for_file_on_disk;
@@ -97,8 +100,6 @@ use crate::resolution::UnapprovedProcessPlugin;
 use crate::resolution::UnapprovedProcessPlugins;
 use crate::resolution::get_cant_ask_message;
 use crate::resolution::get_plugin_display_text;
-use crate::utils::ALLOW_DOWNLOAD_ACTION_TITLE;
-use crate::utils::CANCEL_DOWNLOAD_ACTION_TITLE;
 use crate::utils::LogLevel;
 use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
@@ -578,7 +579,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     concurrency_limiter: Rc<Semaphore>,
     session_permissions: Arc<SessionPermissions>,
   ) -> Self {
-    Self {
+    let workspace = Self {
       ensure_stable_format: EnsureStableFormat::for_editor(&environment),
       config_schema_builder: ConfigJsonSchemaBuilder::new(environment.clone()),
       initial_log_level: environment.log_level(),
@@ -618,7 +619,9 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       scope_container,
       concurrency_limiter,
       session_permissions,
-    }
+    };
+    workspace.load_stored_denied_downloads();
+    workspace
   }
 
   pub fn set_client_kind(self: &Rc<Self>, client_kind: ClientKind) {
@@ -1594,30 +1597,61 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           // a denial of what's allowed now (ex. with the approve command) is replaced, because an allowed
           // download is allowed for every config file
           let allowed = self.environment.download_policy().allowed_downloads().into_iter().collect::<HashSet<_>>();
-          self
+          let is_replaced = |denied: &DeniedDownload| denied.downloads.iter().all(|download| allowed.contains(download));
+          let replaced_stored = self
             .denied_downloads
-            .borrow_mut()
-            .retain(|_, denied| !denied.downloads.iter().all(|download| allowed.contains(download)));
+            .borrow()
+            .values()
+            .filter(|denied| denied.always && is_replaced(denied))
+            .filter_map(|denied| serde_json::to_value(denied).ok())
+            .collect::<Vec<_>>();
+          self.denied_downloads.borrow_mut().retain(|_, denied| !is_replaced(denied));
           drop(allowed_items);
           self.denied_downloads_changed();
+          // which includes what was always denied, so it isn't denied in the next session
+          if !replaced_stored.is_empty()
+            && let Err(err) = remove_download_denials(&self.environment, |denial| replaced_stored.contains(denial)).await
+          {
+            let message = format!(
+              "Failed forgetting that it was always denied, so it's only allowed until the editor restarts: {:#}",
+              err
+            );
+            log_warn!(self.environment, "{}", message);
+            notice = Some(new_warning_notice(message));
+          }
         } else if self.is_each_allowed(urls) {
           // a denial of downloads that are each allowed exactly since (ex. for another config file) wouldn't do
           // anything, because an exact allow wins over a denial, so it isn't kept
           notice = Some(new_warning_notice(ALLOWED_SINCE_MESSAGE.to_string()));
         } else {
-          self.denied_downloads.borrow_mut().insert(
-            stored.approval.id.clone(),
-            DeniedDownload {
-              id: stored.approval.id.clone(),
-              config_key: stored.config_key.clone(),
-              downloads: urls.clone(),
-              config_file: ConfigFileIdentifier {
-                uri: stored.approval.config_file.uri.clone(),
-                dir_uri: Some(stored.approval.config_file.dir_uri.clone()),
-              },
-              items: stored.approval.items.clone(),
+          let mut denied = DeniedDownload {
+            id: stored.approval.id.clone(),
+            config_key: stored.config_key.clone(),
+            downloads: urls.clone(),
+            config_file: ConfigFileIdentifier {
+              uri: stored.approval.config_file.uri.clone(),
+              dir_uri: Some(stored.approval.config_file.dir_uri.clone()),
             },
-          );
+            items: stored.approval.items.clone(),
+            always: decision == ApprovalDecision::AlwaysDeny,
+          };
+          if denied.always {
+            // it's stored with the config file as the decisions have it, which forgetting them removes it by
+            let result = match self.get_decisions_config_file(&denied.config_file.uri, denied.config_file.dir_uri.as_ref()) {
+              Ok((config_file, _)) => match serde_json::to_value(&denied) {
+                Ok(denial) => store_download_denial(&self.environment, &config_file, denial).await,
+                Err(err) => Err(err.into()),
+              },
+              Err(err) => Err(err),
+            };
+            if let Err(err) = result {
+              let message = format!("Failed storing the decision, so it's only kept until the editor restarts: {:#}", err);
+              log_warn!(self.environment, "{}", message);
+              notice = Some(new_warning_notice(message));
+              denied.always = false;
+            }
+          }
+          self.denied_downloads.borrow_mut().insert(stored.approval.id.clone(), denied);
           self.denied_downloads_changed();
         }
       }
@@ -1957,7 +1991,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
               .collect(),
           },
           allows: false,
-          always: false,
+          always: denied.always,
         });
       }
     }
@@ -2261,9 +2295,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             // a path that isn't valid Unicode is never allowed, so allowing it isn't offered
             let is_allowable = urls.iter().all(|url| self.environment.download_policy().is_allowable(url));
             let options: &[ApprovalDecision] = match is_allowable {
-              true => &[ApprovalDecision::Allow, ApprovalDecision::Deny],
-              false => &[ApprovalDecision::Deny],
+              true => &[ApprovalDecision::Allow, ApprovalDecision::Deny, ApprovalDecision::AlwaysDeny],
+              false => &[ApprovalDecision::Deny, ApprovalDecision::AlwaysDeny],
             };
+            let is_always_denied = self.denied_downloads.borrow().get(&id).is_some_and(|denied| denied.always);
             let mut message = get_download_approval_message(
               &self.with_editor_npmrc_paths(urls),
               &config_file_text,
@@ -2274,8 +2309,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             }
             PendingApproval {
               denied,
-              // a download is only denied for the session
-              previous_decision: denied.then_some(ApprovalDecision::Deny),
+              previous_decision: match denied {
+                true if is_always_denied => Some(ApprovalDecision::AlwaysDeny),
+                true => Some(ApprovalDecision::Deny),
+                false => None,
+              },
               id,
               kind: ApprovalKind::Downloads,
               title: get_download_group_title(urls).to_string(),
@@ -2373,10 +2411,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     dprint_core::async_runtime::spawn(async move {
       while !pending.is_empty() {
         let approval = pending.remove(0);
+        // the decisions of a download are the ones it has (ex. a path that isn't valid Unicode can only be denied)
+        let download_titles = approval.decisions.iter().map(|option| option.label.as_str()).collect::<Vec<_>>();
         let titles: &[&str] = match approval.kind {
-          // a path that isn't valid Unicode can only be denied (see `DownloadPolicy::is_allowable`)
-          ApprovalKind::Downloads if !approval.decisions.iter().any(|option| option.decision == ApprovalDecision::Allow) => &[CANCEL_DOWNLOAD_ACTION_TITLE],
-          ApprovalKind::Downloads => &[ALLOW_DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
+          ApprovalKind::Downloads => &download_titles,
           ApprovalKind::ProcessPlugins => &PROCESS_PLUGIN_ACTION_TITLES,
         };
         let message = get_language_client_approval_message(&approval);
@@ -2385,8 +2423,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           return;
         };
         let decision = match approval.kind {
-          ApprovalKind::Downloads if title == ALLOW_DOWNLOAD_ACTION_TITLE => ApprovalDecision::Allow,
-          ApprovalKind::Downloads => ApprovalDecision::Deny,
+          ApprovalKind::Downloads => match approval.decisions.iter().find(|option| option.label == title) {
+            Some(option) => option.decision,
+            // the client responded with an action that wasn't offered
+            None => return,
+          },
           ApprovalKind::ProcessPlugins => match get_process_plugin_decision(&title) {
             Some(decision) => decision,
             // the client responded with an action that wasn't offered
@@ -3283,6 +3324,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
   async fn handle_dprint_files_change(self: &Rc<Self>) {
     self.check_editor_dirs_again();
     self.environment.download_policy().reload_trusted_domains(&self.environment);
+    self.load_stored_denied_downloads();
     self.resolve_used_configs_again().await;
     // the documents without a config file may use the global config file now
     let has_global_config = self.get_global_config_path().is_some();
@@ -3418,7 +3460,14 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     let allowed_items = self.allowed_download_items.borrow();
     let mut allowed_downloads = self.environment.download_policy().allowed_downloads();
     allowed_downloads.sort();
-    let mut denied_downloads = self.denied_downloads.borrow().values().cloned().collect::<Vec<_>>();
+    // what's always denied is in the approvals file instead
+    let mut denied_downloads = self
+      .denied_downloads
+      .borrow()
+      .values()
+      .filter(|denied| !denied.always)
+      .cloned()
+      .collect::<Vec<_>>();
     denied_downloads.sort_by(|a, b| a.id.cmp(&b.id));
     SessionState {
       permissions: self.session_permissions.state(),
@@ -3461,6 +3510,32 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
       .denied_downloads
       .borrow_mut()
       .retain(|_, denied| !denied.downloads.iter().all(|download| allowed.contains(download)));
+    self.denied_downloads_changed();
+  }
+
+  /// Uses the downloads the user always denied, which are in the approvals
+  /// file, in place of the ones it had before (ex. the file changed).
+  fn load_stored_denied_downloads(&self) {
+    let mut denied_downloads = self.denied_downloads.borrow_mut();
+    denied_downloads.retain(|_, denied| !denied.always);
+    for denial in read_download_denials(&self.environment) {
+      let Ok(denied) = serde_json::from_value::<DeniedDownload>(denial) else {
+        continue;
+      };
+      // the texts and the id are made again like for the session file (see `restore_session_state`)
+      let downloads = denied.downloads.iter().map(|download| normalize_download(download)).collect::<Vec<_>>();
+      let id = get_approval_id("download", &denied.config_key, &downloads);
+      denied_downloads.insert(
+        id.clone(),
+        DeniedDownload {
+          id,
+          downloads,
+          always: true,
+          ..denied
+        },
+      );
+    }
+    drop(denied_downloads);
     self.denied_downloads_changed();
   }
 
@@ -4324,6 +4399,7 @@ fn get_decision_options(kind: ApprovalKind, decisions: &[ApprovalDecision]) -> V
     .map(|decision| ApprovalDecisionOption {
       description: match (kind, decision) {
         (ApprovalKind::Downloads, ApprovalDecision::Allow) => "Allows these downloads (and proxies) for this session.",
+        (ApprovalKind::Downloads, ApprovalDecision::AlwaysDeny) => "Doesn't download, and doesn't ask again unless you ask for it.",
         (ApprovalKind::Downloads, _) => "Doesn't download, and doesn't ask again for this session unless you ask for it.",
         (ApprovalKind::ProcessPlugins, ApprovalDecision::Allow) => {
           "Runs these process plugins with this configuration for this configuration file for this session."
@@ -4339,8 +4415,7 @@ fn get_decision_options(kind: ApprovalKind, decisions: &[ApprovalDecision]) -> V
       label: match (kind, decision) {
         // the only way to allow process plugins is to always allow them, so it doesn't need to say so
         (_, ApprovalDecision::Allow | ApprovalDecision::AlwaysAllow) => "Allow",
-        (ApprovalKind::ProcessPlugins, ApprovalDecision::Deny) => "Deny Once",
-        (ApprovalKind::Downloads, ApprovalDecision::Deny) => "Deny",
+        (_, ApprovalDecision::Deny) => "Deny Once",
         (_, ApprovalDecision::AlwaysDeny) => "Always Deny",
       }
       .to_string(),
@@ -5234,6 +5309,7 @@ mod test {
         dir_uri: Some(uri("/a")),
       },
       items: Vec::new(),
+      always: false,
     };
     let config_file = ("/a/dprint.json".to_string(), "file:///a/dprint.json".to_string());
     assert!(is_denial_for(&denied, None, None));

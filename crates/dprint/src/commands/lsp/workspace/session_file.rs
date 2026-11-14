@@ -115,6 +115,10 @@ pub struct DeniedDownload {
   /// `deserialize_known_items`).
   #[serde(deserialize_with = "deserialize_known_items")]
   pub items: Vec<ApprovalItem>,
+  /// Whether the user always denies them, which is then stored in the
+  /// approvals file instead of the session file (see `store_download_denial`).
+  #[serde(skip)]
+  pub always: bool,
 }
 
 /// Why the lock of a session couldn't be taken.
@@ -894,6 +898,7 @@ mod test {
           dir_uri: Some("file:///a".parse().unwrap()),
         },
         items: Vec::new(),
+        always: false,
       }],
     };
     let decision_json = |allowed: bool| {

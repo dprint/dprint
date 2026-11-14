@@ -3669,6 +3669,59 @@ fn should_store_a_decision_for_a_config_file_that_is_a_symlink_by_the_path_it_wa
 }
 
 #[test]
+fn should_always_deny_downloading_from_domains_that_are_not_trusted() {
+  const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
+  let environment = TestEnvironmentBuilder::new()
+    .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
+    .with_local_config("/dprint.json", |c| {
+      c.add_plugin(UNTRUSTED_PLUGIN_URL);
+    })
+    .build();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        assert!(!approval.denied);
+        let approvals = client.approve(&approval.id, ApprovalDecision::AlwaysDeny).await;
+        assert!(approvals[0].denied);
+        assert_eq!(approvals[0].previous_decision, Some(ApprovalDecision::AlwaysDeny));
+        let decisions = client.decisions().await;
+        assert_eq!(decisions.len(), 1);
+        assert!(!decisions[0].allows);
+        assert!(decisions[0].always);
+        assert_eq!(crate::configuration::read_download_denials(&environment).len(), 1);
+
+        // forgetting the decisions forgets it
+        client.forget_decisions(None).await;
+        assert_eq!(crate::configuration::read_download_denials(&environment).len(), 0);
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        assert!(!approval.denied);
+        client.approve(&approval.id, ApprovalDecision::AlwaysDeny).await;
+      }
+      .boxed_local()
+    }
+  });
+  // which is used in the next session, unlike denying it once
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/dprint.json").await.status.approvals()[0].clone();
+        assert!(approval.denied);
+        assert_eq!(approval.previous_decision, Some(ApprovalDecision::AlwaysDeny));
+        assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 0);
+        // until it's allowed, which forgets that it was
+        client.approve(&approval.id, ApprovalDecision::Allow).await;
+        assert_eq!(environment.remote_file_request_count(UNTRUSTED_PLUGIN_URL), 1);
+        assert_eq!(crate::configuration::read_download_denials(&environment), Vec::<serde_json::Value>::new());
+      }
+      .boxed_local()
+    }
+  });
+}
+
+#[test]
 fn should_approve_downloading_from_domains_that_are_not_trusted() {
   const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
   let environment = TestEnvironmentBuilder::new()
@@ -3691,14 +3744,18 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
         assert_eq!(approval.kind, ApprovalKind::Downloads);
         assert_eq!(specifiers(&approval), vec![UNTRUSTED_PLUGIN_URL]);
         assert_eq!(approval.items[0].kind, ApprovalItemKind::Plugin);
-        // a download is only allowed for the session
+        // a download is only allowed for the session, but it can always be denied
         assert_eq!(
           approval
             .decisions
             .iter()
             .map(|option| (option.decision, option.label.as_str()))
             .collect::<Vec<_>>(),
-          vec![(ApprovalDecision::Allow, "Allow"), (ApprovalDecision::Deny, "Deny")]
+          vec![
+            (ApprovalDecision::Allow, "Allow"),
+            (ApprovalDecision::Deny, "Deny Once"),
+            (ApprovalDecision::AlwaysDeny, "Always Deny")
+          ]
         );
         assert!(!approval.denied);
         assert!(

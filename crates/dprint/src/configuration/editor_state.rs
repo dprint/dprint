@@ -1046,6 +1046,120 @@ fn read_network_path_decisions(environment: &impl Environment) -> Vec<NetworkPat
     .collect()
 }
 
+/// The property of the approvals file with the downloads the user always
+/// denies (see `store_download_denial`).
+const DOWNLOAD_DECISIONS_PROPERTY: &str = "downloadDecisions";
+
+/// Reads what the user always denied downloading (see `store_download_denial`),
+/// which is each denial as the editors keep it. They're read from a file this
+/// version can't use otherwise too, because denying more than the user did is
+/// safe (see `EditorApprovals`).
+pub fn read_download_denials(environment: &impl Environment) -> Vec<serde_json::Value> {
+  let Some(file_path) = get_editor_approvals_file_path(environment) else {
+    return Vec::new();
+  };
+  let Ok(Some((_, file))) = read_approvals_file(environment, &file_path) else {
+    return Vec::new();
+  };
+  let Some(serde_json::Value::Array(decisions)) = file.other.get(DOWNLOAD_DECISIONS_PROPERTY) else {
+    return Vec::new();
+  };
+  decisions
+    .iter()
+    .filter(|decision| decision.get("allowed").and_then(|allowed| allowed.as_bool()) == Some(false))
+    .filter_map(|decision| decision.get("denial").cloned())
+    .collect()
+}
+
+/// Remembers that the user always denies the downloads of a config file (ex.
+/// from a domain that isn't trusted, through a proxy, or reading from another
+/// machine), which is the denial as the editors keep it for a session. It's
+/// one of the decisions of the approvals file, so it has the `configFile` that
+/// forgetting the decisions of a config file removes it by.
+pub async fn store_download_denial(environment: &impl Environment, config_file: &str, denial: serde_json::Value) -> Result<()> {
+  let decided_at = environment
+    .sys_time_now()
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0);
+  edit_download_decisions(environment, |decisions| {
+    if decisions.iter().any(|decision| decision.get("denial") == Some(&denial)) {
+      return false;
+    }
+    decisions.push(serde_json::json!({
+      "configFile": config_file,
+      "allowed": false,
+      "decidedAt": decided_at,
+      "denial": denial,
+    }));
+    true
+  })
+  .await
+}
+
+/// Forgets the denials of downloads the user always denied (ex. they allowed
+/// them since), which are the ones as the editors keep them.
+pub async fn remove_download_denials(environment: &impl Environment, is_removed: impl Fn(&serde_json::Value) -> bool) -> Result<()> {
+  // the lock isn't taken when there's nothing to remove
+  if !read_download_denials(environment).iter().any(&is_removed) {
+    return Ok(());
+  }
+  edit_download_decisions(environment, |decisions| {
+    let count = decisions.len();
+    decisions.retain(|decision| !decision.get("denial").is_some_and(&is_removed));
+    decisions.len() != count
+  })
+  .await
+}
+
+/// Edits the decisions about downloads of the approvals file, which is only
+/// written when the edit says it changed them. The ones it leaves are kept
+/// as they are.
+async fn edit_download_decisions(environment: &impl Environment, edit: impl FnOnce(&mut Vec<serde_json::Value>) -> bool) -> Result<()> {
+  let Some(file_path) = get_editor_approvals_file_path(environment) else {
+    bail!("Could not find the directory of the settings file to store the decision in.");
+  };
+  let _lock = lock_editor_approvals(environment).await?;
+  let (text, file) = read_approvals_file(environment, &file_path)?.unwrap_or_default();
+  file.ensure_readable(&file_path)?;
+  let root = CstRootNode::parse(&text, &Default::default()).with_context(|| format!("Failed parsing {}.", file_path.display()))?;
+  let root_obj = root.object_value_or_set();
+  let decisions_array = root_obj.array_value_or_set(DOWNLOAD_DECISIONS_PROPERTY);
+  let elements = decisions_array.elements();
+  let previous = elements
+    .iter()
+    .map(|element| to_json_value(element).unwrap_or(serde_json::Value::Null))
+    .collect::<Vec<_>>();
+  let mut decisions = previous.clone();
+  if !edit(&mut decisions) {
+    return Ok(());
+  }
+  raise_version_property(&root_obj, "version", APPROVALS_FILE_VERSION, 0);
+  raise_version_property(&root_obj, "minVersion", APPROVALS_FILE_MIN_VERSION, 1);
+  // keep the elements that are still there, and add the new ones
+  let mut remaining = decisions.into_iter().peekable();
+  for (element, value) in elements.into_iter().zip(previous) {
+    if remaining.peek() == Some(&value) {
+      remaining.next();
+    } else {
+      element.remove();
+    }
+  }
+  for decision in remaining {
+    decisions_array.append(to_cst_input(decision));
+    decisions_array.ensure_multiline();
+  }
+  let mut text = root.to_string();
+  if !text.ends_with('\n') {
+    text.push('\n');
+  }
+  if let Some(dir_path) = file_path.parent() {
+    environment.mk_dir_all(dir_path)?;
+  }
+  environment.atomic_write_file_bytes_through_symlinks(file_path, text.as_bytes())?;
+  Ok(())
+}
+
 /// Remembers the user's decision for running a process plugin of a config
 /// file, which replaces the one for a previous configuration of it.
 pub async fn store_process_plugin_decision(environment: &impl Environment, decision: ProcessPluginDecision) -> Result<()> {
