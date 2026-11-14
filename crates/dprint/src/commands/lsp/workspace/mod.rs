@@ -1590,9 +1590,11 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
         if decision.is_allowed() {
           self.environment.download_policy().allow(urls);
           // the items are of the downloads in the same order
-          let mut allowed_items = self.allowed_download_items.borrow_mut();
-          for (url, item) in urls.iter().zip(&stored.approval.items) {
-            allowed_items.insert(url.clone(), item.clone());
+          {
+            let mut allowed_items = self.allowed_download_items.borrow_mut();
+            for (url, item) in urls.iter().zip(&stored.approval.items) {
+              allowed_items.insert(url.clone(), item.clone());
+            }
           }
           // a denial of what's allowed now (ex. with the approve command) is replaced, because an allowed
           // download is allowed for every config file
@@ -1606,7 +1608,6 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             .filter_map(|denied| serde_json::to_value(denied).ok())
             .collect::<Vec<_>>();
           self.denied_downloads.borrow_mut().retain(|_, denied| !is_replaced(denied));
-          drop(allowed_items);
           self.denied_downloads_changed();
           // which includes what was always denied, so it isn't denied in the next session
           if !replaced_stored.is_empty()
