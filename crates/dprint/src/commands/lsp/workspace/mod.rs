@@ -4416,7 +4416,7 @@ fn get_decision_options(kind: ApprovalKind, decisions: &[ApprovalDecision]) -> V
       label: match (kind, decision) {
         // the only way to allow process plugins is to always allow them, so it doesn't need to say so
         (_, ApprovalDecision::Allow | ApprovalDecision::AlwaysAllow) => "Allow",
-        (_, ApprovalDecision::Deny) => "Deny Once",
+        (_, ApprovalDecision::Deny) => "Deny",
         (_, ApprovalDecision::AlwaysDeny) => "Always Deny",
       }
       .to_string(),

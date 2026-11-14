@@ -3753,7 +3753,7 @@ fn should_approve_downloading_from_domains_that_are_not_trusted() {
             .collect::<Vec<_>>(),
           vec![
             (ApprovalDecision::Allow, "Allow"),
-            (ApprovalDecision::Deny, "Deny Once"),
+            (ApprovalDecision::Deny, "Deny"),
             (ApprovalDecision::AlwaysDeny, "Always Deny")
           ]
         );

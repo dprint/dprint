@@ -1988,7 +1988,7 @@ mod test {
               )),
               "{shown:?}"
             );
-            assert_eq!(shown[0].2, vec!["Allow", "Deny Once", "Always Deny"]);
+            assert_eq!(shown[0].2, vec!["Allow", "Deny", "Always Deny"]);
             // the user chose to download it
             let mut result = None;
             for _ in 0..100 {
@@ -2029,8 +2029,8 @@ mod test {
       // a client that can't ask is told how to download them
       (ClientCapabilities::default(), None, Vec::new()),
       // not choosing an action (ex. closing the message)
-      (message_actions_capabilities(), None, vec!["Allow", "Deny Once", "Always Deny"]),
-      (message_actions_capabilities(), Some("Deny Once"), vec!["Allow", "Deny Once", "Always Deny"]),
+      (message_actions_capabilities(), None, vec!["Allow", "Deny", "Always Deny"]),
+      (message_actions_capabilities(), Some("Deny"), vec!["Allow", "Deny", "Always Deny"]),
     ] {
       let environment = TestEnvironmentBuilder::new()
         .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
@@ -2079,7 +2079,7 @@ mod test {
   #[test]
   fn should_ask_to_read_from_another_machine_with_lsp() {
     for (capabilities, expected_actions) in [
-      (message_actions_capabilities(), vec!["Allow", "Deny Once", "Always Deny"]),
+      (message_actions_capabilities(), vec!["Allow", "Deny", "Always Deny"]),
       // a client that can't ask is told how to allow it
       (ClientCapabilities::default(), Vec::new()),
     ] {
@@ -2250,7 +2250,7 @@ mod test {
           );
           // the value of the environment variable isn't shown
           assert!(!shown[0].1.contains("secret"), "{shown:?}");
-          assert_eq!(shown[0].2, vec!["Allow", "Deny Once", "Always Deny"]);
+          assert_eq!(shown[0].2, vec!["Allow", "Deny", "Always Deny"]);
           // the user chose to download through it
           let mut result = None;
           for _ in 0..100 {
@@ -3956,7 +3956,7 @@ mod test {
         assert_eq!(*message_type, MessageType::WARNING);
         assert!(message.contains("`/dprint.json` (outside the workspace)"), "{message}");
         assert!(message.contains(reason), "{message}");
-        assert_eq!(*actions, vec!["Allow", "Deny Once", "Always Deny"]);
+        assert_eq!(*actions, vec!["Allow", "Deny", "Always Deny"]);
       }
 
       // a client that can't ask is told how to allow them
@@ -3972,7 +3972,7 @@ mod test {
       assert_eq!(shown[0].2, Vec::<String>::new());
 
       // denying only asks once per session
-      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny Once"), [false, false]).await;
+      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny"), [false, false]).await;
       assert!(!was_set_up);
       assert_asked(
         shown,

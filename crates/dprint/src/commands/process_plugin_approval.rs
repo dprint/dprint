@@ -274,7 +274,7 @@ pub fn get_process_plugin_decision(action_title: &str) -> Option<ApprovalDecisio
 
 // the only way to allow them is to always allow them, so it doesn't say so
 const ALWAYS_ALLOW_ACTION_TITLE: &str = "Allow";
-const DENY_ACTION_TITLE: &str = "Deny Once";
+const DENY_ACTION_TITLE: &str = "Deny";
 const ALWAYS_DENY_ACTION_TITLE: &str = "Always Deny";
 /// How long after running dprint allowed the process plugins of a config
 /// file in editors that running it allows them again, which stores it with
