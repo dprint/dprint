@@ -15,6 +15,7 @@ use crate::configuration::SessionPermissions;
 use crate::configuration::read_editor_approvals;
 use crate::configuration::read_ignored_settings_message;
 use crate::configuration::resolve_config_from_args;
+use crate::configuration::store_network_path_allows;
 use crate::configuration::store_process_plugin_decision;
 use crate::configuration::update_editor_approvals;
 use crate::environment::Environment;
@@ -25,6 +26,7 @@ use crate::resolution::get_process_plugin_approvals;
 use crate::resolution::get_trusted_config_hash;
 use crate::resolution::get_unpinned_plugin_file_checksum;
 use crate::utils::PluginKind;
+use crate::utils::get_network_path_downloads;
 
 /// The actions of the message that asks the user whether to allow running the
 /// process plugins of a config file, in the order they're shown.
@@ -174,6 +176,14 @@ pub async fn allow_process_plugins_in_editors<TEnvironment: Environment>(
   if let Err(err) = try_allow_process_plugins_in_editors(environment, config, plugin_resolver).await {
     log_debug!(environment, "Failed allowing the process plugins of {} in editors: {:#}", config.display(), err);
   }
+  if let Err(err) = try_allow_network_paths_in_editors(environment, config).await {
+    log_debug!(
+      environment,
+      "Failed allowing what {} reads from other machines in editors: {:#}",
+      config.display(),
+      err
+    );
+  }
 }
 
 /// Allows the editors to run the process plugins of the config files of the
@@ -226,10 +236,10 @@ pub async fn set_up_and_allow_process_plugins_in_editors<TEnvironment: Environme
     .filter(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm))
     .cloned()
     .collect::<Vec<_>>();
-  if process_plugins.is_empty() {
-    return;
-  }
-  if let Err(err) = plugin_resolver.resolve_plugins(process_plugins).await {
+  // what it reads from other machines is still allowed without any
+  if !process_plugins.is_empty()
+    && let Err(err) = plugin_resolver.resolve_plugins(process_plugins).await
+  {
     log_debug!(environment, "Not allowing the process plugins of {} in editors. {:#}", config.display(), err);
     return;
   }
@@ -328,6 +338,42 @@ async fn try_allow_process_plugins_in_editors<TEnvironment: Environment>(
     }
   })
   .await
+}
+
+/// Allows the editors to read the paths on other machines that the config
+/// file names (ex. a plugin or a file it extends on a share), which dprint
+/// read because the user ran it with the config file. An editor that can't
+/// ask about them has no other way to be allowed to.
+async fn try_allow_network_paths_in_editors(environment: &impl Environment, config: &ResolvedConfig) -> Result<()> {
+  // the global config file's are stored for it too, which is the user's own
+  let mut dirs = config
+    .local_dependencies
+    .iter()
+    .filter_map(|path| path.parent().map(|dir| dir.to_path_buf()))
+    .collect::<Vec<_>>();
+  if let Some(config_path) = config.source.maybe_local_path()
+    && let Some(dir) = config_path.as_ref().parent()
+  {
+    dirs.push(dir.to_path_buf());
+  }
+  let mut downloads = Vec::new();
+  let mut other_read_paths = Vec::new();
+  for (path, base) in environment.take_read_paths() {
+    // the paths the config files of other scopes name are kept for them
+    if !base.as_ref().is_some_and(|base| dirs.contains(base)) {
+      other_read_paths.push((path, base));
+      continue;
+    }
+    for download in get_network_path_downloads(environment, &path, base.as_deref()) {
+      if !downloads.contains(&download) {
+        downloads.push(download);
+      }
+    }
+  }
+  for (path, base) in other_read_paths {
+    environment.add_read_path(path, base);
+  }
+  store_network_path_allows(environment, &config.display(), &downloads).await
 }
 
 /// Uses the decision, which is stored when it's always used, while the

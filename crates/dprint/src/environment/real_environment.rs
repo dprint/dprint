@@ -87,6 +87,7 @@ pub struct RealEnvironment {
   logger: Arc<Logger>,
   system: Arc<Mutex<System>>,
   download_policy: Arc<Mutex<DownloadPolicy>>,
+  read_paths: Arc<Mutex<super::ReadPaths>>,
 }
 
 impl RealEnvironment {
@@ -110,6 +111,7 @@ impl RealEnvironment {
       progress_bars,
       system: Default::default(),
       download_policy: Default::default(),
+      read_paths: Default::default(),
     };
 
     // ensure the cache directory is created
@@ -623,6 +625,17 @@ impl Environment for RealEnvironment {
 
   fn set_download_policy(&self, policy: DownloadPolicy) {
     *self.download_policy.lock() = policy;
+  }
+
+  fn add_read_path(&self, path: PathBuf, base: Option<PathBuf>) {
+    let mut read_paths = self.read_paths.lock();
+    if !read_paths.iter().any(|(read_path, read_base)| *read_path == path && *read_base == base) {
+      read_paths.push((path, base));
+    }
+  }
+
+  fn take_read_paths(&self) -> super::ReadPaths {
+    std::mem::take(&mut *self.read_paths.lock())
   }
 
   fn watch_files(&self, file_paths: &[PathBuf]) -> io::Result<FilesWatcher> {

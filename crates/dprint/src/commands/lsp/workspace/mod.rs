@@ -2350,16 +2350,16 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     if !supports_message_actions {
       for approval in pending {
         let guidance = match approval.kind {
-          // running dprint doesn't allow it, unlike a download, which an editor doesn't need once dprint did it
+          // running dprint allows the editors to read what it read (see `store_network_path_allows`)
           ApprovalKind::Downloads if is_read_from_another_machine(&approval) => {
-            "The client can't ask whether to allow it, which is the only way to, so it isn't read.".to_string()
+            "The client can't ask whether to allow it, so run `dprint install` in the directory of the configuration file to do so.".to_string()
           }
           ApprovalKind::Downloads => {
-            "The client can't ask whether to download them, so run `dprint config install` in the directory of the configuration file to do so.".to_string()
+            "The client can't ask whether to download them, so run `dprint install` in the directory of the configuration file to do so.".to_string()
           }
           ApprovalKind::ProcessPlugins => self
             .get_unapproved_process_plugins(&approval.id)
-            .map(|unapproved| get_cant_ask_message(&self.environment, &unapproved.config_file))
+            .map(|unapproved| get_cant_ask_message(&unapproved.config_file))
             .unwrap_or_default(),
         };
         self.client.show_message(MessageType::WARNING, format!("{} {}", approval.message, guidance));

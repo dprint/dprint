@@ -260,6 +260,10 @@ macro_rules! log_all {
   }
 }
 
+/// The paths that files name along with the directory each one is relative
+/// to (see `Environment::add_read_path`).
+pub type ReadPaths = Vec<(PathBuf, Option<PathBuf>)>;
+
 #[async_trait]
 pub trait Environment:
   Clone
@@ -439,6 +443,14 @@ pub trait Environment:
   fn set_output_sink(&self, sink: Arc<dyn OutputSink>);
   /// Gets what may be downloaded without asking the user.
   fn download_policy(&self) -> DownloadPolicy;
+  /// Remembers a path that a file names (ex. a plugin of a config file) with
+  /// the directory it's relative to, which is only for what's read without
+  /// asking the user (see `take_read_paths`).
+  fn add_read_path(&self, path: PathBuf, base: Option<PathBuf>);
+  /// Takes the paths that the files that were read name, which is for
+  /// allowing the ones on another machine in the editors once the user ran
+  /// dprint with them (see `store_network_path_allows`).
+  fn take_read_paths(&self) -> ReadPaths;
   /// Only downloads what the policy allows from now on (ex. for an editor),
   /// which includes each redirect. Anything else fails with an
   /// `UntrustedDownloadError`.

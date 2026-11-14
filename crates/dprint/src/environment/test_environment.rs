@@ -152,6 +152,7 @@ impl Write for TestPipeWriter {
 pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
   download_policy: Arc<Mutex<DownloadPolicy>>,
+  read_paths: Arc<Mutex<super::ReadPaths>>,
   output_sink: Arc<Mutex<Option<Arc<dyn OutputSink>>>>,
   progress_bars: ProgressBarsCell,
   sys: Arc<InMemorySys>,
@@ -234,6 +235,7 @@ impl TestEnvironment {
     let env = TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
       download_policy: Default::default(),
+      read_paths: Default::default(),
       output_sink: Default::default(),
       progress_bars: Default::default(),
       sys: Default::default(),
@@ -1121,6 +1123,17 @@ impl Environment for TestEnvironment {
 
   fn set_download_policy(&self, policy: DownloadPolicy) {
     *self.download_policy.lock() = policy;
+  }
+
+  fn add_read_path(&self, path: PathBuf, base: Option<PathBuf>) {
+    let mut read_paths = self.read_paths.lock();
+    if !read_paths.iter().any(|(read_path, read_base)| *read_path == path && *read_base == base) {
+      read_paths.push((path, base));
+    }
+  }
+
+  fn take_read_paths(&self) -> super::ReadPaths {
+    std::mem::take(&mut *self.read_paths.lock())
   }
 
   fn watch_files(&self, file_paths: &[PathBuf]) -> io::Result<FilesWatcher> {

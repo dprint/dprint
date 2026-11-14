@@ -55,6 +55,20 @@ impl DownloadPolicy {
     DownloadPolicy::TrustedDomains(Arc::new(TrustedDownloads {
       trusted_domains: Mutex::new(TrustedDomains::from_settings(environment)),
       allowed: Default::default(),
+      stored_allowed: Mutex::new(read_stored_allowed(environment)),
+      denied: Default::default(),
+      not_allowable: Default::default(),
+    }))
+  }
+
+  /// Gets a policy that doesn't allow reading any path on another machine,
+  /// which is for finding the ones that a path leads to (see
+  /// `get_network_path_downloads`).
+  fn for_finding_network_paths() -> Self {
+    DownloadPolicy::TrustedDomains(Arc::new(TrustedDownloads {
+      trusted_domains: Mutex::new(TrustedDomains(Vec::new())),
+      allowed: Default::default(),
+      stored_allowed: Default::default(),
       denied: Default::default(),
       not_allowable: Default::default(),
     }))
@@ -189,9 +203,12 @@ impl DownloadPolicy {
     }
   }
 
+  /// Reads what dprint's own files allow again (the trusted domains of the
+  /// settings file and the paths the approvals file allows reading).
   pub fn reload_trusted_domains(&self, environment: &impl Environment) {
     if let DownloadPolicy::TrustedDomains(trusted_downloads) = self {
       *trusted_downloads.trusted_domains.lock() = TrustedDomains::from_settings(environment);
+      *trusted_downloads.stored_allowed.lock() = read_stored_allowed(environment);
     }
   }
 }
@@ -205,6 +222,10 @@ pub struct TrustedDownloads {
   /// it (see `get_npm_registry_download`). It also has the proxies of `.npmrc` files the
   /// user allowed downloading through (see `NpmrcProxy::to_download`).
   allowed: Mutex<HashSet<String>>,
+  /// The paths on other machines that the approvals file allows reading,
+  /// which are the ones dprint read when the user ran it with a config file
+  /// (see `read_network_path_allows`). Only the exact ones are allowed.
+  stored_allowed: Mutex<HashSet<String>>,
   /// What the user denied downloading this session, which wins over an npm
   /// registry or a directory above it that allows what's under it, but not
   /// over allowing it exactly. A denied directory denies what's in it the
@@ -328,6 +349,9 @@ impl TrustedDownloads {
       if self.denied.lock().contains(&download) {
         return false;
       }
+      if self.stored_allowed.lock().contains(&download) {
+        return true;
+      }
       match (path.file_name(), resolved.file_name(), path.parent(), resolved.parent()) {
         (Some(name), Some(resolved_name), Some(parent), Some(resolved_parent)) if name == resolved_name => {
           path = parent;
@@ -337,6 +361,37 @@ impl TrustedDownloads {
       }
     }
   }
+}
+
+/// Gets what an editor would ask about to read the path that's relative to
+/// the base (see `DownloadPolicy::ensure_allows_path`), which is each path on
+/// another machine it leads to, one after the other. It's for the CLI, which
+/// reads them without asking because the user ran it, to allow them in the
+/// editors (see `store_network_path_allows`).
+pub fn get_network_path_downloads(environment: &impl Environment, path: &Path, base: Option<&Path>) -> Vec<String> {
+  let policy = DownloadPolicy::for_finding_network_paths();
+  let mut downloads = Vec::new();
+  while downloads.len() < MAX_SYMLINKS {
+    match policy.ensure_allows_path(environment, path, base) {
+      Ok(()) => break,
+      Err(err) => {
+        // one that can't be allowed would be found again
+        if !policy.is_allowable(&err.download) || downloads.contains(&err.download) {
+          break;
+        }
+        policy.allow(std::slice::from_ref(&err.download));
+        downloads.push(err.download);
+      }
+    }
+  }
+  downloads
+}
+
+fn read_stored_allowed(environment: &impl Environment) -> HashSet<String> {
+  crate::configuration::read_network_path_allows(environment)
+    .iter()
+    .map(|download| normalize_download(download))
+    .collect()
 }
 
 /// A proxy that an `.npmrc` file other than the user's own (`~/.npmrc`) sets,

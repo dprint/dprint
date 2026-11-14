@@ -14,6 +14,7 @@ use crate::environment::CacheValidators;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
+use crate::utils::DownloadPolicy;
 use crate::utils::RemotePathSource;
 use crate::utils::UntrustedDownloadError;
 
@@ -331,9 +332,13 @@ fn canonicalize_allowed_path(path: &Path, base: &PathSource, environment: &impl 
   // the path is shown to the user when it needs to be allowed, so it's without the current
   // directory components that don't change where it leads (ex. `/project/./plugin.wasm`)
   let path = path.components().collect::<std::path::PathBuf>();
-  environment
-    .download_policy()
-    .ensure_allows_path(environment, &path, base.maybe_local_path().map(|path| path.as_ref()))?;
+  let base = base.maybe_local_path().map(|path| path.as_ref());
+  let download_policy = environment.download_policy();
+  // the user ran dprint, which the editors then allow reading it for (see `store_network_path_allows`)
+  if matches!(download_policy, DownloadPolicy::All) {
+    environment.add_read_path(path.clone(), base.map(|base: &Path| base.to_path_buf()));
+  }
+  download_policy.ensure_allows_path(environment, &path, base)?;
   Ok(environment.canonicalize(path)?)
 }
 

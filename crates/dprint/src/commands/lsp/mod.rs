@@ -2059,7 +2059,7 @@ mod test {
             );
             let says_how = shown[0]
               .1
-              .ends_with("The client can't ask whether to download them, so run `dprint config install` in the directory of the configuration file to do so.");
+              .ends_with("The client can't ask whether to download them, so run `dprint install` in the directory of the configuration file to do so.");
             assert_eq!(says_how, expected_actions.is_empty(), "{shown:?}");
             assert_eq!(shown[0].2, expected_actions);
             // it's only said once in a session, and nothing is downloaded
@@ -2080,7 +2080,7 @@ mod test {
   fn should_ask_to_read_from_another_machine_with_lsp() {
     for (capabilities, expected_actions) in [
       (message_actions_capabilities(), vec!["Allow", "Cancel"]),
-      // a client that can't ask can't allow it, which running dprint doesn't either
+      // a client that can't ask is told how to allow it
       (ClientCapabilities::default(), Vec::new()),
     ] {
       let environment = TestEnvironmentBuilder::new()
@@ -2108,9 +2108,8 @@ mod test {
             );
             let says_it_cant = shown[0]
               .1
-              .ends_with("The client can't ask whether to allow it, which is the only way to, so it isn't read.");
+              .ends_with("The client can't ask whether to allow it, so run `dprint install` in the directory of the configuration file to do so.");
             assert_eq!(says_it_cant, expected_actions.is_empty(), "{shown:?}");
-            assert!(!shown[0].1.contains("dprint config install"), "{shown:?}");
             assert_eq!(shown[0].2, expected_actions);
             // it's not read before it's allowed
             assert_eq!(environment.file_read_count("/a/plugin.wasm"), 0);
@@ -2150,6 +2149,64 @@ mod test {
           test_client.take_shown_messages();
         }
         .boxed_local()
+      }
+    });
+  }
+
+  #[test]
+  fn should_read_from_another_machine_what_running_dprint_read_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_plugin("./plugin.wasm");
+      })
+      .build();
+    environment.symlink(network_path("plugin.wasm"), "/a/plugin.wasm").unwrap();
+    // ex. the user ran `dprint install` in the directory, which read the plugin
+    let path = Path::new("/a").join("plugin.wasm").components().collect::<PathBuf>();
+    let base = Path::new("/a").components().collect::<PathBuf>();
+    let downloads = crate::utils::get_network_path_downloads(&environment, &path, Some(&base));
+    assert_eq!(downloads, vec![format!("{} -> {}", path.display(), network_path("plugin.wasm"))]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        crate::configuration::store_network_path_allows(&environment, "/a/dprint.json", &downloads)
+          .await
+          .unwrap();
+        // which doesn't write the file again when nothing changed
+        let file_path = get_editor_approvals_file_path(&environment).unwrap();
+        let text = environment.read_file(&file_path).unwrap();
+        environment.set_fs_time(5_000);
+        crate::configuration::store_network_path_allows(&environment, "/a/dprint.json", &downloads)
+          .await
+          .unwrap();
+        assert_eq!(environment.read_file(&file_path).unwrap(), text);
+      }
+    });
+    // even a client that can't ask reads it then
+    run_language_client(&environment, ClientCapabilities::default(), {
+      let environment = environment.clone();
+      move |backend, test_client| {
+        async move {
+          let file_uri = Uri::from_str("file:///a/file.txt").unwrap();
+          did_open!(backend, file_uri, "text");
+          format_document(&backend, &file_uri).await;
+          assert!(environment.file_read_count("/a/plugin.wasm") > 0);
+          // not asked about (the test environment can't read what's on another machine, which is an error)
+          let shown = test_client.take_shown_messages();
+          assert!(!shown.iter().any(|(_, message, _)| message.contains("another machine")), "{shown:?}");
+        }
+        .boxed_local()
+      }
+    });
+
+    // and it's asked about again once its decisions are forgotten
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        crate::configuration::forget_editor_approvals(&environment, |config_file| config_file == "/a/dprint.json")
+          .await
+          .unwrap();
+        assert_eq!(crate::configuration::read_network_path_allows(&environment), Vec::<String>::new());
       }
     });
   }
@@ -3906,7 +3963,12 @@ mod test {
       let (shown, was_set_up) = run_session(&environment, Default::default(), None, [false, false]).await;
       assert!(!was_set_up);
       assert_eq!(shown.len(), 1, "{shown:?}");
-      assert!(shown[0].1.contains("or when \"editor.allowProcessPlugins\" is true in"), "{shown:?}");
+      assert!(
+        shown[0]
+          .1
+          .ends_with("The client can't ask whether to allow them, so run `dprint install` in the directory of the configuration file to do so."),
+        "{shown:?}"
+      );
       assert_eq!(shown[0].2, Vec::<String>::new());
 
       // denying only asks once per session

@@ -48,6 +48,9 @@ const APPROVALS_FILE_VERSION: u32 = 1;
 /// can't safely ignore (see `EditorApprovals`).
 const APPROVALS_FILE_MIN_VERSION: u32 = 1;
 const PROCESS_PLUGIN_DECISIONS_PROPERTY: &str = "processPluginDecisions";
+/// The property of the approvals file with the paths on other machines that
+/// the editors may read without asking (see `NetworkPathDecision`).
+const NETWORK_PATH_DECISIONS_PROPERTY: &str = "networkPathDecisions";
 /// The most process plugin decisions to remember, where the oldest are
 /// forgotten first, which only means the user is asked again.
 const MAX_PROCESS_PLUGIN_DECISIONS: usize = 5000;
@@ -929,6 +932,118 @@ fn get_decided_now_at(environment: &impl Environment, decisions: &[ProcessPlugin
     .filter(|decision| decision.approval.config_file == config_file && decision.approval.plugin == plugin)
     .map(|decision| decision.decided_at.saturating_add(1))
     .fold(now, u64::max)
+}
+
+/// A path on another machine that a config file needs read (ex. a plugin on
+/// a share), which the editors may read without asking because the user ran
+/// dprint with the config file, which read it. Like running its process
+/// plugins, running dprint is choosing to (see `EditorApprovals`).
+///
+/// IMPORTANT: Only the exact path with where it resolved to is allowed (see
+/// `UntrustedDownloadError`), so a symlink that points elsewhere now is asked
+/// about. It's one of the decisions of the approvals file, so it has the
+/// `configFile` that forgetting the decisions of a config file removes it by.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkPathDecision {
+  pub config_file: String,
+  /// The path as an editor asks about it (see `get_network_path_downloads`).
+  pub path: String,
+  pub allowed: bool,
+  #[serde(default)]
+  pub decided_at: u64,
+}
+
+/// Reads the paths on other machines that the approvals file allows reading
+/// (see `NetworkPathDecision`), which is none when the editors don't use the
+/// stored allows (ex. the settings are ignored or the file is from a newer
+/// version, see `EditorApprovals`).
+pub fn read_network_path_allows(environment: &impl Environment) -> Vec<String> {
+  if read_ignored_settings_message(environment).is_some() {
+    return Vec::new();
+  }
+  read_network_path_decisions(environment)
+    .into_iter()
+    .filter(|decision| decision.allowed)
+    .map(|decision| decision.path)
+    .collect()
+}
+
+/// Allows the editors to read the paths on other machines that the config
+/// file needs read, which replaces the ones that were stored for it. Nothing
+/// is written when they're already what's stored for it.
+pub async fn store_network_path_allows(environment: &impl Environment, config_file: &str, paths: &[String]) -> Result<()> {
+  let is_for_config = |decision: &NetworkPathDecision| decision.config_file == config_file;
+  let stored = read_network_path_decisions(environment);
+  let stored_paths = stored
+    .iter()
+    .filter(|decision| is_for_config(decision) && decision.allowed)
+    .map(|decision| &decision.path);
+  if stored_paths.eq(paths.iter()) && stored.iter().filter(|decision| is_for_config(decision)).count() == paths.len() {
+    return Ok(());
+  }
+  let Some(file_path) = get_editor_approvals_file_path(environment) else {
+    bail!("Could not find the directory of the settings file to store the decision in.");
+  };
+  let _lock = lock_editor_approvals(environment).await?;
+  let (text, file) = read_approvals_file(environment, &file_path)?.unwrap_or_default();
+  file.ensure_readable(&file_path)?;
+  let root = CstRootNode::parse(&text, &Default::default()).with_context(|| format!("Failed parsing {}.", file_path.display()))?;
+  let root_obj = root.object_value_or_set();
+  raise_version_property(&root_obj, "version", APPROVALS_FILE_VERSION, 0);
+  raise_version_property(&root_obj, "minVersion", APPROVALS_FILE_MIN_VERSION, 1);
+  let decisions_array = root_obj.array_value_or_set(NETWORK_PATH_DECISIONS_PROPERTY);
+  for element in decisions_array.elements() {
+    let element_config_file = to_json_value(&element).and_then(|value| value.get("configFile")?.as_str().map(|text| text.to_string()));
+    if element_config_file.as_deref() == Some(config_file) {
+      element.remove();
+    }
+  }
+  let decided_at = environment
+    .sys_time_now()
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0);
+  for path in paths {
+    let decision = NetworkPathDecision {
+      config_file: config_file.to_string(),
+      path: path.clone(),
+      allowed: true,
+      decided_at,
+    };
+    decisions_array.append(to_cst_input(serde_json::to_value(&decision)?));
+    decisions_array.ensure_multiline();
+  }
+  let mut text = root.to_string();
+  if !text.ends_with('\n') {
+    text.push('\n');
+  }
+  if let Some(dir_path) = file_path.parent() {
+    environment.mk_dir_all(dir_path)?;
+  }
+  environment.atomic_write_file_bytes_through_symlinks(file_path, text.as_bytes())?;
+  Ok(())
+}
+
+/// Reads the decisions about the paths on other machines of the approvals
+/// file that this version can use, which is none when it can't be read.
+fn read_network_path_decisions(environment: &impl Environment) -> Vec<NetworkPathDecision> {
+  let Some(file_path) = get_editor_approvals_file_path(environment) else {
+    return Vec::new();
+  };
+  let Ok(Some((_, file))) = read_approvals_file(environment, &file_path) else {
+    return Vec::new();
+  };
+  if file.ensure_readable(&file_path).is_err() {
+    return Vec::new();
+  }
+  let Some(serde_json::Value::Array(decisions)) = file.other.get(NETWORK_PATH_DECISIONS_PROPERTY) else {
+    return Vec::new();
+  };
+  decisions
+    .iter()
+    .filter_map(|decision| serde_json::from_value::<NetworkPathDecision>(decision.clone()).ok())
+    .collect()
 }
 
 /// Remembers the user's decision for running a process plugin of a config
