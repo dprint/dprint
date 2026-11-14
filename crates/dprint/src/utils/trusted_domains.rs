@@ -695,12 +695,9 @@ pub fn get_path_download_local_path(download: &str) -> Option<PathBuf> {
 }
 
 /// The titles of the actions of the message that asks whether to download from
-/// domains that aren't trusted.
-pub const DOWNLOAD_ACTION_TITLE: &str = "Download";
+/// domains that aren't trusted, through a proxy, or to read from another machine.
+pub const ALLOW_DOWNLOAD_ACTION_TITLE: &str = "Allow";
 pub const CANCEL_DOWNLOAD_ACTION_TITLE: &str = "Cancel";
-/// The title of the action that allows it when it's reading from another
-/// machine, which isn't a download.
-pub const ALLOW_READ_ACTION_TITLE: &str = "Allow";
 
 /// Gets the message that asks the user whether to download what a config file
 /// needs from domains that aren't trusted, through the proxies of `.npmrc`
@@ -758,11 +755,12 @@ pub fn get_untrusted_download_message(downloads: &[String], ignored_settings_mes
     messages.push(format!(
       concat!(
         "dprint needs to download {} from domains that aren't trusted. ",
-        "Only download them when you trust the configuration file because a download can send information to the domain. {}"
+        "Only download them when you trust the configuration file because a download can send information to the domain."
       ),
       urls.iter().map(|url| quote_download(url)).collect::<Vec<_>>().join(", "),
-      ignored_settings_message.unwrap_or("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."),
     ));
+    // why a domain the user trusted is asked about
+    messages.extend(ignored_settings_message.map(|message| message.to_string()));
   }
   messages.join(" ")
 }
@@ -823,11 +821,8 @@ pub fn get_download_approval_message(downloads: &[String], config_file_text: &st
         if registries.len() == 1 { "is" } else { "are each" },
       ));
     }
-    sentences.push(
-      ignored_settings_message
-        .unwrap_or("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it.")
-        .to_string(),
-    );
+    // why a domain the user trusted is asked about
+    sentences.extend(ignored_settings_message.map(|message| message.to_string()));
   }
   sentences.join(" ")
 }
@@ -2995,8 +2990,7 @@ mod test {
         "An .npmrc file sets where npm packages are downloaded from (ex. a company's registry for a scope), so npm packages ",
         "aren't resolved until it's read. ",
         "dprint needs to download `https://example.com/plugin.wasm` from domains that aren't trusted. ",
-        "Only download them when you trust the configuration file because a download can send information to the domain. ",
-        "Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."
+        "Only download them when you trust the configuration file because a download can send information to the domain."
       )
     );
     let message = get_untrusted_download_message(&["/net/host/plugin.wasm".to_string()], None);
@@ -3015,7 +3009,7 @@ mod test {
       get_download_approval_message(&["https://example.com/plugin.wasm".to_string()], config_file_text, None),
       concat!(
         "Formatting `/project/dprint.json` needs to download from domains that aren't trusted ",
-        "(`https://example.com/plugin.wasm`). Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."
+        "(`https://example.com/plugin.wasm`)."
       )
     );
     assert_eq!(
@@ -3052,11 +3046,7 @@ mod test {
       "{}",
       message
     );
-    assert!(
-      message.ends_with("Add a domain to the editor.trustedDomains setting in dprint's settings file to trust it."),
-      "{}",
-      message
-    );
+    assert!(message.ends_with("because a download can send information to the domain."), "{}", message);
     // what the user already did isn't suggested when the settings file isn't used
     let message = get_untrusted_download_message(std::slice::from_ref(&url), Some("The settings file isn't used."));
     assert!(
