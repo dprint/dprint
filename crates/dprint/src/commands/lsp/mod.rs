@@ -1961,7 +1961,7 @@ mod test {
       let environment = environment.clone();
       async move {
         let (backend, recv_task, test_client) = setup_backend(environment.clone());
-        test_client.set_message_action_selection("Download");
+        test_client.set_message_action_selection("Allow");
         let run_test_task = dprint_core::async_runtime::spawn({
           let test_client = test_client.clone();
           let environment = environment.clone();
@@ -1988,7 +1988,7 @@ mod test {
               )),
               "{shown:?}"
             );
-            assert_eq!(shown[0].2, vec!["Download", "Cancel"]);
+            assert_eq!(shown[0].2, vec!["Allow", "Cancel"]);
             // the user chose to download it
             let mut result = None;
             for _ in 0..100 {
@@ -2029,8 +2029,8 @@ mod test {
       // a client that can't ask is told how to download them
       (ClientCapabilities::default(), None, Vec::new()),
       // not choosing an action (ex. closing the message)
-      (message_actions_capabilities(), None, vec!["Download", "Cancel"]),
-      (message_actions_capabilities(), Some("Cancel"), vec!["Download", "Cancel"]),
+      (message_actions_capabilities(), None, vec!["Allow", "Cancel"]),
+      (message_actions_capabilities(), Some("Cancel"), vec!["Allow", "Cancel"]),
     ] {
       let environment = TestEnvironmentBuilder::new()
         .add_remote_wasm_plugin_at_url(UNTRUSTED_PLUGIN_URL)
@@ -2233,7 +2233,7 @@ mod test {
       let environment = environment.clone();
       move |backend, test_client| {
         async move {
-          test_client.set_message_action_selection("Download");
+          test_client.set_message_action_selection("Allow");
           let file_uri = Uri::from_str("file:///project/file.txt").unwrap();
           did_open!(backend, file_uri, "text");
           // nothing is sent to the proxy until the user allows it
@@ -2250,7 +2250,7 @@ mod test {
           );
           // the value of the environment variable isn't shown
           assert!(!shown[0].1.contains("secret"), "{shown:?}");
-          assert_eq!(shown[0].2, vec!["Download", "Cancel"]);
+          assert_eq!(shown[0].2, vec!["Allow", "Cancel"]);
           // the user chose to download through it
           let mut result = None;
           for _ in 0..100 {
@@ -3956,7 +3956,7 @@ mod test {
         assert_eq!(*message_type, MessageType::WARNING);
         assert!(message.contains("`/dprint.json` (outside the workspace)"), "{message}");
         assert!(message.contains(reason), "{message}");
-        assert_eq!(*actions, vec!["Always Allow", "Deny", "Always Deny"]);
+        assert_eq!(*actions, vec!["Allow", "Deny Once", "Always Deny"]);
       }
 
       // a client that can't ask is told how to allow them
@@ -3972,7 +3972,7 @@ mod test {
       assert_eq!(shown[0].2, Vec::<String>::new());
 
       // denying only asks once per session
-      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny"), [false, false]).await;
+      let (shown, was_set_up) = run_session(&environment, message_actions_capabilities(), Some("Deny Once"), [false, false]).await;
       assert!(!was_set_up);
       assert_asked(
         shown,
@@ -3992,7 +3992,7 @@ mod test {
 
       // always allowing replaces the decision and uses it in the next session
       environment.remove_file(get_editor_approvals_file_path(&environment).unwrap()).unwrap();
-      let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Always Allow"), [false, true]).await;
+      let (shown, _) = run_session(&environment, message_actions_capabilities(), Some("Allow"), [false, true]).await;
       assert_asked(
         shown,
         "needs to run process plugins that aren't sandboxed (`https://plugins.dprint.dev/test-process.json`).",

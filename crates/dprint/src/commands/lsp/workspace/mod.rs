@@ -97,9 +97,8 @@ use crate::resolution::UnapprovedProcessPlugin;
 use crate::resolution::UnapprovedProcessPlugins;
 use crate::resolution::get_cant_ask_message;
 use crate::resolution::get_plugin_display_text;
-use crate::utils::ALLOW_READ_ACTION_TITLE;
+use crate::utils::ALLOW_DOWNLOAD_ACTION_TITLE;
 use crate::utils::CANCEL_DOWNLOAD_ACTION_TITLE;
-use crate::utils::DOWNLOAD_ACTION_TITLE;
 use crate::utils::LogLevel;
 use crate::utils::NpmrcProxy;
 use crate::utils::PathSource;
@@ -2374,15 +2373,10 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     dprint_core::async_runtime::spawn(async move {
       while !pending.is_empty() {
         let approval = pending.remove(0);
-        let allow_title = match is_read_from_another_machine(&approval) {
-          true => ALLOW_READ_ACTION_TITLE,
-          false => DOWNLOAD_ACTION_TITLE,
-        };
-        let download_titles = [allow_title, CANCEL_DOWNLOAD_ACTION_TITLE];
         let titles: &[&str] = match approval.kind {
           // a path that isn't valid Unicode can only be denied (see `DownloadPolicy::is_allowable`)
           ApprovalKind::Downloads if !approval.decisions.iter().any(|option| option.decision == ApprovalDecision::Allow) => &[CANCEL_DOWNLOAD_ACTION_TITLE],
-          ApprovalKind::Downloads => &download_titles,
+          ApprovalKind::Downloads => &[ALLOW_DOWNLOAD_ACTION_TITLE, CANCEL_DOWNLOAD_ACTION_TITLE],
           ApprovalKind::ProcessPlugins => &PROCESS_PLUGIN_ACTION_TITLES,
         };
         let message = get_language_client_approval_message(&approval);
@@ -2391,7 +2385,7 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
           return;
         };
         let decision = match approval.kind {
-          ApprovalKind::Downloads if title == allow_title => ApprovalDecision::Allow,
+          ApprovalKind::Downloads if title == ALLOW_DOWNLOAD_ACTION_TITLE => ApprovalDecision::Allow,
           ApprovalKind::Downloads => ApprovalDecision::Deny,
           ApprovalKind::ProcessPlugins => match get_process_plugin_decision(&title) {
             Some(decision) => decision,
@@ -4342,11 +4336,12 @@ fn get_decision_options(kind: ApprovalKind, decisions: &[ApprovalDecision]) -> V
       }
       .to_string(),
       decision: *decision,
-      label: match decision {
-        ApprovalDecision::Allow => "Allow",
-        ApprovalDecision::AlwaysAllow => "Always Allow",
-        ApprovalDecision::Deny => "Deny",
-        ApprovalDecision::AlwaysDeny => "Always Deny",
+      label: match (kind, decision) {
+        // the only way to allow process plugins is to always allow them, so it doesn't need to say so
+        (_, ApprovalDecision::Allow | ApprovalDecision::AlwaysAllow) => "Allow",
+        (ApprovalKind::ProcessPlugins, ApprovalDecision::Deny) => "Deny Once",
+        (ApprovalKind::Downloads, ApprovalDecision::Deny) => "Deny",
+        (_, ApprovalDecision::AlwaysDeny) => "Always Deny",
       }
       .to_string(),
       allows: decision.is_allowed(),

@@ -52,7 +52,7 @@ Documents with other schemes that aren't files on the file system are not format
 
 ## Downloads
 
-The server only downloads plugins and the configuration files that a configuration file extends from [trusted domains](/setup#trusted-domains) without asking. This includes each redirect, and reading a file on another machine (ex. a UNC path on Windows) is asked about like a download, including an npm package in `node_modules` and a path that reaches another machine through a symlink, which the message shows with the path on that machine. A `.gitignore` file in the project that's on another machine is ignored, a configuration file that's found for a file on another machine is asked about before it's read, and an `.npmrc` file that's on another machine is asked about before downloading an npm package because it may set where the package is from. When formatting needs something from another domain, the server asks whether to download it with a message that has `Download` and `Cancel` actions (`Allow` and `Cancel` for reading from another machine), which is once per session for the same download. Allowing it only allows what the message says, so you may be asked about something else it leads to (ex. a configuration file that the downloaded one extends). Nothing is formatted with the configuration file until then. In a client that can't show the actions of a message, run `dprint install` in the directory of the configuration file to download them. That also allows reading what it read from another machine.
+The server only downloads plugins and the configuration files that a configuration file extends from [trusted domains](/setup#trusted-domains) without asking. This includes each redirect, and reading a file on another machine (ex. a UNC path on Windows) is asked about like a download, including an npm package in `node_modules` and a path that reaches another machine through a symlink, which the message shows with the path on that machine. A `.gitignore` file in the project that's on another machine is ignored, a configuration file that's found for a file on another machine is asked about before it's read, and an `.npmrc` file that's on another machine is asked about before downloading an npm package because it may set where the package is from. When formatting needs something from another domain, the server asks whether to download it with a message that has `Allow` and `Cancel` actions, which is once per session for the same download. Allowing it only allows what the message says, so you may be asked about something else it leads to (ex. a configuration file that the downloaded one extends). Nothing is formatted with the configuration file until then. In a client that can't show the actions of a message, run `dprint install` in the directory of the configuration file to download them. That also allows reading what it read from another machine.
 
 The same goes for downloading through a proxy that an `.npmrc` file other than your own `~/.npmrc` sets (ex. the project's), because the proxy receives every download and the credentials in the setting, which may have the values of your environment variables. The message shows the setting as it's in the file (ex. `https://${GITHUB_TOKEN}@proxy.example`), and allowing it allows that setting for the session.
 
@@ -112,15 +112,15 @@ Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Open
 
 When a file is formatted with a configuration file whose process plugins you haven't allowed, the server doesn't set them up or start them and asks with a message that has the following actions:
 
-- `Always Allow` runs them from then on.
-- `Deny` doesn't run them for the rest of the session.
+- `Allow` runs them from then on.
+- `Deny Once` doesn't run them for the rest of the session.
 - `Always Deny` doesn't run them or ask about them again.
 
 Not selecting an action (ex. closing the message) doesn't run them either, and you're asked again in the next session.
 
 Nothing is formatted with the configuration file until they're allowed, not even by its Wasm plugins, because formatting only some files or formatting them with other plugins would format differently than the CLI. The next format uses them once they're allowed. In a client that can't show the actions of a message, the message says that they're not allowed instead.
 
-Running dprint with the configuration file is the same as choosing to run its process plugins, so `dprint fmt`, `dprint check`, `dprint install`, `dprint config update`, `dprint config add`, `dprint init`, and the commands that output what the plugins do (ex. `dprint output-resolved-config`) allow them too, which is the same as `Always Allow` (except in CI, where the `CI` environment variable is `true` or `1`). Run one of them in the directory of the configuration file to allow them in a client that can't ask or after denying them:
+Running dprint with the configuration file is the same as choosing to run its process plugins, so `dprint fmt`, `dprint check`, `dprint install`, `dprint config update`, `dprint config add`, `dprint init`, and the commands that output what the plugins do (ex. `dprint output-resolved-config`) allow them too, which is the same as `Allow` (except in CI, where the `CI` environment variable is `true` or `1`). Run one of them in the directory of the configuration file to allow them in a client that can't ask or after denying them:
 
 ```sh
 dprint install
