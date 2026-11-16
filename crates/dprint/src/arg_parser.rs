@@ -1145,8 +1145,8 @@ EXAMPLES:
         .subcommand(
           Command::new("update")
             .alias("upgrade")
-            .about("Updates the plugins in the configuration file.")
-            .arg(Arg::new("yes").help("Upgrade process plugins without prompting to confirm checksums.").short('y').long("yes").action(clap::ArgAction::SetTrue))
+            .about("Updates the plugins and the npm packages it extends in the configuration file.")
+            .arg(Arg::new("yes").help("Upgrade process plugins and configuration extended with a checksum without prompting to confirm checksums.").short('y').long("yes").action(clap::ArgAction::SetTrue))
             .arg(
               Arg::new("dry-run")
                 .long("dry-run")

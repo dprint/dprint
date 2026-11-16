@@ -157,6 +157,8 @@ dprint config update
 
 To update configuration files in descendant directories, run `dprint config update --recursive`.
 
+This also updates the npm specifiers with a version in the configuration file's [`extends`](#extending-a-different-configuration-file) (ex. `npm:my-dprint-config@1.0.0` to `npm:my-dprint-config@1.1.0`), computing the new checksum when the specifier has one. Updating an npm specifier with a checksum asks for confirmation first unless `--yes` is provided, since configuration extended with a checksum is trusted to configure process plugins.
+
 To preview the updates that would be made without modifying any files, run `dprint config update --dry-run`.
 
 ### Using Plugins from npm
@@ -472,6 +474,8 @@ Referencing multiple configuration files is also supported. These should be orde
   ]
 }
 ```
+
+Configuration files in npm packages may be extended with an `npm:` specifier (ex. `npm:my-dprint-config@1.0.0`). Running `dprint config update` updates the version of these to the latest published version (see [Updating Plugins via CLI](#updating-plugins-via-cli)).
 
 Note: The `includes` property and negated `excludes` (ex. `!**/*.txt`) of extended _remote_ configuration are ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins and the configuration for them (ex. the commands of dprint-plugin-exec) are ignored in remote configuration because they don't run sandboxed. Specify the configuration for process plugins in a local configuration file or [extend the remote configuration with a checksum](#extending-with-a-checksum) instead.
 

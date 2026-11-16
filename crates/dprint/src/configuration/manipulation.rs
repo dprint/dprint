@@ -121,6 +121,51 @@ fn replace_npm_plugin_in_config(file_text: &str, old_reference: &PluginSourceRef
   root.to_string()
 }
 
+/// Gets the entries of a configuration file's `extends` property, which may be
+/// a string or an array of strings.
+pub fn get_extends_in_config(file_text: &str) -> Result<Vec<String>> {
+  let root = CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
+  Ok(
+    get_extends_string_lits(&root)
+      .into_iter()
+      .filter_map(|string_lit| string_lit.decoded_value().ok())
+      .collect(),
+  )
+}
+
+/// Replaces every entry in a configuration file's `extends` property that's
+/// `old_specifier` with `new_specifier`, returning the file unchanged when
+/// there's no such entry.
+pub fn replace_extends_in_config(file_text: &str, old_specifier: &str, new_specifier: &str) -> String {
+  let Ok(root) = CstRootNode::parse(file_text, &Default::default()) else {
+    return file_text.to_string();
+  };
+  let matches = get_extends_string_lits(&root)
+    .into_iter()
+    .filter(|string_lit| string_lit.decoded_value().ok().as_deref() == Some(old_specifier))
+    .collect::<Vec<_>>();
+  if matches.is_empty() {
+    return file_text.to_string();
+  }
+  for string_lit in matches {
+    string_lit.replace_with(json!(new_specifier));
+  }
+  root.to_string()
+}
+
+fn get_extends_string_lits(root: &CstRootNode) -> Vec<jsonc_parser::cst::CstStringLit> {
+  let Some(value) = root.object_value().and_then(|obj| obj.get("extends")).and_then(|prop| prop.value()) else {
+    return Vec::new();
+  };
+  if let Some(string_lit) = value.as_string_lit() {
+    return vec![string_lit];
+  }
+  match value.as_array() {
+    Some(array) => array.elements().into_iter().filter_map(|element| element.as_string_lit()).collect(),
+    None => Vec::new(),
+  }
+}
+
 /// Adds `urls_to_add` to the config's `plugins` array, first dropping every
 /// existing npm entry whose package name appears in `npm_packages_to_replace`
 /// (regardless of version, path, or checksum) so re-adding a package replaces
@@ -638,6 +683,33 @@ mod test {
     // a url that differs at the same version is left alone — the entry may not
     // even be in this config file
     assert!(!info("1.0.0", url("1.0.0"), "1.0.0", url("other")).is_change());
+  }
+
+  #[test]
+  fn get_and_replace_extends() {
+    assert_eq!(get_extends_in_config(r#"{ "extends": "a" }"#).unwrap(), vec!["a"]);
+    assert_eq!(get_extends_in_config(r#"{ "extends": ["a", 1, "b"] }"#).unwrap(), vec!["a", "b"]);
+    assert!(get_extends_in_config(r#"{ "plugins": ["a"] }"#).unwrap().is_empty());
+
+    assert_eq!(replace_extends_in_config(r#"{ "extends": "a" }"#, "a", "b"), r#"{ "extends": "b" }"#);
+    assert_eq!(
+      replace_extends_in_config(
+        r#"{
+  // comment
+  "extends": ["a", "c", "a"],
+  "plugins": ["a"]
+}"#,
+        "a",
+        "b"
+      ),
+      r#"{
+  // comment
+  "extends": ["b", "c", "b"],
+  "plugins": ["a"]
+}"#
+    );
+    // nothing to replace
+    assert_eq!(replace_extends_in_config(r#"{ "extends": "a" }"#, "c", "b"), r#"{ "extends": "a" }"#);
   }
 
   #[test]
