@@ -76,6 +76,7 @@ use crate::configuration::get_editor_approvals_file_path;
 use crate::configuration::get_settings_file_path;
 use crate::configuration::is_dot_config_dir;
 use crate::configuration::is_more_recent_at;
+use crate::configuration::read_download_allows;
 use crate::configuration::read_download_denials;
 use crate::configuration::read_editor_approval_denials;
 use crate::configuration::read_editor_approvals;
@@ -85,6 +86,7 @@ use crate::configuration::resolve_global_config_dir;
 use crate::configuration::resolve_global_config_file_path;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
+use crate::configuration::store_download_allows;
 use crate::configuration::store_download_denial;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -1609,6 +1611,18 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
             .collect::<Vec<_>>();
           self.denied_downloads.borrow_mut().retain(|_, denied| !is_replaced(denied));
           self.denied_downloads_changed();
+          // it's allowed from now on like a process plugin is, which is stored with the config
+          // file as the decisions have it, so forgetting its decisions removes it
+          let config_file = &stored.approval.config_file;
+          let result = match self.get_decisions_config_file(&config_file.uri, Some(&config_file.dir_uri)) {
+            Ok((config_file, _)) => store_download_allows(&self.environment, &config_file, urls).await,
+            Err(err) => Err(err),
+          };
+          if let Err(err) = result {
+            let message = format!("Failed storing the decision, so it's only kept until the editor restarts: {:#}", err);
+            log_warn!(self.environment, "{}", message);
+            notice = Some(new_warning_notice(message));
+          }
           // which includes what was always denied, so it isn't denied in the next session
           if !replaced_stored.is_empty()
             && let Err(err) = remove_download_denials(&self.environment, |denial| replaced_stored.contains(denial)).await
@@ -3514,9 +3528,12 @@ impl<TEnvironment: Environment> Workspace<TEnvironment> {
     self.denied_downloads_changed();
   }
 
-  /// Uses the downloads the user always denied, which are in the approvals
-  /// file, in place of the ones it had before (ex. the file changed).
+  /// Uses the downloads the user allowed or always denied, which are in the
+  /// approvals file. The denials are in place of the ones it had before (ex.
+  /// the file changed), and what was allowed stays allowed for the session.
   fn load_stored_denied_downloads(&self) {
+    // what the user allowed before is allowed in this session too
+    self.environment.download_policy().allow(&read_download_allows(&self.environment));
     let mut denied_downloads = self.denied_downloads.borrow_mut();
     denied_downloads.retain(|_, denied| !denied.always);
     for denial in read_download_denials(&self.environment) {
@@ -4399,7 +4416,7 @@ fn get_decision_options(kind: ApprovalKind, decisions: &[ApprovalDecision]) -> V
     .iter()
     .map(|decision| ApprovalDecisionOption {
       description: match (kind, decision) {
-        (ApprovalKind::Downloads, ApprovalDecision::Allow) => "Allows these downloads (and proxies) for this session.",
+        (ApprovalKind::Downloads, ApprovalDecision::Allow) => "Allows these downloads (and proxies) from now on.",
         (ApprovalKind::Downloads, ApprovalDecision::AlwaysDeny) => "Doesn't download, and doesn't ask again unless you ask for it.",
         (ApprovalKind::Downloads, _) => "Doesn't download, and doesn't ask again for this session unless you ask for it.",
         (ApprovalKind::ProcessPlugins, ApprovalDecision::Allow) => {
@@ -4421,7 +4438,10 @@ fn get_decision_options(kind: ApprovalKind, decisions: &[ApprovalDecision]) -> V
       }
       .to_string(),
       allows: decision.is_allowed(),
-      always: matches!(decision, ApprovalDecision::AlwaysAllow | ApprovalDecision::AlwaysDeny),
+      always: matches!(
+        (kind, decision),
+        (_, ApprovalDecision::AlwaysAllow | ApprovalDecision::AlwaysDeny) | (ApprovalKind::Downloads, ApprovalDecision::Allow)
+      ),
     })
     .collect()
 }

@@ -3669,6 +3669,55 @@ fn should_store_a_decision_for_a_config_file_that_is_a_symlink_by_the_path_it_wa
 }
 
 #[test]
+fn should_keep_allowing_what_was_allowed_in_another_session() {
+  let environment = TestEnvironmentBuilder::new()
+    .with_local_config("/a/dprint.json", |c| {
+      c.add_plugin("./plugin.wasm");
+    })
+    .build();
+  environment.symlink(network_path("plugin.wasm"), "/a/plugin.wasm").unwrap();
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let approval = client.config_info("/a/dprint.json").await.status.approvals()[0].clone();
+        assert_eq!(approval.items[0].kind, ApprovalItemKind::NetworkPath);
+        // allowing it is remembered, like for a process plugin
+        let option = approval.decisions.iter().find(|option| option.decision == ApprovalDecision::Allow).unwrap();
+        assert!(option.always);
+        _ = client.try_approve(&approval.id, ApprovalDecision::Allow).await;
+        assert_eq!(crate::configuration::read_download_allows(&environment).len(), 1);
+        client.test_client.take_messages();
+      }
+      .boxed_local()
+    }
+  });
+  // so it isn't asked about in the next session
+  run_session(&environment, {
+    let environment = environment.clone();
+    move |client| {
+      async move {
+        let status = client.config_info("/a/dprint.json").await.status;
+        assert_ne!(status.reason(), Some(NotFormattedReason::ApprovalRequired));
+        // until its decisions are forgotten
+        client.forget_decisions(None).await;
+        assert_eq!(crate::configuration::read_download_allows(&environment).len(), 0);
+        client.test_client.take_messages();
+        client.test_client.take_shown_messages();
+      }
+      .boxed_local()
+    }
+  });
+  run_session(&environment, |client| {
+    async move {
+      let status = client.config_info("/a/dprint.json").await.status;
+      assert_eq!(status.reason(), Some(NotFormattedReason::ApprovalRequired));
+    }
+    .boxed_local()
+  });
+}
+
+#[test]
 fn should_always_deny_downloading_from_domains_that_are_not_trusted() {
   const UNTRUSTED_PLUGIN_URL: &str = "https://example.com/test-plugin.wasm";
   let environment = TestEnvironmentBuilder::new()
@@ -4904,7 +4953,7 @@ fn should_say_when_always_allowing_a_process_plugin_could_not_be_stored_once_wha
         assert_eq!(result.config_approvals.status, FormatStatus::ready());
         let notice = result.notice.unwrap();
         assert!(
-          notice.message.starts_with("Failed storing the decision for the process plugins: "),
+          notice.message.contains("Failed storing the decision for the process plugins: "),
           "{}",
           notice.message
         );
@@ -5387,7 +5436,8 @@ fn should_keep_the_decisions_of_the_session_when_the_server_is_started_again_for
     async move {
       assert!(!client.config_info("/denied/dprint.json").await.status.approvals()[0].denied);
       assert!(!client.config_info("/denied-download/dprint.json").await.status.approvals()[0].denied);
-      assert!(!client.decisions().await.iter().any(|decision| decision.allows));
+      // but a download that was allowed is, because it's stored
+      assert!(client.decisions().await.iter().any(|decision| decision.allows));
     }
     .boxed_local()
   });

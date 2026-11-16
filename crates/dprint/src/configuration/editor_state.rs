@@ -1104,6 +1104,66 @@ pub async fn store_download_denial(environment: &impl Environment, config_file: 
   .await
 }
 
+/// Reads the downloads the user allowed in an editor (see
+/// `store_download_allows`), which is none when the editors don't use the
+/// stored allows (ex. the settings are ignored or the file is from a newer
+/// version, see `EditorApprovals`).
+pub fn read_download_allows(environment: &impl Environment) -> Vec<String> {
+  if read_ignored_settings_message(environment).is_some() {
+    return Vec::new();
+  }
+  let Some(file_path) = get_editor_approvals_file_path(environment) else {
+    return Vec::new();
+  };
+  let Ok(Some((_, file))) = read_approvals_file(environment, &file_path) else {
+    return Vec::new();
+  };
+  if file.ensure_readable(&file_path).is_err() {
+    return Vec::new();
+  }
+  let Some(serde_json::Value::Array(decisions)) = file.other.get(DOWNLOAD_DECISIONS_PROPERTY) else {
+    return Vec::new();
+  };
+  decisions
+    .iter()
+    .filter(|decision| decision.get("allowed").and_then(|allowed| allowed.as_bool()) == Some(true))
+    .filter_map(|decision| decision.get("download")?.as_str().map(|download| download.to_string()))
+    .collect()
+}
+
+/// Remembers the downloads of a config file that the user allowed in an
+/// editor (ex. from a domain that isn't trusted, through a proxy, or reading
+/// from another machine), which are each only the exact one they were shown
+/// (see `UntrustedDownloadError`). They're decisions of the approvals file, so
+/// each has the `configFile` that forgetting its decisions removes it by.
+pub async fn store_download_allows(environment: &impl Environment, config_file: &str, downloads: &[String]) -> Result<()> {
+  let decided_at = environment
+    .sys_time_now()
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0);
+  edit_download_decisions(environment, |decisions| {
+    let mut is_changed = false;
+    for download in downloads {
+      let is_stored = decisions.iter().any(|decision| {
+        decision.get("allowed").and_then(|allowed| allowed.as_bool()) == Some(true)
+          && decision.get("download").and_then(|stored| stored.as_str()) == Some(download.as_str())
+      });
+      if !is_stored {
+        decisions.push(serde_json::json!({
+          "configFile": config_file,
+          "allowed": true,
+          "decidedAt": decided_at,
+          "download": download,
+        }));
+        is_changed = true;
+      }
+    }
+    is_changed
+  })
+  .await
+}
+
 /// Forgets the denials of downloads the user always denied (ex. they allowed
 /// them since), which are the ones as the editors keep them.
 pub async fn remove_download_denials(environment: &impl Environment, is_removed: impl Fn(&serde_json::Value) -> bool) -> Result<()> {
