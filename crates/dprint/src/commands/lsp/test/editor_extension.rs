@@ -235,7 +235,7 @@ fn should_send_and_receive_the_dprint_methods_as_json() {
           "fileExtensions": ["txt"],
           "fileNames": [],
           "additive": false,
-          "rangeFormatting": "wholeLines",
+          "rangeFormatting": "supported",
           "helpUrl": "https://dprint.dev/plugins/test",
           "updateUrl": "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         }],
