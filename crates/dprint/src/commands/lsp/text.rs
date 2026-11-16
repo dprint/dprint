@@ -127,6 +127,14 @@ impl LineIndex {
     std::cmp::min(TextSize::from(line_start.saturating_add(col)), line_end)
   }
 
+  /// Returns a u16 offset based on a u16 position, which is clamped like `offset`.
+  pub fn offset_utf16(&self, position: lsp::Position) -> u32 {
+    let offset = self.offset(position);
+    let line = partition_point(&self.utf8_offsets, |&it| it <= offset) - 1;
+    let col = offset - self.utf8_offsets[line];
+    u32::from(self.utf16_offsets[line]) + self.utf8_to_utf16_col(line as u32, col)
+  }
+
   /// Returns a u16 position based on a u16 offset.
   pub fn position_utf16(&self, offset: TextSize) -> lsp::Position {
     let line = partition_point(&self.utf16_offsets, |&it| it <= offset) - 1;
@@ -360,6 +368,53 @@ pub fn get_range_utf16_edits(text: &str, formatted_text: &str, range: &FormatRan
     .into_iter()
     .filter(|edit| edit.start >= start && edit.end <= end && !(ends_with_line_break && edit.start == end))
     .collect()
+}
+
+/// Applies the edits, which are in order and don't overlap, to the text.
+pub fn apply_utf16_edits(text: &str, edits: &[Utf16TextEdit]) -> String {
+  let mut result = String::with_capacity(text.len());
+  let mut chars = text.chars();
+  let mut offset = 0;
+  for edit in edits {
+    // the edits never split a character
+    while offset < edit.start {
+      let Some(c) = chars.next() else { break };
+      result.push(c);
+      offset += c.len_utf16() as u32;
+    }
+    while offset < edit.end {
+      let Some(c) = chars.next() else { break };
+      offset += c.len_utf16() as u32;
+    }
+    result.push_str(&edit.new_text);
+  }
+  result.extend(chars);
+  result
+}
+
+/// Gets where the range of UTF-16 offsets is in the text once the edits are
+/// applied to it. An edit that overlaps the range's start or end moves it to
+/// the start or end of the edit's text, so the range has all of it.
+pub fn map_utf16_range(range: std::ops::Range<u32>, edits: &[Utf16TextEdit]) -> std::ops::Range<u32> {
+  let map = |offset: u32, is_end: bool| {
+    let mut delta = 0i64;
+    for edit in edits {
+      let new_len = edit.new_text.encode_utf16().count() as i64;
+      if edit.end <= offset {
+        delta += new_len - (edit.end - edit.start) as i64;
+      } else if edit.start < offset {
+        // the offset is within the replaced text
+        let mapped = edit.start as i64 + delta;
+        return (if is_end { mapped + new_len } else { mapped }) as u32;
+      } else {
+        break;
+      }
+    }
+    (offset as i64 + delta) as u32
+  };
+  let start = map(range.start, false);
+  let end = std::cmp::max(start, map(range.end, true));
+  start..end
 }
 
 /// Converts the edits of UTF-16 offsets to the edits of positions, which are
@@ -785,6 +840,39 @@ const C: char = \"メ メ\";
     // but an insertion at the end of a range without a line break is
     assert_eq!(get("a\nb", "a\nb!", 2..3), vec![(3, 3, "!".to_string())]);
     assert_eq!(get("a\nb", "!a\nb", 2..3), Vec::new());
+  }
+
+  #[test]
+  fn should_apply_utf16_edits() {
+    let edit = |start: u32, end: u32, new_text: &str| Utf16TextEdit {
+      start,
+      end,
+      new_text: new_text.to_string(),
+    };
+    assert_eq!(apply_utf16_edits("abc", &[]), "abc");
+    assert_eq!(apply_utf16_edits("abc", &[edit(0, 1, "x"), edit(2, 2, "y"), edit(3, 3, "z")]), "xbycz");
+    // the offsets are UTF-16 code units
+    assert_eq!(apply_utf16_edits("💾a💾b", &[edit(2, 3, "x"), edit(5, 6, "")]), "💾x💾");
+  }
+
+  #[test]
+  fn should_map_utf16_range() {
+    let edit = |start: u32, end: u32, new_text: &str| Utf16TextEdit {
+      start,
+      end,
+      new_text: new_text.to_string(),
+    };
+    // an edit before the range moves it
+    assert_eq!(map_utf16_range(4..6, &[edit(0, 1, "xyz")]), 6..8);
+    assert_eq!(map_utf16_range(4..6, &[edit(4, 4, "xyz")]), 7..9);
+    // an edit after it doesn't
+    assert_eq!(map_utf16_range(4..6, &[edit(6, 7, "xyz")]), 4..6);
+    // an edit within it changes its length
+    assert_eq!(map_utf16_range(4..6, &[edit(5, 5, "xyz")]), 4..9);
+    // an edit that overlaps it extends it to the edit's text
+    assert_eq!(map_utf16_range(4..6, &[edit(3, 5, "xyz")]), 3..7);
+    assert_eq!(map_utf16_range(4..6, &[edit(5, 8, "")]), 4..5);
+    assert_eq!(map_utf16_range(4..6, &[edit(0, 10, "x")]), 0..1);
   }
 
   #[test]

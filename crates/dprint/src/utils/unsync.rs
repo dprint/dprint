@@ -97,6 +97,11 @@ impl<T> AsyncMutex<T> {
     let state = self.state.borrow_mut();
     MutexGuard { state, _permit: permit }
   }
+
+  /// Reads the value when it isn't locked, which is `None` when it is.
+  pub fn try_read(&self) -> Option<std::cell::Ref<'_, T>> {
+    self.state.try_borrow().ok()
+  }
 }
 
 struct SemaphoreStateWaker {

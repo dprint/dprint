@@ -2,9 +2,11 @@ An avoided plugin is never pre-selected, so the next plugin for its files is
 instead. It's marked and listed last, and can still be selected.
 
 -- file: /src/main.ts --
--- file: /config/dprint/init.json --
+-- file: /config/dprint/settings.json --
 {
-  "avoidedPlugins": ["dprint-plugin-typescript"]
+  "init": {
+    "avoidedPlugins": ["dprint-plugin-typescript"]
+  }
 }
 -- keys --
 up
@@ -69,7 +71,9 @@ If you are working in a commercial environment please consider sponsoring dprint
   ]
 }
 
-# /config/dprint/init.json
+# /config/dprint/settings.json
 {
-  "avoidedPlugins": ["dprint-plugin-typescript"]
+  "init": {
+    "avoidedPlugins": ["dprint-plugin-typescript"]
+  }
 }

@@ -76,5 +76,12 @@ async fn run() -> Result<(), (AppError, LogLevel)> {
 
   let result = run_cli::run_cli(&args, &environment, &plugin_resolver).await;
   plugin_resolver.clear_and_shutdown_initialized().await;
+  if result.is_ok() && matches!(args.sub_command, arg_parser::SubCommand::EditorService(_)) {
+    // Exit the process instead of returning. The editor service reads stdin on a
+    // blocking task that stays parked in a read while the editor keeps the pipe
+    // open and dropping the tokio runtime waits for that task, so returning would
+    // keep the process alive until the editor closes stdin.
+    std::process::exit(0);
+  }
   result.map_err(|err| (err.into(), args.log_level))
 }

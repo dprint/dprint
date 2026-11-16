@@ -11,7 +11,6 @@ use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
-use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatError;
@@ -36,6 +35,8 @@ use super::InitializedWasmPluginInstance;
 use super::Linker;
 use super::Store;
 use super::WasmHostState;
+use super::critical_format_error;
+use super::map_call_error;
 
 enum WasmFormatResult {
   NoChange,
@@ -414,7 +415,7 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
     self.ensure_config(config).map_err(FormatError::new)?;
     match self.inner_format_text(file_path, file_bytes, override_config) {
       Ok(inner) => inner,
-      Err(err) => Err(CriticalFormatError(FormatError::new(err)).into()),
+      Err(err) => Err(critical_format_error(err)),
     }
   }
 }
@@ -484,7 +485,10 @@ impl WasmFunctions {
   #[inline]
   pub fn format(&mut self) -> Result<WasmFormatResult> {
     let func = self.get_export::<(), u32>("format")?;
-    Ok(func.call(&mut self.store, ()).map(|value| u8_to_format_result(value as u8))?)
+    func
+      .call(&mut self.store, ())
+      .map(|value| u8_to_format_result(value as u8))
+      .map_err(map_call_error)
   }
 
   #[inline]

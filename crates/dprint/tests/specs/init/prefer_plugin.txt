@@ -114,19 +114,21 @@ Select the plugins to prefer whenever running dprint init:
 
 # stdout
 
-Saved the plugin preferences to /config/dprint/init.json
+Saved the plugin preferences to /config/dprint/settings.json
 
 # /dprint.json
 (does not exist)
 
-# /config/dprint/init.json
+# /config/dprint/settings.json
 {
-  "preferredPlugins": [
-    {
-      "name": "dprint-plugin-biome"
-    },
-    {
-      "name": "dprint-plugin-json"
-    }
-  ]
+  "init": {
+    "preferredPlugins": [
+      {
+        "name": "dprint-plugin-biome"
+      },
+      {
+        "name": "dprint-plugin-json"
+      }
+    ]
+  }
 }

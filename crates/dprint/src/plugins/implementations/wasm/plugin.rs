@@ -23,6 +23,7 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 
 use super::WasmHostFormatSender;
+use super::WasmStackOverflowError;
 use super::create_pools_import_object;
 use super::instance::Store;
 use super::load_instance;
@@ -183,6 +184,11 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
         self.release_instance(plugin);
         Ok(result)
       }
+      Err(original_err) if is_stack_overflow(&original_err) => {
+        // the instance trapped, so it's dropped rather than released, and
+        // formatting the file again would only run out of stack again
+        Err(FormatError::new(format!("{} ran out of stack, which happens when the code is nested too deeply.", self.name)).into())
+      }
       Err(original_err) if crate::plugins::maybe_critical_format_error(&original_err).is_some() => {
         let plugin = match self.get_or_create_instance(instance_state).await {
           Ok(plugin) => plugin,
@@ -196,7 +202,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
             self.release_instance(plugin);
             Ok(result)
           }
-          Err(reinitialize_err) if crate::plugins::maybe_critical_format_error(&original_err).is_some() => Err(
+          Err(reinitialize_err) if crate::plugins::maybe_critical_format_error(&reinitialize_err).is_some() => Err(
             CriticalFormatError(FormatError::new(anyhow!(
               concat!(
                 "Originally panicked in {}, then failed reinitialize. ",
@@ -467,4 +473,8 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
   async fn shutdown(&self) {
     // do nothing
   }
+}
+
+fn is_stack_overflow(err: &anyhow::Error) -> bool {
+  crate::plugins::maybe_critical_format_error(err).is_some_and(|critical| critical.0.downcast_ref::<WasmStackOverflowError>().is_some())
 }

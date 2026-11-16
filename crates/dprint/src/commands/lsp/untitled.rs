@@ -1,6 +1,3 @@
-use std::path::Path;
-use std::path::PathBuf;
-
 use deno_tower_lsp::lsp_types::ClientCapabilities;
 use deno_tower_lsp::lsp_types::DocumentFilter;
 use deno_tower_lsp::lsp_types::Registration;
@@ -8,8 +5,6 @@ use deno_tower_lsp::lsp_types::TextDocumentChangeRegistrationOptions;
 use deno_tower_lsp::lsp_types::TextDocumentRegistrationOptions;
 use deno_tower_lsp::lsp_types::TextDocumentSyncKind;
 use deno_tower_lsp::lsp_types::Uri;
-
-use super::language::get_language_file_name;
 
 /// The scheme of the uris vscode gives new documents that haven't been saved.
 const UNTITLED_SCHEME: &str = "untitled";
@@ -65,13 +60,6 @@ pub fn get_untitled_registrations(capabilities: &ClientCapabilities) -> Vec<Regi
       register_options: Some(options),
     })
     .collect()
-}
-
-/// Gets the file path to format an untitled document as. An untitled document
-/// isn't on the file system, so it's formatted as a file in the provided
-/// directory that's named based on its language.
-pub fn get_untitled_file_path(dir_path: &Path, language_id: &str) -> Option<PathBuf> {
-  Some(dir_path.join(get_language_file_name("Untitled", language_id)?))
 }
 
 #[cfg(test)]
@@ -157,14 +145,5 @@ mod tests {
       registrations[1].register_options,
       Some(serde_json::json!({ "documentSelector": [{ "scheme": "untitled" }], "syncKind": 1 }))
     );
-  }
-
-  #[test]
-  fn test_get_untitled_file_path() {
-    assert_eq!(
-      get_untitled_file_path(Path::new("/dir"), "typescript"),
-      Some(PathBuf::from("/dir").join("Untitled.ts"))
-    );
-    assert_eq!(get_untitled_file_path(Path::new("/dir"), "objective-c"), None);
   }
 }

@@ -223,6 +223,11 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     } else if file_text == "should_panic" {
       self.has_panicked = true;
       panic!("Test panic")
+    } else if file_text == "should_overflow_stack" {
+      // so that the CLI using the instance again would show
+      self.has_panicked = true;
+      recurse_until_out_of_stack(0);
+      unreachable!()
     } else if file_text == "unstable_fmt_then_error" {
       "should_error".to_string()
     } else if file_text == "unstable_fmt_true" {
@@ -244,3 +249,17 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
 }
 
 generate_plugin_code!(TestWasmPlugin, TestWasmPlugin::new());
+
+/// Recurses like a formatter does on code that is nested too deeply, until
+/// the wasm stack runs out.
+///
+/// It keeps to wasm locals, which wasmtime puts on the native stack, rather
+/// than putting anything in the stack in linear memory (as `black_box` would),
+/// which would run out first. Mixing two operations on the result keeps LLVM
+/// from turning the recursion into a loop.
+fn recurse_until_out_of_stack(depth: u64) -> u64 {
+  if depth == u64::MAX {
+    return 0;
+  }
+  recurse_until_out_of_stack(depth + 1).rotate_left(1) ^ depth
+}
