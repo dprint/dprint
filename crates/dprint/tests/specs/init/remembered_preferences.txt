@@ -4,20 +4,22 @@ types and options that were chosen for it.
 -- file: /src/main.ts --
 -- file: /data.json --
 -- file: /README.md --
--- file: /config/dprint/init.json --
+-- file: /config/dprint/settings.json --
 {
-  "preferredPlugins": [
-    {
-      "name": "dprint-plugin-markdown"
-    },
-    {
-      "name": "dprint-plugin-biome",
-      "excludedFileExtensions": ["json", "jsonc"],
-      "config": {
-        "indentStyle": "space"
+  "init": {
+    "preferredPlugins": [
+      {
+        "name": "dprint-plugin-markdown"
+      },
+      {
+        "name": "dprint-plugin-biome",
+        "excludedFileExtensions": ["json", "jsonc"],
+        "config": {
+          "indentStyle": "space"
+        }
       }
-    }
-  ]
+    ]
+  }
 }
 -- keys --
 enter
@@ -62,18 +64,20 @@ If you are working in a commercial environment please consider sponsoring dprint
   ]
 }
 
-# /config/dprint/init.json
+# /config/dprint/settings.json
 {
-  "preferredPlugins": [
-    {
-      "name": "dprint-plugin-markdown"
-    },
-    {
-      "name": "dprint-plugin-biome",
-      "excludedFileExtensions": ["json", "jsonc"],
-      "config": {
-        "indentStyle": "space"
+  "init": {
+    "preferredPlugins": [
+      {
+        "name": "dprint-plugin-markdown"
+      },
+      {
+        "name": "dprint-plugin-biome",
+        "excludedFileExtensions": ["json", "jsonc"],
+        "config": {
+          "indentStyle": "space"
+        }
       }
-    }
-  ]
+    ]
+  }
 }

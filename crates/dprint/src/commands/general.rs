@@ -8,6 +8,7 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::arg_parser::create_cli_parser;
+use crate::commands::process_plugin_approval::allow_process_plugins_of_scopes_in_editors;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
@@ -88,9 +89,22 @@ pub async fn output_license<TEnvironment: Environment>(
 
 pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   let cache_dir = environment.get_cache_dir();
+  // the language servers use the cache (ex. their plugins and session files),
+  // so they're stopped and an editor starts them again with nothing from before
+  let killed_count = environment.kill_dprint_processes_using_cache_dir(is_lsp_args);
+  log_debug!(environment, "Killed {} dprint language server processes.", killed_count);
   remove_cache_dir_killing_processes(environment, &cache_dir)?;
   log_stdout_info!(environment, "Deleted {}", cache_dir.display());
   Ok(())
+}
+
+/// Gets whether the arguments of a dprint process, which start with the
+/// executable, run the language server. They're parsed because a flag before
+/// the subcommand may have a value (ex. `dprint --config dprint.json lsp`).
+fn is_lsp_args(args: &[String]) -> bool {
+  create_cli_parser(CliArgParserKind::Default)
+    .try_get_matches_from(args)
+    .is_ok_and(|matches| matches.subcommand_name() == Some("lsp"))
 }
 
 /// Removes the cache directory, killing running process plugins that block the
@@ -133,6 +147,8 @@ pub async fn output_file_paths<TEnvironment: Environment>(
     ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
   )
   .await?;
+  // getting what the plugins format runs them
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
   let file_paths = scopes.iter().flat_map(|x| x.file_paths_by_plugins.all_file_paths());
   for file_path in file_paths {
     log_stdout_info!(environment, "{}", file_path.display())
@@ -185,6 +201,7 @@ pub async fn incremental_state<TEnvironment: Environment>(
     ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
   )
   .await?;
+  allow_process_plugins_of_scopes_in_editors(args, &scopes, environment, plugin_resolver).await;
 
   let cwd = environment.cwd();
   let mut configs = Vec::new();
@@ -810,6 +827,34 @@ mod test {
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.path_exists("/cache"), false);
+  }
+
+  #[test]
+  fn should_clear_cache_directory_killing_the_language_servers() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/cache/plugins").unwrap();
+    environment.write_file("/cache/plugins/plugin.wasm", "").unwrap();
+    environment.mk_dir_all("/cache/editor-sessions").unwrap();
+    environment.write_file("/cache/editor-sessions/running-0123456789.json", "{}").unwrap();
+    environment.add_running_dprint_process(&["dprint", "lsp"]);
+    environment.add_running_dprint_process(&["/bin/dprint", "--config", "dprint.json", "lsp"]);
+    environment.add_running_dprint_process(&["dprint", "--log-level=debug", "lsp"]);
+    environment.add_running_dprint_process(&["dprint", "-L", "debug", "lsp", "--verbose"]);
+    // not language servers
+    environment.add_running_dprint_process(&["dprint", "fmt", "lsp"]);
+    environment.add_running_dprint_process(&["dprint", "editor-service", "--parent-pid", "1"]);
+    environment.add_running_dprint_process(&[]);
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(
+      environment.running_dprint_processes(),
+      vec![
+        vec!["dprint".to_string(), "fmt".to_string(), "lsp".to_string()],
+        vec!["dprint".to_string(), "editor-service".to_string(), "--parent-pid".to_string(), "1".to_string()],
+        Vec::new(),
+      ]
+    );
+    assert!(!environment.path_exists("/cache"));
   }
 
   #[test]

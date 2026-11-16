@@ -6,7 +6,7 @@
 //!
 //! - `-- file: <path> --` is a file to create with the text that follows
 //!   (ex. the files of the project, `/dprint.json`, or what was remembered in
-//!   `/config/dprint/init.json`).
+//!   `/config/dprint/settings.json`).
 //! - `-- remote: <url> --` is a file that can be downloaded (ex. the schema
 //!   of a plugin).
 //! - `-- info.json --` replaces the plugins that `dprint init` gets to know
@@ -196,7 +196,7 @@ fn run_spec(spec: &Spec) -> Result<String> {
       output.push_str(&format!("# {}\n{}\n\n", name, normalize_paths(&messages.join("\n"))));
     }
   }
-  for path in ["/dprint.json", "/config/dprint/init.json"] {
+  for path in ["/dprint.json", "/config/dprint/settings.json"] {
     output.push_str(&format!("# {}\n{}\n\n", path, read_file_for_output(&environment, path)));
   }
   let mut output = output.trim_end().to_string();

@@ -34,6 +34,7 @@ use crate::plugins::FormatConfig;
 use crate::plugins::ReceivedPluginInfo;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
+use crate::utils::LogLevel;
 
 use super::InitializedWasmPluginInstance;
 use super::Linker;
@@ -92,7 +93,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
   engine: &Engine,
   host_format_sender: WasmHostFormatSender,
 ) -> Result<(Linker, WasmHostState)> {
-  let log: LogFn = Arc::new(move |text: &str| environment.log_stderr_with_context(text, &plugin_name));
+  let log: LogFn = Arc::new(move |text: &str| environment.log_stderr_with_context(LogLevel::Info, text, &plugin_name));
   let state = ImportObjectEnvironmentV4 {
     memory: None,
     token: Arc::new(NullCancellationToken),

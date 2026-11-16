@@ -172,6 +172,20 @@ mod tests {
   use url::Url;
 
   #[test]
+  fn should_not_change_how_a_config_file_is_shown() {
+    // IMPORTANT: This is how a remote or npm config file is stored in the approvals file (see `EditorApprovals`),
+    // which every version makes the same way.
+    let source = PathSource::new_remote(Url::parse("https://Example.COM/a/../dprint.json?b=1").unwrap());
+    assert_eq!(source.display(), "https://example.com/dprint.json?b=1");
+    let specifier = crate::utils::parse_npm_specifier("npm:@scope/config@1.2.3/dprint.json").unwrap().specifier;
+    assert_eq!(PathSource::new_npm(specifier, None).display(), "npm:@scope/config@1.2.3/dprint.json");
+    let specifier = crate::utils::parse_npm_specifier("npm:config").unwrap().specifier;
+    assert_eq!(PathSource::new_npm(specifier, None).display(), "npm:config");
+    let source = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/project/.config/dprint.json"));
+    assert_eq!(source.display(), std::path::Path::new("/project/.config/dprint.json").display().to_string());
+  }
+
+  #[test]
   fn should_get_parent_for_url() {
     let source = PathSource::new_remote(Url::parse("https://dprint.dev/test/test.json").unwrap());
     let parent = source.parent();

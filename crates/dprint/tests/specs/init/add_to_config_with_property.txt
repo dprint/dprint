@@ -98,5 +98,5 @@ Did not write what was chosen for "markdown" because /dprint.json already has a 
   ]
 }
 
-# /config/dprint/init.json
+# /config/dprint/settings.json
 (does not exist)

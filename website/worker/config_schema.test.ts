@@ -151,14 +151,17 @@ Deno.test("renders options that refer to other definitions or are objects", () =
       properties: {
         sortNames: {
           default: "maintain",
-          oneOf: [{ $ref: "#/definitions/kind" }, {
-            type: "object",
-            description: "The kind with options.",
-            properties: {
-              kind: { $ref: "#/definitions/kind" },
-              names: { description: "The names.", type: "array", default: [] },
+          oneOf: [
+            { $ref: "#/definitions/kind" },
+            {
+              type: "object",
+              description: "The kind with options.",
+              properties: {
+                kind: { $ref: "#/definitions/kind" },
+                names: { description: "The names.", type: "array", default: [] },
+              },
             },
-          }],
+          ],
         },
         tags: { type: "object", default: { css: "less" }, examples: [{ html: "html" }] },
       },

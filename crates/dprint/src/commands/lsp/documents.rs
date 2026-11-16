@@ -4,11 +4,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use anyhow::bail;
-use deno_tower_lsp::lsp_types;
 use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use deno_tower_lsp::lsp_types::TextDocumentItem;
 use deno_tower_lsp::lsp_types::Uri;
-use dprint_core::plugins::FormatRange;
 
 use crate::environment::Environment;
 
@@ -85,19 +83,15 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     Some((entry.notebook_uri.clone()?, entry.language_id.clone()))
   }
 
-  /// Gets the text of the document and the range within it, which fails with
-  /// the message to log when the document isn't open or the range is invalid.
-  pub fn get_content_with_range(&mut self, uri: &Uri, lsp_range: lsp_types::Range) -> Result<(Arc<String>, FormatRange, Arc<LineIndex>)> {
+  /// Gets the text of the document and its line index, which is kept until
+  /// the document changes. It fails with the message to log when the document
+  /// isn't open.
+  pub fn get_content_with_line_index(&mut self, uri: &Uri) -> Result<(Arc<String>, Arc<LineIndex>)> {
     let Some(entry) = self.docs.get_mut(uri) else {
       bail!("Missing document: {}", uri.as_str());
     };
-
     let line_index = entry.line_index.get_or_insert_with(|| Arc::new(LineIndex::new(&entry.text)));
-    let range = match line_index.get_text_range(lsp_range) {
-      Ok(range) => range,
-      Err(err) => bail!("Invalid range for '{}'. {:#}", uri.as_str(), err),
-    };
-    Ok((entry.text.clone(), Some(range.start().into()..range.end().into()), line_index.clone()))
+    Ok((entry.text.clone(), line_index.clone()))
   }
 
   pub fn changed(&mut self, params: DidChangeTextDocumentParams) {
@@ -173,13 +167,19 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
   }
 
   fn open_inner(&mut self, text_document_item: TextDocumentItem, notebook_uri: Option<Uri>) {
+    let TextDocumentItem {
+      uri,
+      language_id,
+      version,
+      text,
+    } = text_document_item;
     self.docs.insert(
-      text_document_item.uri.clone(),
+      uri,
       Document {
         line_index: None,
-        language_id: text_document_item.language_id,
-        version: text_document_item.version,
-        text: Arc::new(text_document_item.text),
+        language_id,
+        version,
+        text: Arc::new(text),
         notebook_uri,
       },
     );
@@ -197,6 +197,7 @@ mod test {
   use crate::environment::TestEnvironment;
 
   use super::*;
+  use deno_tower_lsp::lsp_types;
 
   #[test]
   fn ranged_changes_in_one_notification_moving_down() {
@@ -300,16 +301,14 @@ mod test {
   fn ranged_changes_with_cached_line_index() {
     let (mut documents, uri) = open_document("a\nb\nc\n");
     // this caches the line index in the document
-    let range = lsp_types::Range::new(Position::new(1, 0), Position::new(1, 1));
-    let (_, format_range, _) = documents.get_content_with_range(&uri, range).unwrap();
-    assert_eq!(format_range, Some(2..3));
+    let (_, line_index) = documents.get_content_with_line_index(&uri).unwrap();
+    assert_eq!(line_index.offset(Position::new(1, 0)), 2.into());
     change(&mut documents, &uri, vec![ranged((1, 0), (1, 1), "bbbb"), ranged((0, 0), (2, 1), "X")]);
     assert_eq!(documents.get_content(&uri).unwrap().0.as_str(), "X\n");
     // the line index is for the new text
-    let range = lsp_types::Range::new(Position::new(0, 1), Position::new(1, 0));
-    let (text, format_range, _) = documents.get_content_with_range(&uri, range).unwrap();
+    let (text, line_index) = documents.get_content_with_line_index(&uri).unwrap();
     assert_eq!(text.as_str(), "X\n");
-    assert_eq!(format_range, Some(1..2));
+    assert_eq!(line_index.offset(Position::new(1, 0)), 2.into());
   }
 
   #[test]

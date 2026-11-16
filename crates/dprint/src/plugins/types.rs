@@ -33,6 +33,16 @@ impl PluginSourceReference {
     self.path_source.plugin_kind()
   }
 
+  /// Whether the plugin is downloaded to be used, which is a url or an npm
+  /// package with a version as opposed to a file (ex. in node_modules).
+  pub fn is_downloaded(&self) -> bool {
+    match &self.path_source {
+      PathSource::Remote(_) => true,
+      PathSource::Npm(npm_source) => npm_source.specifier.version.is_some(),
+      PathSource::Local(_) => false,
+    }
+  }
+
   pub fn without_checksum(&self) -> PluginSourceReference {
     PluginSourceReference {
       path_source: self.path_source.clone(),
@@ -106,10 +116,33 @@ pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment:
 
 #[cfg(test)]
 mod tests {
+
   use crate::environment::CanonicalizedPathBuf;
   use crate::environment::TestEnvironment;
 
   use super::*;
+
+  #[test]
+  fn should_not_change_how_a_plugin_is_shown() {
+    // IMPORTANT: This is how a plugin is stored in the approvals file (see `EditorApprovals`), which every version
+    // makes the same way.
+    let plugin = PluginSourceReference {
+      path_source: PathSource::new_remote_from_str("https://plugins.dprint.dev/exec-0.5.0.json"),
+      checksum: Some("abc".to_string()),
+    };
+    assert_eq!(plugin.to_full_string(), "https://plugins.dprint.dev/exec-0.5.0.json@abc");
+    let plugin = PluginSourceReference {
+      path_source: PathSource::new_remote_from_str("https://plugins.dprint.dev/exec-0.5.0.json"),
+      checksum: None,
+    };
+    assert_eq!(plugin.to_full_string(), "https://plugins.dprint.dev/exec-0.5.0.json");
+    let parsed = crate::utils::parse_npm_specifier("npm:@dprint/exec@0.5.0/plugin.json@abc").unwrap();
+    let plugin = PluginSourceReference {
+      path_source: PathSource::new_npm(parsed.specifier, None),
+      checksum: parsed.checksum,
+    };
+    assert_eq!(plugin.to_full_string(), "npm:@dprint/exec@0.5.0/plugin.json@abc");
+  }
 
   #[test]
   fn should_parse_plugin_without_checksum() {
