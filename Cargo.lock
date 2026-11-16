@@ -862,7 +862,7 @@ dependencies = [
 
 [[package]]
 name = "dprint"
-version = "0.64.3"
+version = "0.65.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
