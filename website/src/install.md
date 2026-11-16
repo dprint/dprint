@@ -68,7 +68,7 @@ Install using one of the methods below.
   mise x dprint -- dprint help
   ```
 
-- [packslip](https://packslip.dev) (releases after 0.64.3):
+- [packslip](https://packslip.dev):
 
   ```sh
   packslip install github.com/dprint/dprint
@@ -115,7 +115,7 @@ The release zips have [build provenance attestations](https://docs.github.com/en
 gh attestation verify dprint-x86_64-unknown-linux-gnu.zip --repo dprint/dprint
 ```
 
-Releases after 0.64.3 also include a signed [packslip](https://packslip.dev) (`packslip.sigstore.json`) describing the zips. Download it from the same release and run:
+Releases also include a signed [packslip](https://packslip.dev) (`packslip.sigstore.json`) describing the zips. Download it from the same release and run:
 
 ```sh
 packslip verify packslip.sigstore.json --artifact dprint-x86_64-unknown-linux-gnu.zip
