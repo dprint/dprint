@@ -1098,6 +1098,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   let npm_info_plugins = Rc::new(get_npm_info_plugins(environment).await);
   let npm_extends_resolver = NpmExtendsResolver::default();
   let mut plugin_responses = HashMap::new();
+  let mut extends_responses = HashMap::new();
   let mut updates_per_scope = HashMap::with_capacity(scopes.len());
   // the config files with an `extends` entry that was updated
   let mut extends_updated_paths = HashSet::new();
@@ -1137,6 +1138,8 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
           // plugins, so confirm the content it's moving to for security reasons
           let should_update = if !info.has_checksum || yes_to_prompts || dry_run {
             true
+          } else if let Some(previous_response) = extends_responses.get(&info.new_specifier) {
+            *previous_response
           } else {
             log_all!(
               environment,
@@ -1145,7 +1148,9 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
               info.old_version,
               info.new_specifier,
             );
-            environment.confirm("Do you want to update it?", false)?
+            let response = environment.confirm("Do you want to update it?", false)?;
+            extends_responses.insert(info.new_specifier.clone(), response);
+            response
           };
           if !should_update {
             continue;
@@ -1153,7 +1158,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
           if dry_run {
             log_stderr_info!(
               environment,
-              "Would update {} {}{} to {}.",
+              "Would update extended config {} {}{} to {}.",
               colors::bold(&info.package_name),
               info.old_version,
               in_config,
@@ -1162,7 +1167,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
           } else {
             log_stderr_info!(
               environment,
-              "Updating {} {}{} to {}...",
+              "Updating extended config {} {}{} to {}...",
               info.package_name,
               info.old_version,
               in_config,
@@ -1873,6 +1878,7 @@ async fn resolve_extends_update(
     new_specifier.push('@');
     new_specifier.push_str(&checksum);
   }
+  ensure_extends_resolves(&new_specifier, config_path, environment).await?;
 
   Ok(Some(ExtendsUpdateInfo {
     package_name,
@@ -1882,6 +1888,27 @@ async fn resolve_extends_update(
     new_specifier,
     has_checksum,
   }))
+}
+
+/// Resolves what an `extends` specifier extends the same way as when the
+/// configuration file is used, so an update that wouldn't resolve (ex. the new
+/// version has invalid configuration or extends something without the checksum
+/// required of it) is reported instead of breaking the configuration file.
+async fn ensure_extends_resolves(specifier: &str, config_path: &CanonicalizedPathBuf, environment: &impl Environment) -> Result<()> {
+  let Some(base_path) = config_path.parent() else {
+    bail!("Failed getting the directory of {}.", config_path.display());
+  };
+  let config_file = ResolvedConfigPathWithText {
+    source: PathSource::new_local(config_path.clone()),
+    is_first_download: false,
+    content: serde_json::json!({ "extends": specifier }).to_string(),
+    base_path,
+    anchored_patterns_base_path: None,
+    is_global_config: false,
+    found_path: None,
+  };
+  resolve_config_from_path_with_bytes(&config_file, RemoteCacheMode::Use, environment).await?;
+  Ok(())
 }
 
 /// Reads the plugin's own latest.json. Returns `None` when the plugin doesn't
@@ -5684,6 +5711,11 @@ text",
   /// Serves versions 1.0.0 and 1.1.0 of the `my-dprint-config` package on the
   /// npm registry, with 1.1.0 published the day before [`AGE_TEST_NOW`].
   fn npm_config_package_env(config_text: &str) -> TestEnvironment {
+    npm_config_package_env_with_new_tarball(config_text, npm_config_package_tarball("1.1.0"))
+  }
+
+  /// Like [`npm_config_package_env`] with the tarball of version 1.1.0 provided.
+  fn npm_config_package_env_with_new_tarball(config_text: &str, new_tarball: Vec<u8>) -> TestEnvironment {
     let tarball_url = |version: &str| format!("https://registry.npmjs.org/my-dprint-config/-/my-dprint-config-{version}.tgz");
     let packument = json!({
       "dist-tags": { "latest": "1.1.0" },
@@ -5699,7 +5731,7 @@ text",
     let environment = TestEnvironmentBuilder::new()
       .add_remote_file_bytes("https://registry.npmjs.org/my-dprint-config", packument.to_string().into_bytes())
       .add_remote_file_bytes(&tarball_url("1.0.0"), npm_config_package_tarball("1.0.0"))
-      .add_remote_file_bytes(&tarball_url("1.1.0"), npm_config_package_tarball("1.1.0"))
+      .add_remote_file_bytes(&tarball_url("1.1.0"), new_tarball)
       .with_info_file(|_| {})
       .write_file("/dprint.json", config_text)
       .build();
@@ -5717,7 +5749,10 @@ text",
       environment.read_file("/dprint.json").unwrap(),
       r#"{ "extends": "npm:my-dprint-config@1.1.0", "plugins": [] }"#
     );
-    assert_eq!(environment.take_stderr_messages(), vec!["Updating my-dprint-config 1.0.0 to 1.1.0..."]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Updating extended config my-dprint-config 1.0.0 to 1.1.0..."]
+    );
   }
 
   #[test]
@@ -5756,8 +5791,8 @@ text",
       vec![
         format!("The configuration my-dprint-config 1.0.0 extended with a checksum has a new version: npm:my-dprint-config@1.1.0/other.json@{new_checksum}"),
         "Do you want to update it? Y".to_string(),
-        "Updating my-dprint-config 1.0.0 to 1.1.0...".to_string(),
-        "Updating my-dprint-config 1.0.0 to 1.1.0...".to_string(),
+        "Updating extended config my-dprint-config 1.0.0 to 1.1.0...".to_string(),
+        "Updating extended config my-dprint-config 1.0.0 to 1.1.0...".to_string(),
       ]
     );
   }
@@ -5773,6 +5808,45 @@ text",
 
     assert_eq!(environment.read_file("/dprint.json").unwrap(), config_text);
     environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_updates_npm_extends_with_checksum_without_prompting_with_yes() {
+    let old_checksum = crate::utils::get_sha256_checksum(&npm_config_package_tarball("1.0.0"));
+    let new_checksum = crate::utils::get_sha256_checksum(&npm_config_package_tarball("1.1.0"));
+    let environment = npm_config_package_env(&format!(r#"{{ "extends": "npm:my-dprint-config@1.0.0@{old_checksum}" }}"#));
+
+    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+
+    assert_eq!(
+      environment.read_file("/dprint.json").unwrap(),
+      format!(r#"{{ "extends": "npm:my-dprint-config@1.1.0@{new_checksum}" }}"#)
+    );
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Updating extended config my-dprint-config 1.0.0 to 1.1.0..."]
+    );
+  }
+
+  #[test]
+  fn config_update_keeps_npm_extends_when_the_new_version_does_not_resolve() {
+    // the new version extends a url without the checksum required of
+    // everything configuration extended with a checksum extends
+    let old_checksum = crate::utils::get_sha256_checksum(&npm_config_package_tarball("1.0.0"));
+    let config_text = format!(r#"{{ "extends": "npm:my-dprint-config@1.0.0@{old_checksum}" }}"#);
+    let new_tarball = crate::test_helpers::create_test_npm_tarball(&[("package/dprint.json", br#"{ "extends": "https://dprint.dev/other.json" }"#)]);
+    let environment = npm_config_package_env_with_new_tarball(&config_text, new_tarball);
+
+    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), config_text);
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr
+        .iter()
+        .any(|m| m.starts_with("Failed updating npm:my-dprint-config@1.0.0@") && m.contains("Expected a checksum for 'https://dprint.dev/other.json'")),
+      "got: {stderr:?}"
+    );
   }
 
   #[test]
@@ -5796,7 +5870,7 @@ text",
     assert_eq!(environment.read_file("/dprint.json").unwrap(), config_text);
     let stderr = environment.take_stderr_messages();
     assert!(
-      stderr.contains(&format!("Would update {} 1.0.0 to 1.1.0.", colors::bold("my-dprint-config"))),
+      stderr.contains(&format!("Would update extended config {} 1.0.0 to 1.1.0.", colors::bold("my-dprint-config"))),
       "got: {stderr:?}"
     );
     let stdout = environment.take_stdout_messages();
