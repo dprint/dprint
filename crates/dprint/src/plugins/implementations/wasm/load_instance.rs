@@ -208,9 +208,12 @@ impl WasmModuleCreator {
 
 /// The amount of wasm stack the plugin may use. wasmtime's default is 512KB,
 /// which overflows on deeply nested source files (the formatter recurses over
-/// the AST); 1 MiB handles them. The thread that runs the instance needs a
-/// native stack at least this large (see `WASM_PLUGIN_THREAD_STACK_SIZE`).
-pub const MAX_WASM_STACK_SIZE: usize = 1024 * 1024;
+/// the AST). Plugins compiled from managed languages have large frames, so 1 MiB
+/// still ran out at a few hundred levels of nesting where the same code in V8
+/// goes about twice as deep; 8 MiB goes deeper than that. The thread that runs
+/// the instance needs a native stack at least this large (see
+/// `WASM_PLUGIN_THREAD_STACK_SIZE`).
+pub const MAX_WASM_STACK_SIZE: usize = 8 * 1024 * 1024;
 
 /// Native stack size for the (tokio blocking) thread that runs a wasm plugin
 /// instance. wasmtime executes wasm on this native stack, so it must exceed
@@ -262,6 +265,9 @@ fn new_engine() -> wasmtime::Engine {
     config.target(pulley_target).expect("failed to set pulley target");
   }
   config.max_wasm_stack(MAX_WASM_STACK_SIZE);
+  // wasm doesn't run asynchronously, but wasmtime requires the stack it would
+  // use for that to be larger than the wasm stack (the default is 2 MiB)
+  config.async_stack_size(WASM_PLUGIN_THREAD_STACK_SIZE);
   Engine::new(&config).expect("failed to create wasmtime engine")
 }
 

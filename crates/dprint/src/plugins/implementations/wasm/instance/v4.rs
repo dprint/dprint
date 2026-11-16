@@ -13,7 +13,6 @@ use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
-use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FILE_MATCHING_INFO_ERROR_MESSAGE;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
@@ -41,6 +40,8 @@ use super::InitializedWasmPluginInstance;
 use super::Linker;
 use super::Store;
 use super::WasmHostState;
+use super::critical_format_error;
+use super::map_call_error;
 use super::wasi;
 
 enum WasmFormatResult {
@@ -413,7 +414,7 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
     self.ensure_config(config).map_err(FormatError::new)?;
     match self.inner_format_text(file_path, file_bytes, range, config, override_config.as_deref()) {
       Ok(inner) => inner,
-      Err(err) => Err(CriticalFormatError(FormatError::new(err)).into()),
+      Err(err) => Err(critical_format_error(err)),
     }
   }
 }
@@ -492,18 +493,20 @@ impl WasmFunctions {
   #[inline]
   pub fn format(&mut self, config_id: FormatConfigId) -> Result<WasmFormatResult> {
     let func = self.get_export::<u32, u32>("format")?;
-    Ok(func.call(&mut self.store, config_id.as_raw()).map(|value| u8_to_format_result(value as u8))?)
+    func
+      .call(&mut self.store, config_id.as_raw())
+      .map(|value| u8_to_format_result(value as u8))
+      .map_err(map_call_error)
   }
 
   #[inline]
   pub fn format_range(&mut self, config_id: FormatConfigId, range: std::ops::Range<usize>) -> Result<WasmFormatResult> {
     let maybe_func = self.get_maybe_export::<(u32, u32, u32), u32>("format_range")?;
     match maybe_func {
-      Some(func) => Ok(
-        func
-          .call(&mut self.store, (config_id.as_raw(), range.start as u32, range.end as u32))
-          .map(|value| u8_to_format_result(value as u8))?,
-      ),
+      Some(func) => func
+        .call(&mut self.store, (config_id.as_raw(), range.start as u32, range.end as u32))
+        .map(|value| u8_to_format_result(value as u8))
+        .map_err(map_call_error),
       None => {
         // not supported
         Ok(WasmFormatResult::NoChange)

@@ -8,7 +8,9 @@ use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
+use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
@@ -92,6 +94,23 @@ pub trait InitializedWasmPluginInstance {
   ) -> FormatResult;
 }
 
+/// The plugin ran out of wasm stack while formatting a file, which happens
+/// when the file is nested more deeply than the plugin's recursion can go.
+///
+/// Formatting the file again would only run out of stack again, so it's an
+/// error for that file rather than for the plugin, though the instance that
+/// trapped can't be used again.
+#[derive(Debug)]
+pub struct WasmStackOverflowError;
+
+impl std::fmt::Display for WasmStackOverflowError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "The plugin ran out of stack, which happens when the code is nested too deeply.")
+  }
+}
+
+impl std::error::Error for WasmStackOverflowError {}
+
 pub fn create_wasm_plugin_instance(store: Store, instance: WasmInstance) -> Result<Box<dyn InitializedWasmPluginInstance>> {
   match instance.version() {
     PluginSchemaVersion::V3 => Ok(Box::new(v3::InitializedWasmPluginInstanceV3::new(store, instance)?)),
@@ -162,6 +181,25 @@ pub fn get_current_plugin_schema_version(module: &wasmtime::Module) -> Result<Pl
         get_current_exe_display(),
       );
     }
+  }
+}
+
+/// Gives a [`WasmStackOverflowError`] for the error of a call into the plugin
+/// that ran out of stack, so it can be told apart from other traps.
+fn map_call_error(err: wasmtime::Error) -> anyhow::Error {
+  if matches!(err.downcast_ref::<wasmtime::Trap>(), Some(wasmtime::Trap::StackOverflow)) {
+    WasmStackOverflowError.into()
+  } else {
+    err.into()
+  }
+}
+
+/// Makes a failed call that formats a critical error, which drops the
+/// instance, keeping a [`WasmStackOverflowError`] where it can be found.
+fn critical_format_error(err: anyhow::Error) -> FormatError {
+  match err.downcast::<WasmStackOverflowError>() {
+    Ok(err) => CriticalFormatError(FormatError::new(err)).into(),
+    Err(err) => CriticalFormatError(FormatError::new(err)).into(),
   }
 }
 
