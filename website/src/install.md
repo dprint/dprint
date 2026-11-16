@@ -68,6 +68,12 @@ Install using one of the methods below.
   mise x dprint -- dprint help
   ```
 
+- [packslip](https://packslip.dev) (releases after 0.64.3):
+
+  ```sh
+  packslip install github.com/dprint/dprint
+  ```
+
 - [proto](https://moonrepo.dev/proto) (via its [community plugin](https://github.com/moonrepo/community-plugins/blob/master/tools/dprint.toml)):
 
   ```sh
@@ -100,6 +106,22 @@ Install using one of the methods below.
   ```
 
 For binaries and source, see the [GitHub releases](https://github.com/dprint/dprint/releases).
+
+## Verify a Download
+
+The release zips have [build provenance attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations) that you can verify with the [GitHub CLI](https://cli.github.com/):
+
+```sh
+gh attestation verify dprint-x86_64-unknown-linux-gnu.zip --repo dprint/dprint
+```
+
+Releases after 0.64.3 also include a signed [packslip](https://packslip.dev) (`packslip.sigstore.json`) describing the zips. Download it from the same release and run:
+
+```sh
+packslip verify packslip.sigstore.json --artifact dprint-x86_64-unknown-linux-gnu.zip
+```
+
+Each release also has a `SHASUMS256.txt` file and a table of SHA-256 checksums in its notes.
 
 ## Editor Extensions
 
