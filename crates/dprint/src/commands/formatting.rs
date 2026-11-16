@@ -988,6 +988,26 @@ mod test {
   }
 
   #[test]
+  fn should_handle_wasm_plugin_running_out_of_stack() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file1.txt", "should_overflow_stack") // special text to make it recurse until the stack runs out
+      .write_file("/file2.txt", "test")
+      .write_file("/file3.txt", "test")
+      .build();
+    let error_message = run_test_cli(vec!["fmt", "**.txt"], &environment).err().unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![String::from(
+        "Error formatting /file1.txt. Message: test-plugin ran out of stack, which happens when the code is nested too deeply."
+      )]
+    );
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
+    // the instance that ran out of stack isn't used again, and the other files still format
+    assert_eq!(environment.read_file("/file2.txt").unwrap(), "test_formatted");
+    assert_eq!(environment.read_file("/file3.txt").unwrap(), "test_formatted");
+  }
+
+  #[test]
   fn should_format_calling_process_plugin_with_wasm_plugin_and_no_plugin_exists() {
     let file_path = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
