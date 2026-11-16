@@ -43,5 +43,6 @@ pub use resolve_main_config_path::resolve_global_config_file_path;
 pub use resolve_main_config_path::resolve_global_config_path_and_text;
 pub use resolve_main_config_path::resolve_global_config_path_and_text_at_path_root;
 pub use resolve_main_config_path::resolve_main_config_path_and_bytes;
+pub use resolve_npm_extends::NpmExtendsResolver;
 pub use settings::*;
 pub use types::*;

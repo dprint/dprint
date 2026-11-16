@@ -53,6 +53,7 @@ use crate::utils::DependencyAgeCutoff;
 use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::parse_npm_specifier;
 use crate::utils::pretty_print_json_text;
 
 pub struct InitConfigFileOptions<'a> {
@@ -1095,8 +1096,12 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   // the plugins the registry says are distributed on npm — their config
   // entries move over to an npm specifier instead of a url
   let npm_info_plugins = Rc::new(get_npm_info_plugins(environment).await);
+  let npm_extends_resolver = NpmExtendsResolver::default();
   let mut plugin_responses = HashMap::new();
+  let mut extends_responses = HashMap::new();
   let mut updates_per_scope = HashMap::with_capacity(scopes.len());
+  // the config files with an `extends` entry that was updated
+  let mut extends_updated_paths = HashSet::new();
   // for `--dry-run`: the would-be config text per scope (plugin urls bumped),
   // kept in memory so the config-update preview can run against it without
   // touching disk.
@@ -1119,6 +1124,65 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     // one nearest it, which differs between scopes
     let config_dir = config_path.parent();
     let age_cutoff = resolve_dependency_age_cutoff(minimum_dependency_age.as_ref(), config_dir.as_ref().map(|dir| dir.as_ref()), environment);
+    let in_config = if is_main_config {
+      String::new()
+    } else {
+      format!(" in {}", config_path.display())
+    };
+
+    let extends_to_update = get_extends_to_update(environment, &npm_extends_resolver, config_path, &file_text, age_cutoff.as_ref()).await?;
+    for result in extends_to_update {
+      match result {
+        Ok(info) => {
+          // a checksum makes what's extended trusted to configure process
+          // plugins, so confirm the content it's moving to for security reasons
+          let should_update = if !info.has_checksum || yes_to_prompts || dry_run {
+            true
+          } else if let Some(previous_response) = extends_responses.get(&info.new_specifier) {
+            *previous_response
+          } else {
+            log_all!(
+              environment,
+              "The configuration {} {} extended with a checksum has a new version: {}",
+              info.package_name,
+              info.old_version,
+              info.new_specifier,
+            );
+            let response = environment.confirm("Do you want to update it?", false)?;
+            extends_responses.insert(info.new_specifier.clone(), response);
+            response
+          };
+          if !should_update {
+            continue;
+          }
+          if dry_run {
+            log_stderr_info!(
+              environment,
+              "Would update extended config {} {}{} to {}.",
+              colors::bold(&info.package_name),
+              info.old_version,
+              in_config,
+              info.new_version
+            );
+          } else {
+            log_stderr_info!(
+              environment,
+              "Updating extended config {} {}{} to {}...",
+              info.package_name,
+              info.old_version,
+              in_config,
+              info.new_version
+            );
+          }
+          file_text = replace_extends_in_config(&file_text, &info.old_specifier, &info.new_specifier);
+          extends_updated_paths.insert(config_path.clone());
+        }
+        Err(err_info) => {
+          log_warn!(environment, "Failed updating {} in \"extends\": {:#}", err_info.specifier, err_info.error);
+        }
+      }
+    }
+
     let plugins_to_update = get_plugins_to_update(
       environment,
       plugin_resolver,
@@ -1172,11 +1236,6 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
           };
 
           if should_update {
-            let in_config = if is_main_config {
-              String::new()
-            } else {
-              format!(" in {}", config_path.display())
-            };
             // a move to npm changes where the plugin comes from, not just its
             // version, so show the entry that replaces the url
             let new_target = if info.is_move_to_npm() {
@@ -1222,7 +1281,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   }
 
   if dry_run {
-    return preview_plugin_config_updates(environment, plugin_resolver, &updates_per_scope, &dry_run_texts).await;
+    return preview_plugin_config_updates(environment, plugin_resolver, &updates_per_scope, &extends_updated_paths, &dry_run_texts).await;
   }
 
   // now resolve the plugins again in every scope and run their config updates
@@ -1258,6 +1317,7 @@ async fn preview_plugin_config_updates<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   updates_per_scope: &HashMap<CanonicalizedPathBuf, Vec<PluginUpdateInfo>>,
+  extends_updated_paths: &HashSet<CanonicalizedPathBuf>,
   dry_run_texts: &HashMap<CanonicalizedPathBuf, String>,
 ) -> Result<()> {
   let mut any_updates = false;
@@ -1266,7 +1326,7 @@ async fn preview_plugin_config_updates<TEnvironment: Environment>(
   config_paths.sort_by_key(|p| p.display().to_string());
   for config_path in config_paths {
     let updated_plugins = &updates_per_scope[config_path];
-    if updated_plugins.is_empty() {
+    if updated_plugins.is_empty() && !extends_updated_paths.contains(config_path) {
       continue;
     }
     any_updates = true;
@@ -1342,7 +1402,7 @@ async fn preview_plugin_config_updates<TEnvironment: Environment>(
   if any_updates {
     log_stderr_info!(environment, "\n{}", colors::gray("This was a dry run. No files were changed."));
   } else {
-    log_stderr_info!(environment, "{}", colors::gray("No plugin updates available."));
+    log_stderr_info!(environment, "{}", colors::gray("No updates available."));
   }
 
   Ok(())
@@ -1696,6 +1756,159 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
     }
   }
   Ok(final_infos)
+}
+
+/// An `npm:` specifier in the `extends` of a configuration file with a newer
+/// version on the npm registry.
+struct ExtendsUpdateInfo {
+  package_name: String,
+  old_version: String,
+  new_version: String,
+  old_specifier: String,
+  new_specifier: String,
+  /// Whether the specifier pins the package's tarball with a checksum.
+  has_checksum: bool,
+}
+
+struct ExtendsUpdateError {
+  specifier: String,
+  error: Error,
+}
+
+/// Gets the updates for the `npm:` specifiers with a version in the `extends`
+/// of a configuration file.
+///
+/// Only the configuration file's own `extends` are updated. What an extended
+/// configuration file extends isn't ours to rewrite.
+async fn get_extends_to_update(
+  environment: &impl Environment,
+  npm_extends_resolver: &NpmExtendsResolver,
+  config_path: &CanonicalizedPathBuf,
+  file_text: &str,
+  age_cutoff: Option<&DependencyAgeCutoff>,
+) -> Result<Vec<Result<ExtendsUpdateInfo, ExtendsUpdateError>>> {
+  let mut seen = HashSet::new();
+  let specifiers = get_extends_in_config(file_text)?
+    .into_iter()
+    // the same entry may be specified more than once
+    .filter(|specifier| specifier.starts_with("npm:") && seen.insert(specifier.clone()))
+    .collect::<Vec<_>>();
+
+  let results = future::join_all(
+    specifiers
+      .iter()
+      .map(|specifier| resolve_extends_update(environment, npm_extends_resolver, config_path, specifier, age_cutoff)),
+  )
+  .await;
+  Ok(
+    specifiers
+      .into_iter()
+      .zip(results)
+      .filter_map(|(specifier, result)| match result {
+        Ok(maybe_info) => maybe_info.map(Ok),
+        Err(error) => Some(Err(ExtendsUpdateError { specifier, error })),
+      })
+      .collect(),
+  )
+}
+
+async fn resolve_extends_update(
+  environment: &impl Environment,
+  npm_extends_resolver: &NpmExtendsResolver,
+  config_path: &CanonicalizedPathBuf,
+  specifier: &str,
+  age_cutoff: Option<&DependencyAgeCutoff>,
+) -> Result<Option<ExtendsUpdateInfo>> {
+  let parsed = parse_npm_specifier(specifier)?;
+  let package_name = parsed.specifier.name;
+  let Some(current_version) = parsed.specifier.version else {
+    // unversioned specifiers resolve from node_modules, so the package manager manages the version
+    log_warn!(
+      environment,
+      "Skipping {} in \"extends\" (unversioned npm specifier — update via your package manager).",
+      specifier
+    );
+    return Ok(None);
+  };
+  let config_dir = config_path.parent();
+  let new_version = match resolve_npm_latest_version(&package_name, config_dir.as_ref().map(|dir| dir.as_ref()), age_cutoff, environment).await {
+    Ok(version) => version,
+    Err(err) => {
+      // being held back by the minimum dependency age isn't a failure to update
+      if let Some(err) = err.downcast_ref::<MinimumDependencyAgeError>() {
+        log_warn!(environment, "Skipping {}. {}", package_name, err);
+        return Ok(None);
+      }
+      return Err(err);
+    }
+  };
+  if is_version_downgrade(&current_version, &new_version) {
+    log_warn!(
+      environment,
+      "Skipping {}. The version resolved ({}) is older than the {} in use.",
+      package_name,
+      new_version,
+      current_version,
+    );
+    return Ok(None);
+  }
+  if new_version == current_version {
+    return Ok(None);
+  }
+
+  let mut new_specifier = format!("npm:{}@{}", package_name, new_version);
+  if parsed.path_was_explicit {
+    new_specifier.push('/');
+    new_specifier.push_str(&parsed.specifier.path);
+  }
+  // resolving the new version ensures it still has the configuration file and
+  // gets the checksum of its tarball
+  let resolved = npm_extends_resolver
+    .resolve(&new_specifier, &PathSource::new_local(config_path.clone()), environment)
+    .await?;
+  let has_checksum = parsed.checksum.is_some();
+  if has_checksum {
+    let checksum = match &resolved.source {
+      PathSource::Npm(npm_source) => npm_extends_resolver.tarball_checksum(npm_source),
+      PathSource::Local(_) | PathSource::Remote(_) => None,
+    };
+    let Some(checksum) = checksum else {
+      bail!("Failed getting the checksum of the npm package for {}.", new_specifier);
+    };
+    new_specifier.push('@');
+    new_specifier.push_str(&checksum);
+  }
+  ensure_extends_resolves(&new_specifier, config_path, environment).await?;
+
+  Ok(Some(ExtendsUpdateInfo {
+    package_name,
+    old_version: current_version,
+    new_version,
+    old_specifier: specifier.to_string(),
+    new_specifier,
+    has_checksum,
+  }))
+}
+
+/// Resolves what an `extends` specifier extends the same way as when the
+/// configuration file is used, so an update that wouldn't resolve (ex. the new
+/// version has invalid configuration or extends something without the checksum
+/// required of it) is reported instead of breaking the configuration file.
+async fn ensure_extends_resolves(specifier: &str, config_path: &CanonicalizedPathBuf, environment: &impl Environment) -> Result<()> {
+  let Some(base_path) = config_path.parent() else {
+    bail!("Failed getting the directory of {}.", config_path.display());
+  };
+  let config_file = ResolvedConfigPathWithText {
+    source: PathSource::new_local(config_path.clone()),
+    is_first_download: false,
+    content: serde_json::json!({ "extends": specifier }).to_string(),
+    base_path,
+    anchored_patterns_base_path: None,
+    is_global_config: false,
+    found_path: None,
+  };
+  resolve_config_from_path_with_bytes(&config_file, RemoteCacheMode::Use, environment).await?;
+  Ok(())
 }
 
 /// Reads the plugin's own latest.json. Returns `None` when the plugin doesn't
@@ -5486,6 +5699,203 @@ text",
     );
     let _ = environment.take_stdout_messages();
     let _ = environment.take_stderr_messages();
+  }
+
+  /// A tarball for version `version` of the `my-dprint-config` package, whose
+  /// configuration files differ between versions so their checksums do too.
+  fn npm_config_package_tarball(version: &str) -> Vec<u8> {
+    let config = format!(r#"{{ "lineWidth": {} }}"#, if version == "1.0.0" { 80 } else { 100 });
+    crate::test_helpers::create_test_npm_tarball(&[("package/dprint.json", config.as_bytes()), ("package/other.json", config.as_bytes())])
+  }
+
+  /// Serves versions 1.0.0 and 1.1.0 of the `my-dprint-config` package on the
+  /// npm registry, with 1.1.0 published the day before [`AGE_TEST_NOW`].
+  fn npm_config_package_env(config_text: &str) -> TestEnvironment {
+    npm_config_package_env_with_new_tarball(config_text, npm_config_package_tarball("1.1.0"))
+  }
+
+  /// Like [`npm_config_package_env`] with the tarball of version 1.1.0 provided.
+  fn npm_config_package_env_with_new_tarball(config_text: &str, new_tarball: Vec<u8>) -> TestEnvironment {
+    let tarball_url = |version: &str| format!("https://registry.npmjs.org/my-dprint-config/-/my-dprint-config-{version}.tgz");
+    let packument = json!({
+      "dist-tags": { "latest": "1.1.0" },
+      "versions": {
+        "1.0.0": { "dist": { "tarball": tarball_url("1.0.0") } },
+        "1.1.0": { "dist": { "tarball": tarball_url("1.1.0") } },
+      },
+      "time": {
+        "1.0.0": "2099-01-01T00:00:00Z",
+        "1.1.0": "2099-12-31T00:00:00Z",
+      }
+    });
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_file_bytes("https://registry.npmjs.org/my-dprint-config", packument.to_string().into_bytes())
+      .add_remote_file_bytes(&tarball_url("1.0.0"), npm_config_package_tarball("1.0.0"))
+      .add_remote_file_bytes(&tarball_url("1.1.0"), new_tarball)
+      .with_info_file(|_| {})
+      .write_file("/dprint.json", config_text)
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment
+  }
+
+  #[test]
+  fn config_update_updates_npm_extends() {
+    let environment = npm_config_package_env(r#"{ "extends": "npm:my-dprint-config@1.0.0", "plugins": [] }"#);
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    assert_eq!(
+      environment.read_file("/dprint.json").unwrap(),
+      r#"{ "extends": "npm:my-dprint-config@1.1.0", "plugins": [] }"#
+    );
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Updating extended config my-dprint-config 1.0.0 to 1.1.0..."]
+    );
+  }
+
+  #[test]
+  fn config_update_updates_npm_extends_in_array_keeping_path_and_checksum() {
+    let old_checksum = crate::utils::get_sha256_checksum(&npm_config_package_tarball("1.0.0"));
+    let new_checksum = crate::utils::get_sha256_checksum(&npm_config_package_tarball("1.1.0"));
+    let environment = npm_config_package_env(&format!(
+      r#"{{
+  "extends": [
+    "./base.json",
+    "npm:my-dprint-config@1.0.0/other.json@{old_checksum}",
+    "npm:my-dprint-config@1.0.0"
+  ]
+}}"#
+    ));
+    environment.write_file("/base.json", "{}").unwrap();
+
+    // a checksum makes the configuration trusted, so its update is confirmed
+    environment.set_confirm_results(vec![Ok(Some(true))]);
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    assert_eq!(
+      environment.read_file("/dprint.json").unwrap(),
+      format!(
+        r#"{{
+  "extends": [
+    "./base.json",
+    "npm:my-dprint-config@1.1.0/other.json@{new_checksum}",
+    "npm:my-dprint-config@1.1.0"
+  ]
+}}"#
+      )
+    );
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        format!("The configuration my-dprint-config 1.0.0 extended with a checksum has a new version: npm:my-dprint-config@1.1.0/other.json@{new_checksum}"),
+        "Do you want to update it? Y".to_string(),
+        "Updating extended config my-dprint-config 1.0.0 to 1.1.0...".to_string(),
+        "Updating extended config my-dprint-config 1.0.0 to 1.1.0...".to_string(),
+      ]
+    );
+  }
+
+  #[test]
+  fn config_update_does_not_update_npm_extends_with_checksum_when_denied() {
+    let old_checksum = crate::utils::get_sha256_checksum(&npm_config_package_tarball("1.0.0"));
+    let config_text = format!(r#"{{ "extends": "npm:my-dprint-config@1.0.0@{old_checksum}" }}"#);
+    let environment = npm_config_package_env(&config_text);
+
+    environment.set_confirm_results(vec![Ok(Some(false))]);
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), config_text);
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_updates_npm_extends_with_checksum_without_prompting_with_yes() {
+    let old_checksum = crate::utils::get_sha256_checksum(&npm_config_package_tarball("1.0.0"));
+    let new_checksum = crate::utils::get_sha256_checksum(&npm_config_package_tarball("1.1.0"));
+    let environment = npm_config_package_env(&format!(r#"{{ "extends": "npm:my-dprint-config@1.0.0@{old_checksum}" }}"#));
+
+    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+
+    assert_eq!(
+      environment.read_file("/dprint.json").unwrap(),
+      format!(r#"{{ "extends": "npm:my-dprint-config@1.1.0@{new_checksum}" }}"#)
+    );
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Updating extended config my-dprint-config 1.0.0 to 1.1.0..."]
+    );
+  }
+
+  #[test]
+  fn config_update_keeps_npm_extends_when_the_new_version_does_not_resolve() {
+    // the new version extends a url without the checksum required of
+    // everything configuration extended with a checksum extends
+    let old_checksum = crate::utils::get_sha256_checksum(&npm_config_package_tarball("1.0.0"));
+    let config_text = format!(r#"{{ "extends": "npm:my-dprint-config@1.0.0@{old_checksum}" }}"#);
+    let new_tarball = crate::test_helpers::create_test_npm_tarball(&[("package/dprint.json", br#"{ "extends": "https://dprint.dev/other.json" }"#)]);
+    let environment = npm_config_package_env_with_new_tarball(&config_text, new_tarball);
+
+    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), config_text);
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr
+        .iter()
+        .any(|m| m.starts_with("Failed updating npm:my-dprint-config@1.0.0@") && m.contains("Expected a checksum for 'https://dprint.dev/other.json'")),
+      "got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn config_update_npm_extends_respects_minimum_dependency_age() {
+    let config_text = r#"{ "extends": "npm:my-dprint-config@1.0.0" }"#;
+    let environment = npm_config_package_env(config_text);
+
+    run_test_cli(vec!["config", "update", "--minimum-dependency-age", "P3D"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), config_text);
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_dry_run_previews_npm_extends() {
+    let config_text = r#"{ "extends": "npm:my-dprint-config@1.0.0" }"#;
+    let environment = npm_config_package_env(config_text);
+
+    run_test_cli(vec!["config", "update", "--dry-run"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), config_text);
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr.contains(&format!("Would update extended config {} 1.0.0 to 1.1.0.", colors::bold("my-dprint-config"))),
+      "got: {stderr:?}"
+    );
+    let stdout = environment.take_stdout_messages();
+    assert!(
+      stdout.iter().any(|m| m.contains(r#"{ "extends": "npm:my-dprint-config@1.1.0" }"#)),
+      "got: {stdout:?}"
+    );
+  }
+
+  #[test]
+  fn config_update_skips_unversioned_npm_extends() {
+    let config_text = r#"{ "extends": "npm:my-dprint-config" }"#;
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|_| {})
+      .write_file("/dprint.json", config_text)
+      .write_file("/node_modules/my-dprint-config/dprint.json", "{}")
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), config_text);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Skipping npm:my-dprint-config in \"extends\" (unversioned npm specifier — update via your package manager)."]
+    );
   }
 
   #[test]
