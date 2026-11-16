@@ -2207,7 +2207,8 @@ mod test {
             }])
           );
 
-          // the range is expanded to its whole lines, which is the whole cell here
+          // the test plugin says it formats a range, so it's given the range as
+          // it is (expanding the range for other plugins is tested in text.rs)
           let result = backend
             .range_formatting(
               DocumentRangeFormattingParams {
@@ -2221,10 +2222,20 @@ mod test {
             .await;
           assert_eq!(
             result.unwrap(),
-            Some(vec![TextEdit {
-              range: Range::new(Position::new(0, 6), Position::new(0, 6)),
-              new_text: "_formatted".to_string()
-            }])
+            Some(vec![
+              TextEdit {
+                range: Range::new(Position::new(0, 1), Position::new(0, 1)),
+                new_text: "_formatt".to_string()
+              },
+              TextEdit {
+                range: Range::new(Position::new(0, 2), Position::new(0, 2)),
+                new_text: "d\n_".to_string()
+              },
+              TextEdit {
+                range: Range::new(Position::new(0, 6), Position::new(0, 6)),
+                new_text: "_formatted  ".to_string()
+              },
+            ])
           );
 
           // language without a plugin
