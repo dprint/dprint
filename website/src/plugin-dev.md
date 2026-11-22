@@ -24,20 +24,15 @@ The dprint CLI looks for `plugin.wasm` at the root of an npm package by default.
 
 ```json
 {
-  "name": "@example/sample-format",
-  "version": "0.1.0",
-  "files": ["plugin.wasm"]
+  "name": "@example/plugin",
+  "version": "0.1.0"
 }
 ```
-
-The `files` list includes the Wasm artifact in the tarball. You don't need a JavaScript entry point for dprint to load the plugin.
 
 To test the package without publishing it:
 
 1. Run `npm pack --dry-run --ignore-scripts` in the package directory to check that `plugin.wasm` is included, then run `npm pack --ignore-scripts` to create the tarball.
-2. In a separate test project, install the tarball with `npm install --ignore-scripts --save-dev ../path/to/example-sample-format-0.1.0.tgz`.
-3. Add `"npm:@example/sample-format"` to the `plugins` array in `dprint.json` and run `dprint fmt` on a file your plugin supports.
+2. In a separate test project, install the tarball with `npm install --ignore-scripts --save-dev ../path/to/example-plugin-0.1.0.tgz`.
+3. Add `"npm:@example/plugin"` to the `plugins` array in `dprint.json` and run `dprint fmt` on a file your plugin supports.
 
-If you put the artifact at a different path, such as `dist/formatter.wasm`, include it in `files` and specify the path as `npm:@example/sample-format/dist/formatter.wasm`.
-
-Once you [publish the package](https://docs.npmjs.com/cli/v11/commands/npm-publish/), users can pin it with `npm:@example/sample-format@0.1.0`. See [npm plugin specifiers](/config/#plugins) for registry and local resolution details.
+Once you [publish the package](https://docs.npmjs.com/cli/v11/commands/npm-publish/), users can pin it with `npm:@example/plugin@0.1.0`. See [npm plugin specifiers](/config/#plugins) for registry and local resolution details.
