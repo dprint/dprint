@@ -9,12 +9,15 @@ use once_cell::sync::Lazy;
 use thiserror::Error;
 
 use crate::AppError;
+use crate::arg_parser::ConfigSubCommand;
+use crate::arg_parser::SubCommand;
 use crate::arg_parser::parse_args;
 use crate::environment::Environment;
 use crate::environment::TestEnvironment;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginResolverOptions;
+use crate::plugins::skip_auto_install_from_env;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 
@@ -213,6 +216,7 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
     plugin_cache,
     PluginResolverOptions {
       reload_plugins: args.reload.plugins,
+      skip_auto_install: skip_auto_install_from_env(environment) && !matches!(&args.sub_command, SubCommand::Config(ConfigSubCommand::Install(_))),
     },
   ));
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());

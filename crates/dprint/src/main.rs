@@ -65,12 +65,17 @@ async fn run() -> Result<(), (AppError, LogLevel)> {
     is_stdout_machine_readable: args.is_stdout_machine_readable(),
   })
   .map_err(|err| (err.into(), args.log_level))?;
+  // `dprint config install` is the explicit way to populate the plugin cache,
+  // so allow it to set up plugins even when auto-installation is disabled.
+  let skip_auto_install =
+    plugins::skip_auto_install_from_env(&environment) && !matches!(&args.sub_command, arg_parser::SubCommand::Config(arg_parser::ConfigSubCommand::Install(_)));
   let plugin_cache = plugins::PluginCache::new(environment.clone());
   let plugin_resolver = Rc::new(plugins::PluginResolver::new(
     environment.clone(),
     plugin_cache,
     plugins::PluginResolverOptions {
       reload_plugins: args.reload.plugins,
+      skip_auto_install,
     },
   ));
 
