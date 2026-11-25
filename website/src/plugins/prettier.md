@@ -4,7 +4,7 @@ description: Documentation on the Prettier code formatting plugin for dprint.
 layout: layouts/plugin.njk
 ---
 
-Wrapper plugin that formats [many languages](https://prettier.io/docs/en/index.html) via [Prettier](https://prettier.io), compiled ahead of time to a Wasm plugin.
+Wrapper plugin that formats [many languages](https://prettier.io/docs/en/index.html) via [Prettier](https://prettier.io), compiled ahead of time to run sandboxed as a Wasm plugin.
 
 ## Install and Setup
 
