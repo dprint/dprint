@@ -174,7 +174,7 @@ Supported `npm:` specifier forms:
     "npm:@dprint/typescript@0.95.15",
 
     // process plugin — requires a tarball checksum
-    "npm:@dprint/prettier@0.50.0/plugin.json@<sha256>",
+    "npm:@dprint/exec@0.9.0/plugin.json@<sha256>",
 
     // a plugin that isn't at the root of its package
     "npm:@dprint/example@1.0.0/json/plugin.wasm",
@@ -368,7 +368,7 @@ In the following example, both the TypeScript plugin and Prettier plugin support
   "plugins": [
     "npm:@dprint/typescript@x.x.x",
     // side note: check the docs for the latest version of this plugin
-    "https://plugins.dprint.dev/prettier-0.13.0.json@dc5d12b7c1bf1a4683eff317c2c87350e75a5a3dfcc127f3d5628931bfb534b1"
+    "npm:@dprint/prettier@x.x.x"
   ]
 }
 ```
