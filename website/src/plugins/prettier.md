@@ -4,13 +4,7 @@ description: Documentation on the Prettier code formatting plugin for dprint.
 layout: layouts/plugin.njk
 ---
 
-Wrapper plugin that formats [many languages](https://prettier.io/docs/en/index.html) via [Prettier](https://prettier.io).
-
-<div class="message is-warning">
-  <div class="message-body">
-    This is a process plugin. Using this will cause the CLI to download, run, and communicate with a separate process that is not sandboxed (unlike Wasm plugins).
-  </div>
-</div>
+Wrapper plugin that formats [many languages](https://prettier.io/docs/en/index.html) via [Prettier](https://prettier.io), compiled ahead of time to run sandboxed as a Wasm plugin.
 
 ## Install and Setup
 

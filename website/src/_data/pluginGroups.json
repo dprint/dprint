@@ -37,7 +37,7 @@
     "id": "wrapper-plugins",
     "kind": "wrapper",
     "plugins": [
-      { "slug": "prettier", "info": "dprint-plugin-prettier", "name": "Prettier", "ext": "multi-language", "process": true },
+      { "slug": "prettier", "info": "dprint-plugin-prettier", "name": "Prettier", "ext": "multi-language" },
       { "slug": "biome", "info": "dprint-plugin-biome", "playground": true, "name": "Biome", "ext": "JS · TS · JSON" },
       { "slug": "oxc", "info": "dprint-plugin-oxc", "playground": true, "name": "Oxc", "ext": "JS · TS · JSON · CSS · GraphQL · YAML · TOML · Markdown" },
       {
