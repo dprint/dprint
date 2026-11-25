@@ -367,7 +367,6 @@ In the following example, both the TypeScript plugin and Prettier plugin support
   },
   "plugins": [
     "npm:@dprint/typescript@x.x.x",
-    // side note: check the docs for the latest version of this plugin
     "npm:@dprint/prettier@x.x.x"
   ]
 }
