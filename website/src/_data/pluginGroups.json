@@ -28,7 +28,8 @@
       { "slug": "lax-markup", "info": "lax-markup", "name": "Lax Markup", "ext": "HTML · XML · SVG · Vue · Svelte · Astro" },
       { "slug": "lax-sql", "info": "lax-sql", "name": "Lax SQL", "ext": "SQL" },
       { "slug": "cmakefmt", "info": "cmakefmt", "name": "cmakefmt", "ext": "CMake" },
-      { "slug": "cmakefmt-azais-corentin", "info": "dprint-plugin-cmake", "name": "cmakefmt (azais-corentin)", "ext": "CMake" }
+      { "slug": "cmakefmt-azais-corentin", "info": "dprint-plugin-cmake", "name": "cmakefmt (azais-corentin)", "ext": "CMake" },
+      { "slug": "shebang", "info": "dprint-plugin-shebang", "name": "Shebang", "ext": "Script shebangs" }
     ]
   },
   {
