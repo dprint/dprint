@@ -67,8 +67,6 @@ mod test {
               file_matching,
               overrides: Vec::new(),
               serialized_resolved_config,
-              // the plugins don't skip stable format, so they're not asked about other config
-              next_config_id: Rc::new(|| unreachable!()),
             },
           )));
         }
@@ -134,8 +132,6 @@ mod test {
               file_matching,
               overrides: Vec::new(),
               serialized_resolved_config,
-              // the plugins don't skip stable format, so they're not asked about other config
-              next_config_id: Rc::new(|| unreachable!()),
             },
           )));
         }

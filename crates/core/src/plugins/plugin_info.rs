@@ -30,6 +30,20 @@ pub struct PluginInfo {
   ///   it overlaps).
   /// - `false` - Editors don't format a range with the plugin.
   pub supports_range_formatting: bool,
+  /// Whether dprint should skip formatting a file again until the output is
+  /// stable when the plugin changes the file.
+  ///
+  /// By default, dprint formats the text a plugin changed again until it
+  /// stops changing to catch plugins that format differently each time. Only
+  /// set this to `true` when formatting the plugin's output again never
+  /// changes it with any configuration. This saves formatting each changed
+  /// file at least one more time and the output is still stored as formatted
+  /// for incremental formatting.
+  ///
+  /// When the plugin formats embedded text with other plugins (ex. code
+  /// blocks), dprint formats that text again until it's stable unless those
+  /// plugins say the same.
+  pub skip_stable_format: bool,
 }
 
 /// Information about a process plugin.
@@ -78,21 +92,4 @@ pub struct FileMatchingInfo {
   /// otherwise stop the file's usual formatter from running.
   #[serde(default)]
   pub additive: bool,
-  /// Whether dprint should skip formatting a file again until the output is
-  /// stable when the plugin changes the file with this configuration.
-  ///
-  /// By default, dprint formats the text a plugin changed again until it
-  /// stops changing to catch plugins that format differently each time. Only
-  /// set this to `true` when formatting the plugin's output again with this
-  /// configuration never changes it. This saves formatting each changed file
-  /// at least one more time and the output is still stored as formatted for
-  /// incremental formatting. When override config applies to a file (ex.
-  /// config file overrides or override config from a format request), dprint
-  /// gets this for the configuration with the override config merged in.
-  ///
-  /// When the plugin formats embedded text with other plugins (ex. code
-  /// blocks), dprint formats that text again until it's stable unless those
-  /// plugins say the same.
-  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-  pub skip_stable_format: bool,
 }

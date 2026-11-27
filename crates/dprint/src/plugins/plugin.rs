@@ -104,6 +104,19 @@ impl TestPlugin {
     self
   }
 
+  /// Makes the plugin say formatting its output again never changes it.
+  pub fn with_skip_stable_format(mut self) -> Self {
+    self.info.skip_stable_format = true;
+    self
+  }
+
+  /// Makes the plugin format a file it matches in addition to the plugin
+  /// that claims the file.
+  pub fn with_additive(mut self) -> Self {
+    self.initialized_test_plugin.0.additive = true;
+    self
+  }
+
   pub fn new(name: &str, config_key: &str, file_extensions: Vec<&str>, file_names: Vec<&str>) -> TestPlugin {
     TestPlugin {
       info: ReceivedPluginInfo {
@@ -114,6 +127,7 @@ impl TestPlugin {
         config_schema_url: "https://plugins.dprint.dev/schemas/test.json".to_string(),
         update_url: None,
         supports_range_formatting: None,
+        skip_stable_format: false,
         allow_plugin_override_config: None,
       },
       is_process_plugin: false,
@@ -121,7 +135,6 @@ impl TestPlugin {
         file_extensions: file_extensions.into_iter().map(String::from).collect(),
         file_names: file_names.into_iter().map(String::from).collect(),
         additive: false,
-        skip_stable_format: false,
       }),
     }
   }
@@ -172,9 +185,25 @@ impl InitializedPlugin for InitializedTestPlugin {
   }
 
   async fn format_text(&self, format_request: InitializedPluginFormatRequest) -> FormatResult {
-    Ok(Some(
-      format!("{}_formatted", String::from_utf8(format_request.file_text.to_vec())?).into_bytes(),
-    ))
+    let file_text = String::from_utf8(format_request.file_text.to_vec())?;
+    // formats the text after `embed:<extension>:` with the plugin for that extension (ex. a code block)
+    if let Some((extension, embedded_text)) = file_text.strip_prefix("embed:").and_then(|text| text.split_once(':')) {
+      let result = (format_request.on_host_format)(dprint_core::plugins::HostFormatRequest {
+        file_path: PathBuf::from(format!("/embedded.{}", extension)),
+        file_bytes: embedded_text.as_bytes().to_vec(),
+        range: None,
+        override_config: Default::default(),
+        token: format_request.token.clone(),
+      })
+      .await?;
+      let embedded_text = match result {
+        Some(text) => String::from_utf8(text)?,
+        None => embedded_text.to_string(),
+      };
+      return Ok(Some(format!("embed:{}:{}", extension, embedded_text).into_bytes()));
+    }
+    // this changes the text every time, so it's never stable
+    Ok(Some(format!("{}_formatted", file_text).into_bytes()))
   }
 
   async fn shutdown(&self) -> () {

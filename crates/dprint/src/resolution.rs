@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hasher;
 use std::path::Path;
@@ -120,14 +119,7 @@ pub struct PluginWithConfig {
   serialized_resolved_config: String,
   /// The configuration diagnostics once checked, which is empty for none.
   config_diagnostics: tokio::sync::Mutex<Option<Vec<PluginConfigDiagnostic>>>,
-  next_config_id: NextConfigId,
-  /// What the plugin said about skipping stable format for override config,
-  /// by the serialized override config.
-  skip_stable_format_by_override_config: RefCell<HashMap<String, bool>>,
 }
-
-/// Gets an id for a configuration that's new to the plugins.
-pub type NextConfigId = Rc<dyn Fn() -> FormatConfigId>;
 
 pub struct PluginWithConfigOptions {
   pub associations: Option<Vec<String>>,
@@ -136,8 +128,6 @@ pub struct PluginWithConfigOptions {
   pub overrides: Vec<PluginConfigOverride>,
   /// The plugin's resolved configuration serialized as JSON.
   pub serialized_resolved_config: String,
-  /// For the configurations with override config the plugin is asked about.
-  pub next_config_id: NextConfigId,
 }
 
 impl PluginWithConfig {
@@ -150,8 +140,6 @@ impl PluginWithConfig {
       config_diagnostics: Default::default(),
       file_matching: options.file_matching,
       serialized_resolved_config: options.serialized_resolved_config,
-      next_config_id: options.next_config_id,
-      skip_stable_format_by_override_config: Default::default(),
     }
   }
 
@@ -296,38 +284,6 @@ pub struct InitializedPluginWithConfig {
 }
 
 impl InitializedPluginWithConfig {
-  /// Gets whether the plugin says formatting its output again with the
-  /// override config never changes it (see `FileMatchingInfo::skip_stable_format`).
-  ///
-  /// The plugin is only asked about override config when its configuration
-  /// says so, and the answer is kept for the next time.
-  pub async fn skips_stable_format(&self, override_config: &ConfigKeyMap) -> Result<bool> {
-    let plugin = &self.plugin;
-    if !plugin.file_matching.skip_stable_format {
-      return Ok(false);
-    }
-    if override_config.is_empty() {
-      return Ok(true);
-    }
-    let key = serde_json::to_string(override_config)?;
-    if let Some(skip_stable_format) = plugin.skip_stable_format_by_override_config.borrow().get(&key) {
-      return Ok(*skip_stable_format);
-    }
-    // the plugin merges the override config into its configuration like this when formatting
-    let mut plugin_config = plugin.format_config.plugin.clone();
-    for (key, value) in override_config.iter() {
-      plugin_config.insert(key.clone(), value.clone());
-    }
-    let format_config = Arc::new(FormatConfig {
-      id: (plugin.next_config_id)(),
-      plugin: plugin_config,
-      global: plugin.format_config.global.clone(),
-    });
-    let skip_stable_format = self.instance.file_matching_info(format_config).await?.skip_stable_format;
-    plugin.skip_stable_format_by_override_config.borrow_mut().insert(key, skip_stable_format);
-    Ok(skip_stable_format)
-  }
-
   pub fn info(&self) -> &ReceivedPluginInfo {
     self.plugin.info()
   }
@@ -498,26 +454,12 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   /// Gets whether every plugin that formats the file says formatting its
-  /// output again never changes it (see `InitializedPluginWithConfig::skips_stable_format`).
-  async fn plugins_skip_stable_format(&self, file_path: &Path, file_bytes: &[u8], override_config: &ConfigKeyMap, is_plugin_request: bool) -> Result<bool> {
+  /// output again never changes it (see `ReceivedPluginInfo::skip_stable_format`).
+  fn plugins_skip_stable_format(&self, file_path: &Path, file_bytes: &[u8]) -> bool {
     let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path_and_bytes(file_path, file_bytes);
-    // a plugin might be asking to format with the file path it was given
-    let real_file_path = self.plugin_name_maps.get_real_file_path(file_path);
-    for plugin_name in plugin_names.iter() {
-      let plugin = self.get_plugin(plugin_name);
-      // so a plugin that won't skip it isn't set up for this
-      if !plugin.file_matching.skip_stable_format {
-        return Ok(false);
-      }
-      let Ok(GetPluginResult::Success(initialized_plugin)) = plugin.get_or_create_checking_config_diagnostics(&self.environment).await else {
-        return Ok(false); // formatting reports the error or diagnostics
-      };
-      let override_config = plugin.get_merged_overrides_for_path(real_file_path, override_config, is_plugin_request);
-      if !initialized_plugin.skips_stable_format(&override_config).await? {
-        return Ok(false);
-      }
-    }
-    Ok(true)
+    plugin_names
+      .iter()
+      .all(|name| self.plugins.get(name).is_some_and(|plugin| plugin.info().skip_stable_format))
   }
 
   pub fn global_config_diagnostics(&self) -> &[GlobalConfigDiagnostic] {
@@ -705,12 +647,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
 
   async fn format_stable_inner(self: &Rc<Self>, request: HostFormatRequest, ensure_stable_format: EnsureStableFormat, is_plugin_request: bool) -> FormatResult {
     // the range wouldn't apply to the formatted text, so only format a range once
-    let skip_stable_format = ensure_stable_format.0
-      && request.range.is_none()
-      && self
-        .plugins_skip_stable_format(&request.file_path, &request.file_bytes, &request.override_config, is_plugin_request)
-        .await
-        .map_err(FormatError::new)?;
+    let skip_stable_format = ensure_stable_format.0 && request.range.is_none() && self.plugins_skip_stable_format(&request.file_path, &request.file_bytes);
     if !ensure_stable_format.0 || request.range.is_some() || skip_stable_format {
       let result = self
         .clone()
@@ -1510,7 +1447,6 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
       let global_config = global_config.clone();
       let overrides = resolve_plugin_config_overrides(plugin_config.overrides, config_bases, plugin_resolver)?;
       let next_config_id = plugin_resolver.next_config_id();
-      let plugin_resolver = plugin_resolver.clone();
       Ok(
         async move {
           let instance = plugin.initialize().await?;
@@ -1529,7 +1465,6 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
               file_matching,
               overrides,
               serialized_resolved_config,
-              next_config_id: Rc::new(move || plugin_resolver.next_config_id()),
             },
           )))
         }
@@ -1897,11 +1832,9 @@ mod test {
             file_extensions: vec!["txt".to_string()],
             file_names: vec![],
             additive: false,
-            skip_stable_format: false,
           },
           overrides: Vec::new(),
           serialized_resolved_config: resolved_config.to_string(),
-          next_config_id: test_next_config_id(),
         },
       );
       let mut hasher = FastInsecureHasher::default();
@@ -1937,11 +1870,9 @@ mod test {
             file_extensions: vec!["txt".to_string()],
             file_names: vec![],
             additive: false,
-            skip_stable_format: false,
           },
           overrides: Vec::new(),
           serialized_resolved_config: String::new(),
-          next_config_id: test_next_config_id(),
         },
       );
       let request_override_config = ConfigKeyMap::from([
@@ -1969,63 +1900,111 @@ mod test {
 
   #[tokio::test]
   async fn should_skip_stable_format_when_every_plugin_says_to() {
-    // the test plugin changes the text every time, so it's never stable
-    async fn format_stable(skip_stable_formats: &[bool], override_config: ConfigKeyMap) -> Result<Option<String>, String> {
-      let environment = crate::environment::TestEnvironment::new();
-      let plugins = skip_stable_formats
-        .iter()
-        .enumerate()
-        .map(|(i, skip_stable_format)| {
-          let name = format!("plugin-{}", i);
-          Rc::new(PluginWithConfig::new(
-            Rc::new(PluginWrapper::new(Box::new(TestPlugin::new(&name, &name, vec!["txt"], vec![])))),
-            PluginWithConfigOptions {
-              associations: None,
-              format_config: Arc::new(FormatConfig {
-                id: FormatConfigId::from_raw(1),
-                global: Default::default(),
-                plugin: Default::default(),
-              }),
-              file_matching: FileMatchingInfo {
-                file_extensions: vec!["txt".to_string()],
-                file_names: Vec::new(),
-                additive: true,
-                skip_stable_format: *skip_stable_format,
-              },
-              overrides: Vec::new(),
-              serialized_resolved_config: String::new(),
-              next_config_id: test_next_config_id(),
-            },
-          ))
-        })
-        .collect();
-      let scope = Rc::new(PluginsScope::new(environment, plugins, Rc::new(create_resolved_config(None)), Vec::new()).unwrap());
-      let request = HostFormatRequest {
-        file_path: PathBuf::from("/file.txt"),
-        file_bytes: b"text".to_vec(),
-        range: None,
-        override_config,
-        token: Arc::new(dprint_core::plugins::NullCancellationToken),
-      };
-      scope
-        .format_stable(request, EnsureStableFormat(true))
-        .await
-        .map(|text| text.map(|text| String::from_utf8(text).unwrap()))
-        .map_err(|err| err.to_string())
-    }
-    let assert_not_stable = |result: Result<Option<String>, String>| assert!(result.unwrap_err().contains("Formatting not stable"));
+    for format_kind in [StableFormatKind::Editor, StableFormatKind::Fmt] {
+      let format = |plugins: Vec<TestPlugin>, file_text: &'static str| format_stable_with_test_plugins(format_kind, plugins, file_text);
+      let txt_plugin = || TestPlugin::new("txt", "txt", vec!["txt"], vec![]);
+      let other_txt_plugin = || TestPlugin::new("other-txt", "other-txt", vec!["txt"], vec![]).with_additive();
+      let ts_plugin = || TestPlugin::new("ts", "ts", vec!["ts"], vec![]);
 
-    assert_eq!(format_stable(&[true], Default::default()).await, Ok(Some("text_formatted".to_string())));
-    assert_not_stable(format_stable(&[false], Default::default()).await);
-    // every plugin that formats the file must say so
-    assert_not_stable(format_stable(&[true, false], Default::default()).await);
-    assert_eq!(
-      format_stable(&[true, true], Default::default()).await,
-      Ok(Some("text_formatted_formatted".to_string()))
-    );
-    // the plugin is asked about override config, which the test plugin says isn't stable
-    let override_config = ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(80))]);
-    assert_not_stable(format_stable(&[true], override_config).await);
+      assert_eq!(
+        format(vec![txt_plugin().with_skip_stable_format()], "text").await,
+        Ok("text_formatted".to_string())
+      );
+      assert_not_stable(format(vec![txt_plugin()], "text").await);
+      // every plugin that formats the file must say so
+      assert_not_stable(format(vec![txt_plugin().with_skip_stable_format(), other_txt_plugin()], "text").await);
+      assert_eq!(
+        format(
+          vec![txt_plugin().with_skip_stable_format(), other_txt_plugin().with_skip_stable_format()],
+          "text"
+        )
+        .await,
+        Ok("text_formatted_formatted".to_string())
+      );
+      // the text it formats with other plugins is made stable instead when those plugins don't say so
+      assert_not_stable(format(vec![txt_plugin().with_skip_stable_format(), ts_plugin()], "embed:ts:code").await);
+      assert_eq!(
+        format(
+          vec![txt_plugin().with_skip_stable_format(), ts_plugin().with_skip_stable_format()],
+          "embed:ts:code"
+        )
+        .await,
+        Ok("embed:ts:code_formatted".to_string())
+      );
+    }
+
+    fn assert_not_stable(result: Result<String, String>) {
+      let err = result.unwrap_err();
+      assert!(err.contains("Formatting not stable"), "{}", err);
+    }
+  }
+
+  #[derive(Clone, Copy)]
+  enum StableFormatKind {
+    /// `PluginsScope::format_stable`, which the editors and stdin use.
+    Editor,
+    /// `run_parallelized`, which `dprint fmt` uses.
+    Fmt,
+  }
+
+  async fn format_stable_with_test_plugins(kind: StableFormatKind, plugins: Vec<TestPlugin>, file_text: &str) -> Result<String, String> {
+    let environment = crate::environment::TestEnvironment::new();
+    let mut plugins_with_config = Vec::with_capacity(plugins.len());
+    for plugin in plugins {
+      let plugin = Rc::new(PluginWrapper::new(Box::new(plugin)));
+      let format_config = Arc::new(FormatConfig {
+        id: FormatConfigId::from_raw(1),
+        global: Default::default(),
+        plugin: Default::default(),
+      });
+      let file_matching = plugin.initialize().await.unwrap().file_matching_info(format_config.clone()).await.unwrap();
+      plugins_with_config.push(Rc::new(PluginWithConfig::new(
+        plugin,
+        PluginWithConfigOptions {
+          associations: None,
+          format_config,
+          file_matching,
+          overrides: Vec::new(),
+          serialized_resolved_config: String::new(),
+        },
+      )));
+    }
+    let scope = PluginsScope::new(environment.clone(), plugins_with_config, Rc::new(create_resolved_config(None)), Vec::new()).unwrap();
+    let file_path = PathBuf::from("/file.txt");
+    match kind {
+      StableFormatKind::Editor => {
+        let request = HostFormatRequest {
+          file_path,
+          file_bytes: file_text.as_bytes().to_vec(),
+          range: None,
+          override_config: Default::default(),
+          token: Arc::new(dprint_core::plugins::NullCancellationToken),
+        };
+        Rc::new(scope)
+          .format_stable(request, EnsureStableFormat(true))
+          .await
+          .map(|text| String::from_utf8(text.unwrap()).unwrap())
+          .map_err(|err| err.to_string())
+      }
+      StableFormatKind::Fmt => {
+        environment.write_file(&file_path, file_text).unwrap();
+        let file_paths_by_plugins =
+          crate::paths::get_file_paths_by_plugins(&scope.plugin_name_maps, vec![file_path.clone()], Default::default(), &environment).unwrap();
+        let result = crate::format::run_parallelized(
+          PluginsScopeAndPaths { scope, file_paths_by_plugins },
+          &environment,
+          None,
+          EnsureStableFormat(true),
+          Default::default(),
+          |file_path, _, formatted_text, _, environment| Ok(environment.write_file_bytes(file_path, formatted_text)?),
+        )
+        .await;
+        match result {
+          Ok(()) => Ok(environment.read_file(&file_path).unwrap()),
+          Err(_) => Err(environment.take_stderr_messages().join("\n")),
+        }
+      }
+    }
   }
 
   #[test]
@@ -2107,14 +2086,6 @@ mod test {
     }
   }
 
-  fn test_next_config_id() -> NextConfigId {
-    let next_id = Rc::new(std::cell::Cell::new(100));
-    Rc::new(move || {
-      next_id.set(next_id.get() + 1);
-      FormatConfigId::from_raw(next_id.get())
-    })
-  }
-
   fn get_plugin_hash(plugin: &PluginWithConfig) -> u64 {
     let mut hasher = FastInsecureHasher::default();
     plugin.incremental_hash(&mut hasher);
@@ -2146,11 +2117,9 @@ mod test {
           file_extensions: vec!["txt".to_string()],
           file_names: Vec::new(),
           additive: false,
-          skip_stable_format: false,
         },
         overrides,
         serialized_resolved_config: String::new(),
-        next_config_id: test_next_config_id(),
       },
     )
   }

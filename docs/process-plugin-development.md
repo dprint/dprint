@@ -71,6 +71,8 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
            update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
            // whether `format` formats the request's range (see `PluginInfo::supports_range_formatting`)
            supports_range_formatting: false,
+           // whether formatting your output again never changes it (see `PluginInfo::skip_stable_format`)
+           skip_stable_format: false,
          },
          // whether another plugin may change your non-global config when formatting
          // with your plugin (see `ProcessPluginInfo::allow_plugin_override_config`)
@@ -98,9 +100,6 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
            // set to true to format a matched file in addition to the plugin
            // that claims it, rather than claiming the file
            additive: false,
-           // whether formatting your output again with this config never changes it
-           // (see `FileMatchingInfo::skip_stable_format`)
-           skip_stable_format: false,
          },
          config: Configuration { line_width },
          diagnostics,
@@ -294,14 +293,11 @@ Response: Data message - JSON serialized file extensions and file names supporte
 {
   "fileExtensions": ["txt"],
   "fileNames": ["some_file_name"],
-  "additive": false,
-  "skipStableFormat": false
+  "additive": false
 }
 ```
 
 File extensions should not have a leading period. Set `additive` to `true` to format a matched file in addition to the plugin that claims it, rather than claiming the file.
-
-Set `skipStableFormat` to `true` (it defaults to `false`) when formatting the plugin's output again with the configuration never changes it, so dprint doesn't format a file the plugin changed again until it's stable. When override config applies to a file (ex. config file overrides or override config from a format request), dprint gets the file matching information for the configuration with the override config merged in to find out. When the plugin formats embedded text with other plugins (ex. code blocks), dprint formats that text again until it's stable unless those plugins say the same.
 
 #### `11` - Get Resolved Configuration (CLI to Plugin)
 

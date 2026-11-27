@@ -71,6 +71,8 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
          update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
          // whether `format` formats the request's range (see `PluginInfo::supports_range_formatting`)
          supports_range_formatting: false,
+         // whether formatting your output again never changes it (see `PluginInfo::skip_stable_format`)
+         skip_stable_format: false,
        }
      }
 
@@ -96,9 +98,6 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
            // set to true to format a matched file in addition to the plugin
            // that claims it, rather than claiming the file
            additive: false,
-           // whether formatting your output again with this config never changes it
-           // (see `FileMatchingInfo::skip_stable_format`)
-           skip_stable_format: false,
          },
        }
      }
@@ -198,7 +197,6 @@ Initialization functions:
   - `fileExtensions` - An array of strings that say the file extensions this plugin supports (it should NOT have a leading period on the extension)
   - `fileNames` - An array of strings that say the file names this plugin supports
   - `additive` - Whether the plugin formats a file it matches in addition to the plugin that claims the file, rather than claiming the file itself
-  - `skipStableFormat` - Optional boolean that defaults to `false`. By default, dprint formats the text a plugin changed again until it stops changing to catch plugins that format differently each time. Only provide `true` when formatting the plugin's output again with the configuration never changes it, so dprint skips doing that. When override config applies to a file (ex. config file overrides or override config from a format request), dprint gets the file matching information for the configuration with the override config merged in to find out. When the plugin formats embedded text with other plugins (ex. code blocks), dprint formats that text again until it's stable unless those plugins say the same.
 - `get_license_text() -> u32` - Store the plugin's license text in the local bytes and return the byte length.
 - `get_plugin_info() -> u32` - Store the plugin's JSON serialized information in the local bytes and return the byte length. The plugin info is a JSON object with the following properties:
   - `name` - String saying the plugin name.
@@ -208,6 +206,7 @@ Initialization functions:
   - `configSchemaUrl` - URL of the JSON schema for the plugin's configuration or an empty string.
   - `updateUrl` - Optional URL used to check for updates (ex. `https://plugins.dprint.dev/<org>/<repo>/latest.json`).
   - `supportsRangeFormatting` - Boolean for whether the plugin formats the range of a format request, which should always be provided. When `true`, editors give the plugin the range as it is and use what it formats, so it decides what to format around the range (ex. the nodes it overlaps). When `false`, editors don't format a range with the plugin.
+  - `skipStableFormat` - Optional boolean that defaults to `false`. By default, dprint formats the text a plugin changed again until it stops changing to catch plugins that format differently each time. Only provide `true` when formatting the plugin's output again never changes it with any configuration, so dprint skips doing that. When the plugin formats embedded text with other plugins (ex. code blocks), dprint formats that text again until it's stable unless those plugins say the same.
 
 Formatting functions:
 
