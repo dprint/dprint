@@ -71,6 +71,8 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
          update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
          // whether `format` formats the request's range (see `PluginInfo::supports_range_formatting`)
          supports_range_formatting: false,
+         // whether formatting your output again never changes it (see `PluginInfo::skip_stable_format`)
+         skip_stable_format: false,
        }
      }
 
@@ -204,6 +206,7 @@ Initialization functions:
   - `configSchemaUrl` - URL of the JSON schema for the plugin's configuration or an empty string.
   - `updateUrl` - Optional URL used to check for updates (ex. `https://plugins.dprint.dev/<org>/<repo>/latest.json`).
   - `supportsRangeFormatting` - Boolean for whether the plugin formats the range of a format request, which should always be provided. When `true`, editors give the plugin the range as it is and use what it formats, so it decides what to format around the range (ex. the nodes it overlaps). When `false`, editors don't format a range with the plugin.
+  - `skipStableFormat` - Optional boolean that defaults to `false`. By default, dprint formats the text a plugin changed again until it stops changing to catch plugins that format differently each time. Only provide `true` when formatting the plugin's output again never changes it, which includes any text it gets from formatting with other plugins (ex. code blocks), so dprint skips doing that.
 
 Formatting functions:
 

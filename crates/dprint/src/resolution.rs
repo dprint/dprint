@@ -453,6 +453,15 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     )
   }
 
+  /// Gets whether every plugin that formats the file says formatting its
+  /// output again never changes it (see `ReceivedPluginInfo::skip_stable_format`).
+  fn plugins_skip_stable_format(&self, file_path: &Path, file_bytes: &[u8]) -> bool {
+    let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path_and_bytes(file_path, file_bytes);
+    plugin_names
+      .iter()
+      .all(|name| self.plugins.get(name).is_some_and(|plugin| plugin.info().skip_stable_format))
+  }
+
   pub fn global_config_diagnostics(&self) -> &[GlobalConfigDiagnostic] {
     &self.global_config_diagnostics
   }
@@ -631,7 +640,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   /// formatting (ex. code blocks) because the outer text is already made stable.
   pub async fn format_stable(self: &Rc<Self>, request: HostFormatRequest, ensure_stable_format: EnsureStableFormat) -> FormatResult {
     // the range wouldn't apply to the formatted text, so only format a range once
-    if !ensure_stable_format.0 || request.range.is_some() {
+    if !ensure_stable_format.0 || request.range.is_some() || self.plugins_skip_stable_format(&request.file_path, &request.file_bytes) {
       return self.format(request).await;
     }
     let file_path = request.file_path;
@@ -1861,28 +1870,74 @@ mod test {
     assert_eq!(get_override_keys(create_plugin().as_process_plugin(Some(false)), false), all_keys);
   }
 
+  #[tokio::test]
+  async fn should_skip_stable_format_when_every_plugin_says_to() {
+    async fn format_stable(plugins: Vec<TestPlugin>) -> Result<Option<String>, String> {
+      let environment = crate::environment::TestEnvironment::new();
+      let plugins = plugins
+        .into_iter()
+        .map(|plugin| {
+          let file_matching = FileMatchingInfo {
+            file_extensions: vec!["txt".to_string()],
+            file_names: Vec::new(),
+            additive: true,
+          };
+          Rc::new(PluginWithConfig::new(
+            Rc::new(PluginWrapper::new(Box::new(plugin))),
+            PluginWithConfigOptions {
+              associations: None,
+              format_config: Arc::new(FormatConfig {
+                id: FormatConfigId::from_raw(1),
+                global: Default::default(),
+                plugin: Default::default(),
+              }),
+              file_matching,
+              overrides: Vec::new(),
+              serialized_resolved_config: String::new(),
+            },
+          ))
+        })
+        .collect();
+      let scope = Rc::new(PluginsScope::new(environment, plugins, Rc::new(create_resolved_config(None)), Vec::new()).unwrap());
+      let request = HostFormatRequest {
+        file_path: PathBuf::from("/file.txt"),
+        file_bytes: b"text".to_vec(),
+        range: None,
+        override_config: Default::default(),
+        token: Arc::new(dprint_core::plugins::NullCancellationToken),
+      };
+      scope
+        .format_stable(request, EnsureStableFormat(true))
+        .await
+        .map(|text| text.map(|text| String::from_utf8(text).unwrap()))
+        .map_err(|err| err.to_string())
+    }
+    // the test plugin changes the text every time, so it's never stable
+    let create_plugin = |name: &str| TestPlugin::new(name, name, vec!["txt"], vec![]);
+
+    assert_eq!(
+      format_stable(vec![create_plugin("a").with_skip_stable_format()]).await,
+      Ok(Some("text_formatted".to_string()))
+    );
+    assert!(format_stable(vec![create_plugin("a")]).await.unwrap_err().contains("Formatting not stable"));
+    // every plugin that formats the file must say so
+    assert!(
+      format_stable(vec![create_plugin("a").with_skip_stable_format(), create_plugin("b")])
+        .await
+        .unwrap_err()
+        .contains("Formatting not stable")
+    );
+    assert_eq!(
+      format_stable(vec![create_plugin("a").with_skip_stable_format(), create_plugin("b").with_skip_stable_format()]).await,
+      Ok(Some("text_formatted_formatted".to_string()))
+    );
+  }
+
   #[test]
   fn should_include_shebangs_in_plugins_hash() {
     fn hash_with_shebangs(shebangs: Option<IndexMap<String, String>>) -> u64 {
       let environment = crate::environment::TestEnvironment::new();
-      let base_path = CanonicalizedPathBuf::new_for_testing("/");
-      let config = Rc::new(ResolvedConfig {
-        config_map: Default::default(),
-        trusted_config_map: Default::default(),
-        extended_only_plugin_config_keys: Default::default(),
-        local_dependencies: Default::default(),
-        base_path: base_path.clone(),
-        anchored_patterns_base_path: None,
-        source: PathSource::new_local(base_path.join_panic_relative("dprint.json")),
-        is_global: false,
-        found_path: None,
-        excludes: None,
-        includes: None,
-        incremental: None,
-        shebangs,
-        inherit: None,
-        plugins: Vec::new(),
-      });
+      let config = Rc::new(create_resolved_config(shebangs));
       let scope = PluginsScope::new(environment, vec![Rc::new(create_plugin_with_overrides(Vec::new()))], config, Vec::new()).unwrap();
       scope.plugins_hash()
     }
@@ -1934,6 +1989,27 @@ mod test {
     }]);
 
     assert_ne!(get_plugin_hash(&plugin_without_override), get_plugin_hash(&plugin_with_override));
+  }
+
+  fn create_resolved_config(shebangs: Option<IndexMap<String, String>>) -> ResolvedConfig {
+    let base_path = CanonicalizedPathBuf::new_for_testing("/");
+    ResolvedConfig {
+      config_map: Default::default(),
+      trusted_config_map: Default::default(),
+      extended_only_plugin_config_keys: Default::default(),
+      local_dependencies: Default::default(),
+      base_path: base_path.clone(),
+      anchored_patterns_base_path: None,
+      source: PathSource::new_local(base_path.join_panic_relative("dprint.json")),
+      is_global: false,
+      found_path: None,
+      excludes: None,
+      includes: None,
+      incremental: None,
+      shebangs,
+      inherit: None,
+      plugins: Vec::new(),
+    }
   }
 
   fn get_plugin_hash(plugin: &PluginWithConfig) -> u64 {

@@ -64,6 +64,14 @@ struct FormatContext<TEnvironment: Environment> {
   token: Arc<dyn FormatCancellationToken>,
 }
 
+impl<TEnvironment: Environment> FormatContext<TEnvironment> {
+  /// Gets whether every plugin that formats the files says formatting its
+  /// output again never changes it (see `ReceivedPluginInfo::skip_stable_format`).
+  fn plugins_skip_stable_format(&self) -> bool {
+    self.plugins.iter().all(|(plugin, _)| plugin.info().skip_stable_format)
+  }
+}
+
 enum FileFormatKind {
   EntireFile(EnsureStableFormat),
   LineRanges(Vec<LineRange>),
@@ -320,7 +328,7 @@ where
       FileFormatKind::LineRanges(line_ranges) => run_line_ranges_for_file_path(context, &file_paths, &file_text, &line_ranges).await?,
       FileFormatKind::EntireFile(ensure_stable_format) => {
         let (start_instant, formatted_text) = run_single_pass_for_file_path(context, &file_paths, &file_text, None).await?;
-        let formatted_text = if ensure_stable_format.0 && formatted_text != file_text {
+        let formatted_text = if ensure_stable_format.0 && formatted_text != file_text && !context.plugins_skip_stable_format() {
           get_stabilized_format_text(context, &file_paths, formatted_text).await?
         } else {
           formatted_text

@@ -25,6 +25,12 @@ pub struct ReceivedPluginInfo {
   /// - `None` - Only for plugins made before this existed.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub supports_range_formatting: Option<bool>,
+  /// Whether the plugin says formatting its output again never changes it,
+  /// so dprint doesn't need to format a file it changed again until it's
+  /// stable. Plugins made before this existed don't provide it, so they get
+  /// formatted until the output is stable.
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub skip_stable_format: bool,
   /// Whether another plugin may change this process plugin's non-global
   /// configuration when it asks dprint to format text with this plugin.
   ///
