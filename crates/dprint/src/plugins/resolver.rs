@@ -67,6 +67,23 @@ pub struct PluginResolverOptions {
   /// Whether to download remote plugins again instead of using the cached
   /// ones (`--reload`).
   pub reload_plugins: bool,
+  /// Whether to error instead of downloading or setting up plugins that are
+  /// not in the cache yet (`DPRINT_SKIP_AUTO_INSTALL`).
+  pub skip_auto_install: bool,
+}
+
+/// Prevents dprint from automatically downloading or setting up plugins.
+/// Set to `1` or `true` to enable. Set up plugins explicitly with
+/// `dprint config install` instead.
+pub const SKIP_AUTO_INSTALL_ENV_VAR_NAME: &str = "DPRINT_SKIP_AUTO_INSTALL";
+
+/// Gets whether the user opted out of automatic plugin installation.
+pub fn skip_auto_install_from_env(environment: &impl Environment) -> bool {
+  environment.env_var(SKIP_AUTO_INSTALL_ENV_VAR_NAME).is_some_and(|value| {
+    let value = value.to_string_lossy();
+    let value = value.trim();
+    value == "1" || value.eq_ignore_ascii_case("true")
+  })
 }
 
 pub struct PluginResolver<TEnvironment: Environment> {
@@ -248,6 +265,17 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     };
     cell
       .get_or_try_init(|| async {
+        if self.options.skip_auto_install {
+          let needs_setup =
+            !self.is_installed(&plugin_reference) || self.options.reload_plugins && matches!(plugin_reference.path_source, PathSource::Remote(_));
+          if needs_setup {
+            bail!(
+              "Plugin {} is not installed. Run `dprint config install` to set it up when {} is enabled.",
+              plugin_reference.display(),
+              SKIP_AUTO_INSTALL_ENV_VAR_NAME,
+            );
+          }
+        }
         if self.should_reload(&plugin_reference) {
           self
             .plugin_cache
@@ -355,7 +383,10 @@ mod test {
         let resolver = Rc::new(PluginResolver::new(
           environment.clone(),
           PluginCache::new(environment.clone()),
-          PluginResolverOptions { reload_plugins: true },
+          PluginResolverOptions {
+            reload_plugins: true,
+            ..Default::default()
+          },
         ));
         resolver.resolve_plugins(vec![reference.clone()]).await.unwrap();
         assert_eq!(environment.remote_file_request_count(url), 2);
@@ -383,5 +414,83 @@ mod test {
         "Compiling https://plugins.dprint.dev/test-plugin.wasm"
       ]
     );
+  }
+
+  #[test]
+  fn should_skip_auto_install_when_env_var_enabled() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin().build();
+    environment.set_env_var(SKIP_AUTO_INSTALL_ENV_VAR_NAME, Some("1"));
+    let url = "https://plugins.dprint.dev/test-plugin.wasm";
+    let reference = PluginSourceReference {
+      path_source: PathSource::new_remote(url.parse().unwrap()),
+      checksum: None,
+    };
+    environment.run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        assert!(skip_auto_install_from_env(&environment));
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions {
+            skip_auto_install: true,
+            ..Default::default()
+          },
+        ));
+        let err = resolver.resolve_plugins(vec![reference]).await.err().unwrap();
+        assert!(format!("{:#}", err).contains("Run `dprint config install` to set it up when DPRINT_SKIP_AUTO_INSTALL is enabled."));
+        assert_eq!(environment.remote_file_request_count(url), 0);
+      }
+    });
+  }
+
+  #[test]
+  fn should_use_cached_plugin_when_skip_auto_install_enabled() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin().build();
+    let url = "https://plugins.dprint.dev/test-plugin.wasm";
+    let reference = PluginSourceReference {
+      path_source: PathSource::new_remote(url.parse().unwrap()),
+      checksum: None,
+    };
+    environment.run_in_runtime({
+      let environment = environment.clone();
+      let reference = reference.clone();
+      async move {
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions::default(),
+        ));
+        resolver.resolve_plugins(vec![reference.clone()]).await.unwrap();
+        resolver.clear_and_shutdown_initialized().await;
+        assert_eq!(environment.remote_file_request_count(url), 1);
+
+        // a cached plugin is used without downloading it again
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions {
+            skip_auto_install: true,
+            ..Default::default()
+          },
+        ));
+        resolver.resolve_plugins(vec![reference.clone()]).await.unwrap();
+        resolver.clear_and_shutdown_initialized().await;
+        assert_eq!(environment.remote_file_request_count(url), 1);
+
+        // and `--reload` cannot be used to download it again
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions {
+            reload_plugins: true,
+            skip_auto_install: true,
+          },
+        ));
+        assert!(resolver.resolve_plugins(vec![reference]).await.is_err());
+        assert_eq!(environment.remote_file_request_count(url), 1);
+        let _ = environment.take_stderr_messages();
+      }
+    });
   }
 }
