@@ -71,8 +71,6 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
            update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
            // whether `format` formats the request's range (see `PluginInfo::supports_range_formatting`)
            supports_range_formatting: false,
-           // whether formatting your output again never changes it (see `PluginInfo::skip_stable_format`)
-           skip_stable_format: false,
          },
          // whether another plugin may change your non-global config when formatting
          // with your plugin (see `ProcessPluginInfo::allow_plugin_override_config`)
@@ -100,6 +98,9 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
            // set to true to format a matched file in addition to the plugin
            // that claims it, rather than claiming the file
            additive: false,
+           // whether formatting your output again with this config never changes it
+           // (see `FileMatchingInfo::skip_stable_format`)
+           skip_stable_format: false,
          },
          config: Configuration { line_width },
          diagnostics,
@@ -293,11 +294,14 @@ Response: Data message - JSON serialized file extensions and file names supporte
 {
   "fileExtensions": ["txt"],
   "fileNames": ["some_file_name"],
-  "additive": false
+  "additive": false,
+  "skipStableFormat": false
 }
 ```
 
 File extensions should not have a leading period. Set `additive` to `true` to format a matched file in addition to the plugin that claims it, rather than claiming the file.
+
+Set `skipStableFormat` to `true` (it defaults to `false`) when formatting the plugin's output again with the configuration never changes it, so dprint doesn't format a file the plugin changed again until it's stable. dprint still does that when config overrides apply to the file. Don't set it when the configuration has the plugin format embedded text with other plugins (ex. code blocks) because dprint wouldn't catch those plugins' output being unstable.
 
 #### `11` - Get Resolved Configuration (CLI to Plugin)
 

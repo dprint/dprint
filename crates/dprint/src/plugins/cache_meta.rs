@@ -216,7 +216,6 @@ mod test {
         config_schema_url: "schema".to_string(),
         update_url: None,
         supports_range_formatting: None,
-        skip_stable_format: false,
         allow_plugin_override_config: None,
       },
       executable_sub_path: None,

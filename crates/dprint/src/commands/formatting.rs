@@ -5731,6 +5731,46 @@ text2"
   }
 
   #[test]
+  fn should_skip_stable_format_when_the_plugin_says_to_for_its_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.set_incremental(false)
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "skip_stable_format": true }"#);
+      })
+      .write_file("/file.txt", "unstable_fmt_true")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "unstable_fmt_false_formatted");
+  }
+
+  #[test]
+  fn should_not_skip_stable_format_when_config_overrides_apply() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.set_incremental(false).add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "skip_stable_format": true,
+            "overrides": { "files": "sub/**", "ending": "override" }
+          }"#,
+        );
+      })
+      .write_file("/sub/file.txt", "unstable_fmt_true")
+      .build();
+
+    let err = run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap_err();
+
+    assert_eq!(err.to_string(), "Had 1 error formatting.");
+    let stderr = environment.take_stderr_messages();
+    assert_eq!(stderr.len(), 1);
+    assert!(stderr[0].contains("Formatting not stable"), "{:?}", stderr);
+  }
+
+  #[test]
   fn should_not_output_when_no_files_need_formatting() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/file.txt", "text_formatted")

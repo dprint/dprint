@@ -79,7 +79,6 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         config_schema_url: "".to_string(),
         update_url: Some("https://plugins.dprint.dev/dprint/test-process-plugin/latest.json".to_string()),
         supports_range_formatting: true,
-        skip_stable_format: false,
       },
       allow_plugin_override_config: false,
     }
@@ -116,6 +115,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     let file_extensions = get_string_vec(&mut config, "file_extensions", &mut diagnostics).unwrap_or_else(|| vec!["txt_ps".to_string()]);
     let file_names = get_string_vec(&mut config, "file_names", &mut diagnostics).unwrap_or_else(|| vec!["test-process-plugin-exact-file".to_string()]);
     let additive = get_value(&mut config, "additive", false, &mut diagnostics);
+    let skip_stable_format = get_value(&mut config, "skip_stable_format", false, &mut diagnostics);
 
     diagnostics.extend(get_unknown_property_diagnostics(config));
 
@@ -124,6 +124,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         file_extensions,
         file_names,
         additive,
+        skip_stable_format,
       },
       config: Configuration { ending, line_width },
       diagnostics,

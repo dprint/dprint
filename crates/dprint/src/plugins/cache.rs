@@ -1052,7 +1052,6 @@ mod test {
         config_schema_url: "schema".to_string(),
         update_url: None,
         supports_range_formatting: None,
-        skip_stable_format: false,
         allow_plugin_override_config: None,
       },
       executable_sub_path: None,
@@ -1124,6 +1123,7 @@ mod test {
       file_extensions: vec![extension.to_string()],
       file_names: Vec::new(),
       additive: false,
+      skip_stable_format: false,
     };
 
     plugin_cache.store_file_matching_info(&plugin_source, "a", &matching("ts")).await?;

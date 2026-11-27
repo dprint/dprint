@@ -67,6 +67,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     let file_extensions = get_string_vec(&mut config, "file_extensions", &mut diagnostics).unwrap_or_else(|| vec!["txt".to_string()]);
     let file_names = get_string_vec(&mut config, "file_names", &mut diagnostics).unwrap_or_else(|| vec![]);
     let additive = get_value(&mut config, "additive", false, &mut diagnostics);
+    let skip_stable_format = get_value(&mut config, "skip_stable_format", false, &mut diagnostics);
 
     diagnostics.extend(get_unknown_property_diagnostics(config));
 
@@ -77,6 +78,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
         file_extensions,
         file_names,
         additive,
+        skip_stable_format,
       },
     }
   }
@@ -90,7 +92,6 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       config_schema_url: "https://plugins.dprint.dev/test/schema.json".to_string(),
       update_url: Some("https://plugins.dprint.dev/dprint/test-plugin/latest.json".to_string()),
       supports_range_formatting: true,
-      skip_stable_format: false,
     }
   }
 

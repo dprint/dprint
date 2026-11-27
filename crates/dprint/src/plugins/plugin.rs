@@ -104,12 +104,6 @@ impl TestPlugin {
     self
   }
 
-  /// Makes the plugin say formatting its output again never changes it.
-  pub fn with_skip_stable_format(mut self) -> Self {
-    self.info.skip_stable_format = true;
-    self
-  }
-
   pub fn new(name: &str, config_key: &str, file_extensions: Vec<&str>, file_names: Vec<&str>) -> TestPlugin {
     TestPlugin {
       info: ReceivedPluginInfo {
@@ -120,7 +114,6 @@ impl TestPlugin {
         config_schema_url: "https://plugins.dprint.dev/schemas/test.json".to_string(),
         update_url: None,
         supports_range_formatting: None,
-        skip_stable_format: false,
         allow_plugin_override_config: None,
       },
       is_process_plugin: false,
@@ -128,6 +121,7 @@ impl TestPlugin {
         file_extensions: file_extensions.into_iter().map(String::from).collect(),
         file_names: file_names.into_iter().map(String::from).collect(),
         additive: false,
+        skip_stable_format: false,
       }),
     }
   }

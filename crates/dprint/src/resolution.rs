@@ -219,6 +219,15 @@ impl PluginWithConfig {
     result
   }
 
+  /// Gets whether the plugin says formatting its output again never changes
+  /// it for the file (see `FileMatchingInfo::skip_stable_format`). That's only
+  /// for the plugin's configuration, so not when overrides apply to the file.
+  pub fn skips_stable_format(&self, file_path: &Path, request_override_config: &ConfigKeyMap) -> bool {
+    self.file_matching.skip_stable_format
+      && request_override_config.is_empty()
+      && !self.overrides.iter().any(|override_config| override_config.matcher.matches(file_path))
+  }
+
   pub fn name(&self) -> &str {
     &self.info().name
   }
@@ -454,12 +463,17 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   /// Gets whether every plugin that formats the file says formatting its
-  /// output again never changes it (see `ReceivedPluginInfo::skip_stable_format`).
-  fn plugins_skip_stable_format(&self, file_path: &Path, file_bytes: &[u8]) -> bool {
+  /// output again never changes it (see `PluginWithConfig::skips_stable_format`).
+  fn plugins_skip_stable_format(&self, file_path: &Path, file_bytes: &[u8], override_config: &ConfigKeyMap) -> bool {
     let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path_and_bytes(file_path, file_bytes);
-    plugin_names
-      .iter()
-      .all(|name| self.plugins.get(name).is_some_and(|plugin| plugin.info().skip_stable_format))
+    // a plugin might be asking to format with the file path it was given
+    let real_file_path = self.plugin_name_maps.get_real_file_path(file_path);
+    plugin_names.iter().all(|name| {
+      self
+        .plugins
+        .get(name)
+        .is_some_and(|plugin| plugin.skips_stable_format(real_file_path, override_config))
+    })
   }
 
   pub fn global_config_diagnostics(&self) -> &[GlobalConfigDiagnostic] {
@@ -640,7 +654,8 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   /// formatting (ex. code blocks) because the outer text is already made stable.
   pub async fn format_stable(self: &Rc<Self>, request: HostFormatRequest, ensure_stable_format: EnsureStableFormat) -> FormatResult {
     // the range wouldn't apply to the formatted text, so only format a range once
-    if !ensure_stable_format.0 || request.range.is_some() || self.plugins_skip_stable_format(&request.file_path, &request.file_bytes) {
+    if !ensure_stable_format.0 || request.range.is_some() || self.plugins_skip_stable_format(&request.file_path, &request.file_bytes, &request.override_config)
+    {
       return self.format(request).await;
     }
     let file_path = request.file_path;
@@ -1804,6 +1819,7 @@ mod test {
             file_extensions: vec!["txt".to_string()],
             file_names: vec![],
             additive: false,
+            skip_stable_format: false,
           },
           overrides: Vec::new(),
           serialized_resolved_config: resolved_config.to_string(),
@@ -1842,6 +1858,7 @@ mod test {
             file_extensions: vec!["txt".to_string()],
             file_names: vec![],
             additive: false,
+            skip_stable_format: false,
           },
           overrides: Vec::new(),
           serialized_resolved_config: String::new(),
@@ -1872,18 +1889,16 @@ mod test {
 
   #[tokio::test]
   async fn should_skip_stable_format_when_every_plugin_says_to() {
-    async fn format_stable(plugins: Vec<TestPlugin>) -> Result<Option<String>, String> {
+    // the test plugin changes the text every time, so it's never stable
+    async fn format_stable(skip_stable_formats: &[bool], override_config: ConfigKeyMap) -> Result<Option<String>, String> {
       let environment = crate::environment::TestEnvironment::new();
-      let plugins = plugins
-        .into_iter()
-        .map(|plugin| {
-          let file_matching = FileMatchingInfo {
-            file_extensions: vec!["txt".to_string()],
-            file_names: Vec::new(),
-            additive: true,
-          };
+      let plugins = skip_stable_formats
+        .iter()
+        .enumerate()
+        .map(|(i, skip_stable_format)| {
+          let name = format!("plugin-{}", i);
           Rc::new(PluginWithConfig::new(
-            Rc::new(PluginWrapper::new(Box::new(plugin))),
+            Rc::new(PluginWrapper::new(Box::new(TestPlugin::new(&name, &name, vec!["txt"], vec![])))),
             PluginWithConfigOptions {
               associations: None,
               format_config: Arc::new(FormatConfig {
@@ -1891,7 +1906,12 @@ mod test {
                 global: Default::default(),
                 plugin: Default::default(),
               }),
-              file_matching,
+              file_matching: FileMatchingInfo {
+                file_extensions: vec!["txt".to_string()],
+                file_names: Vec::new(),
+                additive: true,
+                skip_stable_format: *skip_stable_format,
+              },
               overrides: Vec::new(),
               serialized_resolved_config: String::new(),
             },
@@ -1903,7 +1923,7 @@ mod test {
         file_path: PathBuf::from("/file.txt"),
         file_bytes: b"text".to_vec(),
         range: None,
-        override_config: Default::default(),
+        override_config,
         token: Arc::new(dprint_core::plugins::NullCancellationToken),
       };
       scope
@@ -1912,25 +1932,19 @@ mod test {
         .map(|text| text.map(|text| String::from_utf8(text).unwrap()))
         .map_err(|err| err.to_string())
     }
-    // the test plugin changes the text every time, so it's never stable
-    let create_plugin = |name: &str| TestPlugin::new(name, name, vec!["txt"], vec![]);
+    let assert_not_stable = |result: Result<Option<String>, String>| assert!(result.unwrap_err().contains("Formatting not stable"));
 
-    assert_eq!(
-      format_stable(vec![create_plugin("a").with_skip_stable_format()]).await,
-      Ok(Some("text_formatted".to_string()))
-    );
-    assert!(format_stable(vec![create_plugin("a")]).await.unwrap_err().contains("Formatting not stable"));
+    assert_eq!(format_stable(&[true], Default::default()).await, Ok(Some("text_formatted".to_string())));
+    assert_not_stable(format_stable(&[false], Default::default()).await);
     // every plugin that formats the file must say so
-    assert!(
-      format_stable(vec![create_plugin("a").with_skip_stable_format(), create_plugin("b")])
-        .await
-        .unwrap_err()
-        .contains("Formatting not stable")
-    );
+    assert_not_stable(format_stable(&[true, false], Default::default()).await);
     assert_eq!(
-      format_stable(vec![create_plugin("a").with_skip_stable_format(), create_plugin("b").with_skip_stable_format()]).await,
+      format_stable(&[true, true], Default::default()).await,
       Ok(Some("text_formatted_formatted".to_string()))
     );
+    // it's only for the plugin's configuration
+    let override_config = ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(80))]);
+    assert_not_stable(format_stable(&[true], override_config).await);
   }
 
   #[test]
@@ -2043,6 +2057,7 @@ mod test {
           file_extensions: vec!["txt".to_string()],
           file_names: Vec::new(),
           additive: false,
+          skip_stable_format: false,
         },
         overrides,
         serialized_resolved_config: String::new(),

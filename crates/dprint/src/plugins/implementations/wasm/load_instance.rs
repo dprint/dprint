@@ -317,7 +317,6 @@ mod tests {
         config_schema_url: String::new(),
         update_url: None,
         supports_range_formatting: None,
-        skip_stable_format: false,
         allow_plugin_override_config: None,
       })
     };

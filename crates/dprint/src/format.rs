@@ -1,6 +1,7 @@
 use anyhow::Result;
 use anyhow::bail;
 use dprint_core::async_runtime::future;
+use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CancellationToken as FormatCancellationToken;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::NullCancellationToken;
@@ -65,10 +66,14 @@ struct FormatContext<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> FormatContext<TEnvironment> {
-  /// Gets whether every plugin that formats the files says formatting its
-  /// output again never changes it (see `ReceivedPluginInfo::skip_stable_format`).
-  fn plugins_skip_stable_format(&self) -> bool {
-    self.plugins.iter().all(|(plugin, _)| plugin.info().skip_stable_format)
+  /// Gets whether every plugin that formats the file says formatting its
+  /// output again never changes it (see `PluginWithConfig::skips_stable_format`).
+  fn plugins_skip_stable_format(&self, file_path: &Path) -> bool {
+    let no_override_config = ConfigKeyMap::new();
+    self
+      .plugins
+      .iter()
+      .all(|(plugin, _)| plugin.skips_stable_format(file_path, &no_override_config))
   }
 }
 
@@ -328,7 +333,7 @@ where
       FileFormatKind::LineRanges(line_ranges) => run_line_ranges_for_file_path(context, &file_paths, &file_text, &line_ranges).await?,
       FileFormatKind::EntireFile(ensure_stable_format) => {
         let (start_instant, formatted_text) = run_single_pass_for_file_path(context, &file_paths, &file_text, None).await?;
-        let formatted_text = if ensure_stable_format.0 && formatted_text != file_text && !context.plugins_skip_stable_format() {
+        let formatted_text = if ensure_stable_format.0 && formatted_text != file_text && !context.plugins_skip_stable_format(&file_paths.real) {
           get_stabilized_format_text(context, &file_paths, formatted_text).await?
         } else {
           formatted_text
