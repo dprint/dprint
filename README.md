@@ -29,6 +29,7 @@ Repos:
 - [dprint-plugin-biome](https://github.com/dprint/dprint-plugin-biome) - Biome (JS/TS/JSON) wrapper plugin.
 - [dprint-plugin-oxc](https://github.com/dprint/dprint-plugin-oxc) - Oxc (JS/TS/JSON/CSS/SCSS/Less/GraphQL/YAML/TOML) wrapper plugin.
 - [dprint-plugin-bun](https://github.com/dprint/dprint-plugin-bun) - Bun (JS/TS/JSON/CSS/SCSS/Less/GraphQL/YAML/Markdown/HTML/Vue/Handlebars/TOML) wrapper plugin.
+- [dprint-plugin-tidy](https://github.com/dprint/dprint-plugin-tidy) - tidy (HTML/Vue/Handlebars/CSS/SCSS/Less/JSON/YAML/TOML/XML/GraphQL/INI/Dockerfile/Markdown/JS/TS) wrapper plugin.
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
 - [dprint-plugin-csharpier](https://github.com/dprint/dprint-plugin-csharpier) - CSharpier (C#/XML) wrapper plugin.
 - [dprint-plugin-mago](https://github.com/dprint/dprint-plugin-mago) - Mago (PHP) wrapper plugin.

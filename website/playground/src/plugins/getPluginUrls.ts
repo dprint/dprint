@@ -42,6 +42,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "biome":
     case "oxc":
     case "bun":
+    case "tidy":
     case "mago":
     case "ruff":
     case "roslyn":
@@ -132,6 +133,7 @@ export function getLanguageFromPluginUrl(url: string) {
       return "css";
     case "markup_fmt":
     case "lax-markup":
+    case "tidy":
       return "html";
     case "pretty_yaml":
       return "yaml";

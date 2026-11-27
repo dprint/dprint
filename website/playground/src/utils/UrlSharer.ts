@@ -9,6 +9,7 @@ export const knownPlugins = new Set([
   "biome",
   "oxc",
   "bun",
+  "tidy",
   "mago",
   "ruff",
   "roslyn",

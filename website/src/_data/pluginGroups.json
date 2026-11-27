@@ -47,6 +47,13 @@
         "name": "Bun",
         "ext": "JS · TS · JSON · CSS · GraphQL · YAML · TOML · Markdown · HTML · Vue"
       },
+      {
+        "slug": "tidy",
+        "info": "dprint-plugin-tidy",
+        "playground": true,
+        "name": "tidy",
+        "ext": "HTML · Vue · CSS · JSON · YAML · TOML · XML · GraphQL · INI · Dockerfile · Markdown · JS · TS"
+      },
       { "slug": "ruff", "info": "dprint-plugin-ruff", "playground": true, "name": "Ruff", "ext": "Python" },
       { "slug": "mago", "info": "dprint-plugin-mago", "playground": true, "name": "Mago", "ext": "PHP" },
       { "slug": "roslyn", "info": "dprint-plugin-roslyn", "playground": true, "name": "Roslyn", "ext": "C# · VB" },
