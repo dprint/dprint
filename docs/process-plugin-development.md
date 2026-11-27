@@ -301,7 +301,7 @@ Response: Data message - JSON serialized file extensions and file names supporte
 
 File extensions should not have a leading period. Set `additive` to `true` to format a matched file in addition to the plugin that claims it, rather than claiming the file.
 
-Set `skipStableFormat` to `true` (it defaults to `false`) when formatting the plugin's output again with the configuration never changes it, so dprint doesn't format a file the plugin changed again until it's stable. dprint still does that when config overrides apply to the file. Don't set it when the configuration has the plugin format embedded text with other plugins (ex. code blocks) because dprint wouldn't catch those plugins' output being unstable.
+Set `skipStableFormat` to `true` (it defaults to `false`) when formatting the plugin's output again with the configuration never changes it, so dprint doesn't format a file the plugin changed again until it's stable. dprint still does that when override config applies to the file (ex. config file overrides or override config from a format request). When the plugin formats embedded text with other plugins (ex. code blocks), dprint formats that text again until it's stable unless those plugins say the same.
 
 #### `11` - Get Resolved Configuration (CLI to Plugin)
 

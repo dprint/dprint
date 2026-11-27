@@ -561,9 +561,24 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     hasher.finish()
   }
 
-  pub fn create_host_format_callback(self: &Rc<Self>) -> HostFormatCallback {
+  /// Creates the callback for plugins to format text with other plugins (ex.
+  /// code blocks).
+  ///
+  /// `ensure_stable_format` is for when the text the plugins format isn't
+  /// formatted again until it's stable because they say formatting their
+  /// output again never changes it, so the text they format with other plugins
+  /// is made stable instead when those plugins don't say the same.
+  pub fn create_host_format_callback(self: &Rc<Self>, ensure_stable_format: EnsureStableFormat) -> HostFormatCallback {
     let scope = self.clone();
-    Rc::new(move |host_request| scope.format_inner(host_request, /* is plugin request */ true))
+    Rc::new(move |host_request| {
+      let scope = scope.clone();
+      async move {
+        scope
+          .format_stable_inner(host_request, ensure_stable_format, /* is plugin request */ true)
+          .await
+      }
+      .boxed_local()
+    })
   }
 
   /// Whether the editor should ask this scope to format the file.
@@ -628,23 +643,11 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
-    self.format_inner(request, /* is plugin request */ false)
-  }
-
-  fn format_inner(self: &Rc<Self>, request: HostFormatRequest, is_plugin_request: bool) -> LocalBoxFuture<'static, FormatResult> {
     let scope = self.clone();
     async move {
-      let result = scope
-        .format_shared(SharedFormatRequest {
-          file_path: request.file_path,
-          file_bytes: Arc::new(request.file_bytes),
-          range: request.range,
-          override_config: request.override_config,
-          is_plugin_request,
-          token: request.token,
-        })
-        .await?;
-      Ok(result.map(Arc::unwrap_or_clone))
+      scope
+        .format_stable_inner(request, EnsureStableFormat(false), /* is plugin request */ false)
+        .await
     }
     .boxed_local()
   }
@@ -653,10 +656,29 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   /// it's stable the same way `dprint fmt` does. This shouldn't be used for host
   /// formatting (ex. code blocks) because the outer text is already made stable.
   pub async fn format_stable(self: &Rc<Self>, request: HostFormatRequest, ensure_stable_format: EnsureStableFormat) -> FormatResult {
+    self.format_stable_inner(request, ensure_stable_format, /* is plugin request */ false).await
+  }
+
+  async fn format_stable_inner(self: &Rc<Self>, request: HostFormatRequest, ensure_stable_format: EnsureStableFormat, is_plugin_request: bool) -> FormatResult {
     // the range wouldn't apply to the formatted text, so only format a range once
-    if !ensure_stable_format.0 || request.range.is_some() || self.plugins_skip_stable_format(&request.file_path, &request.file_bytes, &request.override_config)
-    {
-      return self.format(request).await;
+    let skip_stable_format =
+      ensure_stable_format.0 && request.range.is_none() && self.plugins_skip_stable_format(&request.file_path, &request.file_bytes, &request.override_config);
+    if !ensure_stable_format.0 || request.range.is_some() || skip_stable_format {
+      let result = self
+        .clone()
+        .format_shared(SharedFormatRequest {
+          file_path: request.file_path,
+          file_bytes: Arc::new(request.file_bytes),
+          // the plugins' output isn't made stable, so make what they format
+          // with other plugins stable instead
+          stabilize_host_formats: EnsureStableFormat(skip_stable_format),
+          range: request.range,
+          override_config: request.override_config,
+          is_plugin_request,
+          token: request.token,
+        })
+        .await?;
+      return Ok(result.map(Arc::unwrap_or_clone));
     }
     let file_path = request.file_path;
     let override_config = request.override_config;
@@ -666,7 +688,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       file_bytes,
       range: None,
       override_config: override_config.clone(),
-      is_plugin_request: false,
+      is_plugin_request,
+      // the outer text is made stable, which formats this text again too
+      stabilize_host_formats: EnsureStableFormat(false),
       token: token.clone(),
     };
     let original_text = Arc::new(request.file_bytes);
@@ -704,6 +728,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       range,
       override_config,
       is_plugin_request,
+      stabilize_host_formats,
       token,
     } = request;
     let plugins = self
@@ -734,7 +759,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
               file_bytes: file_text.clone(),
               range: range.clone(),
               override_config: plugin.get_merged_overrides_for_path(real_file_path, &override_config, is_plugin_request),
-              on_host_format: self.create_host_format_callback(),
+              on_host_format: self.create_host_format_callback(stabilize_host_formats),
               token: token.clone(),
             })
             .await;
@@ -762,6 +787,9 @@ struct SharedFormatRequest {
   /// Whether a plugin made the request (ex. to format a code block) instead of
   /// dprint or an editor.
   is_plugin_request: bool,
+  /// Whether to make the text the plugins format with other plugins stable
+  /// (see `PluginsScope::create_host_format_callback`).
+  stabilize_host_formats: EnsureStableFormat,
   token: Arc<dyn CancellationToken>,
 }
 

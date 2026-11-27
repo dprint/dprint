@@ -86,12 +86,13 @@ pub struct FileMatchingInfo {
   /// set this to `true` when formatting the plugin's output again with this
   /// configuration never changes it. This saves formatting each changed file
   /// at least one more time and the output is still stored as formatted for
-  /// incremental formatting. dprint still formats a file again when config
-  /// overrides apply to it, since this is only for this configuration.
+  /// incremental formatting. dprint still formats a file again when override
+  /// config applies to it (ex. config file overrides or override config from
+  /// a format request), since this is only for this configuration.
   ///
-  /// Don't set this when the configuration has the plugin format embedded
-  /// text with other plugins (ex. code blocks) because dprint wouldn't catch
-  /// those plugins' output being unstable.
+  /// When the plugin formats embedded text with other plugins (ex. code
+  /// blocks), dprint formats that text again until it's stable unless those
+  /// plugins say the same.
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub skip_stable_format: bool,
 }
