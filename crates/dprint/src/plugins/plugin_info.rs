@@ -40,3 +40,22 @@ pub struct ReceivedPluginInfo {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub allow_plugin_override_config: Option<bool>,
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn should_not_skip_stable_format_for_plugins_that_do_not_say() {
+    let json = r#"{"name":"a","version":"1.0.0","configKey":"a","helpUrl":"","configSchemaUrl":"","updateUrl":null}"#;
+    let info: ReceivedPluginInfo = serde_json::from_str(json).unwrap();
+    assert!(!info.skip_stable_format);
+    // it's not written when false
+    assert!(!serde_json::to_string(&info).unwrap().contains("skipStableFormat"));
+
+    let json = r#"{"name":"a","version":"1.0.0","configKey":"a","helpUrl":"","configSchemaUrl":"","updateUrl":null,"skipStableFormat":true}"#;
+    let info: ReceivedPluginInfo = serde_json::from_str(json).unwrap();
+    assert!(info.skip_stable_format);
+    assert!(serde_json::to_string(&info).unwrap().contains(r#""skipStableFormat":true"#));
+  }
+}

@@ -36,9 +36,13 @@ pub struct PluginInfo {
   /// By default, dprint formats the text a plugin changed again until it
   /// stops changing to catch plugins that format differently each time. Only
   /// set this to `true` when formatting the plugin's output again never
-  /// changes it, which includes any text it gets from formatting with other
-  /// plugins (ex. code blocks). This saves formatting each changed file at
-  /// least one more time.
+  /// changes it. This saves formatting each changed file at least one more
+  /// time and the output is still stored as formatted for incremental
+  /// formatting.
+  ///
+  /// Don't set this when the plugin formats embedded text with other plugins
+  /// (ex. code blocks) because dprint wouldn't catch those plugins' output
+  /// being unstable.
   pub skip_stable_format: bool,
 }
 

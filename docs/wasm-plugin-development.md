@@ -206,7 +206,7 @@ Initialization functions:
   - `configSchemaUrl` - URL of the JSON schema for the plugin's configuration or an empty string.
   - `updateUrl` - Optional URL used to check for updates (ex. `https://plugins.dprint.dev/<org>/<repo>/latest.json`).
   - `supportsRangeFormatting` - Boolean for whether the plugin formats the range of a format request, which should always be provided. When `true`, editors give the plugin the range as it is and use what it formats, so it decides what to format around the range (ex. the nodes it overlaps). When `false`, editors don't format a range with the plugin.
-  - `skipStableFormat` - Optional boolean that defaults to `false`. By default, dprint formats the text a plugin changed again until it stops changing to catch plugins that format differently each time. Only provide `true` when formatting the plugin's output again never changes it, which includes any text it gets from formatting with other plugins (ex. code blocks), so dprint skips doing that.
+  - `skipStableFormat` - Optional boolean that defaults to `false`. By default, dprint formats the text a plugin changed again until it stops changing to catch plugins that format differently each time. Only provide `true` when formatting the plugin's output again never changes it, so dprint skips doing that. Don't provide `true` when the plugin formats embedded text with other plugins (ex. code blocks) because dprint wouldn't catch those plugins' output being unstable.
 
 Formatting functions:
 
