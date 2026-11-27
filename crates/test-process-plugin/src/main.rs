@@ -79,6 +79,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         config_schema_url: "".to_string(),
         update_url: Some("https://plugins.dprint.dev/dprint/test-process-plugin/latest.json".to_string()),
         supports_range_formatting: true,
+        skip_stable_format: false,
       },
       allow_plugin_override_config: false,
     }

@@ -61,7 +61,18 @@ struct FormatContext<TEnvironment: Environment> {
   scope: Rc<PluginsScope<TEnvironment>>,
   plugins: Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>,
   on_host_format: HostFormatCallback,
+  /// For when the plugins skip formatting the file until it's stable (see
+  /// `PluginsScope::create_host_format_callback`).
+  on_stable_host_format: HostFormatCallback,
   token: Arc<dyn FormatCancellationToken>,
+}
+
+impl<TEnvironment: Environment> FormatContext<TEnvironment> {
+  /// Gets whether every plugin that formats the files says formatting its
+  /// output again never changes it (see `ReceivedPluginInfo::skip_stable_format`).
+  fn plugins_skip_stable_format(&self) -> bool {
+    self.plugins.iter().all(|(plugin, _)| plugin.info().skip_stable_format)
+  }
 }
 
 enum FileFormatKind {
@@ -196,7 +207,8 @@ where
         }
 
         let context = Rc::new(FormatContext {
-          on_host_format: scope.create_host_format_callback(),
+          on_host_format: scope.create_host_format_callback(EnsureStableFormat(false)),
+          on_stable_host_format: scope.create_host_format_callback(EnsureStableFormat(true)),
           token: Arc::new(NullCancellationToken),
           environment,
           plugins,
@@ -319,8 +331,15 @@ where
       // the ranges wouldn't apply to the formatted text, so only format them once
       FileFormatKind::LineRanges(line_ranges) => run_line_ranges_for_file_path(context, &file_paths, &file_text, &line_ranges).await?,
       FileFormatKind::EntireFile(ensure_stable_format) => {
-        let (start_instant, formatted_text) = run_single_pass_for_file_path(context, &file_paths, &file_text, None).await?;
-        let formatted_text = if ensure_stable_format.0 && formatted_text != file_text {
+        let skip_stable_format = ensure_stable_format.0 && context.plugins_skip_stable_format();
+        // the plugins' output isn't made stable, so make what they format with other plugins stable instead
+        let on_host_format = if skip_stable_format {
+          &context.on_stable_host_format
+        } else {
+          &context.on_host_format
+        };
+        let (start_instant, formatted_text) = run_single_pass_for_file_path(context, &file_paths, &file_text, None, on_host_format).await?;
+        let formatted_text = if ensure_stable_format.0 && formatted_text != file_text && !skip_stable_format {
           get_stabilized_format_text(context, &file_paths, formatted_text).await?
         } else {
           formatted_text
@@ -340,7 +359,9 @@ where
     formatted_text: Arc<Vec<u8>>,
   ) -> Result<Arc<Vec<u8>>> {
     stabilize_format_text(&context.environment, &file_paths.real, formatted_text, |text| async move {
-      run_single_pass_for_file_path(context, file_paths, &text, None).await.map(|(_, text)| text)
+      run_single_pass_for_file_path(context, file_paths, &text, None, &context.on_host_format)
+        .await
+        .map(|(_, text)| text)
     })
     .await
   }
@@ -360,7 +381,7 @@ where
       let Some(range) = get_line_range_byte_range(&file_text, line_range) else {
         continue; // past the end of the text
       };
-      let (_, formatted_text) = run_single_pass_for_file_path(context, file_paths, &file_text, Some(range)).await?;
+      let (_, formatted_text) = run_single_pass_for_file_path(context, file_paths, &file_text, Some(range), &context.on_host_format).await?;
       file_text = formatted_text;
     }
     Ok((start_instant, file_text))
@@ -371,6 +392,7 @@ where
     file_paths: &FormatFilePaths,
     original_text: &Arc<Vec<u8>>,
     range: FormatRange,
+    on_host_format: &HostFormatCallback,
   ) -> Result<(Instant, Arc<Vec<u8>>)> {
     let start_instant = Instant::now();
     let mut file_text = original_text.clone();
@@ -384,7 +406,7 @@ where
           file_bytes: file_text.clone(),
           range: range.clone(),
           override_config: plugin.get_config_file_overrides_for_path(file_path),
-          on_host_format: context.on_host_format.clone(),
+          on_host_format: on_host_format.clone(),
           token: context.token.clone(),
         })
         .await;

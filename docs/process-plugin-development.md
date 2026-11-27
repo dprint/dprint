@@ -71,6 +71,8 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
            update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
            // whether `format` formats the request's range (see `PluginInfo::supports_range_formatting`)
            supports_range_formatting: false,
+           // whether formatting your output again never changes it (see `PluginInfo::skip_stable_format`)
+           skip_stable_format: false,
          },
          // whether another plugin may change your non-global config when formatting
          // with your plugin (see `ProcessPluginInfo::allow_plugin_override_config`)

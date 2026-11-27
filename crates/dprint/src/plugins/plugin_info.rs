@@ -25,6 +25,12 @@ pub struct ReceivedPluginInfo {
   /// - `None` - Only for plugins made before this existed.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub supports_range_formatting: Option<bool>,
+  /// Whether the plugin says formatting its output again never changes it,
+  /// so dprint doesn't need to format a file it changed again until it's
+  /// stable. Plugins made before this existed don't provide it, so they get
+  /// formatted until the output is stable.
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub skip_stable_format: bool,
   /// Whether another plugin may change this process plugin's non-global
   /// configuration when it asks dprint to format text with this plugin.
   ///
@@ -33,4 +39,23 @@ pub struct ReceivedPluginInfo {
   /// existed (ex. older versions of dprint-plugin-exec) stay protected.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub allow_plugin_override_config: Option<bool>,
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn should_not_skip_stable_format_for_plugins_that_do_not_say() {
+    let json = r#"{"name":"a","version":"1.0.0","configKey":"a","helpUrl":"","configSchemaUrl":"","updateUrl":null}"#;
+    let info: ReceivedPluginInfo = serde_json::from_str(json).unwrap();
+    assert!(!info.skip_stable_format);
+    // it's not written when false
+    assert!(!serde_json::to_string(&info).unwrap().contains("skipStableFormat"));
+
+    let json = r#"{"name":"a","version":"1.0.0","configKey":"a","helpUrl":"","configSchemaUrl":"","updateUrl":null,"skipStableFormat":true}"#;
+    let info: ReceivedPluginInfo = serde_json::from_str(json).unwrap();
+    assert!(info.skip_stable_format);
+    assert!(serde_json::to_string(&info).unwrap().contains(r#""skipStableFormat":true"#));
+  }
 }
