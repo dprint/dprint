@@ -5748,33 +5748,44 @@ text2"
   }
 
   #[test]
-  fn should_not_skip_stable_format_when_config_overrides_apply() {
+  fn should_ask_the_plugin_whether_to_skip_stable_format_when_config_overrides_apply() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_local_config("/config.json", |c| {
         c.set_incremental(false).add_remote_wasm_plugin().add_config_section(
           "test-plugin",
           r#"{
             "skip_stable_format": true,
-            "overrides": { "files": "sub/**", "ending": "override" }
+            "overrides": [
+              { "files": "sub/**", "ending": "override" },
+              { "files": "sub/unstable/**", "skip_stable_format": false }
+            ]
           }"#,
         );
       })
       .write_file("/sub/file.txt", "unstable_fmt_true")
+      .write_file("/sub/unstable/file.txt", "unstable_fmt_true")
       .build();
 
     let err = run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap_err();
 
     assert_eq!(err.to_string(), "Had 1 error formatting.");
-    let stderr = environment.take_stderr_messages();
-    assert_eq!(stderr.len(), 1);
-    assert!(stderr[0].contains("Formatting not stable"), "{:?}", stderr);
+    // the plugin still says to skip it with this override config
+    assert_eq!(environment.read_file("/sub/file.txt").unwrap(), "unstable_fmt_false_override");
+    // but not with this one
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![concat!(
+        "Error formatting /sub/unstable/file.txt. Message: Formatting not stable. Bailed after 5 tries. ",
+        "This indicates a bug in the plugin where it formats the file differently each time."
+      )]
+    );
   }
 
   #[test]
   fn should_ensure_stable_format_of_host_formatted_text_when_the_plugin_skips_it() {
     // the process plugin formats `plugin: ` text with the wasm plugin, which
     // formats it differently each time
-    fn run(wasm_plugin_skips_stable_format: bool) -> (Result<(), TestAppError>, TestEnvironment) {
+    fn run(wasm_plugin_skips_stable_format: bool, file_text: &str) -> (Result<(), TestAppError>, TestEnvironment) {
       let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
         .with_local_config("/config.json", |c| {
           c.set_incremental(false)
@@ -5783,13 +5794,13 @@ text2"
             .add_config_section("test-plugin", &format!(r#"{{ "skip_stable_format": {} }}"#, wasm_plugin_skips_stable_format))
             .add_config_section("testProcessPlugin", r#"{ "skip_stable_format": true }"#);
         })
-        .write_file("/file.txt_ps", "plugin: unstable_fmt_true")
+        .write_file("/file.txt_ps", file_text)
         .build();
       let result = run_test_cli(vec!["fmt", "--config", "/config.json"], &environment);
       (result, environment)
     }
 
-    let (result, environment) = run(false);
+    let (result, environment) = run(false, "plugin: unstable_fmt_true");
     assert_eq!(result.unwrap_err().to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
@@ -5799,13 +5810,22 @@ text2"
       )]
     );
 
-    let (result, environment) = run(true);
+    let (result, environment) = run(true, "plugin: unstable_fmt_true");
     result.unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     // the wasm plugin also says it, so its output is used as it is
     assert_eq!(
       environment.read_file("/file.txt_ps").unwrap(),
       "plugin: unstable_fmt_false_formatted_formatted_process"
+    );
+
+    // the wasm plugin still says it with the override config the process plugin provides
+    let (result, environment) = run(true, "plugin-config: unstable_fmt_true");
+    result.unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.read_file("/file.txt_ps").unwrap(),
+      "plugin-config: unstable_fmt_false_custom_config_formatted_process"
     );
   }
 
