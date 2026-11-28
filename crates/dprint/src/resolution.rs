@@ -280,7 +280,6 @@ pub struct InitializedPluginWithConfigFormatRequest {
 }
 
 pub struct InitializedPluginWithConfigFormatThreadRequest {
-  pub override_config: ConfigKeyMap,
   pub on_host_format: HostFormatCallback,
   pub token: Arc<dyn CancellationToken>,
   pub job: FormatThreadJob,
@@ -371,14 +370,19 @@ impl InitializedPluginWithConfig {
       .await
   }
 
+  /// Whether the plugin formats on a thread of its own (see
+  /// `InitializedPlugin::has_format_thread`).
+  pub fn has_format_thread(&self) -> bool {
+    self.instance.has_format_thread()
+  }
+
   /// Runs the job on the thread the plugin formats on (see
   /// `InitializedPlugin::run_on_format_thread`).
-  pub async fn run_on_format_thread(&self, request: InitializedPluginWithConfigFormatThreadRequest) -> Option<Result<()>> {
+  pub async fn run_on_format_thread(&self, request: InitializedPluginWithConfigFormatThreadRequest) -> Result<()> {
     self
       .instance
       .run_on_format_thread(FormatThreadRequest {
         config: self.plugin.format_config.clone(),
-        override_config: request.override_config,
         on_host_format: request.on_host_format,
         token: request.token,
         job: request.job,
