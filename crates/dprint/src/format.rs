@@ -123,6 +123,11 @@ pub enum RunParallelizedError {
   Io(#[from] std::io::Error),
 }
 
+/// Formats the files, calling `f` with each file's path, original text and
+/// formatted text.
+///
+/// `f` is called on this thread when formatting didn't change the text, so it
+/// shouldn't block in that case (ex. by writing to a file).
 pub async fn run_parallelized<F, TEnvironment: Environment>(
   scope_and_paths: PluginsScopeAndPaths<TEnvironment>,
   environment: &TEnvironment,
@@ -348,7 +353,13 @@ where
       }
     };
 
-    dprint_core::async_runtime::spawn_blocking(move || f(&file_paths.real, &file_text, &formatted_text, start_instant, environment)).await??;
+    if formatted_text == file_text {
+      // this is the case for most files and there's little to do for them, so
+      // it's faster to do it here than to send it to another thread and back
+      f(&file_paths.real, &file_text, &formatted_text, start_instant, environment)?;
+    } else {
+      dprint_core::async_runtime::spawn_blocking(move || f(&file_paths.real, &file_text, &formatted_text, start_instant, environment)).await??;
+    }
 
     Ok(())
   }
