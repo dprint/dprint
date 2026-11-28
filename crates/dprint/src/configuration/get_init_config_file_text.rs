@@ -1329,7 +1329,7 @@ fn scan_project_files(environment: &impl Environment) -> ProjectFiles {
   let mut files_remaining = MAX_SCAN_FILES;
   let mut dirs_remaining = MAX_SCAN_DIRS;
   let mut pending_dirs = VecDeque::from([environment.cwd().into_path_buf()]);
-  let mut gitignores = GitIgnoreTree::new(
+  let gitignores = GitIgnoreTree::new(
     environment.clone(),
     GitIgnoreTreeOptions {
       include_paths: Vec::new(),

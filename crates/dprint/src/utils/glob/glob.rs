@@ -22,6 +22,7 @@ use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::environment::PathKind;
 use crate::utils::gitignore::DirEntriesHint;
+use crate::utils::gitignore::DirGitIgnores;
 use crate::utils::gitignore::GitIgnoreTree;
 use crate::utils::gitignore::GitIgnoreTreeOptions;
 use crate::utils::gitignore::resolve_global_gitignore_lines;
@@ -107,17 +108,17 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
     log_debug!(environment, "Skipping traversal because the CLI args were all file paths.");
   }
 
-  let mut git_ignore_tree = if opts.no_gitignore {
+  let git_ignore_tree = if opts.no_gitignore {
     None
   } else {
-    Some(GitIgnoreTree::new(
+    Some(Arc::new(GitIgnoreTree::new(
       environment.clone(),
       GitIgnoreTreeOptions {
         include_paths: opts.file_patterns.include_paths(),
         global_gitignore_lines: resolve_global_gitignore_lines(environment),
         detect_changes: false,
       },
-    ))
+    )))
   };
   let shebangs = opts.file_patterns.shebangs.clone();
   let glob_matcher = Arc::new(GlobMatcher::new(
@@ -151,7 +152,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
   if run_traversal && opts.start_dir != opts.pattern_base.as_ref() && opts.start_dir.starts_with(opts.pattern_base.as_ref()) {
     match check_dir_chain(
       &glob_matcher,
-      &mut git_ignore_tree,
+      git_ignore_tree.as_deref(),
       discover_configs.then_some(&mut config_file_finder),
       opts.pattern_base.as_ref(),
       &opts.start_dir,
@@ -186,7 +187,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
     {
       match check_dir_chain(
         &glob_matcher,
-        &mut git_ignore_tree,
+        git_ignore_tree.as_deref(),
         discover_configs.then_some(&mut config_file_finder),
         opts.pattern_base.as_ref(),
         parent,
@@ -219,6 +220,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
       environment.clone(),
       shared_state.clone(),
       glob_matcher.clone(),
+      git_ignore_tree,
       ReadDirRunnerOptions {
         start_dir: opts.start_dir,
         config_discovery: opts.config_discovery,
@@ -233,7 +235,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
     }
 
     // run the glob matching on the current thread (it communicates with the reader threads)
-    let mut glob_matching_processor = GlobMatchingProcessor::new(shared_state, git_ignore_tree);
+    let mut glob_matching_processor = GlobMatchingProcessor::new(shared_state);
     let results = glob_matching_processor.run()?;
     output.file_paths.extend(results.file_paths);
     output.shebang_lines.extend(results.shebang_lines);
@@ -543,7 +545,7 @@ enum DirChainResult {
 /// descending into them would.
 fn check_dir_chain<TEnvironment: Environment>(
   glob_matcher: &GlobMatcher,
-  git_ignore_tree: &mut Option<GitIgnoreTree<TEnvironment>>,
+  git_ignore_tree: Option<&GitIgnoreTree<TEnvironment>>,
   mut config_file_finder: Option<&mut DirConfigFileFinder<'_, TEnvironment>>,
   base_dir: &Path,
   dir: &Path,
@@ -559,7 +561,7 @@ fn check_dir_chain<TEnvironment: Environment>(
       ExcludeMatchDetail::Excluded => return DirChainResult::Excluded,
       ExcludeMatchDetail::OptedOutExclude => {}
       ExcludeMatchDetail::NotExcluded => {
-        if let Some(tree) = git_ignore_tree.as_mut()
+        if let Some(tree) = git_ignore_tree
           && let Some(gitignore) = tree.get_resolved_git_ignore_for_file(dir)
           && gitignore.is_ignored(dir, /* is dir */ true)
         {
@@ -652,30 +654,45 @@ fn resolve_read_dir_thread_count(environment: &impl Environment) -> usize {
 }
 
 struct DirEntries {
-  path: PathBuf,
-  /// Derived from the full directory listing on the reader thread, since the
-  /// entries below have already had the non-matching ones (usually including
-  /// the `.gitignore` itself) filtered out.
-  hint: DirEntriesHint,
   entries: Vec<DirOrConfigEntry>,
 }
 
-/// An entry that made it past the pattern matching done on the reader threads,
-/// leaving only the gitignore for the matching thread to apply.
+/// An entry that made it past the pattern and gitignore matching done on the
+/// reader threads.
 enum DirOrConfigEntry {
-  Dir {
-    path: PathBuf,
-    check_gitignore: bool,
-  },
+  Dir(PathBuf),
   File {
     path: PathBuf,
-    check_gitignore: bool,
     /// The first line of an extensionless file when it matches a configured
     /// shebang, which the matching thread hands to plugin resolution.
     shebang_line: Option<Vec<u8>>,
   },
   // todo: get rid of this from here probably
   Config(PathBuf),
+}
+
+/// The gitignores that apply to the entries of a directory, which are only
+/// resolved once an entry needs them because nothing in a directory might
+/// match the patterns.
+struct LazyDirGitIgnores<'a, TEnvironment: Environment> {
+  tree: Option<&'a GitIgnoreTree<TEnvironment>>,
+  dir_path: &'a Path,
+  /// Derived from the directory's full listing, which avoids file system calls
+  /// when resolving.
+  hint: DirEntriesHint,
+  resolved: Option<Option<Arc<DirGitIgnores>>>,
+}
+
+impl<TEnvironment: Environment> LazyDirGitIgnores<'_, TEnvironment> {
+  fn is_ignored(&mut self, path: &Path, is_dir: bool) -> bool {
+    let Some(tree) = self.tree else {
+      return false;
+    };
+    let resolved = self
+      .resolved
+      .get_or_insert_with(|| tree.get_resolved_git_ignore_for_dir_children(self.dir_path, self.hint));
+    resolved.as_ref().is_some_and(|gitignore| gitignore.is_ignored(path, is_dir))
+  }
 }
 
 const PUSH_DIR_ENTRIES_BATCH_COUNT: usize = 500;
@@ -693,15 +710,23 @@ struct ReadDirRunner<TEnvironment: Environment> {
   environment: TEnvironment,
   shared_state: Arc<SharedState>,
   glob_matcher: Arc<GlobMatcher>,
+  git_ignore_tree: Option<Arc<GitIgnoreTree<TEnvironment>>>,
   options: ReadDirRunnerOptions,
 }
 
 impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
-  pub fn new(environment: TEnvironment, shared_state: Arc<SharedState>, glob_matcher: Arc<GlobMatcher>, options: ReadDirRunnerOptions) -> Self {
+  pub fn new(
+    environment: TEnvironment,
+    shared_state: Arc<SharedState>,
+    glob_matcher: Arc<GlobMatcher>,
+    git_ignore_tree: Option<Arc<GitIgnoreTree<TEnvironment>>>,
+    options: ReadDirRunnerOptions,
+  ) -> Self {
     Self {
       environment,
       shared_state,
       glob_matcher,
+      git_ignore_tree,
       options,
     }
   }
@@ -738,8 +763,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
   ///
   /// The matching happens here rather than on the thread that consumes these
   /// because these threads run in parallel and it's the bulk of the per entry
-  /// work. Only the gitignore is left to the consumer, since resolving one
-  /// caches lazily up the directory tree and so can't be shared.
+  /// work, including resolving and applying the gitignores.
   ///
   /// `Ok(None)` means the directory contributed nothing and should be skipped
   /// (it was empty, nothing in it matched, or it couldn't be read for a
@@ -784,28 +808,25 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
       return Ok(Some((
         entries_read,
         DirEntries {
-          path: current_dir,
-          hint,
           entries: vec![DirOrConfigEntry::Config(config_file)],
         },
       )));
     }
 
+    let mut gitignore = LazyDirGitIgnores {
+      tree: self.git_ignore_tree.as_deref(),
+      dir_path: &current_dir,
+      hint,
+      resolved: None,
+    };
     let mut matched_entries = Vec::with_capacity(entries.len());
-    matched_entries.extend(entries.into_iter().filter_map(|e| self.match_entry(e)));
+    matched_entries.extend(entries.into_iter().filter_map(|e| self.match_entry(e, &mut gitignore)));
     if matched_entries.is_empty() {
       // nothing matched means no `Dir` entry was produced either, so nothing
       // below this directory is ever traversed and its gitignore is never needed
       return Ok(None);
     }
-    Ok(Some((
-      entries_read,
-      DirEntries {
-        path: current_dir,
-        hint,
-        entries: matched_entries,
-      },
-    )))
+    Ok(Some((entries_read, DirEntries { entries: matched_entries })))
   }
 
   /// Finds the config file in the directory from its entries, which creates
@@ -848,7 +869,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     }
   }
 
-  fn match_entry(&self, entry: DirEntry) -> Option<DirOrConfigEntry> {
+  fn match_entry(&self, entry: DirEntry, gitignore: &mut LazyDirGitIgnores<TEnvironment>) -> Option<DirOrConfigEntry> {
     match entry {
       DirEntry::Directory(path) => {
         if path.file_name().map(|f| f == ".git").unwrap_or(false) {
@@ -860,7 +881,10 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
           ExcludeMatchDetail::OptedOutExclude => false,
           ExcludeMatchDetail::NotExcluded => true,
         };
-        Some(DirOrConfigEntry::Dir { path, check_gitignore })
+        if check_gitignore && gitignore.is_ignored(&path, /* is dir */ true) {
+          return None;
+        }
+        Some(DirOrConfigEntry::Dir(path))
       }
       DirEntry::File { path } => {
         // read the shebang here too since these threads run in parallel and
@@ -871,11 +895,10 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
           GlobMatchesDetail::Matched => true,
           GlobMatchesDetail::MatchedOptedOutExclude => false,
         };
-        Some(DirOrConfigEntry::File {
-          path,
-          check_gitignore,
-          shebang_line,
-        })
+        if check_gitignore && gitignore.is_ignored(&path, /* is dir */ false) {
+          return None;
+        }
+        Some(DirOrConfigEntry::File { path, shebang_line })
       }
     }
   }
@@ -965,14 +988,13 @@ fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
     && matches!(dir_path.file_name().and_then(|f| f.to_str()), Some("System Volume Information"))
 }
 
-struct GlobMatchingProcessor<TEnvironment: Environment> {
+struct GlobMatchingProcessor {
   shared_state: Arc<SharedState>,
-  git_ignore_tree: Option<GitIgnoreTree<TEnvironment>>,
 }
 
-impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
-  pub fn new(shared_state: Arc<SharedState>, git_ignore_tree: Option<GitIgnoreTree<TEnvironment>>) -> Self {
-    Self { shared_state, git_ignore_tree }
+impl GlobMatchingProcessor {
+  pub fn new(shared_state: Arc<SharedState>) -> Self {
+    Self { shared_state }
   }
 
   pub fn run(&mut self) -> Result<GlobOutput> {
@@ -986,33 +1008,16 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
         Err(err) => return Err(err), // error
         Ok(Some(entries)) => {
           for dir in entries.into_iter().flatten() {
-            // reuse the directory listing we already have to avoid extra file system calls
-            let gitignore = self
-              .git_ignore_tree
-              .as_mut()
-              .and_then(|t| t.get_resolved_git_ignore_for_dir_children(&dir.path, dir.hint));
-            let is_gitignored = |path: &Path, check_gitignore: bool, is_dir: bool| match &gitignore {
-              Some(gitignore) if check_gitignore => gitignore.is_ignored(path, is_dir),
-              _ => false,
-            };
             for entry in dir.entries {
               match entry {
-                DirOrConfigEntry::Dir { path, check_gitignore } => {
-                  if !is_gitignored(&path, check_gitignore, /* is dir */ true) {
-                    pending_dirs.push(path);
-                  }
+                DirOrConfigEntry::Dir(path) => {
+                  pending_dirs.push(path);
                 }
-                DirOrConfigEntry::File {
-                  path,
-                  check_gitignore,
-                  shebang_line,
-                } => {
-                  if !is_gitignored(&path, check_gitignore, /* is dir */ false) {
-                    if let Some(shebang_line) = shebang_line {
-                      output.shebang_lines.insert(path.clone(), shebang_line);
-                    }
-                    output.file_paths.push(path);
+                DirOrConfigEntry::File { path, shebang_line } => {
+                  if let Some(shebang_line) = shebang_line {
+                    output.shebang_lines.insert(path.clone(), shebang_line);
                   }
+                  output.file_paths.push(path);
                 }
                 DirOrConfigEntry::Config(path) => {
                   output.config_files.push(path);

@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::SystemTime;
+
+use parking_lot::Mutex;
 
 use sys_traits::FsMetadata;
 use sys_traits::FsMetadataValue;
@@ -16,8 +18,8 @@ use crate::utils::escape_glob_text;
 /// Copyright 2018-2024 the Deno authors. MIT license.
 /// Resolved gitignore for a directory.
 pub struct DirGitIgnores {
-  current: Option<Rc<ignore::gitignore::Gitignore>>,
-  parent: Option<Rc<DirGitIgnores>>,
+  current: Option<Arc<ignore::gitignore::Gitignore>>,
+  parent: Option<Arc<DirGitIgnores>>,
 }
 
 impl DirGitIgnores {
@@ -129,7 +131,9 @@ pub struct GitIgnoreTreeOptions {
 /// ancestor gitignores that may be found in a directory.
 pub struct GitIgnoreTree<TEnvironment> {
   environment: TEnvironment,
-  ignores: HashMap<PathBuf, CachedDir>,
+  /// Behind a lock so directories can be resolved on several threads (ex. the
+  /// threads reading the directories when globbing).
+  ignores: Mutex<HashMap<PathBuf, CachedDir>>,
   options: GitIgnoreTreeOptions,
 }
 
@@ -144,12 +148,12 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
 
   /// Resolves the gitignore for the children of a directory the caller has
   /// already listed, passing a hint so resolution can avoid redundant reads.
-  pub fn get_resolved_git_ignore_for_dir_children(&mut self, dir_path: &Path, hint: DirEntriesHint) -> Option<Rc<DirGitIgnores>> {
+  pub fn get_resolved_git_ignore_for_dir_children(&self, dir_path: &Path, hint: DirEntriesHint) -> Option<Arc<DirGitIgnores>> {
     let ancestor_paths = self.environment.download_policy().ancestor_paths(dir_path);
     self.get_resolved_git_ignore_inner(dir_path, Some(hint), &ancestor_paths)
   }
 
-  pub fn get_resolved_git_ignore_for_file(&mut self, file_path: &Path) -> Option<Rc<DirGitIgnores>> {
+  pub fn get_resolved_git_ignore_for_file(&self, file_path: &Path) -> Option<Arc<DirGitIgnores>> {
     let dir_path = file_path.parent()?;
     let ancestor_paths = self.environment.download_policy().ancestor_paths(dir_path);
     self.get_resolved_git_ignore_inner(dir_path, None, &ancestor_paths)
@@ -171,11 +175,12 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
       return;
     };
     let ancestor_paths = self.environment.download_policy().ancestor_paths(file_dir_path);
+    let mut ignores = self.ignores.lock();
     let mut stale_dir = None;
     for dir_path in file_path.ancestors().skip(1) {
       // a directory that hasn't been resolved gets resolved from the file
       // system on lookup, but its ancestors might be resolved and out of date
-      let Some(snapshot) = self.ignores.get(dir_path).and_then(|cached| cached.snapshot.as_ref()) else {
+      let Some(snapshot) = ignores.get(dir_path).and_then(|cached| cached.snapshot.as_ref()) else {
         continue;
       };
       let current_snapshot = self.take_dir_snapshot(dir_path, Some(snapshot), &ancestor_paths);
@@ -188,25 +193,27 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     }
     if let Some(stale_dir) = stale_dir {
       // descendants hold onto what was resolved for their ancestors
-      self.ignores.retain(|dir_path, _| !dir_path.starts_with(stale_dir));
+      ignores.retain(|dir_path, _| !dir_path.starts_with(stale_dir));
     }
   }
 
   /// Resolves the gitignore of the directory, where the ancestor paths are of
   /// the directory or one of its descendants (see `may_read_gitignore`).
-  fn get_resolved_git_ignore_inner(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>, ancestor_paths: &AncestorPaths) -> Option<Rc<DirGitIgnores>> {
-    let maybe_resolved = self.ignores.get(dir_path).map(|cached| cached.resolved.clone());
+  fn get_resolved_git_ignore_inner(&self, dir_path: &Path, hint: Option<DirEntriesHint>, ancestor_paths: &AncestorPaths) -> Option<Arc<DirGitIgnores>> {
+    let maybe_resolved = self.ignores.lock().get(dir_path).map(|cached| cached.resolved.clone());
     if let Some(resolved) = maybe_resolved {
       resolved
     } else {
+      // resolve without holding the lock so other threads aren't kept waiting
+      // on reading the files (this also resolves the ancestors, which lock it)
       let cached = self.resolve_gitignore_in_dir(dir_path, hint, ancestor_paths);
-      let resolved = cached.resolved.clone();
-      self.ignores.insert(dir_path.to_owned(), cached);
-      resolved
+      // keep what another thread might have resolved in the meantime so
+      // everything ends up using the same one
+      self.ignores.lock().entry(dir_path.to_owned()).or_insert(cached).resolved.clone()
     }
   }
 
-  fn resolve_gitignore_in_dir(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>, ancestor_paths: &AncestorPaths) -> CachedDir {
+  fn resolve_gitignore_in_dir(&self, dir_path: &Path, hint: Option<DirEntriesHint>, ancestor_paths: &AncestorPaths) -> CachedDir {
     // take this before reading the files so a change made while resolving
     // is seen as a change the next time
     let snapshot = self.options.detect_changes.then(|| self.take_dir_snapshot(dir_path, None, ancestor_paths));
@@ -233,7 +240,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     let resolved = if parent.is_none() && current.is_none() {
       None
     } else {
-      Some(Rc::new(DirGitIgnores { current, parent }))
+      Some(Arc::new(DirGitIgnores { current, parent }))
     };
     CachedDir { resolved, snapshot }
   }
@@ -247,7 +254,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     exclude_path: Option<&Path>,
     hint: Option<DirEntriesHint>,
     ancestor_paths: &AncestorPaths,
-  ) -> Option<Rc<ignore::gitignore::Gitignore>> {
+  ) -> Option<Arc<ignore::gitignore::Gitignore>> {
     // skip the read when the caller's listing already shows there's no `.gitignore`
     let maybe_has_gitignore = hint.map(|h| h.has_gitignore).unwrap_or(true);
     let gitignore_text = if maybe_has_gitignore {
@@ -300,7 +307,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
       }
     }
     let gitignore = builder.build().ok()?;
-    Some(Rc::new(gitignore))
+    Some(Arc::new(gitignore))
   }
 
   /// Reads the `.gitignore` file of the directory, which is ignored when it's
@@ -451,7 +458,7 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
 
 /// What was resolved for a directory.
 struct CachedDir {
-  resolved: Option<Rc<DirGitIgnores>>,
+  resolved: Option<Arc<DirGitIgnores>>,
   /// Only set when detecting changes.
   snapshot: Option<DirSnapshot>,
 }
@@ -519,8 +526,8 @@ mod test {
     env.mk_dir_all("/sub_dir/sub_dir").unwrap();
     env.write_file("/sub_dir/.gitignore", "data.txt").unwrap();
     env.write_file("/sub_dir/sub_dir/.gitignore", "!file.txt\nignore.txt").unwrap();
-    let mut ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
-    let mut run_test = |path: &str, expected: bool| {
+    let ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
+    let run_test = |path: &str, expected: bool| {
       let path = PathBuf::from(path);
       let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
       assert_eq!(gitignore.is_ignored(&path, /* is_dir */ false), expected, "Path: {}", path.display());
@@ -546,8 +553,8 @@ mod test {
     env.mk_dir_all("/.git/info").unwrap();
     env.write_file("/.git/info/exclude", "from_exclude.txt\n!unexclude.txt").unwrap();
     env.mk_dir_all("/sub_dir").unwrap();
-    let mut ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
-    let mut run_test = |path: &str, expected: bool| {
+    let ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
+    let run_test = |path: &str, expected: bool| {
       let path = PathBuf::from(path);
       let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
       assert_eq!(gitignore.is_ignored(&path, /* is_dir */ false), expected, "Path: {}", path.display());
@@ -568,14 +575,14 @@ mod test {
     env.write_file("/.gitignore", "from_gitignore.txt\n!from_global.txt").unwrap();
     env.mk_dir_all("/sub").unwrap();
     let global_gitignore_lines = vec!["from_global.txt".to_string(), "*.log".to_string()];
-    let mut ignore_tree = GitIgnoreTree::new(
+    let ignore_tree = GitIgnoreTree::new(
       env,
       GitIgnoreTreeOptions {
         global_gitignore_lines,
         ..Default::default()
       },
     );
-    let mut run_test = |path: &str, expected: bool| {
+    let run_test = |path: &str, expected: bool| {
       let path = PathBuf::from(path);
       let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
       assert_eq!(gitignore.is_ignored(&path, /* is_dir */ false), expected, "Path: {}", path.display());
@@ -680,7 +687,7 @@ mod test {
     let first = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
     ignore_tree.refresh_for_file(&path);
     let second = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
-    assert!(Rc::ptr_eq(&first, &second));
+    assert!(Arc::ptr_eq(&first, &second));
 
     // not detecting changes is the default, where a refresh does nothing
     let mut ignore_tree = GitIgnoreTree::new(env.clone(), GitIgnoreTreeOptions::default());
@@ -688,7 +695,7 @@ mod test {
     env.write_file("/.gitignore", "other.txt").unwrap();
     ignore_tree.refresh_for_file(&path);
     let second = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
-    assert!(Rc::ptr_eq(&first, &second));
+    assert!(Arc::ptr_eq(&first, &second));
   }
 
   #[test]
@@ -697,7 +704,7 @@ mod test {
     let env = TestEnvironment::new();
     env.mk_dir_all("/.git/info").unwrap();
     env.write_file("/.git/info/exclude", "ignored.txt").unwrap();
-    let mut ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
+    let ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
     let path = PathBuf::from("/ignored.txt");
     let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
     assert!(gitignore.is_ignored(&path, /* is_dir */ false));
@@ -727,8 +734,8 @@ mod test {
     env
       .write_file("/absolute_commondir/.git", "gitdir: /main/.git/worktrees/absolute_commondir\n")
       .unwrap();
-    let mut ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
-    let mut run_test = |path: &str, expected: bool| {
+    let ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
+    let run_test = |path: &str, expected: bool| {
       let path = PathBuf::from(path);
       let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
       assert_eq!(gitignore.is_ignored(&path, /* is_dir */ false), expected, "Path: {}", path.display());
@@ -756,8 +763,8 @@ mod test {
     env.write_file("/.git/modules/sub/info/exclude", "from_exclude.txt").unwrap();
     env.mk_dir_all("/sub").unwrap();
     env.write_file("/sub/.git", "gitdir: ../.git/modules/sub\n").unwrap();
-    let mut ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
-    let mut run_test = |path: &str, expected: bool| {
+    let ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
+    let run_test = |path: &str, expected: bool| {
       let path = PathBuf::from(path);
       let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
       assert_eq!(gitignore.is_ignored(&path, /* is_dir */ false), expected, "Path: {}", path.display());
@@ -792,9 +799,9 @@ mod test {
       env.mk_dir_all(format!("{dir}/info")).unwrap();
       env.write_file(format!("{dir}/info/exclude"), "from_exclude.txt").unwrap();
     }
-    let mut ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
+    let ignore_tree = GitIgnoreTree::new(env, GitIgnoreTreeOptions::default());
     for (dir, _) in dirs {
-      let mut run_test = |name: &str, expected: bool| {
+      let run_test = |name: &str, expected: bool| {
         let path = PathBuf::from(format!("{dir}/{name}"));
         let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
         assert_eq!(gitignore.is_ignored(&path, /* is_dir */ false), expected, "Path: {}", path.display());
@@ -910,7 +917,7 @@ mod test {
     env.mk_dir_all("/repo/.git").unwrap();
     env.symlink(r"\\server\share\gitignore", "/repo/.gitignore").unwrap();
     let resolve = |options: GitIgnoreTreeOptions| {
-      let mut ignore_tree = GitIgnoreTree::new(env.clone(), options);
+      let ignore_tree = GitIgnoreTree::new(env.clone(), options);
       ignore_tree.get_resolved_git_ignore_for_file(Path::new("/repo/file.txt"));
     };
     // the cli reads it
