@@ -109,7 +109,6 @@ struct WasmPluginFormatMessage {
 /// A `FormatThreadRequest` without what has to stay on the runtime's thread.
 struct WasmPluginJobMessage {
   config: Arc<FormatConfig>,
-  override_config: ConfigKeyMap,
   token: Arc<dyn CancellationToken>,
   job: FormatThreadJob,
 }
@@ -360,8 +359,8 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
               }
             }
             WasmPluginMessage::RunJob(request, response) => {
-              let result = (request.job)(&mut |file_path, file_bytes| {
-                instance.format_text(file_path, file_bytes, None, &request.config, &request.override_config, request.token.clone())
+              let result = (request.job)(&mut |file_path, file_bytes, override_config| {
+                instance.format_text(file_path, file_bytes, None, &request.config, override_config, request.token.clone())
               });
               if response.send(result).is_err() {
                 break; // disconnected
@@ -489,20 +488,23 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       .map_err(crate::plugins::anyhow_to_format_error)
   }
 
-  async fn run_on_format_thread(&self, request: FormatThreadRequest) -> Option<Result<()>> {
+  fn has_format_thread(&self) -> bool {
+    true
+  }
+
+  async fn run_on_format_thread(&self, request: FormatThreadRequest) -> Result<()> {
     if request.token.is_cancelled() {
-      return Some(Ok(()));
+      return Ok(());
     }
     let message = Arc::new(WasmPluginJobMessage {
       config: request.config,
-      override_config: request.override_config,
       token: request.token,
       job: request.job,
     });
     let instance_state = InstanceState {
       host_format_callback: request.on_host_format,
     };
-    let result = self
+    self
       .with_instance(Some(instance_state), move |plugin_sender| {
         let message = message.clone();
         async move {
@@ -512,8 +514,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
         }
         .boxed_local()
       })
-      .await;
-    Some(result)
+      .await
   }
 
   async fn shutdown(&self) {

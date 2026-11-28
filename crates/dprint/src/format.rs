@@ -2,12 +2,17 @@ use anyhow::Result;
 use anyhow::bail;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::future;
+use dprint_core::communication::AtomicFlag;
+use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CancellationToken as FormatCancellationToken;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::NullCancellationToken;
 use dprint_core::plugins::process::HostFormatCallback;
+use parking_lot::Mutex;
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -15,12 +20,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use thiserror::Error;
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::arg_parser::LineRange;
 use crate::environment::Environment;
 use crate::incremental::IncrementalFile;
-use crate::plugins::FormatThreadJob;
+use crate::plugins::FormatThreadFormatter;
 use crate::resolution::GetPluginResult;
 use crate::resolution::InitializedPluginWithConfig;
 use crate::resolution::InitializedPluginWithConfigFormatRequest;
@@ -28,6 +34,7 @@ use crate::resolution::InitializedPluginWithConfigFormatThreadRequest;
 use crate::resolution::PluginWithConfig;
 use crate::resolution::PluginsScope;
 use crate::resolution::PluginsScopeAndPaths;
+use crate::utils::AtomicCounter;
 use crate::utils::ErrorCountLogger;
 use crate::utils::Semaphore;
 
@@ -222,11 +229,25 @@ where
           plugins,
           scope,
         });
-        let mut format_handles = Vec::with_capacity(task_work.file_paths.len());
-        for file_path in task_work.file_paths.into_iter() {
+        let (batch_files, file_paths) = take_batch_files(&context, &line_ranges, task_work.file_paths);
+        let mut format_handles = Vec::with_capacity(file_paths.len() + 1);
+        if !batch_files.is_empty() {
+          format_handles.push(dprint_core::async_runtime::spawn(run_batches(
+            context.clone(),
+            task_work.semaphore.clone(),
+            error_logger.clone(),
+            BatchOptions {
+              incremental_file: incremental_file.clone(),
+              ensure_stable_format,
+              files: batch_files,
+            },
+            f.clone(),
+          )));
+        }
+        for file_path in file_paths.into_iter() {
           let permit = match task_work.semaphore.acquire().await {
             Ok(permit) => permit,
-            Err(_) => return, // semaphore was closed, so stop working
+            Err(_) => break, // semaphore was closed, so stop working
           };
           let semaphore = task_work.semaphore.clone();
           let context = context.clone();
@@ -245,32 +266,13 @@ where
             let result = tokio::select! {
               biased;
               result = &mut format_future => result,
-              _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                log_warn!(context.environment, "WARNING: Formatting is slow for {}", file_path.display());
+              _ = tokio::time::sleep(SLOW_FORMAT_DURATION) => {
+                log_slow_format_warning(&context.environment, &file_path);
                 format_future.await
               }
             };
             if let Err(err) = result {
-              match err {
-                RunForFilePathError::Stop => {
-                  semaphore.close(); // stop formatting
-                }
-                RunForFilePathError::Any(err) => {
-                  if let Some(err) = crate::plugins::maybe_critical_format_error(&err) {
-                    error_logger.log_error(&format!(
-                      "Critical error formatting {}. Cannot continue. Message: {}",
-                      file_path.display(),
-                      dprint_core::plugins::error_to_string(err)
-                    ));
-                    semaphore.close(); // stop formatting
-                  } else {
-                    error_logger.log_error(&format!("Error formatting {}. Message: {:#}", file_path.display(), err));
-                  }
-                }
-                RunForFilePathError::TokioJoin(_) | RunForFilePathError::Io(_) => {
-                  error_logger.log_error(&format!("Error formatting {}. Message: {:#}", file_path.display(), err));
-                }
-              }
+              handle_file_error(&error_logger, &semaphore, &file_path, err);
             }
             // drop the semaphore permit when we're all done
             drop(permit);
@@ -302,12 +304,6 @@ where
   where
     F: Fn(&Path, &[u8], &[u8], Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
   {
-    if let FileFormatKind::EntireFile(ensure_stable_format) = &format_kind
-      && let Some(result) = run_on_format_thread(context, incremental_file.clone(), file_path.clone(), *ensure_stable_format, f.clone()).await
-    {
-      return result;
-    }
-
     // it's a big perf improvement to do this work on a blocking thread
     let result = dprint_core::async_runtime::spawn_blocking({
       let environment = context.environment.clone();
@@ -371,88 +367,6 @@ where
     }
 
     Ok(())
-  }
-
-  /// Reads, formats and handles the file entirely on the thread the plugin
-  /// formats on when a single plugin formats it and has a thread like that,
-  /// which saves going between that thread and this one for each step. This
-  /// thread is otherwise what limits how fast files are formatted with fast
-  /// plugins. `None` when the file needs to be formatted the usual way.
-  async fn run_on_format_thread<F, TEnvironment: Environment>(
-    context: &FormatContext<TEnvironment>,
-    incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
-    file_path: Arc<PathBuf>,
-    ensure_stable_format: EnsureStableFormat,
-    f: F,
-  ) -> Option<Result<(), RunForFilePathError>>
-  where
-    F: Fn(&Path, &[u8], &[u8], Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
-  {
-    let [(plugin, initialized_plugin)] = context.plugins.as_slice() else {
-      return None;
-    };
-    // the path given to the plugin depends on the text of a file that might be
-    // formatted because of its shebang line, so leave that to the usual way
-    if plugin.plugin.is_process_plugin() || context.scope.plugin_name_maps.may_match_shebang(&file_path) {
-      return None;
-    }
-    let skip_stable_format = ensure_stable_format.0 && context.plugins_skip_stable_format();
-    // the plugin's output isn't made stable, so make what it formats with other plugins stable instead
-    let on_host_format = if skip_stable_format {
-      context.on_stable_host_format.clone()
-    } else {
-      context.on_host_format.clone()
-    };
-    let override_config = plugin.get_config_file_overrides_for_path(&file_path);
-    let environment = context.environment.clone();
-    let job: FormatThreadJob = Arc::new(move |format| {
-      let file_text = environment.read_file_bytes(file_path.as_ref())?;
-      if let Some(incremental_file) = &incremental_file
-        && incremental_file.is_file_known_formatted(&file_text)
-      {
-        log_debug!(environment, "No change: {}", file_path.display());
-        return Ok(());
-      }
-
-      let start_instant = Instant::now();
-      let mut format_pass = |text: Arc<Vec<u8>>| -> Result<Arc<Vec<u8>>> {
-        let start_instant = Instant::now();
-        let result = format(&file_path, &text);
-        log_debug!(
-          environment,
-          "Formatted file: {} in {}ms",
-          file_path.display(),
-          start_instant.elapsed().as_millis()
-        );
-        match result? {
-          Some(formatted_text) => {
-            ensure_not_formatted_to_empty(&text, &formatted_text)?;
-            Ok(Arc::new(formatted_text))
-          }
-          None => Ok(text),
-        }
-      };
-      let file_text = Arc::new(file_text);
-      let formatted_text = format_pass(file_text.clone())?;
-      let formatted_text = if ensure_stable_format.0 && formatted_text != file_text && !skip_stable_format {
-        // the passes are done synchronously, so this is already done once polled
-        stabilize_format_text(&environment, &file_path, formatted_text, |text| std::future::ready(format_pass(text)))
-          .now_or_never()
-          .expect("stabilizing the format synchronously didn't finish")?
-      } else {
-        formatted_text
-      };
-      f(&file_path, &file_text, &formatted_text, start_instant, environment.clone()).map_err(run_for_file_path_error_to_anyhow)
-    });
-    let result = initialized_plugin
-      .run_on_format_thread(InitializedPluginWithConfigFormatThreadRequest {
-        override_config,
-        on_host_format,
-        token: context.token.clone(),
-        job,
-      })
-      .await?;
-    Some(result.map_err(anyhow_to_run_for_file_path_error))
   }
 
   async fn get_stabilized_format_text<TEnvironment: Environment>(
@@ -611,6 +525,351 @@ pub async fn stabilize_format_text<TFuture: Future<Output = Result<Arc<Vec<u8>>>
       );
     }
   }
+}
+
+/// How long formatting a file can take before a warning says it's slow.
+const SLOW_FORMAT_DURATION: Duration = Duration::from_secs(10);
+
+/// How long a batch formats files for before it gives back its permit, which
+/// keeps the permits meaningful (ex. when they're reduced to throttle the cpu).
+const MAX_BATCH_DURATION: Duration = Duration::from_millis(100);
+
+/// A file to format in a batch (see `run_batches`).
+#[derive(Clone)]
+struct BatchFile {
+  path: Arc<PathBuf>,
+  override_config: ConfigKeyMap,
+}
+
+struct BatchOptions<TEnvironment: Environment> {
+  incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
+  ensure_stable_format: EnsureStableFormat,
+  files: Vec<BatchFile>,
+}
+
+/// Takes the files that can be formatted in batches out of the file paths,
+/// which are the ones formatted in their entirety by a single plugin that
+/// formats on a thread of its own (ex. a Wasm plugin).
+fn take_batch_files<TEnvironment: Environment>(
+  context: &FormatContext<TEnvironment>,
+  line_ranges: &LineRangesByPath,
+  file_paths: Vec<PathBuf>,
+) -> (Vec<BatchFile>, Vec<PathBuf>) {
+  let [(plugin, initialized_plugin)] = context.plugins.as_slice() else {
+    return (Vec::new(), file_paths);
+  };
+  if !initialized_plugin.has_format_thread() {
+    return (Vec::new(), file_paths);
+  }
+  let mut batch_files = Vec::with_capacity(file_paths.len());
+  let mut other_file_paths = Vec::new();
+  for file_path in file_paths {
+    // the ranges of a file are formatted one at a time, and the path given to
+    // the plugin for a file that might be formatted because of its shebang
+    // line depends on the file's text
+    if line_ranges.contains_key(&file_path) || context.scope.plugin_name_maps.may_match_shebang(&file_path) {
+      other_file_paths.push(file_path);
+    } else {
+      batch_files.push(BatchFile {
+        override_config: plugin.get_config_file_overrides_for_path(&file_path),
+        path: Arc::new(file_path),
+      });
+    }
+  }
+  (batch_files, other_file_paths)
+}
+
+/// Formats the files in batches that read, format and handle them on the
+/// threads the plugin formats on, which saves going between those threads and
+/// this one for each file. This thread is otherwise what limits how fast files
+/// are formatted with fast plugins.
+async fn run_batches<F, TEnvironment: Environment>(
+  context: Rc<FormatContext<TEnvironment>>,
+  semaphore: Rc<Semaphore>,
+  error_logger: ErrorCountLogger<TEnvironment>,
+  options: BatchOptions<TEnvironment>,
+  f: F,
+) where
+  F: Fn(&Path, &[u8], &[u8], Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
+{
+  let queue = Arc::new(BatchQueue {
+    files: Mutex::new(options.files.into()),
+    stop: AtomicFlag::default(),
+    error_count: AtomicCounter::default(),
+  });
+  let skip_stable_format = options.ensure_stable_format.0 && context.plugins_skip_stable_format();
+  let mut handles = Vec::new();
+  let running_count = Rc::new(Cell::new(0));
+  let batch_finished = Rc::new(Notify::new());
+  loop {
+    let Ok(permit) = semaphore.acquire().await else {
+      break; // semaphore was closed, so stop working
+    };
+    let remaining_count = queue.len();
+    if remaining_count == 0 {
+      break;
+    }
+    if running_count.get() >= remaining_count {
+      // there's a batch for each file that's left (ex. when there are only a
+      // few files), so wait for one to finish instead of creating another
+      // instance of the plugin
+      drop(permit);
+      batch_finished.notified().await;
+      continue;
+    }
+    running_count.set(running_count.get() + 1);
+    let job = Arc::new(BatchJob {
+      environment: context.environment.clone(),
+      incremental_file: options.incremental_file.clone(),
+      ensure_stable_format: options.ensure_stable_format,
+      skip_stable_format,
+      f: f.clone(),
+      queue: queue.clone(),
+      current: Default::default(),
+    });
+    let context = context.clone();
+    let semaphore = semaphore.clone();
+    let error_logger = error_logger.clone();
+    let running_count = running_count.clone();
+    let batch_finished = batch_finished.clone();
+    handles.push(dprint_core::async_runtime::spawn(async move {
+      run_batch(&context, &semaphore, &error_logger, job).await;
+      drop(permit);
+      running_count.set(running_count.get() - 1);
+      batch_finished.notify_one();
+    }));
+  }
+  future::join_all(handles).await;
+  error_logger.add_error_count(queue.error_count.get());
+}
+
+async fn run_batch<F, TEnvironment: Environment>(
+  context: &FormatContext<TEnvironment>,
+  semaphore: &Semaphore,
+  error_logger: &ErrorCountLogger<TEnvironment>,
+  job: Arc<BatchJob<TEnvironment, F>>,
+) where
+  F: Fn(&Path, &[u8], &[u8], Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
+{
+  let (_, initialized_plugin) = &context.plugins[0];
+  // the plugin's output isn't made stable, so make what it formats with other plugins stable instead
+  let on_host_format = if job.skip_stable_format {
+    context.on_stable_host_format.clone()
+  } else {
+    context.on_host_format.clone()
+  };
+  let future = initialized_plugin.run_on_format_thread(InitializedPluginWithConfigFormatThreadRequest {
+    on_host_format,
+    token: context.token.clone(),
+    job: {
+      let job = job.clone();
+      Arc::new(move |format| job.run(format))
+    },
+  });
+  tokio::pin!(future);
+  let mut warned_file_path = None;
+  let result = loop {
+    tokio::select! {
+      biased;
+      result = &mut future => break result,
+      _ = tokio::time::sleep(Duration::from_secs(1)) => {
+        if let Some(file_path) = job.slow_file_path()
+          && warned_file_path.as_ref() != Some(&file_path)
+        {
+          log_slow_format_warning(&context.environment, &file_path);
+          warned_file_path = Some(file_path);
+        }
+      }
+    }
+  };
+  if let Err(err) = result {
+    // the batch stops at the file it failed on
+    let current = job.current.lock().take();
+    match current {
+      Some(current) => handle_file_error(error_logger, semaphore, &current.file.path, anyhow_to_run_for_file_path_error(err)),
+      // ex. the instance couldn't be created
+      None => match crate::plugins::maybe_critical_format_error(&err) {
+        Some(err) => {
+          error_logger.log_error(&format!(
+            "Critical error formatting. Cannot continue. Message: {}",
+            dprint_core::plugins::error_to_string(err)
+          ));
+          semaphore.close(); // stop formatting
+        }
+        None => error_logger.log_error(&format!("Error formatting. Message: {:#}", err)),
+      },
+    }
+  }
+  if job.queue.stop.is_raised() {
+    semaphore.close(); // stop formatting
+  }
+}
+
+/// The files left to format in batches.
+struct BatchQueue {
+  files: Mutex<VecDeque<BatchFile>>,
+  /// Raised when a file says to stop formatting (see `RunForFilePathError::Stop`).
+  stop: AtomicFlag,
+  /// The errors the batches logged.
+  error_count: AtomicCounter,
+}
+
+impl BatchQueue {
+  fn len(&self) -> usize {
+    self.files.lock().len()
+  }
+
+  fn pop(&self) -> Option<BatchFile> {
+    self.files.lock().pop_front()
+  }
+}
+
+/// A batch of files, which is run on the thread the plugin formats on.
+struct BatchJob<TEnvironment: Environment, F> {
+  environment: TEnvironment,
+  incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
+  ensure_stable_format: EnsureStableFormat,
+  skip_stable_format: bool,
+  f: F,
+  queue: Arc<BatchQueue>,
+  /// The file being formatted, which stays set when formatting it failed in
+  /// a way that has the plugin restarted and the job run again.
+  current: Mutex<Option<CurrentBatchFile>>,
+}
+
+struct CurrentBatchFile {
+  file: BatchFile,
+  start_instant: Instant,
+}
+
+impl<TEnvironment: Environment, F> BatchJob<TEnvironment, F>
+where
+  F: Fn(&Path, &[u8], &[u8], Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
+{
+  fn run(&self, format: &mut FormatThreadFormatter) -> Result<()> {
+    // this is the job being run again on a new instance of the plugin after
+    // it failed on a file, so only format that file again in order for a
+    // later file that fails to get the same chance
+    let retry_file = self.current.lock().as_ref().map(|current| current.file.clone());
+    if let Some(file) = retry_file {
+      self.run_file(format, file)?;
+      return Ok(());
+    }
+
+    let end_instant = Instant::now() + MAX_BATCH_DURATION;
+    while !self.queue.stop.is_raised() && Instant::now() < end_instant {
+      let Some(file) = self.queue.pop() else {
+        break;
+      };
+      self.run_file(format, file)?;
+    }
+    Ok(())
+  }
+
+  /// Gets the path of the file being formatted when it's taking long.
+  fn slow_file_path(&self) -> Option<Arc<PathBuf>> {
+    let current = self.current.lock();
+    let current = current.as_ref()?;
+    (current.start_instant.elapsed() >= SLOW_FORMAT_DURATION).then(|| current.file.path.clone())
+  }
+
+  /// Formats the file, only returning an error when the plugin has to be
+  /// restarted because of it.
+  fn run_file(&self, format: &mut FormatThreadFormatter, file: BatchFile) -> Result<()> {
+    *self.current.lock() = Some(CurrentBatchFile {
+      file: file.clone(),
+      start_instant: Instant::now(),
+    });
+    if let Err(err) = self.format_file(format, &file) {
+      match anyhow_to_run_for_file_path_error(err) {
+        RunForFilePathError::Stop => {
+          self.queue.stop.raise();
+        }
+        RunForFilePathError::Any(err) if crate::plugins::maybe_critical_format_error(&err).is_some() => {
+          return Err(err); // keep it as the current file for the retry
+        }
+        err => {
+          log_error!(self.environment, "Error formatting {}. Message: {:#}", file.path.display(), err);
+          self.queue.error_count.inc();
+        }
+      }
+    }
+    *self.current.lock() = None;
+    Ok(())
+  }
+
+  fn format_file(&self, format: &mut FormatThreadFormatter, file: &BatchFile) -> Result<()> {
+    let file_path = file.path.as_path();
+    let file_text = self.environment.read_file_bytes(file_path)?;
+    if let Some(incremental_file) = &self.incremental_file
+      && incremental_file.is_file_known_formatted(&file_text)
+    {
+      log_debug!(self.environment, "No change: {}", file_path.display());
+      return Ok(());
+    }
+
+    let start_instant = Instant::now();
+    let mut format_pass = |text: Arc<Vec<u8>>| -> Result<Arc<Vec<u8>>> {
+      let start_instant = Instant::now();
+      let result = format(file_path, &text, &file.override_config);
+      log_debug!(
+        self.environment,
+        "Formatted file: {} in {}ms",
+        file_path.display(),
+        start_instant.elapsed().as_millis()
+      );
+      match result? {
+        Some(formatted_text) => {
+          ensure_not_formatted_to_empty(&text, &formatted_text)?;
+          Ok(Arc::new(formatted_text))
+        }
+        None => Ok(text),
+      }
+    };
+    let file_text = Arc::new(file_text);
+    let formatted_text = format_pass(file_text.clone())?;
+    let formatted_text = if self.ensure_stable_format.0 && formatted_text != file_text && !self.skip_stable_format {
+      // the passes are done synchronously, so this is already done once polled
+      stabilize_format_text(&self.environment, file_path, formatted_text, |text| std::future::ready(format_pass(text)))
+        .now_or_never()
+        .expect("stabilizing the format synchronously didn't finish")?
+    } else {
+      formatted_text
+    };
+    (self.f)(file_path, &file_text, &formatted_text, start_instant, self.environment.clone()).map_err(run_for_file_path_error_to_anyhow)
+  }
+}
+
+fn handle_file_error<TEnvironment: Environment>(
+  error_logger: &ErrorCountLogger<TEnvironment>,
+  semaphore: &Semaphore,
+  file_path: &Path,
+  err: RunForFilePathError,
+) {
+  match err {
+    RunForFilePathError::Stop => {
+      semaphore.close(); // stop formatting
+    }
+    RunForFilePathError::Any(err) => {
+      if let Some(err) = crate::plugins::maybe_critical_format_error(&err) {
+        error_logger.log_error(&format!(
+          "Critical error formatting {}. Cannot continue. Message: {}",
+          file_path.display(),
+          dprint_core::plugins::error_to_string(err)
+        ));
+        semaphore.close(); // stop formatting
+      } else {
+        error_logger.log_error(&format!("Error formatting {}. Message: {:#}", file_path.display(), err));
+      }
+    }
+    RunForFilePathError::TokioJoin(_) | RunForFilePathError::Io(_) => {
+      error_logger.log_error(&format!("Error formatting {}. Message: {:#}", file_path.display(), err));
+    }
+  }
+}
+
+fn log_slow_format_warning(environment: &impl Environment, file_path: &Path) {
+  log_warn!(environment, "WARNING: Formatting is slow for {}", file_path.display());
 }
 
 fn target_cpu_decrease_bound(number_threads: usize) -> u8 {
