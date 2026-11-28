@@ -108,6 +108,10 @@ struct LoggerState {
   last_context_name: String,
   std_out: Stdout,
   std_err: Stderr,
+  /// Whether stdout and stderr are terminals, which is stored because checking
+  /// it for every line is slow when lots of lines are logged.
+  is_std_out_terminal: bool,
+  is_std_err_terminal: bool,
   refresh_items: Vec<LoggerRefreshItem>,
   static_text: ConsoleStaticText,
 }
@@ -119,6 +123,8 @@ impl Logger {
         last_context_name: options.initial_context_name.clone(),
         std_out: stdout(),
         std_err: stderr(),
+        is_std_out_terminal: stdout().is_terminal(),
+        is_std_err_terminal: stderr().is_terminal(),
         refresh_items: Vec::new(),
         static_text: ConsoleStaticText::new(|| {
           let size = get_terminal_size();
@@ -229,11 +235,10 @@ impl Logger {
     if !output_text.ends_with('\n') {
       output_text.push('\n');
     }
-    let is_raw_terminal = if is_std_out {
-      is_raw_mode_terminal(&state.std_out)
-    } else {
-      is_raw_mode_terminal(&state.std_err)
-    };
+    let is_terminal = if is_std_out { state.is_std_out_terminal } else { state.is_std_err_terminal };
+    // only check for raw mode when the stream is a terminal because that check
+    // opens the console on windows, which is slow to do for every line
+    let is_raw_terminal = is_terminal && is_raw_mode_enabled();
     if is_raw_terminal {
       output_text = output_text.replace("\r\n", "\n").replace('\n', "\r\n");
     }
@@ -319,12 +324,12 @@ impl Logger {
   }
 }
 
-/// Whether the stream is a terminal in raw mode, which happens when something
-/// is logged while a key is read (ex. a prompt waiting on a download). A
-/// newline doesn't go back to the start of the line there on unix, so it
-/// needs a carriage return.
-fn is_raw_mode_terminal(stream: &impl IsTerminal) -> bool {
-  crossterm::terminal::is_raw_mode_enabled().unwrap_or(false) && stream.is_terminal()
+/// Whether the terminal is in raw mode, which happens when something is logged
+/// while a key is read (ex. a prompt waiting on a download). A newline doesn't
+/// go back to the start of the line there on unix, so it needs a carriage
+/// return.
+fn is_raw_mode_enabled() -> bool {
+  crossterm::terminal::is_raw_mode_enabled().unwrap_or(false)
 }
 
 /// Renders the text items with the specified width.
