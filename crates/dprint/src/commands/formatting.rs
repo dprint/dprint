@@ -5438,28 +5438,28 @@ text2"
       let entries = environment.dir_info(&dir).unwrap();
       assert_eq!(entries.len(), 1);
       match &entries[0] {
-        crate::environment::DirEntry::File { path, .. } => environment.read_file(path).unwrap(),
+        crate::environment::DirEntry::File { path, .. } => environment.read_file_bytes(path).unwrap(),
         entry => panic!("Expected a file: {:?}", entry),
       }
     };
-    let read_file_hashes = |text: &str| -> Vec<u64> {
-      let data: serde_json::Value = serde_json::from_str(text).unwrap();
-      data["fileHashes"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect()
+    // the plugins hash followed by the file hashes, each 8 bytes
+    let read_file_hashes = |bytes: &[u8]| -> Vec<u64> {
+      assert_eq!(bytes.len() % 8, 0);
+      bytes[8..].chunks_exact(8).map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap())).collect()
     };
     let skipped_msg = "Incremental file unchanged. Skipping write.";
 
     run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
     assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
-    let first_text = read_incremental_file();
-    assert_eq!(read_file_hashes(&first_text).len(), 3);
+    let first_bytes = read_incremental_file();
+    assert_eq!(read_file_hashes(&first_bytes).len(), 3);
 
     // nothing changed, so the file is not rewritten and its bytes stay the same
-    // (the hashes are serialized from a HashSet, so a rewrite would reorder them)
     for _ in 0..3 {
       environment.clear_logs();
       run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
       assert!(environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
-      assert_eq!(read_incremental_file(), first_text);
+      assert_eq!(read_incremental_file(), first_bytes);
     }
 
     // formatting a subset of already formatted files learns nothing new, so
@@ -5467,7 +5467,7 @@ text2"
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--log-level=debug", "/file1.txt"], &environment).unwrap();
     assert!(environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
-    assert_eq!(read_incremental_file(), first_text);
+    assert_eq!(read_incremental_file(), first_bytes);
 
     // a file changed in a partial run, so the file is rewritten with the new
     // hash merged into the existing ones (the old hash of the changed file is
@@ -5501,6 +5501,95 @@ text2"
     assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
     assert_eq!(read_file_hashes(&read_incremental_file()).len(), 3);
     environment.clear_logs();
+  }
+
+  #[test]
+  fn should_store_incremental_file_in_node_modules_when_exists() {
+    let no_change_msg = "No change: /file1.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/file1.txt", "text1")
+      .initialize()
+      .build();
+    environment.mk_dir_all("/node_modules").unwrap();
+    let incremental_file_path = "/node_modules/.cache/dprint/incremental-v1";
+    let cache_incremental_dir = environment.get_cache_dir().join_panic_relative("incremental");
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert!(environment.path_exists(incremental_file_path));
+    assert!(!environment.path_exists(&cache_incremental_dir));
+
+    // the stored incremental file is used on the next run
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)));
+
+    // without a node_modules folder, it's stored in the cache directory again
+    environment.remove_dir_all("/node_modules").unwrap();
+    environment.clear_logs();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert!(!environment.path_exists(incremental_file_path));
+    assert_eq!(environment.dir_info(&cache_incremental_dir).unwrap().len(), 1);
+  }
+
+  #[test]
+  fn should_remove_legacy_incremental_file() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/file1.txt", "text1")
+      .initialize()
+      .build();
+    let cache_incremental_dir = environment.get_cache_dir().join_panic_relative("incremental");
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    let file_path = match environment.dir_info(&cache_incremental_dir).unwrap().as_slice() {
+      [crate::environment::DirEntry::File { path, .. }] => path.clone(),
+      entries => panic!("Expected one file: {:?}", entries),
+    };
+    let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
+    let legacy_file_path = file_path.with_file_name(file_name.strip_suffix("-v1").unwrap());
+
+    // a dprint version that stored the incremental file as JSON left it behind
+    environment.remove_file(&file_path).unwrap();
+    environment.write_file(&legacy_file_path, r#"{"pluginsHash":1,"fileHashes":[2]}"#).unwrap();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert!(environment.path_exists(&file_path));
+    assert!(!environment.path_exists(&legacy_file_path));
+    environment.clear_logs();
+  }
+
+  #[test]
+  fn should_warn_and_format_when_incremental_file_corrupt() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/file1.txt", "text1_formatted")
+      .initialize()
+      .build();
+    environment.mk_dir_all("/node_modules").unwrap();
+    let incremental_file_path = "/node_modules/.cache/dprint/incremental-v1";
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    environment.write_file(incremental_file_path, "corrupt").unwrap();
+
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
+    let stderr_messages = environment.take_stderr_messages();
+    assert!(
+      stderr_messages
+        .iter()
+        .any(|msg| msg.contains("Error reading incremental file") && msg.contains("The file is corrupt."))
+    );
+    assert!(!stderr_messages.iter().any(|msg| msg.contains("No change: /file1.txt")));
+
+    // the file is written again, so the next run uses it
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().iter().any(|msg| msg.contains("No change: /file1.txt")));
   }
 
   #[test]

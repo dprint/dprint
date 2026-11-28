@@ -192,6 +192,8 @@ dprint check --fail-fast
 
 By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.
 
+The information about what was formatted is stored in `node_modules/.cache/dprint` when there is a `node_modules` folder beside the configuration file, and in dprint's [cache directory](/setup#custom-cache-directory) otherwise.
+
 If you want to disable this functionality, you may specify `--incremental=false` on the CLI:
 
 ```sh
