@@ -111,7 +111,7 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
     if let Some(read_data) = &self.read_data {
       // don't rewrite the file when nothing new was learned, which is the case
       // when every file seen this run was already known to be formatted; this
-      // keeps the file's bytes stable so a CI cache of the cache directory can
+      // keeps the file's bytes stable so a CI cache of the incremental file can
       // detect it hasn't changed
       if write_data.file_hashes.is_subset(&read_data.file_hashes) {
         log_debug!(self.environment, "Incremental file unchanged. Skipping write.");

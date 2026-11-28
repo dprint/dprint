@@ -5605,7 +5605,8 @@ text2"
     assert_eq!(environment.dir_info(&cache_incremental_dir).unwrap().len(), 1);
 
     // within the git repo, so it's used
-    environment.mk_dir_all("/project/.git").unwrap();
+    // (a .git file like in a linked worktree or submodule)
+    environment.write_file("/project/.git", "gitdir: /other/.git/worktrees/project").unwrap();
     run_test_cli(vec!["fmt"], &environment).unwrap();
     assert_eq!(
       get_dir_file_paths(&environment, "/project/node_modules/.cache/dprint"),
@@ -5637,6 +5638,13 @@ text2"
     environment.write_file(&legacy_file_path, r#"{"pluginsHash":1,"fileHashes":[2]}"#).unwrap();
     run_test_cli(vec!["fmt"], &environment).unwrap();
     assert!(environment.path_exists(&file_path));
+    assert!(!environment.path_exists(&legacy_file_path));
+
+    // it's also removed when the incremental file is stored in node_modules
+    environment.write_file(&legacy_file_path, r#"{"pluginsHash":1,"fileHashes":[2]}"#).unwrap();
+    environment.mk_dir_all("/node_modules").unwrap();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert!(environment.path_exists(get_node_modules_incremental_file_path("/", "")));
     assert!(!environment.path_exists(&legacy_file_path));
     environment.clear_logs();
   }
