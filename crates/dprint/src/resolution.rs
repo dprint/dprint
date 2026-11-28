@@ -62,6 +62,8 @@ use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
 use crate::patterns::OrderedPatternsMatcher;
 use crate::plugins::FormatConfig;
+use crate::plugins::FormatThreadJob;
+use crate::plugins::FormatThreadRequest;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::OutputPluginConfigDiagnosticsError;
@@ -277,6 +279,13 @@ pub struct InitializedPluginWithConfigFormatRequest {
   pub token: Arc<dyn CancellationToken>,
 }
 
+pub struct InitializedPluginWithConfigFormatThreadRequest {
+  pub override_config: ConfigKeyMap,
+  pub on_host_format: HostFormatCallback,
+  pub token: Arc<dyn CancellationToken>,
+  pub job: FormatThreadJob,
+}
+
 #[derive(Clone)]
 pub struct InitializedPluginWithConfig {
   plugin: Rc<PluginWithConfig>,
@@ -358,6 +367,21 @@ impl InitializedPluginWithConfig {
         override_config: request.override_config,
         on_host_format: request.on_host_format,
         token: request.token,
+      })
+      .await
+  }
+
+  /// Runs the job on the thread the plugin formats on (see
+  /// `InitializedPlugin::run_on_format_thread`).
+  pub async fn run_on_format_thread(&self, request: InitializedPluginWithConfigFormatThreadRequest) -> Option<Result<()>> {
+    self
+      .instance
+      .run_on_format_thread(FormatThreadRequest {
+        config: self.plugin.format_config.clone(),
+        override_config: request.override_config,
+        on_host_format: request.on_host_format,
+        token: request.token,
+        job: request.job,
       })
       .await
   }

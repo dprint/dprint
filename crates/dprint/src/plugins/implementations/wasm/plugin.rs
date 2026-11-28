@@ -32,6 +32,8 @@ use super::load_instance::WasmModule;
 use super::load_instance::plugin_initializes_on_start;
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
+use crate::plugins::FormatThreadJob;
+use crate::plugins::FormatThreadRequest;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
@@ -104,6 +106,14 @@ struct WasmPluginFormatMessage {
   token: Arc<dyn CancellationToken>,
 }
 
+/// A `FormatThreadRequest` without what has to stay on the runtime's thread.
+struct WasmPluginJobMessage {
+  config: Arc<FormatConfig>,
+  override_config: ConfigKeyMap,
+  token: Arc<dyn CancellationToken>,
+  job: FormatThreadJob,
+}
+
 type WasmResponseSender<T> = tokio::sync::oneshot::Sender<T>;
 
 enum WasmPluginMessage {
@@ -113,6 +123,7 @@ enum WasmPluginMessage {
   FileMatchingInfo(Arc<FormatConfig>, WasmResponseSender<Result<FileMatchingInfo>>),
   ConfigDiagnostics(Arc<FormatConfig>, WasmResponseSender<Result<Vec<ConfigurationDiagnostic>>>),
   FormatRequest(Arc<WasmPluginFormatMessage>, WasmResponseSender<FormatResult>),
+  RunJob(Arc<WasmPluginJobMessage>, WasmResponseSender<Result<()>>),
 }
 
 type WasmPluginSender = std::sync::mpsc::Sender<WasmPluginMessage>;
@@ -348,6 +359,14 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
                 break; // disconnected
               }
             }
+            WasmPluginMessage::RunJob(request, response) => {
+              let result = (request.job)(&mut |file_path, file_bytes| {
+                instance.format_text(file_path, file_bytes, None, &request.config, &request.override_config, request.token.clone())
+              });
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
           }
         }
       }
@@ -468,6 +487,33 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       })
       .await
       .map_err(crate::plugins::anyhow_to_format_error)
+  }
+
+  async fn run_on_format_thread(&self, request: FormatThreadRequest) -> Option<Result<()>> {
+    if request.token.is_cancelled() {
+      return Some(Ok(()));
+    }
+    let message = Arc::new(WasmPluginJobMessage {
+      config: request.config,
+      override_config: request.override_config,
+      token: request.token,
+      job: request.job,
+    });
+    let instance_state = InstanceState {
+      host_format_callback: request.on_host_format,
+    };
+    let result = self
+      .with_instance(Some(instance_state), move |plugin_sender| {
+        let message = message.clone();
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::RunJob(message, tx))?;
+          rx.await?
+        }
+        .boxed_local()
+      })
+      .await;
+    Some(result)
   }
 
   async fn shutdown(&self) {
