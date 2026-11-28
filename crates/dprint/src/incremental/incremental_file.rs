@@ -1,6 +1,4 @@
 use parking_lot::Mutex;
-use serde::Deserialize;
-use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -8,8 +6,13 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::utils::get_bytes_hash;
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// The version of the incremental file's format, which is included in its
+/// file name so a file in a different format is never read. Before this was
+/// versioned, the file was JSON and didn't have the version in its name.
+pub const INCREMENTAL_FILE_VERSION: u32 = 1;
+
+const HASH_SIZE: usize = std::mem::size_of::<u64>();
+
 struct IncrementalFileData {
   plugins_hash: u64,
   file_hashes: HashSet<u64>,
@@ -21,6 +24,32 @@ impl IncrementalFileData {
       plugins_hash,
       file_hashes: Default::default(),
     }
+  }
+
+  /// Serializes the data as the plugins hash followed by the file hashes,
+  /// each a little endian `u64`. The file hashes are sorted so the bytes are
+  /// the same for the same data.
+  fn to_bytes(&self) -> Vec<u8> {
+    let mut file_hashes = self.file_hashes.iter().copied().collect::<Vec<_>>();
+    file_hashes.sort_unstable();
+    let mut bytes = Vec::with_capacity((file_hashes.len() + 1) * HASH_SIZE);
+    bytes.extend_from_slice(&self.plugins_hash.to_le_bytes());
+    for hash in file_hashes {
+      bytes.extend_from_slice(&hash.to_le_bytes());
+    }
+    bytes
+  }
+
+  fn from_bytes(bytes: &[u8]) -> Option<IncrementalFileData> {
+    if bytes.len() < HASH_SIZE || !bytes.len().is_multiple_of(HASH_SIZE) {
+      return None;
+    }
+    let mut hashes = bytes.chunks_exact(HASH_SIZE).map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()));
+    let plugins_hash = hashes.next()?;
+    Some(IncrementalFileData {
+      plugins_hash,
+      file_hashes: hashes.collect(),
+    })
   }
 }
 
@@ -82,7 +111,7 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
     if let Some(read_data) = &self.read_data {
       // don't rewrite the file when nothing new was learned, which is the case
       // when every file seen this run was already known to be formatted; this
-      // keeps the file's bytes stable so a CI cache of the cache directory can
+      // keeps the file's bytes stable so a CI cache of the incremental file can
       // detect it hasn't changed
       if write_data.file_hashes.is_subset(&read_data.file_hashes) {
         log_debug!(self.environment, "Incremental file unchanged. Skipping write.");
@@ -105,8 +134,8 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
 }
 
 fn read_incremental(file_path: impl AsRef<Path>, environment: &impl Environment) -> Option<IncrementalFileData> {
-  let file_text = match environment.read_file(&file_path) {
-    Ok(file_text) => file_text,
+  let bytes = match environment.read_file_bytes(&file_path) {
+    Ok(bytes) => bytes,
     Err(err) => {
       if environment.path_exists(&file_path) {
         log_warn!(environment, "Error reading incremental file {}: {}", file_path.as_ref().display(), err);
@@ -115,24 +144,19 @@ fn read_incremental(file_path: impl AsRef<Path>, environment: &impl Environment)
     }
   };
 
-  match serde_json::from_str(&file_text) {
-    Ok(file_data) => Some(file_data),
-    Err(err) => {
-      log_warn!(environment, "Error deserializing incremental file {}: {}", file_path.as_ref().display(), err);
-      None
-    }
+  let file_data = IncrementalFileData::from_bytes(&bytes);
+  if file_data.is_none() {
+    log_warn!(
+      environment,
+      "Error reading incremental file {}: The file is corrupt.",
+      file_path.as_ref().display()
+    );
   }
+  file_data
 }
 
 fn write_incremental(file_path: impl AsRef<Path>, file_data: &IncrementalFileData, environment: &impl Environment) {
-  let json_text = match serde_json::to_string(&file_data) {
-    Ok(json_text) => json_text,
-    Err(err) => {
-      log_warn!(environment, "Error serializing incremental file {}: {}", file_path.as_ref().display(), err);
-      return;
-    }
-  };
-  if let Err(err) = environment.atomic_write_file_bytes(&file_path, json_text.as_bytes()) {
+  if let Err(err) = environment.atomic_write_file_bytes(&file_path, &file_data.to_bytes()) {
     log_warn!(environment, "Error saving incremental file {}: {}", file_path.as_ref().display(), err);
   }
 }
