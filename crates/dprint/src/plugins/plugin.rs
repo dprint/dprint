@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -69,6 +70,24 @@ pub struct InitializedPluginFormatRequest {
   pub token: Arc<dyn CancellationToken>,
 }
 
+/// Formats text on the thread the plugin formats on (see
+/// `InitializedPlugin::run_on_format_thread`), taking the path of the file and
+/// its text.
+pub type FormatThreadFormatter<'a> = dyn FnMut(&Path, &[u8]) -> FormatResult + 'a;
+
+/// Work to do on the thread the plugin formats on, which is given a way to
+/// format text there. This can be run again when the plugin has to be
+/// restarted (ex. after it panicked).
+pub type FormatThreadJob = Arc<dyn Fn(&mut FormatThreadFormatter) -> Result<()> + Send + Sync>;
+
+pub struct FormatThreadRequest {
+  pub config: Arc<FormatConfig>,
+  pub override_config: ConfigKeyMap,
+  pub on_host_format: HostFormatCallback,
+  pub token: Arc<dyn CancellationToken>,
+  pub job: FormatThreadJob,
+}
+
 #[async_trait(?Send)]
 pub trait InitializedPlugin {
   /// Gets the license text
@@ -83,6 +102,13 @@ pub trait InitializedPlugin {
   async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>>;
   /// Formats the text in memory based on the file path and file text.
   async fn format_text(&self, format_request: InitializedPluginFormatRequest) -> FormatResult;
+  /// Runs the job on the thread the plugin formats on, which saves going to
+  /// that thread and back for each step when the job does more than format
+  /// (ex. reading the file). `None` when the plugin doesn't format on a thread
+  /// the job can run on (ex. a process plugin).
+  async fn run_on_format_thread(&self, _request: FormatThreadRequest) -> Option<Result<()>> {
+    None
+  }
   /// Shuts down the plugin. This is used for process plugins.
   async fn shutdown(&self) -> ();
 }

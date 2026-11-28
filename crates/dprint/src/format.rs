@@ -1,5 +1,6 @@
 use anyhow::Result;
 use anyhow::bail;
+use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::future;
 use dprint_core::plugins::CancellationToken as FormatCancellationToken;
 use dprint_core::plugins::FormatRange;
@@ -19,9 +20,11 @@ use tokio_util::sync::CancellationToken;
 use crate::arg_parser::LineRange;
 use crate::environment::Environment;
 use crate::incremental::IncrementalFile;
+use crate::plugins::FormatThreadJob;
 use crate::resolution::GetPluginResult;
 use crate::resolution::InitializedPluginWithConfig;
 use crate::resolution::InitializedPluginWithConfigFormatRequest;
+use crate::resolution::InitializedPluginWithConfigFormatThreadRequest;
 use crate::resolution::PluginWithConfig;
 use crate::resolution::PluginsScope;
 use crate::resolution::PluginsScopeAndPaths;
@@ -299,6 +302,12 @@ where
   where
     F: Fn(&Path, &[u8], &[u8], Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
   {
+    if let FileFormatKind::EntireFile(ensure_stable_format) = &format_kind
+      && let Some(result) = run_on_format_thread(context, incremental_file.clone(), file_path.clone(), *ensure_stable_format, f.clone()).await
+    {
+      return result;
+    }
+
     // it's a big perf improvement to do this work on a blocking thread
     let result = dprint_core::async_runtime::spawn_blocking({
       let environment = context.environment.clone();
@@ -362,6 +371,88 @@ where
     }
 
     Ok(())
+  }
+
+  /// Reads, formats and handles the file entirely on the thread the plugin
+  /// formats on when a single plugin formats it and has a thread like that,
+  /// which saves going between that thread and this one for each step. This
+  /// thread is otherwise what limits how fast files are formatted with fast
+  /// plugins. `None` when the file needs to be formatted the usual way.
+  async fn run_on_format_thread<F, TEnvironment: Environment>(
+    context: &FormatContext<TEnvironment>,
+    incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
+    file_path: Arc<PathBuf>,
+    ensure_stable_format: EnsureStableFormat,
+    f: F,
+  ) -> Option<Result<(), RunForFilePathError>>
+  where
+    F: Fn(&Path, &[u8], &[u8], Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
+  {
+    let [(plugin, initialized_plugin)] = context.plugins.as_slice() else {
+      return None;
+    };
+    // the path given to the plugin depends on the text of a file that might be
+    // formatted because of its shebang line, so leave that to the usual way
+    if plugin.plugin.is_process_plugin() || context.scope.plugin_name_maps.may_match_shebang(&file_path) {
+      return None;
+    }
+    let skip_stable_format = ensure_stable_format.0 && context.plugins_skip_stable_format();
+    // the plugin's output isn't made stable, so make what it formats with other plugins stable instead
+    let on_host_format = if skip_stable_format {
+      context.on_stable_host_format.clone()
+    } else {
+      context.on_host_format.clone()
+    };
+    let override_config = plugin.get_config_file_overrides_for_path(&file_path);
+    let environment = context.environment.clone();
+    let job: FormatThreadJob = Arc::new(move |format| {
+      let file_text = environment.read_file_bytes(file_path.as_ref())?;
+      if let Some(incremental_file) = &incremental_file
+        && incremental_file.is_file_known_formatted(&file_text)
+      {
+        log_debug!(environment, "No change: {}", file_path.display());
+        return Ok(());
+      }
+
+      let start_instant = Instant::now();
+      let mut format_pass = |text: Arc<Vec<u8>>| -> Result<Arc<Vec<u8>>> {
+        let start_instant = Instant::now();
+        let result = format(&file_path, &text);
+        log_debug!(
+          environment,
+          "Formatted file: {} in {}ms",
+          file_path.display(),
+          start_instant.elapsed().as_millis()
+        );
+        match result? {
+          Some(formatted_text) => {
+            ensure_not_formatted_to_empty(&text, &formatted_text)?;
+            Ok(Arc::new(formatted_text))
+          }
+          None => Ok(text),
+        }
+      };
+      let file_text = Arc::new(file_text);
+      let formatted_text = format_pass(file_text.clone())?;
+      let formatted_text = if ensure_stable_format.0 && formatted_text != file_text && !skip_stable_format {
+        // the passes are done synchronously, so this is already done once polled
+        stabilize_format_text(&environment, &file_path, formatted_text, |text| std::future::ready(format_pass(text)))
+          .now_or_never()
+          .expect("stabilizing the format synchronously didn't finish")?
+      } else {
+        formatted_text
+      };
+      f(&file_path, &file_text, &formatted_text, start_instant, environment.clone()).map_err(run_for_file_path_error_to_anyhow)
+    });
+    let result = initialized_plugin
+      .run_on_format_thread(InitializedPluginWithConfigFormatThreadRequest {
+        override_config,
+        on_host_format,
+        token: context.token.clone(),
+        job,
+      })
+      .await?;
+    Some(result.map_err(anyhow_to_run_for_file_path_error))
   }
 
   async fn get_stabilized_format_text<TEnvironment: Environment>(
@@ -437,23 +528,7 @@ where
       }
     }
 
-    // some heuristic to stop plugins accidentally formatting a file to empty
-    const MIN_CHARS_TO_EMPTY: usize = 300;
-    if file_text.len() < 100 && original_text.len() > MIN_CHARS_TO_EMPTY {
-      let original_text = String::from_utf8_lossy(original_text);
-      let new_text = String::from_utf8_lossy(&file_text);
-      if original_text.trim().len() > MIN_CHARS_TO_EMPTY && new_text.trim().is_empty() {
-        bail!(
-          concat!(
-            "The original file text was greater than {} characters, but the formatted text was empty. ",
-            "Most likely this is a bug in the plugin and the dprint CLI has prevented the plugin from ",
-            "formatting the file to an empty file. Please report this scenario.",
-          ),
-          MIN_CHARS_TO_EMPTY
-        )
-      }
-    }
-
+    ensure_not_formatted_to_empty(original_text, &file_text)?;
     Ok((start_instant, file_text))
   }
 }
@@ -500,7 +575,7 @@ pub async fn stabilize_format_text<TFuture: Future<Output = Result<Arc<Vec<u8>>>
   environment: &impl Environment,
   file_path: &Path,
   mut formatted_text: Arc<Vec<u8>>,
-  format_pass: impl Fn(Arc<Vec<u8>>) -> TFuture,
+  mut format_pass: impl FnMut(Arc<Vec<u8>>) -> TFuture,
 ) -> Result<Arc<Vec<u8>>> {
   log_debug!(environment, "Ensuring stable format: {}", file_path.display());
   let mut count = 0;
@@ -684,6 +759,42 @@ fn add_permits(semaphores: &[Rc<Semaphore>], amount: usize) {
     if new_permits > 0 {
       semaphore.add_permits(new_permits);
     }
+  }
+}
+
+/// A heuristic to stop plugins accidentally formatting a file to empty.
+fn ensure_not_formatted_to_empty(original_text: &[u8], formatted_text: &[u8]) -> Result<()> {
+  const MIN_CHARS_TO_EMPTY: usize = 300;
+  if formatted_text.len() < 100 && original_text.len() > MIN_CHARS_TO_EMPTY {
+    let original_text = String::from_utf8_lossy(original_text);
+    let new_text = String::from_utf8_lossy(formatted_text);
+    if original_text.trim().len() > MIN_CHARS_TO_EMPTY && new_text.trim().is_empty() {
+      bail!(
+        concat!(
+          "The original file text was greater than {} characters, but the formatted text was empty. ",
+          "Most likely this is a bug in the plugin and the dprint CLI has prevented the plugin from ",
+          "formatting the file to an empty file. Please report this scenario.",
+        ),
+        MIN_CHARS_TO_EMPTY
+      )
+    }
+  }
+  Ok(())
+}
+
+/// Converts the error so it can be given back from a `FormatThreadJob`.
+fn run_for_file_path_error_to_anyhow(err: RunForFilePathError) -> anyhow::Error {
+  match err {
+    RunForFilePathError::Any(err) => err,
+    err => err.into(),
+  }
+}
+
+/// Gets back the error a `FormatThreadJob` gave (see `run_for_file_path_error_to_anyhow`).
+fn anyhow_to_run_for_file_path_error(err: anyhow::Error) -> RunForFilePathError {
+  match err.downcast::<RunForFilePathError>() {
+    Ok(err) => err,
+    Err(err) => RunForFilePathError::Any(err),
   }
 }
 
